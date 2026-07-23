@@ -26,6 +26,7 @@ import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
 import CurrentProjectDeletedModal from '@/components/collab/CurrentProjectDeletedModal';
 import ProjectContentStaleModal from '@/components/collab/ProjectContentStaleModal';
+import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 import { CollabProvider } from '@/collab/CollabContext';
 import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
 import CommentDrawer from '@/components/comments/CommentDrawer';
@@ -118,7 +119,9 @@ const Canvas: React.FC = () => {
             )}
 
             {/* Flow canvas overlay */}
-            <FlowOverlay />
+            <RuntimeErrorBoundary label="工作流画布">
+                <FlowOverlay />
+            </RuntimeErrorBoundary>
 
             {/* Selection box overlay (above Flow nodes) */}
             <SelectionBoxOverlay />
@@ -151,7 +154,9 @@ const Canvas: React.FC = () => {
             <MaterialLibraryPanel />
 
             {/* AI chat dialog - hidden by component in focus mode */}
-            <AIChatDialog />
+            <RuntimeErrorBoundary label="小T对话" resetKeys={[chatTheme]}>
+                <AIChatDialog />
+            </RuntimeErrorBoundary>
 
             {/* 评论抽屉（Figma 式画布评论）——与对话框互斥，后开覆盖先开 */}
             <CommentDrawer />

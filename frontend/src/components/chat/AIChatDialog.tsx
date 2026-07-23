@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { compatibleRemarkPlugins } from "@/utils/markdownCompatibility";
 import type {
   AIStreamProgressEvent,
   MidjourneyMetadata,
@@ -130,9 +130,8 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
 
 // 小T大脑选项（值与 backend XIAOT_CHAT_MODELS 对齐，见 agentBackendAPI.ts）
 const XIAOT_BRAIN_OPTIONS: Array<{ label: string; value: XiaotChatModel }> = [
-  { label: "GPT 5.6 Sol", value: "xiaot-agent-gpt-5-6-sol" },
-  { label: "GPT 5.6 Terra", value: "xiaot-agent-gpt-5-6-terra" },
-  { label: "GPT 5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  { label: "GPT 5.4", value: "xiaot-agent-gpt-5-4" },
+  { label: "GPT 5.5", value: "xiaot-agent-gpt-5-5" },
 ];
 
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）
@@ -5205,7 +5204,7 @@ const AIChatDialog: React.FC = () => {
                               "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
                             )}
                           >
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            <ReactMarkdown remarkPlugins={compatibleRemarkPlugins}>
                               {userMessage.content}
                             </ReactMarkdown>
                             {userActionButtons}
@@ -5578,7 +5577,7 @@ const AIChatDialog: React.FC = () => {
                                     );
                                   })()}
                                   <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
+                                    remarkPlugins={compatibleRemarkPlugins}
                                     components={{
                                       p: ({ children }) => (
                                         <p className='mb-1 text-sm'>
@@ -6273,7 +6272,7 @@ const AIChatDialog: React.FC = () => {
                                           <div className='flex-1 min-w-0'>
                                             <div className='text-sm leading-relaxed text-black break-words markdown-content'>
                                               <ReactMarkdown
-                                                remarkPlugins={[remarkGfm]}
+                                                remarkPlugins={compatibleRemarkPlugins}
                                                 components={{
                                                   p: ({ children }) => (
                                                     <p className='mb-1 text-sm'>
@@ -6381,7 +6380,7 @@ const AIChatDialog: React.FC = () => {
                                       )}
                                     >
                                       <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
+                                        remarkPlugins={compatibleRemarkPlugins}
                                         components={{
                                           p: ({ children }) => (
                                             <p className='mb-1 text-sm'>
@@ -6505,7 +6504,7 @@ const AIChatDialog: React.FC = () => {
                       </span>
                     </div>
                     <div className='text-sm leading-relaxed text-black break-words markdown-content'>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={compatibleRemarkPlugins}>
                         {streamingText}
                       </ReactMarkdown>
                     </div>

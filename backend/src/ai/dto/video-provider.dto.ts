@@ -7,6 +7,7 @@ export type ReferenceImageItem =
       url: string;
       volcAssetId?: string;
       volcAssetStatus?: 'processing' | 'active' | 'failed';
+      volcAssetKind?: 'bio-auth';
     };
 
 export class VideoProviderRequestDto {

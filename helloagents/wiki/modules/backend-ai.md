@@ -3,6 +3,17 @@
 ## 作用
 - 提供图像生成/编辑/融合/分析、文本对话、背景移除�?D�?D、图片扩展、视频生成、Paper.js/向量化等能力�?
 
+## 图片生成输入边界
+- `generate-image*`、`edit-image*`、`blend-images*` 的参考图/源图只接受远程 HTTP(S) URL。Controller 会先拒绝 `data:`、`blob:`、裸 base64，再执行现有 URL 白名单与 SSRF 校验。
+- `ImageTaskService.createTask` 在写任务记录和 BullMQ 入队前重复校验 `imageUrls/sourceImage/sourceImages`，保证内联图片不会进入任务 `requestData` 或 Redis。
+- `NewApiProvider` 在组装生成、编辑、融合的 `image_urls` 时做最终远程 URL 校验；校验失败直接终止，不允许包装或透传 base64。图像分析和 PDF 分析的独立内联输入能力不受这条生成任务规则影响。
+
+## Seedance 一次性审核素材
+- 带普通参考图的 Seedance 2.0 请求不再复用画布持久化的 `volcAssetId`。`VideoProviderService.generateVideo` 会先去掉所有旧句柄，再由 `VolcAssetService.createTaskAssetGroup` 为本次运行创建隔离组、上传当前远程渲染资源并等待全部图片审核通过。显式 `bio-auth` 句柄保留，因为它承载用户活体授权；若其 ID 丢失则要求重新认证，不能以普通素材替代。
+- 创建任务成功后以实际返回的、包含路由前缀的 `taskId` 绑定 `VolcTaskAssetGroup`；`queryTask` 观察到成功、失败、取消等终态后触发删组。同步创建失败立即删组，删除失败保留 `cleanup_failed`，每小时清理所有超过 `VOLC_TASK_ASSET_GROUP_TTL_HOURS`（默认 24）的遗留记录。
+- 上游若对本次刚创建的句柄返回 `InvalidParameter` / `content[n].image_url.url` / `specified asset ... is not found`，后端删除该组并重新审核一次；重试仍失败才结束原请求。重审发生在同一次计费与幂等请求内。
+- 前端不再在图片连线或点击 Run 前调用 `/api/volc-asset/upload`，也不显示“审核后可用于 sd2”的缓存状态；参考图继续先上传 Tanva OSS，确保裁剪/变换后的当前渲染资源才是审核与生成输入。
+
 ## 关键文件
 - `backend/src/ai/ai.controller.ts`：`/ai/*` 路由集合（主要入口）
 - `backend/src/ai/ai.service.ts`：AI 业务逻辑（Gemini 等）
@@ -18,7 +29,7 @@
 - `POST edit-image` / `blend-images`
 - `POST analyze-image` / `text-chat`
 - `POST remove-background`（含 public 变体�? `GET background-removal-info`
-- `POST convert-2d-to-3d` / `expand-image`
+- `POST convert-2d-to-3d`（兼容同步接口）/ `POST convert-2d-to-3d-async` / `GET convert-2d-to-3d/task/:taskId` / `expand-image`
 - `POST generate-video` / `generate-video-provider` / `GET video-task/:provider/:taskId`
 - `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成�?失败回写�?
 - `POST generate-paperjs` / `img2vector`
@@ -28,14 +39,19 @@
 - `POST minimax-speech` / `POST minimax-music`
 - `GET banana-route-success-rates`：按客户端时区统计当天 Banana `normal/stable` 路线成功率，返回成功/失败/处理中调用数，供工作区顶部路线切换展示
 
+## 2026-07-22 Hunyuan 3D Async Conversion
+- 通用 2D 转 3D 的真实上游是腾讯混元 3D 3.1，不经过 GPT/new-api，也不是 RunningHub。异步提交立即返回确定性 `taskId`，后台继续提交、轮询混元任务并把 GLB/GLTF 持久化到 OSS。
+- 客户端为一次画布操作生成稳定的 `clientRequestId`；后端按 `userId + taskType + clientRequestId` 计算 `VideoTask.id`，数据库主键负责并发原子去重。只有首次创建成功的请求启动后台生成，同一请求重试只返回原任务。
+- 状态查询先校验 `VideoTask.userId`，再合并内存状态与持久化结果；即使内存状态已过期或进程重启，已落库的成功/失败结果仍可查询。计费层使用同一个幂等键，记录 `provider=hunyuan-3d`、`model=3.1`。
+
 ## 2026-07-22 new-api GPT Text Routing
 - 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6`。
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
-- new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6` abilities；小T专属 `xiaot-agent-gpt-5-6-*` facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
+- new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6` abilities；小T专属 `xiaot-agent-gpt-5-4|5-5` facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
 - 生产渠道名为 `tc-api-gpt`，由 `new-api/patches/2026-07-22/001-add-tc-api-gpt-channel.sql` 幂等注册；它在 `default` 分组将普通 GPT-5.4/5.6 请求送到同机 TapCanvas facade `http://host.docker.internal:8788/agents/llm`。`backend/docker-compose.yml` 必须保留 `host.docker.internal:host-gateway`，避免写死容器或 bridge IP。`tc-api.tanvas.cn` 根域返回网页 HTML，不能作为 OpenAI channel base URL。
 - new-api 对 GPT-5.4 completion ratio 硬锁为 `6`，对其余 GPT-5（包括 GPT-5.6）硬锁为 `8`；生产补丁中的 option 值应与该运行时规则一致。Tanva 对用户收取的固定积分仍由自身 `credits.config.ts` 管理，不从该网关 token ratio 推导。
 - `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
-- 视频分析仍由 `resolveGeminiVideoModel` 选择 Gemini 视频理解模型；小T仍走独立 `xiaot-agent-gpt-5-6-*` facade。遗留的 `gemini-*` serviceType 仅作为积分/接口兼容标识，不代表实际通用文本上游。
+- 视频分析仍由 `resolveGeminiVideoModel` 选择 Gemini 视频理解模型；小T走独立 `xiaot-agent-gpt-5-4|5-5` facade。遗留的 `gemini-*` serviceType 仅作为积分/接口兼容标识，不代表实际通用文本上游。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
 
 ## 2026-06-17 Omni Flash Ext APIMart
@@ -59,7 +75,7 @@
 
 ## Agent Runtime
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.
-- 小T大脑使用专属门面模型 `xiaot-agent-gpt-5-6-sol|terra|luna`，默认与后端非法值回退均为 Sol；Tanva new-api 的 `xiaot-agent` 渠道通过 `model_mapping` 将它们翻译成 TapCanvas facade 的 `gpt-5.6-sol|terra|luna`。不能从 Tanva 直接请求裸 `gpt-5.6-*`，否则会绕过小T facade 路由到普通 GPT 渠道。前端 preferences v2 会把历史 Claude/未知小T模型偏好迁回 Sol；如需部署级覆盖可设置 `XIAOT_AGENT_MODEL`，但只有上述三个小T专属门面名会生效，旧 Claude、generic 或未知值都会回落 Sol。网关数据迁移见 `new-api/patches/2026-07-19/001-xiaot-agent-gpt56-model-variants.sql`。
+- 小T大脑使用专属门面模型 `xiaot-agent-gpt-5-4|xiaot-agent-gpt-5-5`，默认与后端非法值回退均为 GPT-5.4；Tanva new-api 的 `xiaot-agent` 渠道通过 `model_mapping` 将门面名翻译成 TapCanvas facade 的 `gpt-5.4|gpt-5.5`。不能从 Tanva 直接请求裸模型名，否则会绕过小T facade 路由到普通 GPT 渠道。前端 preferences v3 会把历史 GPT-5.6/Claude/未知偏好迁回 GPT-5.4；部署级 `XIAOT_AGENT_MODEL` 也只接受这两个门面名。网关数据迁移见 `new-api/patches/2026-07-23/001-xiaot-agent-gpt54-gpt55-models.sql`。
 - Current Agent runs are planning/trace-only and intentionally hand off actual generation/edit/text execution to the existing AI Chat tool paths, preserving current billing, async task, OSS, and refund semantics.
 - The initial workflow detector recognizes research/case lookup, image generation/edit/blend/analyze, video, vector, and text chat intents, emitting visible plan steps and a suggested existing tool.
 - `research_cases` emits a text-first `research_text` event before `research_result`: the first stage uses the same NewAPI Text provider path as `/api/ai/text-chat`, including the UI-selected `model`, `providerOptions` route payload, `thinkingLevel`, and `enableWebSearch=true`, while user-facing progress copy describes this generically as a web-connected text answer. It returns that text/web-search metadata, then extracts project keywords from the text. Keyword extraction is configurable with `AGENT_RESEARCH_KEYWORD_EXTRACT_MODE=hybrid|ai|rule` (default `hybrid`): AI reads both the original user prompt and the Text answer, then the backend merges title-rule extraction as fallback; `AGENT_RESEARCH_KEYWORD_EXTRACT_TIMEOUT_MS` bounds the extra AI extraction call. `VolcResearchSearchService` (`VOLC_SEARCH_*`) uses only those extracted keywords for project-level Volcengine web/image search; it no longer injects local static case libraries or hard-coded architect fallback seeds. `research_result.data` keeps the compatibility `result` payload and also returns explicit `text` and `volc` branches so clients can display the text-stage answer and the Volcengine structured cases/sources/images together. Research steps are emitted as real progress instead of pre-completed placeholders, and Volcengine web/image/model calls are bounded by timeout config (`VOLC_SEARCH_TIMEOUT_MS`, `VOLC_SEARCH_WEB_TIMEOUT_MS`, `VOLC_SEARCH_IMAGE_TIMEOUT_MS`, `VOLC_SEARCH_MODEL_TIMEOUT_MS`, plus Agent-level `AGENT_RESEARCH_TEXT_TIMEOUT_MS` defaulting to 60s and `AGENT_RESEARCH_SEARCH_TIMEOUT_MS`) so slow upstreams fall back to an explicit result instead of leaving SSE open indefinitely. If the text stage still fails, the backend derives non-static search queries from the user prompt (for example sports architecture/stadium terms) so Volcengine does not receive an empty keyword list. When search is disabled, fails, or returns no matching cases/results, the backend keeps the text-stage reply and returns an explicit no-result summary instead of unrelated static case cards.

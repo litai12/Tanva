@@ -8,6 +8,7 @@ import { TenantIterationService } from '../tenancy/tenant-iteration.service';
 export class VolcAssetSchedulerService {
   private readonly logger = new Logger(VolcAssetSchedulerService.name);
   private cleanupRunning = false;
+  private taskCleanupRunning = false;
 
   constructor(
     private readonly volcAssetService: VolcAssetService,
@@ -37,6 +38,28 @@ export class VolcAssetSchedulerService {
       this.logger.log(`素材组清理完成: 已删除 ${result.date} 的素材组`);
     } else {
       this.logger.log(`素材组清理：${result.date} 无需清理`);
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleExpiredTaskGroupCleanup() {
+    if (this.taskCleanupRunning) return;
+    this.taskCleanupRunning = true;
+    try {
+      await this.tenantIteration.forEachTenant(() => this.cleanupTaskGroupsOneTenant());
+    } catch (err: any) {
+      this.logger.error('一次性素材组兜底清理失败:', err);
+    } finally {
+      this.taskCleanupRunning = false;
+    }
+  }
+
+  private async cleanupTaskGroupsOneTenant(): Promise<void> {
+    const result = await this.volcAssetService.cleanupExpiredTaskAssetGroups();
+    if (result.deleted || result.failed) {
+      this.logger.log(
+        `一次性素材组兜底清理: deleted=${result.deleted}, failed=${result.failed}`,
+      );
     }
   }
 }

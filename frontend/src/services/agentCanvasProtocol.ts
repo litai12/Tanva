@@ -348,7 +348,20 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "generate", purpose: "单图生成，需连 text 边供提示词（presetPrompt 仅作前缀）" },
     { type: "generate4", purpose: "四宫格生成，需连 text 边供提示词" },
     { type: "generateRef", purpose: "参考图重绘" },
-    { type: "gptImage2", purpose: "GPT 生图" },
+    {
+      type: "gptImage2",
+      label: "GPT Image 2",
+      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考",
+      params: {
+        aspectRatio: { type: "string" },
+        resolution: { type: "string", enum: ["1K", "2K", "4K"] },
+      },
+      inputs: [
+        { handle: "text", accepts: "text" },
+        { handle: "img", accepts: "image" },
+      ],
+      outputs: [{ handle: "img", emits: "image" }],
+    },
     { type: "klingVideo", purpose: "可灵2.1 视频" },
     { type: "kling30Video", purpose: "可灵3.0 视频" },
     { type: "viduVideo", purpose: "Vidu Q2 视频" },

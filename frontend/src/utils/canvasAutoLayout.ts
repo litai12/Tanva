@@ -6,6 +6,33 @@ export const FLOW_AUTO_LAYOUT_EVENT = "flow:auto-layout";
 type XY = { x: number; y: number };
 type Size = { w: number; h: number };
 
+const positiveDimension = (value: unknown): number | null => {
+  const parsed =
+    typeof value === "string" ? Number.parseFloat(value) : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+/**
+ * Resolve the rendered node size used by layout. Persisted resize values are
+ * authoritative because React Flow's measured width/height can lag one render.
+ */
+export function resolveNodeLayoutSize(node: Node, fallback: Size): Size {
+  const data = node.data as { boxW?: unknown; boxH?: unknown } | undefined;
+  const style = node.style as { width?: unknown; height?: unknown } | undefined;
+  return {
+    w:
+      positiveDimension(data?.boxW) ??
+      positiveDimension(style?.width) ??
+      positiveDimension(node.width) ??
+      fallback.w,
+    h:
+      positiveDimension(data?.boxH) ??
+      positiveDimension(style?.height) ??
+      positiveDimension(node.height) ??
+      fallback.h,
+  };
+}
+
 // 节点尺寸读取器（由调用方注入，复用 FlowOverlay 的 getNodeRenderSize）。
 export type NodeSizeGetter = (node: Node) => Size;
 

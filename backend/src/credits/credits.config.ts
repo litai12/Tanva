@@ -300,9 +300,9 @@ export const CREDIT_PRICING_CONFIG = {
   },
   'convert-2d-to-3d': {
     serviceName: '2D转3D',
-    provider: 'runninghub',
+    provider: 'hunyuan-3d',
     creditsPerCall: 200,
-    description: '将2D图像转换为3D模型',
+    description: '使用腾讯混元 3D 将 2D 图像转换为 3D 模型',
   },
   'volc-enhance-video': {
     serviceName: '视频画质增强',

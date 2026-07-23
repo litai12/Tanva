@@ -1,7 +1,6 @@
 /**
  * 2D 转 3D 服务
- * - convert2Dto3D: 旧同步接口（通用 2D->3D）
- * - convertSeed3D: 异步提交 + 轮询，避免长连接 504/524
+ * 通用混元 3D 与 Seed3D 均使用异步提交 + 轮询，避免长连接超时。
  */
 
 import { logger } from "@/utils/logger";
@@ -11,8 +10,8 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "http://localhost:4000";
 
-const SEED3D_POLL_INTERVAL_MS = 3000;
-const SEED3D_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const ASYNC_3D_POLL_INTERVAL_MS = 3000;
+const ASYNC_3D_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 const buildUrl = (path: string) => {
   const base = API_BASE.replace(/\/+$/, "");
@@ -28,6 +27,7 @@ export interface Convert2Dto3DRequest {
   sketch?: boolean;
   projectId?: string;
   nodeId?: string;
+  clientRequestId?: string;
 }
 
 export interface Convert2Dto3DResponse {
@@ -36,9 +36,12 @@ export interface Convert2Dto3DResponse {
   promptId?: string;
   modelKey?: string;
   error?: string;
+  taskId?: string;
+  status?: string;
+  terminal?: boolean;
 }
 
-type Seed3DSubmitResponse = {
+type Async3DSubmitResponse = {
   success?: boolean;
   taskId?: string;
   status?: string;
@@ -46,7 +49,7 @@ type Seed3DSubmitResponse = {
   error?: string;
 };
 
-type Seed3DTaskStatusResponse = {
+type Async3DTaskStatusResponse = {
   success?: boolean;
   taskId?: string;
   status?: "pending" | "processing" | "succeeded" | "failed" | string;
@@ -99,13 +102,16 @@ const buildInsufficientCreditsMessage = (endpoint: string): string => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * 通用 2D -> 3D 同步接口
- */
+/** 通用混元 2D -> 3D：立即提交任务并轮询结果。 */
 export async function convert2Dto3D(
   request: Convert2Dto3DRequest
 ): Promise<Convert2Dto3DResponse> {
-  return await convertWithEndpoint("/api/ai/convert-2d-to-3d", request);
+  return convertAsync3D(
+    "/api/ai/convert-2d-to-3d-async",
+    "/api/ai/convert-2d-to-3d/task",
+    request,
+    "混元 3D"
+  );
 }
 
 /**
@@ -114,11 +120,28 @@ export async function convert2Dto3D(
 export async function convertSeed3D(
   request: Convert2Dto3DRequest
 ): Promise<Convert2Dto3DResponse> {
+  return convertAsync3D(
+    "/api/ai/convert-seed3d-async",
+    "/api/ai/seed3d/task",
+    request,
+    "Seed 3D"
+  );
+}
+
+async function convertAsync3D(
+  submitEndpoint: string,
+  taskEndpoint: string,
+  request: Convert2Dto3DRequest,
+  displayName: string
+): Promise<Convert2Dto3DResponse> {
   try {
-    const submitResp = await fetchWithAuth(buildUrl("/api/ai/convert-seed3d-async"), {
+    const submitResp = await fetchWithAuth(buildUrl(submitEndpoint), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(request.clientRequestId
+          ? { "Idempotency-Key": request.clientRequestId }
+          : {}),
       },
       body: JSON.stringify(request),
     });
@@ -128,29 +151,31 @@ export async function convertSeed3D(
       const rawErrorMessage =
         extractApiErrorMessage(errorData) || `HTTP ${submitResp.status}`;
       const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
-        ? buildInsufficientCreditsMessage("/api/ai/convert-seed3d-async")
+        ? buildInsufficientCreditsMessage(submitEndpoint)
         : rawErrorMessage;
       return {
         success: false,
         modelUrl: "",
         error: errorMessage,
+        terminal: submitResp.status >= 400 && submitResp.status < 500,
       };
     }
 
-    const submitData = (await submitResp.json()) as Seed3DSubmitResponse;
+    const submitData = (await submitResp.json()) as Async3DSubmitResponse;
     const taskId = typeof submitData.taskId === "string" ? submitData.taskId.trim() : "";
     if (!taskId) {
       return {
         success: false,
         modelUrl: "",
-        error: submitData.error || "Seed 3D 任务创建失败：缺少 taskId",
+        error: submitData.error || `${displayName} 任务创建失败：缺少 taskId`,
+        terminal: false,
       };
     }
 
-    const deadline = Date.now() + SEED3D_POLL_TIMEOUT_MS;
+    const deadline = Date.now() + ASYNC_3D_POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const statusResp = await fetchWithAuth(
-        buildUrl(`/api/ai/seed3d/task/${encodeURIComponent(taskId)}`),
+        buildUrl(`${taskEndpoint}/${encodeURIComponent(taskId)}`),
         {
           method: "GET",
         }
@@ -164,10 +189,12 @@ export async function convertSeed3D(
           success: false,
           modelUrl: "",
           error: errorMessage,
+          taskId,
+          terminal: statusResp.status >= 400 && statusResp.status < 500,
         };
       }
 
-      const statusData = (await statusResp.json()) as Seed3DTaskStatusResponse;
+      const statusData = (await statusResp.json()) as Async3DTaskStatusResponse;
       const status = String(statusData.status || "").trim().toLowerCase();
 
       if (status === "succeeded" && statusData.modelUrl) {
@@ -176,6 +203,9 @@ export async function convertSeed3D(
           modelUrl: statusData.modelUrl,
           promptId: statusData.promptId,
           modelKey: statusData.modelKey,
+          taskId,
+          status,
+          terminal: true,
         };
       }
 
@@ -183,79 +213,33 @@ export async function convertSeed3D(
         return {
           success: false,
           modelUrl: "",
-          error: statusData.error || "Seed 3D 生成失败",
+          error: statusData.error || `${displayName} 生成失败`,
+          taskId,
+          status,
+          terminal: true,
         };
       }
 
-      await sleep(SEED3D_POLL_INTERVAL_MS);
+      await sleep(ASYNC_3D_POLL_INTERVAL_MS);
     }
 
     return {
       success: false,
       modelUrl: "",
-      error: "Seed 3D 任务超时，请稍后在历史记录中重试",
+      error: `${displayName} 仍在生成，可再次点击继续等待原任务`,
+      taskId,
+      status: "processing",
+      terminal: false,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Network error";
-    logger.error("Seed3D async conversion error", error);
+    logger.error(`${displayName} async conversion error`, error);
 
     return {
       success: false,
       modelUrl: "",
       error: message,
-    };
-  }
-}
-
-async function convertWithEndpoint(
-  endpoint: string,
-  request: Convert2Dto3DRequest
-): Promise<Convert2Dto3DResponse> {
-  try {
-    const response = await fetchWithAuth(buildUrl(endpoint), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawErrorMessage =
-        extractApiErrorMessage(errorData) || `HTTP ${response.status}`;
-      const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
-        ? buildInsufficientCreditsMessage(endpoint)
-        : rawErrorMessage;
-      logger.error("2D to 3D conversion failed", {
-        status: response.status,
-        endpoint,
-        error: errorMessage,
-      });
-
-      return {
-        success: false,
-        modelUrl: "",
-        error: errorMessage,
-      };
-    }
-
-    const data = await response.json();
-
-    return {
-      success: true,
-      modelUrl: data.modelUrl,
-      promptId: data.promptId,
-      modelKey: data.modelKey,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Network error";
-    logger.error("2D to 3D conversion error", error);
-
-    return {
-      success: false,
-      modelUrl: "",
-      error: message,
+      terminal: false,
     };
   }
 }

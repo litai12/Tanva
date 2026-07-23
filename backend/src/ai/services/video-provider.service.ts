@@ -17,6 +17,12 @@ import {
 } from "./model-routing.service";
 import type { TencentVodAigcCreateVideoTaskRequest } from "./tencent-vod-aigc.service";
 import { VolcAssetService } from "../../volc-asset/volc-asset.service";
+import { isMissingVolcAssetError } from "../../volc-asset/volc-asset-lifecycle.util";
+import {
+  toVolcAssetClientError,
+  VolcAssetReviewRejectedError,
+  VolcAssetUpstreamError,
+} from "../../volc-asset/volc-asset-error.util";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
@@ -772,6 +778,59 @@ export class VideoProviderService {
   async generateVideo(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
+    const sourceOptions = this.withoutVolcAssetHints(options);
+    if (!this.isSeedance20Request(sourceOptions) || !this.hasRemoteReferenceImages(sourceOptions)) {
+      return this.generateVideoAttempt(sourceOptions);
+    }
+
+    let previousError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let prepared: Awaited<ReturnType<VideoProviderService["prepareOneTimeSeedanceAssets"]>>;
+      try {
+        prepared = await this.prepareOneTimeSeedanceAssets(sourceOptions);
+      } catch (error) {
+        throw this.toSeedanceAssetPreparationError(error);
+      }
+      try {
+        const result = await this.generateVideoAttempt(prepared.options);
+        const resultStatus = String(result.status || "").trim().toLowerCase();
+        const failedSynchronously = ["failed", "failure", "error", "cancelled", "canceled"].includes(
+          resultStatus,
+        );
+        if (prepared.groupId && result.taskId && !failedSynchronously) {
+          await this.volcAssetService.bindTaskAssetGroup(prepared.groupId, result.taskId);
+        }
+        if (prepared.groupId && (failedSynchronously || result.videoUrl || !result.taskId)) {
+          void this.volcAssetService.cleanupTaskAssetGroupById(
+            prepared.groupId,
+            failedSynchronously ? "failed_synchronously" : "completed_synchronously",
+          );
+        }
+        return result;
+      } catch (error) {
+        previousError = error;
+        if (prepared.groupId) {
+          await this.volcAssetService.cleanupTaskAssetGroupById(prepared.groupId, "submit_failed");
+        }
+        if (isMissingVolcAssetError(error)) {
+          if (this.missingErrorTargetsBioAsset(error, prepared.options.referenceImages)) {
+            throw new BadRequestException("生物认证素材已失效，请在图片节点重新完成本人认证后再试");
+          }
+          if (attempt === 0) {
+            this.logger.warn("Seedance 一次性素材在提交阶段失效，重新审核后重试一次");
+            continue;
+          }
+          throw new ServiceUnavailableException("参考图审核服务暂时未能读取本次素材，请稍后重试");
+        }
+        throw error;
+      }
+    }
+    throw previousError || new ServiceUnavailableException("Seedance 视频任务创建失败");
+  }
+
+  private async generateVideoAttempt(
+    options: VideoProviderRequestDto,
+  ): Promise<VideoGenerationResult> {
     // 普通通道经 new-api /v1/videos 使用 NEW_API_KEY；尊享通道沿用已部署的
     // Tencent VOD proxy 链路，其中 TencentVodAigcService 使用 NEW_API_KEY_VIP。
     // 当前 new-api distributor 没有 type=67 的 tencent-vod 视频 channel，不能把
@@ -780,6 +839,101 @@ export class VideoProviderService {
       return this.generateVideoLegacy(options);
     }
     return this.createNewApiVideoTask(options);
+  }
+
+  private isSeedance20Request(options: VideoProviderRequestDto): boolean {
+    return (
+      options.provider === "doubao" &&
+      /doubao-seedance-2-0/i.test(this.resolveNewApiVideoModel(options))
+    );
+  }
+
+  private toSeedanceAssetPreparationError(error: unknown): Error {
+    if (
+      !(error instanceof VolcAssetReviewRejectedError) &&
+      !(error instanceof VolcAssetUpstreamError)
+    ) {
+      this.logger.warn(
+        `Seedance 一次性参考图准备失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return new ServiceUnavailableException("参考图审核服务暂时不可用，请稍后重试");
+    }
+    const clientError = toVolcAssetClientError(error);
+    const payload = {
+      message: clientError.message,
+      code: clientError.code,
+      ...(clientError.upstreamCode ? { upstreamCode: clientError.upstreamCode } : {}),
+      ...(clientError.requestId ? { requestId: clientError.requestId } : {}),
+    };
+    return clientError.statusCode === 400
+      ? new BadRequestException(payload)
+      : new ServiceUnavailableException(payload);
+  }
+
+  private hasRemoteReferenceImages(options: VideoProviderRequestDto): boolean {
+    return (options.referenceImages || []).some((item) => {
+      const url = typeof item === "string" ? item : item?.url;
+      return typeof url === "string" && /^https?:\/\//i.test(url.trim());
+    });
+  }
+
+  private withoutVolcAssetHints(options: VideoProviderRequestDto): VideoProviderRequestDto {
+    if (!Array.isArray(options.referenceImages)) return options;
+    return {
+      ...options,
+      referenceImages: options.referenceImages.map((item) => {
+        if (typeof item === "string") return item;
+        if (
+          item.volcAssetKind === "bio-auth" &&
+          item.volcAssetStatus === "active" &&
+          item.volcAssetId
+        ) {
+          return item;
+        }
+        return item.url;
+      }),
+    };
+  }
+
+  private missingErrorTargetsBioAsset(
+    error: unknown,
+    items: ReferenceImageItem[] | undefined,
+  ): boolean {
+    const message = error instanceof Error ? error.message : JSON.stringify(error || {});
+    return (items || []).some(
+      (item) =>
+        typeof item !== "string" &&
+        item.volcAssetKind === "bio-auth" &&
+        !!item.volcAssetId &&
+        message.includes(item.volcAssetId),
+    );
+  }
+
+  private async prepareOneTimeSeedanceAssets(options: VideoProviderRequestDto): Promise<{
+    groupId?: string;
+    options: VideoProviderRequestDto;
+  }> {
+    const items = options.referenceImages || [];
+    const sourceUrls = items
+      .filter((item) => typeof item === "string" || item.volcAssetKind !== "bio-auth")
+      .map((item) => (typeof item === "string" ? item : item.url))
+      .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url.trim()))
+      .map((url) => this.normalizeFirstPartyAssetUrl(url.trim()));
+    if (!sourceUrls.length) return { options };
+    const taskAssets = await this.volcAssetService.createTaskAssetGroup(sourceUrls);
+    let remoteIndex = 0;
+    const referenceImages = items.map((item) => {
+      if (typeof item !== "string" && item.volcAssetKind === "bio-auth") return item;
+      const url = typeof item === "string" ? item : item.url;
+      if (typeof url !== "string" || !/^https?:\/\//i.test(url.trim())) return item;
+      const resolved = taskAssets.references[remoteIndex];
+      remoteIndex += 1;
+      return resolved;
+    });
+    return {
+      groupId: taskAssets.groupId,
+      options: { ...options, referenceImages },
+    };
   }
 
   private async generateVideoLegacy(
@@ -932,6 +1086,26 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
+    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7",
+    taskId: string
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
+    const result = await this.queryTaskAttempt(provider, taskId);
+    const status = String(result.status || "").trim().toLowerCase();
+    if (["succeeded", "success", "failed", "failure", "error", "cancelled", "canceled"].includes(status)) {
+      void this.volcAssetService
+        .cleanupTaskAssetGroup(taskId, status)
+        .catch((error) =>
+          this.logger.warn(
+            `视频任务结束后清理一次性素材组失败 task=${taskId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+    }
+    return result;
+  }
+
+  private async queryTaskAttempt(
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
@@ -1252,22 +1426,6 @@ export class VideoProviderService {
         const fallbackPayload = {
           ...payload,
           ...buildSeedanceImageFields(rawUrls),
-          provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
-        };
-        result = await this.requestNewApiJson("/v1/videos", {
-          method: "POST",
-          body: JSON.stringify(fallbackPayload),
-        });
-      } else if (hasAssetRefs && this.isStaleAssetError(err)) {
-        // asset:// 引用已失效（旧资产组被删），重新上传图片取得新 asset ID 再重试
-        const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
-        this.logger.warn(
-          `asset:// 引用失效，重新上传 ${rawUrls.length} 张图片获取新 asset ID: ${err?.message?.slice(0, 120)}`,
-        );
-        const refreshedImages = await this.reuploadImagesAsAssets(rawUrls);
-        const fallbackPayload = {
-          ...payload,
-          ...buildSeedanceImageFields(refreshedImages),
           provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
         };
         result = await this.requestNewApiJson("/v1/videos", {
@@ -1813,33 +1971,9 @@ export class VideoProviderService {
       .filter((url): url is string => url.length > 0);
   }
 
-  private isStaleAssetError(err: any): boolean {
-    const msg = String(err?.message || "").toLowerCase();
-    return msg.includes("is not found") && (msg.includes("asset") || msg.includes("image_url"));
-  }
-
   private isAssetServiceNotActivatedError(err: any): boolean {
     const msg = String(err?.message || "").toLowerCase();
     return msg.includes("not activated the asset service") || msg.includes("asset service");
-  }
-
-  // 对每张图片重新调用 Volcengine 上传，返回新的 asset:// URL 列表。
-  // VolcAssetService 未配置时降级返回原始 HTTPS URL。
-  private async reuploadImagesAsAssets(rawUrls: string[]): Promise<string[]> {
-    if (!this.volcAssetService.isConfigured()) {
-      this.logger.warn("VolcAssetService 未配置，降级使用 HTTPS 直链");
-      return rawUrls;
-    }
-    const results = await Promise.allSettled(
-      rawUrls.map((url) => this.volcAssetService.uploadAsset("system", url, "image")),
-    );
-    return results.map((r, i) => {
-      if (r.status === "fulfilled") {
-        return `asset://${r.value.assetId}`;
-      }
-      this.logger.warn(`重新上传第 ${i + 1} 张图片失败，降级 HTTPS: ${(r as PromiseRejectedResult).reason?.message}`);
-      return rawUrls[i];
-    });
   }
 
   private async requestNewApiJson(

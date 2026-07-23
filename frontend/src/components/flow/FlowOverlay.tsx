@@ -156,6 +156,7 @@ import {
 import {
   FLOW_AUTO_LAYOUT_EVENT,
   computeTidyByCategoryLayout,
+  resolveNodeLayoutSize,
 } from "@/utils/canvasAutoLayout";
 import {
   isAssetProxyRef,
@@ -213,7 +214,6 @@ import {
 } from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
-import { uploadVolcAsset } from "@/services/volcAssetAPI";
 import { DEFAULT_NODE_HANDLES } from "@/services/agentCanvasProtocol";
 import {
   fetchNodeConfigs,
@@ -690,26 +690,8 @@ const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
     w: 220,
     h: 160,
   };
-
-  const styleW = Number((node as any)?.style?.width);
-  const styleH = Number((node as any)?.style?.height);
-  const width = Number(
-    node.width ??
-      node.data?.boxW ??
-      (Number.isFinite(styleW) ? styleW : undefined) ??
-      fallback.w
-  );
-  const height = Number(
-    node.height ??
-      node.data?.boxH ??
-      (Number.isFinite(styleH) ? styleH : undefined) ??
-      fallback.h
-  );
-
-  return {
-    width: Number.isFinite(width) && width > 0 ? width : fallback.w,
-    height: Number.isFinite(height) && height > 0 ? height : fallback.h,
-  };
+  const size = resolveNodeLayoutSize(node, fallback);
+  return { width: size.w, height: size.h };
 };
 
 const FLOW_SNAP_BASE_THRESHOLD = 8;
@@ -7364,13 +7346,10 @@ function FlowInner() {
       const normalizeImageSource = (value?: string): string | null => {
         const trimmed = value?.trim();
         if (!trimmed) return null;
-        if (
-          /^data:/i.test(trimmed) ||
-          /^blob:/i.test(trimmed) ||
-          /^https?:\/\//i.test(trimmed)
-        )
-          return trimmed;
-        return `data:image/png;base64,${trimmed}`;
+        const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+        if (isRemoteUrl(normalized)) return normalized;
+        const renderable = toRenderableImageSrc(normalized) || "";
+        return isRemoteUrl(renderable) ? renderable : null;
       };
 
       const safeFileStem = (value: string): string =>
@@ -7519,10 +7498,6 @@ function FlowInner() {
         const cellY = startY + row * (cellH + gap);
         const x = cellX + (cellW - item.w) / 2 - pasteOffset.x;
         const y = cellY + (cellH - item.h) / 2 - pasteOffset.y;
-        const localDataUrl = /^data:/i.test(item.source)
-          ? item.source
-          : undefined;
-
         return {
           id: `flow_clip_img_${now}_${idx}_${Math.random()
             .toString(36)
@@ -7533,7 +7508,6 @@ function FlowInner() {
           width: item.w,
           height: item.h,
           contentType: item.contentType,
-          localDataUrl,
           pendingUpload: false,
           bounds: { x, y, width: item.w, height: item.h },
           layerId: null,
@@ -13712,94 +13686,6 @@ function FlowInner() {
         }
       } catch {}
 
-      // Auto-review: when an image handle is connected to a Seedance 2.0 node,
-      // immediately upload the source image to the Volc asset library in the background
-      // so that volcAssetId is ready by the time the user submits the task.
-      setTimeout(() => {
-        try {
-          const tgtNode = rf.getNode(params.target!);
-          const srcNode = params.source ? rf.getNode(params.source) : undefined;
-          if (!tgtNode || !srcNode) return;
-
-          const isSeedance20Target =
-            isSeedanceVideoNode(tgtNode) &&
-            (tgtNode.type === "seedance20Video" ||
-              tgtNode.type === "seedVideo" ||
-              isSeedance20ModelValue((tgtNode.data as any)?.seedanceModel));
-          const isImageHandle =
-            params.targetHandle === "image" || params.targetHandle === "image-2";
-          if (!isSeedance20Target || !isImageHandle) return;
-
-          // Extract URL from source node
-          const srcData = (srcNode.data as any) || {};
-          let imgUrl: string | undefined;
-          const handle = (params as any).sourceHandle as string | undefined;
-          if (
-            (srcNode.type === "generate4" ||
-              srcNode.type === "generatePro4" ||
-              srcNode.type === "midjourneyV7" ||
-              srcNode.type === "niji7") &&
-            handle
-          ) {
-            const idx = handle.startsWith("img")
-              ? Math.max(0, Number(handle.substring(3)) - 1)
-              : 0;
-            const urls = srcData.imageUrls as string[] | undefined;
-            imgUrl = urls?.[idx] || srcData.imageUrl;
-          } else {
-            imgUrl = srcData.imageUrl;
-          }
-
-          if (!imgUrl || typeof imgUrl !== "string") return;
-          const trimmedUrl = imgUrl.trim();
-          if (!trimmedUrl || !trimmedUrl.startsWith("http")) return;
-
-          // Skip if already reviewed and active (within 3-day window)
-          const REVIEW_VALID_DAYS = 3;
-          const existingAssetId: string | undefined =
-            typeof srcData.volcAssetId === "string" && srcData.volcAssetId.length > 0
-              ? srcData.volcAssetId
-              : undefined;
-          const existingStatus: string | undefined = srcData.volcAssetStatus;
-          const existingReviewDate: string | undefined = srcData.volcReviewDate;
-          const isExpired =
-            existingStatus === "active" && existingReviewDate
-              ? Date.now() > new Date(existingReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000
-              : false;
-          if (existingAssetId && existingStatus === "active" && !isExpired) return;
-
-          const srcNodeId = srcNode.id;
-
-          const patchSrcNode = (patch: Record<string, unknown>) => {
-            setNodes((ns) =>
-              ns.map((n) => (n.id === srcNodeId ? { ...n, data: { ...n.data, ...patch } } : n))
-            );
-          };
-
-          patchSrcNode({ volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined });
-
-          (async () => {
-            try {
-              const uploadResult = await uploadVolcAsset(trimmedUrl);
-              const uploadedAssetId = uploadResult.assetId;
-              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
-              patchSrcNode({
-                volcAssetId: uploadedAssetId,
-                volcAssetStatus: finalStatus,
-                volcAssetError: finalStatus === "failed" ? "审核未通过" : undefined,
-                ...(finalStatus === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
-              });
-            } catch (err: any) {
-              patchSrcNode({
-                volcAssetId: undefined,
-                volcAssetStatus: "failed",
-                volcAssetError: err?.message || "审核失败",
-              });
-            }
-          })();
-        } catch {}
-      }, 100);
-
       setIsConnecting(false);
     },
     [
@@ -15040,9 +14926,27 @@ function FlowInner() {
   // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
   // 落库由 nodes effect 的 scheduleCommit 在状态更新后自动完成。
   React.useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { source?: string; focusNodeId?: string | null }
+        | undefined;
+      const focusAfterLayout = () => {
+        if (!detail?.focusNodeId) return;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent("flow:focus-node", {
+                detail: { id: detail.focusNodeId },
+              })
+            );
+          });
+        });
+      };
       const allNodes = (rf.getNodes?.() || []) as RFNode[];
-      if (!allNodes.length) return;
+      if (!allNodes.length) {
+        focusAfterLayout();
+        return;
+      }
       const positions = computeTidyByCategoryLayout(allNodes as any, {
         getSize: (node) => {
           const { width, height } = getNodeRenderSize(node as RFNode);
@@ -15052,7 +14956,10 @@ function FlowInner() {
           Array.from(lockedByOthersRef.current.keys(), String)
         ),
       });
-      if (!positions.size) return;
+      if (!positions.size) {
+        focusAfterLayout();
+        return;
+      }
 
       // 平滑过渡:rAF 补间逐帧写 position(与拖拽同一更新通道,连线实时跟随;
       // CSS transition 方案会让边按终点即时重算而节点还在飞,故不用)。
@@ -15068,7 +14975,10 @@ function FlowInner() {
         }
         startPositions.set(node.id, { x: cur.x, y: cur.y });
       }
-      if (!positions.size) return;
+      if (!positions.size) {
+        focusAfterLayout();
+        return;
+      }
 
       if (tidyAnimationRef.current) {
         cancelAnimationFrame(tidyAnimationRef.current);
@@ -15093,6 +15003,7 @@ function FlowInner() {
         try {
           historyService.commit("flow-auto-layout").catch(() => {});
         } catch {}
+        focusAfterLayout();
       };
 
       const step = (now: number) => {
@@ -15118,13 +15029,15 @@ function FlowInner() {
       };
       tidyAnimationRef.current = requestAnimationFrame(step);
 
-      try {
-        window.dispatchEvent(
-          new CustomEvent("toast", {
-            detail: { message: "已整理画布布局", type: "success" },
-          })
-        );
-      } catch {}
+      if (detail?.source !== "xiaot") {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "已整理画布布局", type: "success" },
+            })
+          );
+        } catch {}
+      }
     };
     window.addEventListener(FLOW_AUTO_LAYOUT_EVENT, handler as EventListener);
     return () => {
@@ -15572,16 +15485,7 @@ function FlowInner() {
       if (!id) return;
       const node = rf.getNode(id);
       if (!node) return;
-      const width =
-        (node.width as number | undefined) ??
-        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
-          ?.w ??
-        240;
-      const height =
-        (node.height as number | undefined) ??
-        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
-          ?.h ??
-        160;
+      const { width, height } = getNodeRenderSize(node as RFNode);
       const cx = (node.position?.x ?? 0) + width / 2;
       const cy = (node.position?.y ?? 0) + height / 2;
       try {
@@ -20938,119 +20842,6 @@ function FlowInner() {
           )
         );
 
-        // Seedance 2.0: auto-review all connected reference images before submitting.
-        // For each image URL that doesn't have a valid active volcAssetId, upload it to
-        // the Volc asset library and poll until active (or fail). Results are stored in
-        // resolvedVolcAssets so seedance20ReferenceImages can use them directly without
-        // re-reading stale node state.
-        //
-        // Reusing a cached active volcAssetId is SAFE because the audit state is bound to
-        // the image: ImageNode clears volcAssetId/Status/ReviewDate whenever its imageUrl
-        // changes (regenerate / replace / rollback), so a cached "active" id always
-        // corresponds to the current image. Without that invariant, reuse across an image
-        // swap would send a stale asset:// upstream while the raw URL points at the new
-        // image (image mismatch).
-        type VolcAssetEntry = { url: string; volcAssetId?: string; volcAssetStatus?: "processing" | "active" | "failed" };
-        let resolvedVolcAssets: VolcAssetEntry[] | undefined;
-
-        if (isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0) {
-          const REVIEW_VALID_DAYS = 3;
-
-          const assetEntries: VolcAssetEntry[] = [];
-          let reviewFailed = false;
-
-          for (let imgIdx = 0; imgIdx < referenceImageUrls.length; imgIdx++) {
-            const imgUrl = referenceImageUrls[imgIdx];
-            const srcEdge = referenceImageSourceEdges[imgIdx];
-            const srcNode = srcEdge ? rf.getNode(srcEdge.source) : undefined;
-            const srcData = (srcNode?.data as any) || {};
-
-            const existingAssetId: string | undefined =
-              typeof srcData.volcAssetId === "string" && srcData.volcAssetId.length > 0
-                ? srcData.volcAssetId
-                : undefined;
-            const existingStatus: string | undefined = srcData.volcAssetStatus;
-            const existingReviewDate: string | undefined = srcData.volcReviewDate;
-
-            const isExpired =
-              existingStatus === "active" && existingReviewDate
-                ? Date.now() > new Date(existingReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000
-                : false;
-
-            if (existingAssetId && existingStatus === "active" && !isExpired) {
-              assetEntries.push({ url: imgUrl, volcAssetId: existingAssetId, volcAssetStatus: "active" });
-              continue;
-            }
-
-            // Mark source node as processing so its badge updates
-            if (srcNode) {
-              setNodes((ns) =>
-                ns.map((n) =>
-                  n.id === srcNode.id
-                    ? { ...n, data: { ...n.data, volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined } }
-                    : n
-                )
-              );
-            }
-
-            try {
-              const uploadResult = await uploadVolcAsset(imgUrl);
-              const uploadedAssetId = uploadResult.assetId;
-              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
-              if (srcNode) {
-                setNodes((ns) =>
-                  ns.map((n) =>
-                    n.id === srcNode.id
-                      ? {
-                          ...n,
-                          data: {
-                            ...n.data,
-                            volcAssetId: uploadedAssetId,
-                            volcAssetStatus: finalStatus,
-                            volcAssetError: finalStatus === "failed" ? "审核未通过" : undefined,
-                            ...(finalStatus === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
-                          },
-                        }
-                      : n
-                  )
-                );
-              }
-
-              if (finalStatus !== "active") {
-                reviewFailed = true;
-                failCurrentVideoNode("参考图审核未通过，请更换图片后重试");
-                break;
-              }
-
-              assetEntries.push({ url: imgUrl, volcAssetId: uploadedAssetId, volcAssetStatus: "active" });
-            } catch (err: any) {
-              if (srcNode) {
-                setNodes((ns) =>
-                  ns.map((n) =>
-                    n.id === srcNode.id
-                      ? {
-                          ...n,
-                          data: {
-                            ...n.data,
-                            volcAssetId: undefined,
-                            volcAssetStatus: "failed",
-                            volcAssetError: err?.message || "审核失败",
-                          },
-                        }
-                      : n
-                  )
-                );
-              }
-              reviewFailed = true;
-              failCurrentVideoNode(`参考图审核失败: ${err?.message || "未知错误"}`);
-              break;
-            }
-          }
-
-          if (reviewFailed) return;
-          resolvedVolcAssets = assetEntries;
-        }
-
         // 根据供应商调整参数
         const aspectRatioForAPI =
           isOmniFlashExtNode
@@ -21223,37 +21014,30 @@ function FlowInner() {
               ? "on"
               : "off";
 
-          // Seedance 2.0 family: enrich referenceImages with volcAssetId/Status.
-          // Prefer resolvedVolcAssets built by the auto-review pass above (guaranteed active);
-          // fall back to reading source node data for non-Seedance2 paths or legacy callers.
-          const seedance20ReferenceImages:
-            | Array<{
-                url: string;
-                volcAssetId?: string;
-                volcAssetStatus?: "processing" | "active" | "failed";
-              }>
-            | undefined =
+          // Backend creates a fresh, task-scoped audit group for every ordinary Seedance 2.0
+          // reference. Bio-auth assets are the only exception because their ID carries explicit
+          // user authorization and cannot be silently replaced with an ordinary review asset.
+          const seedance20ReferenceImages =
             isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0
-              ? (resolvedVolcAssets ??
-                  referenceImageUrls.map((url, idx) => {
-                    const sourceEdge = referenceImageSourceEdges[idx];
-                    const sourceNode = sourceEdge
-                      ? rf.getNode(sourceEdge.source)
+              ? referenceImageUrls.map((url, idx) => {
+                  const sourceEdge = referenceImageSourceEdges[idx];
+                  const sourceNode = sourceEdge ? rf.getNode(sourceEdge.source) : undefined;
+                  const sourceData = (sourceNode?.data as any) || {};
+                  const bioAssetId =
+                    sourceData.bioAuthStatus === "active" &&
+                    typeof sourceData.volcAssetId === "string" &&
+                    sourceData.volcAssetId.trim()
+                      ? sourceData.volcAssetId.trim()
                       : undefined;
-                    const sourceData = (sourceNode?.data as any) || {};
-                    const volcAssetId =
-                      typeof sourceData.volcAssetId === "string" && sourceData.volcAssetId.length > 0
-                        ? sourceData.volcAssetId
-                        : undefined;
-                    const rawVolcStatus = sourceData.volcAssetStatus;
-                    const volcAssetStatus =
-                      rawVolcStatus === "processing" ||
-                      rawVolcStatus === "active" ||
-                      rawVolcStatus === "failed"
-                        ? (rawVolcStatus as "processing" | "active" | "failed")
-                        : undefined;
-                    return { url, volcAssetId, volcAssetStatus };
-                  }))
+                  return bioAssetId
+                    ? {
+                        url,
+                        volcAssetId: bioAssetId,
+                        volcAssetStatus: "active" as const,
+                        volcAssetKind: "bio-auth" as const,
+                      }
+                    : url;
+                })
               : undefined;
           const omniVideoModeForAPI =
             isOmniFlashExtNode && referenceVideoUrls.length > 0
@@ -24179,28 +23963,18 @@ function FlowInner() {
       }
       let createdId: string | null = null;
       try {
-        // position 有则视为世界坐标直接用；无则取当前视口中心（照 flow:createImageNode 的算法）
-        let world: { x: number; y: number };
-        if (
-          detail.position &&
-          Number.isFinite(detail.position.x) &&
-          Number.isFinite(detail.position.y)
-        ) {
-          world = { x: Number(detail.position.x), y: Number(detail.position.y) };
-        } else {
-          const rect = containerRef.current?.getBoundingClientRect();
-          const screenPosition = {
-            x:
-              (rect?.left || 0) +
-              (rect?.width || window.innerWidth) / 2 +
-              (Math.random() * 120 - 60),
-            y:
-              (rect?.top || 0) +
-              (rect?.height || window.innerHeight) / 2 +
-              (Math.random() * 80 - 40),
-          };
-          world = rf.screenToFlowPosition(screenPosition);
-        }
+        // 小T给出的坐标来自独立画布语境，不作为 Tanva 世界坐标使用。先把节点
+        // 放到当前视口附近，整轮完成后再统一走与“一键整理”完全相同的布局。
+        const rect = containerRef.current?.getBoundingClientRect();
+        const screenPosition = {
+          x:
+            (rect?.left || 0) +
+            (rect?.width || window.innerWidth) / 2,
+          y:
+            (rect?.top || 0) +
+            (rect?.height || window.innerHeight) / 2,
+        };
+        const world = rf.screenToFlowPosition(screenPosition);
         createdId = createNodeAtWorldCenter(detail.type, world, detail.data);
       } catch (err) {
         console.warn("[agent-bridge] add-node failed:", err);
@@ -24209,6 +23983,17 @@ function FlowInner() {
       try {
         detail.done?.(createdId ?? null);
       } catch {}
+      if (createdId) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
+                detail: { source: "xiaot" },
+              })
+            );
+          });
+        });
+      }
     };
 
     const onAgentConnectEdge = async (event: Event) => {
@@ -24459,6 +24244,50 @@ function FlowInner() {
         )
           return trimmed;
         return `data:image/png;base64,${trimmed}`;
+      };
+      const sendRemoteImageToCanvas = async (
+        source: string,
+        fileName: string
+      ): Promise<string | null> => {
+        const pid = useProjectContentStore.getState().projectId;
+        const uploadResult = await imageUploadService.uploadImageSource(source, {
+          fileName,
+          projectId: pid ?? undefined,
+          dir: pid ? `projects/${pid}/images/` : "uploads/images/",
+        });
+        const remoteUrl = uploadResult.asset?.url?.trim();
+        if (!uploadResult.success || !remoteUrl || !isRemoteUrl(remoteUrl)) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: uploadResult.error || "图片上传失败，未发送到画板",
+                type: "error",
+              },
+            })
+          );
+          return null;
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: remoteUrl,
+              fileName,
+              operationType: "generate",
+              smartPosition: undefined,
+              anchorClient,
+              forceAnchorPosition: true,
+              sourceImageId: undefined,
+              sourceImages: undefined,
+            },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "图片已发送到画板", type: "success" },
+          })
+        );
+        return remoteUrl;
       };
 
       const cropImageToDataUrl = async (params: {
@@ -24835,58 +24664,18 @@ function FlowInner() {
             }
 
             try {
-              const blob = await resolveImageToBlob(cropped, { preferProxy: true });
-              if (blob) {
-                const file = new File([blob], fileName, { type: "image/png" });
-                const uploadResult = await imageUploadService.uploadImageFile(file, {
-                  fileName,
-                  contentType: "image/png",
-                });
-                if (uploadResult.success && uploadResult.asset?.url) {
-                  setCachedUrl(fingerprint, uploadResult.asset.url);
-                  window.dispatchEvent(
-                    new CustomEvent("triggerQuickImageUpload", {
-                      detail: {
-                        imageData: uploadResult.asset.url,
-                        fileName,
-                        operationType: "generate",
-                        smartPosition: undefined,
-                        anchorClient,
-                        forceAnchorPosition: true,
-                        sourceImageId: undefined,
-                        sourceImages: undefined,
-                      },
-                    })
-                  );
-                  window.dispatchEvent(
-                    new CustomEvent("toast", {
-                      detail: { message: "图片已发送到画板", type: "success" },
-                    })
-                  );
-                  return;
-                }
-              }
-            } catch {}
-
-            window.dispatchEvent(
-              new CustomEvent("triggerQuickImageUpload", {
-                detail: {
-                  imageData: cropped,
-                  fileName,
-                  operationType: "generate",
-                  smartPosition: undefined,
-                  anchorClient,
-                  forceAnchorPosition: true,
-                  sourceImageId: undefined,
-                  sourceImages: undefined,
-                },
-              })
-            );
-            window.dispatchEvent(
-              new CustomEvent("toast", {
-                detail: { message: "图片已发送到画板", type: "success" },
-              })
-            );
+              const remoteUrl = await sendRemoteImageToCanvas(cropped, fileName);
+              if (remoteUrl) setCachedUrl(fingerprint, remoteUrl);
+            } catch (error) {
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: {
+                    message: error instanceof Error ? error.message : "图片上传失败，未发送到画板",
+                    type: "error",
+                  },
+                })
+              );
+            }
             return;
           }
         }
@@ -24907,25 +24696,7 @@ function FlowInner() {
         }
 
         const fileName = `flow_${id}_${Date.now()}.png`;
-        window.dispatchEvent(
-          new CustomEvent("triggerQuickImageUpload", {
-            detail: {
-              imageData: resolved,
-              fileName,
-              operationType: "generate",
-              smartPosition: undefined,
-              anchorClient,
-              forceAnchorPosition: true,
-              sourceImageId: undefined,
-              sourceImages: undefined,
-            },
-          })
-        );
-        window.dispatchEvent(
-          new CustomEvent("toast", {
-            detail: { message: "图片已发送到画板", type: "success" },
-          })
-        );
+        await sendRemoteImageToCanvas(resolved, fileName);
         return;
       }
 
@@ -24944,91 +24715,7 @@ function FlowInner() {
       }
 
       const fileName = `flow_${Date.now()}.png`;
-      let sendPayload = dataUrl;
-
-      // Midjourney CDN 等外站 https：先发起到项目 OSS，避免画板资产长期 pendingUpload
-      if (
-        (dataUrl.startsWith("http://") || dataUrl.startsWith("https://")) &&
-        requiresManagedImageUpload(dataUrl)
-      ) {
-        try {
-          const pid = useProjectContentStore.getState().projectId;
-          const uploadResult = await imageUploadService.uploadImageSource(dataUrl, {
-            fileName,
-            projectId: pid ?? undefined,
-            dir: pid ? `projects/${pid}/images/` : undefined,
-          });
-          if (uploadResult.success && uploadResult.asset?.url) {
-            const key = (uploadResult.asset.key || "").trim();
-            sendPayload = key || uploadResult.asset.url;
-          }
-        } catch {
-          // 保存时仍会通过 resolveImageToBlob 尝试补传
-        }
-      }
-
-      // 🔥 关键修复：当图片源不可直接外发（flow-asset: / blob: / data:image/）
-      // 时，先上传到 OSS，再用远程 URL 派发事件，避免画板保存被阻塞。
-      if (
-        !dataUrl.startsWith("http://") &&
-        !dataUrl.startsWith("https://") &&
-        !dataUrl.startsWith("/api/assets/proxy") &&
-        !dataUrl.startsWith("/assets/proxy") &&
-        !dataUrl.startsWith("/") &&
-        !dataUrl.startsWith("./") &&
-        !dataUrl.startsWith("../") &&
-        !/^(templates|projects|uploads|videos)\//i.test(dataUrl)
-      ) {
-        try {
-          const uploadResult = await imageUploadService.uploadImageSource(dataUrl, {
-            fileName,
-          });
-          if (uploadResult.success && uploadResult.asset?.url) {
-            window.dispatchEvent(
-              new CustomEvent("triggerQuickImageUpload", {
-                detail: {
-                  imageData: uploadResult.asset.url,
-                  fileName,
-                  operationType: "generate",
-                  smartPosition: undefined,
-                  anchorClient,
-                  forceAnchorPosition: true,
-                  sourceImageId: undefined,
-                  sourceImages: undefined,
-                },
-              })
-            );
-            window.dispatchEvent(
-              new CustomEvent("toast", {
-                detail: { message: "图片已发送到画板", type: "success" },
-              })
-            );
-            return;
-          }
-        } catch {
-          // 上传失败时继续走原有流程（走 blob URL + pendingUpload）
-        }
-      }
-
-      window.dispatchEvent(
-        new CustomEvent("triggerQuickImageUpload", {
-          detail: {
-            imageData: sendPayload,
-            fileName,
-            operationType: "generate",
-            smartPosition: undefined,
-            anchorClient,
-            forceAnchorPosition: true,
-            sourceImageId: undefined,
-            sourceImages: undefined,
-          },
-        })
-      );
-      window.dispatchEvent(
-        new CustomEvent("toast", {
-          detail: { message: "图片已发送到画板", type: "success" },
-        })
-      );
+      await sendRemoteImageToCanvas(dataUrl, fileName);
     },
     [rf, aiProvider, bananaImageRoute, imageModel, imageSize, globalWebSearchEnabled]
   );

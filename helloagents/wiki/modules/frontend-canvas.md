@@ -34,19 +34,16 @@
 - `paper`、`@types/paper`
 -（可选）3D：`three`、`@react-three/fiber`、`@react-three/drei`
 
-## 本地图片上传链路（blob 预览 → OSS）
-- 入口：`frontend/src/components/canvas/ImageUploadComponent.tsx`（选择文件后先生成 `blob:` 预览，同时生成 OSS `key`，落到 `imageData.url/key` 并标记 `pendingUpload=true`）
+## 本地图片上传链路（上传完成 → 创建资产）
+- 入口：`frontend/src/components/canvas/ImageUploadComponent.tsx`。文件选择、粘贴与拖放必须先完成托管上传并拿到远程 URL，之后才能创建 Canvas 图元或 Flow Image 节点；上传失败只提示错误，不创建本地预览资产。
 - 上传：`frontend/src/services/imageUploadService.ts` → `frontend/src/services/ossUploadService.ts`（先 `POST /api/uploads/presign` 获取策略，再 `POST` 到 OSS `host`）
-- 上传中回显：`frontend/src/components/canvas/ImageContainer.tsx`（根据 `pendingUpload` 显示“上传中…”）
-- 成功回写与清理：`frontend/src/components/canvas/DrawingController.tsx` 监听 `tanva:upgradeImageSource`，切换 `Raster.source` 到远程引用、清理 `localDataUrl` 并回收 `ObjectURL`
-- 远程地址：上传回写时将 OSS `key` 解析为完整 `remoteUrl`（基于 `VITE_ASSET_PUBLIC_BASE_URL`），优先使用 `remoteUrl` 同步到 AI 对话框
-- 保存兜底：`frontend/src/services/paperSaveService.ts` 的 `ensureRemoteAssets` 会在云保存前补传 `pendingUpload` 的图片，并同样触发 `tanva:upgradeImageSource`
+- 正式资产：`imageData.url/remoteUrl` 使用上传结果的 HTTP(S) URL，`pendingUpload=false`；`key` 仅作为存储定位信息，不替代正式远程 URL。
+- 临时编辑态：裁剪、蒙版、画笔等现有资产编辑可在组件内部使用 Blob/object URL 即时预览；远程上传成功后再通过 `canvas:replace-image-source` / `tanva:upgradeImageSource` 替换正式来源。保存兜底仍由 `frontend/src/services/paperSaveService.ts` 的 `ensureRemoteAssets` 处理历史或异常遗留数据。
 
 ## 图片裁切稳定性
 - `ImageContainer` 裁切后回写 `bounds` 时按 `X/Y` 分别使用显示缩放比例，不再使用单一平均缩放，避免非等比场景出现“被压扁/拉伸”。
 - `imageUrlCache` 的 `dataUrl` 缓存绑定图片源指纹（`sourceFingerprint`）；当同一 `imageId` 更换了源图后，裁切/编辑不会复用旧缓存图，降低“偶发低清/像被压缩”的问题。
-- 裁切执行链路改为“实时源 -> Blob -> canvas -> Blob 预览（`blob:`）-> 后台上传回写远程引用”，不再依赖缓存 dataURL 作为裁切输入，降低“裁切不可用/偶发裁错源”的风险。
-- 裁切开始时会预生成新的 OSS key，并在上传中阶段显式清理旧 `remoteUrl`，避免“先显示正确裁切图，随后被旧远程源覆盖成压缩/整图挤压”的回写竞争问题。
+- 裁切执行链路改为“实时源 -> Blob -> canvas -> 托管上传 -> 远程引用替换”，不再依赖缓存 dataURL 作为裁切输入，也不在正式图元中写入上传中的本地预览；上传失败保留原图。
 - 快速上传链路中的图片加载 fallback（proxy 失败回直连、CORS 失败去掉 `crossOrigin`）已统一计入 `IMAGE_LOAD_MAX_RETRIES`，避免额外 fallback 绕开重试预算后在异常源图上出现近似死循环的反复重载。
 
 ## JSON 复制/导入（Project.contentJson）
@@ -77,9 +74,10 @@
 ## 图片调色板条
 - `ImageContainer` 的图片操作菜单新增 `提取调色板`（位于“更多”菜单候选项内）。
 - 点击后会基于当前图片数据做降采样与主色聚类，提取 6 个主色，并生成一张独立的竖向调色板图片放在原图右侧（复用 `triggerQuickImageUpload` 链路）。
-- 调色板图片按普通图片资产处理：先本地显示，后续上传并持久化为远程 URL/OSS key，不会把内联 base64 落库。
+- 调色板图片按普通图片资产处理：托管上传成功后才创建图元并持久化远程 URL，不会把内联 base64 写入正式资产或设计 JSON。
 
 ## AI 图片局部编辑 / 高清放大
+- 生图、编辑、融合和高清放大提交前统一经 `imageUploadService.uploadImageSource` 把当前渲染输入转成远程 URL；前端 API 请求不发送 `sourceImage/sourceImages` 内联字段。上传失败返回 `ASSET_UPLOAD_FAILED`，不得创建后端任务。
 - Shift 精确局部修改对齐 `lt-dev9`：框选完成后会先按 AI Chat 支持的画幅列表把选区校准到最近的标准比例，再记录选区画布 bounds、裁剪像素尺寸与比例。AI Chat 编辑占位框使用 `precise-edit`/`lockToBounds` 锁定原选区位置，跳过普通编辑右侧偏移与矩阵避让，结果继续原位覆盖；合成回贴时会把原图外层 bounds 一并传回画布，避免 `_merged.png` 自然尺寸改变画布显示比例。生成中占位层只显示轻量虚线框与百分比数字，避免半透明整块遮罩造成“两层图”的视觉误解。
 - 图片裁切会把当前画布显示比例烘进裁切后的 PNG，保证新图片自然像素比例与裁切后的画布 bounds 一致，后续 AI 原位编辑/替换可继续按同一比例链路工作。
 - 图片工具栏“改文字”链路固定走 Banana 普通路线：OCR 识别、内部文字检测和确认改图请求都会显式携带 `imageRoute: "normal"`，不继承全局尊享路线。

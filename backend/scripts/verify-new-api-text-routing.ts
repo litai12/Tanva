@@ -15,6 +15,7 @@ const keyResolver = {
 } as NewApiKeyResolver;
 const originalFetch = globalThis.fetch;
 const originalEnv = {
+  NEW_API_BASE_URL: process.env.NEW_API_BASE_URL,
   NEW_API_KEY: process.env.NEW_API_KEY,
   NEW_API_TOKEN: process.env.NEW_API_TOKEN,
   TC_API_KEY: process.env.TC_API_KEY,
@@ -41,6 +42,8 @@ const restoreEnv = (key: keyof typeof originalEnv): void => {
 };
 
 async function main(): Promise<void> {
+  process.env.NEW_API_BASE_URL = 'https://new-api.test';
+  process.env.NEW_API_KEY = 'new-api-key';
   process.env.TC_API_KEY = 'must-not-be-used';
   process.env.TAPCANVAS_API_KEY = 'must-not-be-used';
 
@@ -107,6 +110,7 @@ async function main(): Promise<void> {
 main()
   .finally(() => {
     globalThis.fetch = originalFetch;
+    restoreEnv('NEW_API_BASE_URL');
     restoreEnv('NEW_API_KEY');
     restoreEnv('NEW_API_TOKEN');
     restoreEnv('TC_API_KEY');

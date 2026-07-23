@@ -20,6 +20,7 @@ export interface CreateVideoTaskParams {
   prompt?: string;
   metadata?: Record<string, any>;
   projectId?: string;
+  supersedePrevious?: boolean;
 }
 
 export interface UpdateVideoTaskParams {
@@ -66,9 +67,16 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   }
 
   async createVideoTask(params: CreateVideoTaskParams): Promise<void> {
-    const { taskId, userId, nodeId, taskType, prompt, metadata, projectId } = params;
-
-    createAsyncTask(taskId);
+    const {
+      taskId,
+      userId,
+      nodeId,
+      taskType,
+      prompt,
+      metadata,
+      projectId,
+      supersedePrevious = true,
+    } = params;
 
     const persistedMetadata =
       projectId || metadata
@@ -87,6 +95,10 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    // Persist first so a duplicate primary key cannot reset an already-running
+    // in-memory task back to pending during concurrent idempotent submissions.
+    createAsyncTask(taskId);
+
     if (projectId) {
       await this.publishTaskStatus(projectId, {
         taskId,
@@ -102,7 +114,7 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     // create another task for the same nodeId. The id:{not:taskId} guard ensures we never
     // supersede ourselves; both concurrent tasks will supersede their shared predecessors,
     // which is acceptable — the node UI will reflect whichever task completes last.
-    if (nodeId) {
+    if (nodeId && supersedePrevious) {
       await this.prisma.videoTask.updateMany({
         where: {
           nodeId,

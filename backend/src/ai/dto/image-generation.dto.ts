@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber, ArrayMinSize, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber, ArrayMinSize, IsInt, Min, Max, MaxLength } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -544,6 +544,11 @@ export class Convert2Dto3DDto {
   @IsOptional()
   @IsString()
   nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  clientRequestId?: string;
 }
 
 export class ExpandImageDto {

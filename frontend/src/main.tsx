@@ -24,6 +24,7 @@ const DirectorHarnessPage = lazy(() => import('@/pages/DirectorHarnessPage'));
 const ForcedRigTestPage = lazy(() => import('@/pages/ForcedRigTestPage'));
 const ForcedCameraTestPage = lazy(() => import('@/pages/ForcedCameraTestPage'));
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
+import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -64,9 +65,11 @@ initializeRuntimeStability();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <RootRoutes />
-    </BrowserRouter>
+    <RuntimeErrorBoundary label="应用" variant="root">
+      <BrowserRouter>
+        <RootRoutes />
+      </BrowserRouter>
+    </RuntimeErrorBoundary>
   </StrictMode>,
 );
 

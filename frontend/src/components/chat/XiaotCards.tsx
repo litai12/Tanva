@@ -8,7 +8,6 @@
 // metadata.xiaotSuggestions；点击选项/chip 把文本原文作为用户消息发送（小T模式下走 runXiaotAgent）。
 import React from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   ChevronDown,
   Copy,
@@ -24,6 +23,7 @@ import ImagePreviewModal, {
 } from "@/components/ui/ImagePreviewModal";
 import { downloadFile } from "@/utils/downloadHelper";
 import { resolveAgentNodeId } from "@/services/agentPatchApplier";
+import { compatibleRemarkPlugins } from "@/utils/markdownCompatibility";
 
 export interface XiaotCard {
   kind: string;
@@ -124,7 +124,7 @@ const cardMarkdownComponents = {
 function CardMarkdown({ markdown }: { markdown: string }) {
   return (
     <div className='text-[11px] leading-relaxed'>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={cardMarkdownComponents}>
+      <ReactMarkdown remarkPlugins={compatibleRemarkPlugins} components={cardMarkdownComponents}>
         {markdown}
       </ReactMarkdown>
     </div>

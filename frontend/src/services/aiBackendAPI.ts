@@ -18,6 +18,8 @@ import type {
 } from "@/types/ai";
 import { fetchWithAuth, IMAGE_REQUEST_TIMEOUT_MS } from "./authFetch";
 import { logger } from "@/utils/logger";
+import { imageUploadService } from "./imageUploadService";
+import { isRemoteUrl } from "@/utils/imageSource";
 
 // 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
 const API_BASE_URL =
@@ -146,6 +148,86 @@ const generateUUID = () => {
 
 const buildIdempotencyKey = (scope: string) =>
   `${scope}-${Date.now()}-${generateUUID()}`;
+
+const prepareRemoteImageInput = async (
+  value: string | undefined,
+  projectId: string | undefined,
+  label: string
+): Promise<string> => {
+  const source = typeof value === "string" ? value.trim() : "";
+  if (!source) {
+    throw new Error(`${label}为空`);
+  }
+
+  const upload = await imageUploadService.uploadImageSource(source, {
+    dir: projectId ? `projects/${projectId}/images/` : "uploads/ai-inputs/",
+    projectId,
+    fileName: `ai-input-${Date.now()}-${generateUUID()}.png`,
+  });
+  const remoteUrl = upload.asset?.url?.trim();
+  if (!upload.success || !remoteUrl || !isRemoteUrl(remoteUrl)) {
+    throw new Error(upload.error || `${label}上传失败，无法创建生成任务`);
+  }
+  return remoteUrl;
+};
+
+const prepareRemoteEditRequest = async (
+  request: AIImageEditRequest
+): Promise<AIImageEditRequest> => {
+  const remoteUrl = await prepareRemoteImageInput(
+    request.sourceImageUrl || request.sourceImage,
+    request.projectId,
+    "源图"
+  );
+  return {
+    ...request,
+    sourceImage: undefined,
+    sourceImageUrl: remoteUrl,
+  };
+};
+
+const prepareRemoteGenerateRequest = async (
+  request: AIImageGenerateRequest
+): Promise<AIImageGenerateRequest> => {
+  if (!request.imageUrls?.length) return request;
+  const remoteUrls = await Promise.all(
+    request.imageUrls.map((source, index) =>
+      prepareRemoteImageInput(request.imageUrls?.[index] || source, request.projectId, `第 ${index + 1} 张参考图`)
+    )
+  );
+  return { ...request, imageUrls: remoteUrls };
+};
+
+const prepareRemoteBlendRequest = async (
+  request: AIImageBlendRequest
+): Promise<AIImageBlendRequest> => {
+  const sources =
+    request.sourceImageUrls?.length
+      ? request.sourceImageUrls
+      : request.sourceImages || [];
+  if (sources.length === 0) {
+    throw new Error("融合图片为空");
+  }
+  const remoteUrls = await Promise.all(
+    sources.map((source, index) =>
+      prepareRemoteImageInput(source, request.projectId, `第 ${index + 1} 张融合图片`)
+    )
+  );
+  return {
+    ...request,
+    sourceImages: undefined,
+    sourceImageUrls: remoteUrls,
+  };
+};
+
+const assetUploadErrorResponse = <T>(error: unknown): AIServiceResponse<T> => ({
+  success: false,
+  error: {
+    code: "ASSET_UPLOAD_FAILED",
+    message: error instanceof Error ? error.message : "图片上传失败，无法创建生成任务",
+    timestamp: new Date(),
+  },
+});
 
 export async function getSeedream5ProviderInfo(
   options?: { forceRefresh?: boolean }
@@ -606,6 +688,11 @@ export async function generateImageViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("generate-image");
+  try {
+    request = await prepareRemoteGenerateRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
@@ -708,6 +795,11 @@ export async function createImageGenerationTaskViaAPI(
 ): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("generate-image-async");
+  try {
+    request = await prepareRemoteGenerateRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   const { request: requestWithRoute, bananaImageRoute } =
     attachBananaRouteToProviderOptions(request);
 
@@ -852,8 +944,14 @@ export async function createEditImageTaskViaAPI(
 ): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("edit-image-async");
+  let remoteRequest: AIImageEditRequest;
+  try {
+    remoteRequest = await prepareRemoteEditRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   const { request: requestWithRoute, bananaImageRoute } =
-    attachBananaRouteToProviderOptions(request);
+    attachBananaRouteToProviderOptions(remoteRequest);
 
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image-async`, {
@@ -916,8 +1014,14 @@ export async function createBlendImagesTaskViaAPI(
 ): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("blend-images-async");
+  let remoteRequest: AIImageBlendRequest;
+  try {
+    remoteRequest = await prepareRemoteBlendRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   const { request: requestWithRoute, bananaImageRoute } =
-    attachBananaRouteToProviderOptions(request);
+    attachBananaRouteToProviderOptions(remoteRequest);
 
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images-async`, {
@@ -1227,6 +1331,11 @@ export async function editImageViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("edit-image");
+  try {
+    request = await prepareRemoteEditRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
@@ -1414,6 +1523,11 @@ export async function blendImagesViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("blend-images");
+  try {
+    request = await prepareRemoteBlendRequest(request);
+  } catch (error) {
+    return assetUploadErrorResponse(error);
+  }
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 

@@ -1353,52 +1353,24 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             preferredFileName: string,
             preferredIdPrefix: string,
         ): Promise<StoredImageAsset | null> => {
-            const inlinePreview = isInlineDataUrl(uploadInput) ? uploadInput : undefined;
             const uploadResult = await imageUploadService.uploadImageSource(uploadInput, {
                 projectId: projectId ?? undefined,
                 dir: uploadDir,
                 fileName: preferredFileName || `quick-image-${Date.now()}.png`,
             });
             if (!uploadResult.success || !uploadResult.asset) {
-                if (inlinePreview) {
-                    return {
-                        id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: inlinePreview,
-                        src: inlinePreview,
-                        remoteUrl: undefined,
-                        key: undefined,
-                        fileName: preferredFileName,
-                        pendingUpload: true,
-                        localDataUrl: inlinePreview,
-                    };
-                }
                 return null;
             }
             const uploadedUrl = normalizePersistableImageRef(uploadResult.asset.url);
             const uploadedKey = normalizePersistableImageRef(uploadResult.asset.key);
-            const persistedRef = uploadedUrl || uploadedKey;
-            if (!persistedRef || !isPersistableImageRef(persistedRef)) {
-                if (inlinePreview) {
-                    return {
-                        id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: inlinePreview,
-                        src: inlinePreview,
-                        remoteUrl: undefined,
-                        key: undefined,
-                        fileName: preferredFileName,
-                        pendingUpload: true,
-                        localDataUrl: inlinePreview,
-                    };
-                }
+            if (!uploadedUrl || !isRemoteUrl(uploadedUrl)) {
                 return null;
             }
-            const displayRef = uploadedUrl || persistedRef;
-            const remoteUrl = isRemoteUrl(displayRef) ? displayRef : undefined;
             return {
                 id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                url: displayRef,
-                src: toRenderableImageSrc(displayRef) || displayRef,
-                remoteUrl,
+                url: uploadedUrl,
+                src: toRenderableImageSrc(uploadedUrl) || uploadedUrl,
+                remoteUrl: uploadedUrl,
                 key: uploadedKey || uploadResult.asset.key,
                 fileName: uploadResult.asset.fileName || preferredFileName,
                 width: uploadResult.asset.width,
@@ -1414,33 +1386,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const normalizedPersisted = normalizePersistableImageRef(trimmedPayload);
             const isPersisted = !!normalizedPersisted && isPersistableImageRef(normalizedPersisted);
             const shouldUploadManaged =
-                !isPersisted || requiresManagedImageUpload(normalizedPersisted);
+                !isPersisted ||
+                !isRemoteUrl(normalizedPersisted) ||
+                requiresManagedImageUpload(normalizedPersisted);
             if (shouldUploadManaged) {
                 asset = await ensureManagedAsset(trimmedPayload, resolvedName, 'oss_img');
-                if (!asset && isPersisted && isRemoteUrl(normalizedPersisted)) {
-                    logger.warn('Managed upload failed; falling back to remote image URL for canvas placement', {
-                        fileName: resolvedName,
-                        operationType,
-                        placeholderId: extraOptions?.placeholderId,
-                        urlHost: (() => {
-                            try {
-                                return new URL(normalizedPersisted).hostname;
-                            } catch {
-                                return undefined;
-                            }
-                        })(),
-                    });
-                    asset = {
-                        id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: normalizedPersisted,
-                        key: isAssetKeyRef(normalizedPersisted) ? normalizedPersisted : undefined,
-                        src: toRenderableImageSrc(normalizedPersisted) || normalizedPersisted,
-                        remoteUrl: normalizedPersisted,
-                        fileName: resolvedName,
-                        pendingUpload: false,
-                        localDataUrl: undefined,
-                    };
-                }
             } else {
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1471,7 +1421,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 normalizedUrl ||
                 normalizedSrc;
             const shouldUploadManaged =
-                !persistableCandidate || requiresManagedImageUpload(persistableCandidate);
+                !!imagePayload.pendingUpload ||
+                !persistableCandidate ||
+                !isRemoteUrl(persistableCandidate) ||
+                requiresManagedImageUpload(persistableCandidate);
             if (shouldUploadManaged) {
                 const uploadInput =
                     inlineSource ||
@@ -1512,6 +1465,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         if (!asset || !asset.url) {
             logger.error('快速上传未获取到有效图片资源');
+            window.dispatchEvent(new CustomEvent('toast', {
+                detail: { message: '图片上传失败，未添加到画布', type: 'error' },
+            }));
             if (extraOptions?.placeholderId) {
                 removePredictedPlaceholder(extraOptions.placeholderId);
             }

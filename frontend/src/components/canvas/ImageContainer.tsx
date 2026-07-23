@@ -37,7 +37,7 @@ import backgroundRemovalService from "@/services/backgroundRemovalService";
 import { LoadingSpinner } from "../ui/loading-spinner";
 import { logger } from "@/utils/logger";
 import { convert2Dto3D } from "@/services/convert2Dto3DService";
-import { generateOssKey, uploadToOSS } from "@/services/ossUploadService";
+import { uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
 // optimizeHdImage 已弃用，改用 aiImageService.editImage
@@ -653,6 +653,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const setOperationInProgress = useCanvasStore(
     (state) => state.setOperationInProgress
   );
+  const convert2Dto3DRequestIdRef = useRef<string | null>(null);
   const expandOperationLockRef = useRef(false);
   const releaseExpandOperationLock = useCallback(() => {
     if (!expandOperationLockRef.current) return;
@@ -1574,6 +1575,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 的 base64 输入、以及本地抠图 backgroundRemovalService.removeBackground（只吃 base64）。
   const resolveEditImageSource =
     useCallback(async (): Promise<string | null> => {
+      // 裁剪、蒙版或其它画布内编辑存在时，以当前渲染资源为准；公共 AI
+      // 请求边界会把该运行时图片上传后再创建任务。
+      const editingSource = getImageDataForEditing?.(imageData.id) || null;
+      if (editingSource) {
+        return await resolveImageDataUrl();
+      }
       const remoteCandidate = (() => {
         const candidates = [imageData.remoteUrl, imageData.src, imageData.url];
         for (const candidate of candidates) {
@@ -1586,7 +1593,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         return null;
       })();
       return remoteCandidate || (await resolveImageDataUrl());
-    }, [imageData.remoteUrl, imageData.src, imageData.url, resolveImageDataUrl]);
+    }, [
+      getImageDataForEditing,
+      imageData.id,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
+      resolveImageDataUrl,
+    ]);
 
   const handleExtractPalette = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2746,14 +2760,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(`无效的图片URL: ${imageUrl}`);
           }
 
+          const requestStorageKey = `tanva:2d-to-3d:${projectId || "personal"}:${imageData.id}`;
+          let clientRequestId = convert2Dto3DRequestIdRef.current;
+          if (!clientRequestId) {
+            try {
+              clientRequestId = window.sessionStorage.getItem(requestStorageKey);
+            } catch {
+              // sessionStorage may be unavailable in privacy-restricted contexts.
+            }
+          }
+          if (!clientRequestId) {
+            const randomPart =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            clientRequestId = `canvas-2d3d-${randomPart}`;
+          }
+          convert2Dto3DRequestIdRef.current = clientRequestId;
+          try {
+            window.sessionStorage.setItem(requestStorageKey, clientRequestId);
+          } catch {
+            // The in-memory ref still protects retries during this component lifetime.
+          }
+
+          const clearRequestIdentity = () => {
+            convert2Dto3DRequestIdRef.current = null;
+            try {
+              window.sessionStorage.removeItem(requestStorageKey);
+            } catch {
+              // Ignore storage cleanup failures.
+            }
+          };
+
           const convertResult = await convert2Dto3D({
             imageUrl,
             projectId: projectId ?? undefined,
+            nodeId: imageData.id,
+            model: "3.1",
+            clientRequestId,
           });
 
           if (!convertResult.success || !convertResult.modelUrl) {
+            if (convertResult.terminal) clearRequestIdentity();
             throw new Error(convertResult.error || "2D转3D失败");
           }
+          clearRequestIdentity();
 
           const modelUrl = convertResult.modelUrl;
           const fileName =
@@ -3037,97 +3088,48 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         const uploadDir = projectId
           ? `projects/${projectId}/images/`
           : "uploads/images/";
-        const { key: plannedKey } = generateOssKey({
-          projectId,
+        const croppedPreviewDataUrl = await blobToDataUrl(croppedBlob);
+        const uploadResult = await uploadToOSS(croppedBlob, {
           dir: uploadDir,
           fileName,
           contentType: "image/png",
+          projectId,
         });
-        onResize?.(nextBounds);
-        const croppedPreviewDataUrl = await blobToDataUrl(croppedBlob);
+        if (!uploadResult.success || !uploadResult.url) {
+          throw new Error(uploadResult.error || "裁切图片上传失败，原图未修改");
+        }
+
+        const normalizedKey = normalizePersistableImageRef(uploadResult.key || "");
+        const normalizedRemoteUrl =
+          normalizePersistableImageRef(uploadResult.url) || uploadResult.url;
+        if (!isRemoteUrl(normalizedRemoteUrl)) {
+          throw new Error("裁切图片上传未返回远程链接，原图未修改");
+        }
+
         void imageUrlCache.updateDataUrl(
           imageData.id,
           croppedPreviewDataUrl,
           projectId,
           buildImageSourceFingerprint(croppedPreviewDataUrl)
         );
-
-        // 先用本地 dataURL 立即替换渲染，避免先切远程源导致首帧“幽灵图”。
+        onResize?.(nextBounds);
         window.dispatchEvent(
           new CustomEvent("canvas:replace-image-source", {
             detail: {
               imageId: imageData.id,
-              source: croppedPreviewDataUrl,
+              source: normalizedRemoteUrl,
               bounds: nextBounds,
               contentType: "image/png",
               fileName,
-              key: plannedKey,
-              clearRemoteUrl: true,
+              key: normalizedKey || undefined,
+              remoteUrl: normalizedRemoteUrl,
               width: outputWidth,
               height: outputHeight,
-              historyLabel: "crop-image",
-              pendingUpload: true,
+              historyLabel: "crop-image-oss",
+              pendingUpload: false,
             },
           })
         );
-
-        // 后台上传并回写远程元数据；DrawingController 会在远程资源可用后再无缝切换。
-        void (async () => {
-          try {
-            const uploadResult = await uploadToOSS(croppedBlob, {
-              dir: uploadDir,
-              fileName,
-              contentType: "image/png",
-              projectId,
-              key: plannedKey,
-            });
-
-            if (!uploadResult.success || !uploadResult.url) {
-              logger.warn("裁切图片后台上传失败，保持本地源等待自动补传", uploadResult.error);
-              return;
-            }
-
-            const normalizedKey = normalizePersistableImageRef(uploadResult.key || "");
-            const normalizedRemoteUrl =
-              normalizePersistableImageRef(uploadResult.url) || uploadResult.url;
-            if (!normalizedKey && !normalizedRemoteUrl) {
-              return;
-            }
-
-            const persistedSource = normalizedRemoteUrl || normalizedKey;
-            if (persistedSource) {
-              window.dispatchEvent(
-                new CustomEvent("canvas:replace-image-source", {
-                  detail: {
-                    imageId: imageData.id,
-                    source: persistedSource,
-                    bounds: nextBounds,
-                    contentType: "image/png",
-                    fileName,
-                    key: normalizedKey || undefined,
-                    remoteUrl: normalizedRemoteUrl || undefined,
-                    width: outputWidth,
-                    height: outputHeight,
-                    historyLabel: "crop-image-oss",
-                    pendingUpload: false,
-                  },
-                })
-              );
-            }
-
-            window.dispatchEvent(
-              new CustomEvent("tanva:upgradeImageSource", {
-                detail: {
-                  placeholderId: imageData.id,
-                  key: normalizedKey || undefined,
-                  remoteUrl: normalizedRemoteUrl || undefined,
-                },
-              })
-            );
-          } catch (uploadError) {
-            logger.warn("裁切图片后台上传异常，保持本地源等待自动补传", uploadError);
-          }
-        })();
       }
 
       window.dispatchEvent(
@@ -3492,6 +3494,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             aspectRatio,
             imageSize: "4K",
             imageOnly: true,
+            projectId: projectId || undefined,
           });
           if (!createResult.success || !createResult.data?.taskId) {
             throw new Error(
@@ -3562,7 +3565,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       execute();
     },
-    [resolveEditImageSource, imageData.id, isOptimizingHd, realTimeBounds]
+    [resolveEditImageSource, imageData.id, isOptimizingHd, projectId, realTimeBounds]
   );
 
   // 处理扩图取消
