@@ -5662,6 +5662,14 @@ const AIChatDialog: React.FC = () => {
                                       : message.content}
                                   </ReactMarkdown>
 
+                                  {!generationStatus?.isGenerating &&
+                                    generationStatus?.stage === "已完成" && (
+                                      <div className='mt-2 flex items-center gap-1 text-xs text-emerald-600'>
+                                        <Check className='h-3.5 w-3.5' />
+                                        <span>已完成</span>
+                                      </div>
+                                    )}
+
                                   {message.webSearchResult
                                     ?.hasSearchResults && (
                                     <div className='pt-2 mt-2 border-t border-gray-100'>

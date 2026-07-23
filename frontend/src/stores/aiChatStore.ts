@@ -56,6 +56,11 @@ import {
   resolveAgentNodeId,
 } from "@/services/agentPatchApplier";
 import { XiaotImagePatchContract } from "@/services/xiaotImagePatchContract";
+import {
+  resolveXiaotFinalText,
+  resolveXiaotTerminalContent,
+  XIAOT_THINKING_CONTENT,
+} from "@/stores/xiaotTerminalContent";
 import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
@@ -8519,7 +8524,7 @@ export const useAIChatStore = create<AIChatState>()(
           });
           const aiMessage = get().addMessage({
             type: "ai",
-            content: "小T正在思考...",
+            content: XIAOT_THINKING_CONTENT,
             generationStatus: {
               isGenerating: true,
               progress: 5,
@@ -8947,13 +8952,11 @@ export const useAIChatStore = create<AIChatState>()(
                   }
                 }
               } else if (event.type === "final") {
-                if (
-                  typeof event.message === "string" &&
-                  event.message.trim()
-                ) {
+                const finalText = resolveXiaotFinalText(event);
+                if (finalText) {
                   // 终帧权威文本（可能≠累计 delta）→ 喂打字机，收尾前的
                   // drain 让它平滑吐完；若比已显示短则夹取避免回退。
-                  assembled = event.message;
+                  assembled = finalText;
                   typeTarget = assembled;
                   if (typeShown > typeTarget.length) {
                     typeShown = typeTarget.length;
@@ -9107,7 +9110,11 @@ export const useAIChatStore = create<AIChatState>()(
               await drainTypewriter();
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
-                content: assembled || msg.content,
+                content: resolveXiaotTerminalContent(
+                  assembled,
+                  msg.content,
+                  "completed"
+                ),
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,
@@ -9131,7 +9138,11 @@ export const useAIChatStore = create<AIChatState>()(
             if (wasAborted) {
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
-                content: assembled || msg.content,
+                content: resolveXiaotTerminalContent(
+                  assembled,
+                  msg.content,
+                  "stopped"
+                ),
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,

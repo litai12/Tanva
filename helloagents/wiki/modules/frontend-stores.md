@@ -13,6 +13,7 @@
 - AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接对话历史。迭代计数与上下文依赖检测独立，Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
 - AI Chat Auto/Generate 的多图输出数量默认来自 `autoModeMultiplier`，但会先解析本次输入里的明确输出数量（如“画两张”“生成 3 张”“多张方案”）并覆盖默认倍数；“用两张参考图/把两张图融合”等输入素材数量不应触发输出倍数。明确数量触发并行时，每个 slot 会使用拆分后的单张 prompt，强调“本次只生成 1 张完整图片”，避免把总张数画成单图拼图或同图多主体。
 - 小T模式不使用上述自然语言覆盖逻辑：`autoModeMultiplier` 直接写入 `imageOutputCount`，同时由 `XiaotImagePatchContract` 限制实际落板的单输出图片节点、prompt、连线和 `runNode`。`gptImage2` 的宿主能力声明包含 `text/img` 输入与单个 `img:image` 输出，使 facade 能把 `runNode` 事实归类为异步图片提交。小T patch 队列完成后自动触发 `flow:auto-layout`，并聚焦本轮首个图片生成节点。
+- 小T画布任务的聊天占位文案只在运行中显示；终帧正文兼容读取 `message` 与 `data.text`，并继续通过 AI Chat 的 Markdown 渲染器展示。成功后正文下方单独显示“已完成”状态；只有 facade 没有返回正文时才用“任务已完成”兜底，中止无正文时显示“任务已停止”。
 - AI Chat 图片生成任务前端轮询上限为 15 分钟；消息写入错误态时会派发画布占位框 remove 事件，画布 `useQuickImageUpload` 还会定时清理过期或孤儿 AI 预测占位框，避免 95% 等待框残留。
 - AI Chat 工具选择兜底会把缓存图上的 `改文字` / `改成` / `替换文字` 等编辑意图路由到 `editImage`，避免尊享路线工具选择不稳定时退成 `chatResponse`。
 - AI Chat Auto 模式会并行创建 `/api/agent/runs` 规划 trace，并把 SSE 事件归并到当前 AI 占位消息的 `metadata.agentTrace`；上下文依赖命中时会把会话上下文传给 Agent Runtime 并展示“读取会话上下文”步骤。实际工具执行仍走现有 `processUserInput` / `executeProcessFlow` 链路。
