@@ -43,6 +43,7 @@
 - AI 图片生成、编辑、融合的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` 前最终校验。任何一层无法取得远程 URL 都必须失败关闭，禁止内联图片进入任务 `requestData`、Redis/BullMQ 或 new-api。
 
 ### Flow / AI 运行约定
+- AI Chat 的小T画布智能体模式面向全量用户默认开启，并持久化用户主动切换后的偏好；旧版偏好中没有该字段的用户升级后按开启处理。
 - 小T请求的内容安全与敏感话题判断由 `xiaot-agent-gpt-5-4|5-5` 渠道自身负责；Tanvas 只负责原样转发用户输入、能力清单和画布上下文，不维护本地政治人物名单/关键词规则，不在前端替换模型输出，不增加后端内容安全 Guard，也不额外注入 Tanvas 安全 system prompt，避免两套策略口径冲突。
 - 普通 AI Chat 的纯生图对话统一经小T执行：手动“生成”模式直接进入 `runXiaotAgent`；Auto 模式可沿用工具选择识别生图意图，但命中 `generateImage` 后必须停止旧的前端直调生图流程，把既有用户消息/AI 占位消息交给小T复用。小T使用当前所选 `xiaotModel` 大脑整理提示词，并依图片优选/用户点名选择 GPT Image、Banana 或其他图片节点，完成 `textPrompt → image node → runNode`。
 - 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6`。不得回退到 `gpt-5.4-mini`、`gemini-3.5-flash` 或旧 provider 档位。视频理解继续使用 Gemini 专用链路；小T使用 `xiaot-agent-gpt-5-4|5-5` facade，默认 GPT-5.4。

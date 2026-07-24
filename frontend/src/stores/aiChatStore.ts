@@ -137,7 +137,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 3;
+const AI_CHAT_PREFERENCES_VERSION = 4;
 const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
@@ -3655,7 +3655,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
-        xiaotMode: false, // 小T画布智能体模式默认关闭
+        xiaotMode: true, // 小T画布智能体模式全量默认开启
         xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.4
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
@@ -10327,6 +10327,9 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
+          // v4: 小T全量默认开启；已有显式开关偏好继续尊重用户选择。
+          xiaotMode:
+            typeof state.xiaotMode === "boolean" ? state.xiaotMode : true,
           // v3: 小T大脑只保留 GPT 5.4 / 5.5。旧值或未知值统一回落 5.4，
           // 避免持久化偏好继续覆盖新的产品默认模型。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
@@ -10350,6 +10353,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
+        xiaotMode: state.xiaotMode,
         xiaotModel: state.xiaotModel,
         xiaotPreferredImage: state.xiaotPreferredImage,
         xiaotPreferredVideo: state.xiaotPreferredVideo,
