@@ -45,7 +45,6 @@ import { MinimaxSpeechProvider } from './audio/providers/minimax-speech.provider
 import { MinimaxMusicProvider } from './audio/providers/minimax-music.provider';
 import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
-import { AiContentSafetyGuard } from './guards/ai-content-safety.guard';
 
 @Module({
   imports: [
@@ -95,7 +94,6 @@ import { AiContentSafetyGuard } from './guards/ai-content-safety.guard';
     GenerationTaskService,
     ReferenceVideoDurationService,
     ApiKeyOrJwtGuard,
-    AiContentSafetyGuard,
   ],
   controllers: [AiController, InternalTencentVodController],
   exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, SeedAudioVoiceService, GenerationTaskService],

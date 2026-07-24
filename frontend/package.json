@@ -21,7 +21,6 @@
     "test:video-provider-response": "node --test src/services/videoProviderResponse.test.ts",
     "test:xiaot-patch-contract": "node --test src/services/xiaotImagePatchContract.test.ts",
     "test:canvas-auto-layout": "node --test src/utils/canvasAutoLayout.test.ts",
-    "test:ai-content-safety": "node --test src/utils/aiContentSafety.test.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs"

@@ -43,8 +43,8 @@
 - AI 图片生成、编辑、融合的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` 前最终校验。任何一层无法取得远程 URL 都必须失败关闭，禁止内联图片进入任务 `requestData`、Redis/BullMQ 或 new-api。
 
 ### Flow / AI 运行约定
-- 全站 AI 创作实行统一内容安全边界：`/api/ai` 的普通对话、提示词优化、图片/视频/音频等创作入口及普通 Auto/Research Agent 均在调用模型、联网搜索、创建任务或扣积分前检查用户意图；明确命中的中国现实政治/政治人物、战争与恐怖主义、血腥暴力和自伤请求统一拒绝。小T额外在首条最高优先级 system policy 中对隐语、语义变体和提示词注入做保守判断。拒答不得泄露规则、关键词或判断过程。
-- AI Chat 前端统一入口必须在小T分流、Auto Agent trace、工具选择和消息占位创建前执行同口径预检；命中后只写固定拒答并立即结束。普通文本模型的最终输出还需在写入消息与会话历史前检查政治人物姓名/别称，命中时整体替换为固定拒答，防止旁路 trace 或上游漏判泄露敏感名称。
+- 小T请求的内容安全与敏感话题判断由 `xiaot-agent-gpt-5-4|5-5` 渠道自身负责；Tanvas 只负责原样转发用户输入、能力清单和画布上下文，不维护本地政治人物名单/关键词规则，不在前端替换模型输出，不增加后端内容安全 Guard，也不额外注入 Tanvas 安全 system prompt，避免两套策略口径冲突。
+- 普通 AI Chat 的纯生图对话统一经小T执行：手动“生成”模式直接进入 `runXiaotAgent`；Auto 模式可沿用工具选择识别生图意图，但命中 `generateImage` 后必须停止旧的前端直调生图流程，把既有用户消息/AI 占位消息交给小T复用。小T使用当前所选 `xiaotModel` 大脑整理提示词，并依图片优选/用户点名选择 GPT Image、Banana 或其他图片节点，完成 `textPrompt → image node → runNode`。
 - 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6`。不得回退到 `gpt-5.4-mini`、`gemini-3.5-flash` 或旧 provider 档位。视频理解继续使用 Gemini 专用链路；小T使用 `xiaot-agent-gpt-5-4|5-5` facade，默认 GPT-5.4。
 - Tanva 后端只通过 `NEW_API_BASE_URL` 与 `NEW_API_KEY` 访问 new-api；tc-api 的 base URL 与 `tc_sk` 只保存在 new-api 渠道配置中，Tanva 后端不得读取或要求 `TC_API_KEY` / `TAPCANVAS_API_KEY`。部署使用的 new-api 必须为 `default` 分组启用普通 `gpt-5.4` 与 `gpt-5.6` abilities（不能用小T专属的 `xiaot-agent-gpt-5-4|5-5` 代替）；缺少网关 ability 时应直接修复 new-api 渠道，不得让后端直连上游。积分记录与客户端模型外显统一标记为 new-api + 实际 GPT 模型。可运行 `cd backend && npm run verify:new-api-text-routing` 做无付费 mock 路由验证。
 - AI Chat 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免切换/新建项目时把旧本地历史串入当前项目。

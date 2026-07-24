@@ -6,11 +6,6 @@ import { CreditsService } from '../credits/credits.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAgentRunDto } from './dto/agent-run.dto';
 import { AgentEventType } from './agent.types';
-import {
-  assessXiaotPromptSafety,
-  XIAOT_SAFETY_REFUSAL,
-  XIAOT_SAFETY_SYSTEM_PROMPT,
-} from './xiaot-safety-policy';
 
 type XiaotEmit = (
   type: AgentEventType,
@@ -91,9 +86,7 @@ export class XiaotAgentService {
   }
 
   private buildMessages(dto: CreateAgentRunDto): ChatMessage[] {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: XIAOT_SAFETY_SYSTEM_PROMPT },
-    ];
+    const messages: ChatMessage[] = [];
     if (dto.capabilityManifest) {
       messages.push({
         role: 'system',
@@ -150,23 +143,6 @@ export class XiaotAgentService {
       dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
         ? dto.model
         : this.model;
-
-    // 明确命中的请求在 Tanva 边界内直接拒答：不把内容发给上游，不执行画布工具，
-    // 也不产生小T积分。未命中的隐语/变体继续由最高优先级 system policy 语义判断。
-    const safetyCategory = assessXiaotPromptSafety(dto.prompt);
-    if (safetyCategory) {
-      this.logger.warn(
-        `Xiaot request blocked by site safety policy: category=${safetyCategory}`,
-      );
-      emit('run_started', { title: '小T已接入', data: { model } });
-      emit('assistant_delta', { data: { delta: XIAOT_SAFETY_REFUSAL } });
-      emit('final', {
-        message: XIAOT_SAFETY_REFUSAL,
-        data: { text: XIAOT_SAFETY_REFUSAL, patchCount: 0, usageUnits: 0 },
-      });
-      emit('done', {});
-      return;
-    }
 
     // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
     // 前缀防 team/user id 命名空间相撞。

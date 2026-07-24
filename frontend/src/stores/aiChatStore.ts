@@ -81,11 +81,6 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
-import {
-  AI_CONTENT_SAFETY_REFUSAL,
-  sanitizeAITextOutput,
-  shouldBlockAIRequest,
-} from "@/utils/aiContentSafety";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
 import {
   resolveImageToBlob,
@@ -3210,7 +3205,13 @@ interface AIChatState {
   processUserInput: (input: string) => Promise<void>;
 
   // 小T画布智能体链路（快照上送 + delta 渲染 + flow_patch 落画布）
-  runXiaotAgent: (input: string) => Promise<void>;
+  runXiaotAgent: (
+    input: string,
+    options?: {
+      override?: MessageOverride;
+      forceImageGeneration?: boolean;
+    }
+  ) => Promise<void>;
   // 小T 是否正在流式运行（发送按钮据此在「发送/停止」间切换）
   xiaotRunning: boolean;
   // 中断当前小T流式会话：abort 网络流 + 把占位消息标记为「已停止」
@@ -6939,28 +6940,6 @@ export const useAIChatStore = create<AIChatState>()(
         ) => {
           // 🔥 并行模式：不检查全局状态
 
-          // 其他调用方可能绕过 processUserInput 直接调用文本工具，因此这里再次闭合入口。
-          if (shouldBlockAIRequest(prompt)) {
-            const blockedMessageId = options?.override?.aiMessageId;
-            if (blockedMessageId) {
-              get().updateMessage(blockedMessageId, (msg) => ({
-                ...msg,
-                content: AI_CONTENT_SAFETY_REFUSAL,
-                generationStatus: {
-                  isGenerating: false,
-                  progress: 100,
-                  error: null,
-                  stage: "已完成",
-                },
-              }));
-            } else {
-              get().addMessage({ type: "user", content: prompt });
-              get().addMessage({ type: "ai", content: AI_CONTENT_SAFETY_REFUSAL });
-            }
-            await get().refreshSessions({ immediate: true });
-            return;
-          }
-
           const metrics = options?.metrics;
           logProcessStep(metrics, "generateTextResponse entered");
 
@@ -7056,7 +7035,6 @@ export const useAIChatStore = create<AIChatState>()(
             );
 
             if (result.success && result.data) {
-              const safeResponseText = sanitizeAITextOutput(result.data.text);
               // 🔥 更新消息内容和完成状态
               set((state) => ({
                 messages: optimizeMessagesMemory(
@@ -7064,7 +7042,7 @@ export const useAIChatStore = create<AIChatState>()(
                     msg.id === aiMessageId
                       ? {
                           ...msg,
-                          content: safeResponseText,
+                          content: result.data!.text,
                           webSearchResult: result.data!.webSearchResult,
                           metadata: {
                             ...(msg.metadata || {}),
@@ -7088,7 +7066,7 @@ export const useAIChatStore = create<AIChatState>()(
                   (m) => m.id === aiMessageId
                 );
                 if (message) {
-                  message.content = safeResponseText;
+                  message.content = result.data!.text;
                   message.webSearchResult = result.data!.webSearchResult;
                   message.metadata = {
                     ...(message.metadata || {}),
@@ -8481,7 +8459,13 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         // 🤖 小T画布智能体：采集画布快照 → createAgentRun(mode: canvasAgent) → SSE 增量渲染 + flow_patch 落画布
-        runXiaotAgent: async (input: string) => {
+        runXiaotAgent: async (
+          input: string,
+          options?: {
+            override?: MessageOverride;
+            forceImageGeneration?: boolean;
+          }
+        ) => {
           const state = get();
           const imageOutputCount = state.autoModeMultiplier;
           const imagePatchContract = new XiaotImagePatchContract(imageOutputCount);
@@ -8545,22 +8529,44 @@ export const useAIChatStore = create<AIChatState>()(
           });
           snapshotReadyAt = performance.now();
 
-          // 2️⃣ 用户消息 + 占位 AI 消息（复用 processUserInput 的消息创建方式）
-          get().addMessage({
-            type: "user",
-            content: input,
-          });
-          const aiMessage = get().addMessage({
-            type: "ai",
-            content: XIAOT_THINKING_CONTENT,
-            generationStatus: {
-              isGenerating: true,
-              progress: 5,
-              error: null,
-              stage: "小T思考中",
-            },
-            provider: state.aiProvider,
-          });
+          // 2️⃣ 用户消息 + 占位 AI 消息。普通 Auto 模式已经创建过消息时复用它们，
+          // 避免“GPT 工具选择气泡 + 小T气泡”重复出现。
+          if (!options?.override) {
+            get().addMessage({
+              type: "user",
+              content: input,
+            });
+          }
+          let aiMessage = options?.override
+            ? get().messages.find(
+                (message) => message.id === options.override!.aiMessageId
+              )
+            : undefined;
+          if (aiMessage) {
+            get().updateMessage(aiMessage.id, (message) => ({
+              ...message,
+              content: XIAOT_THINKING_CONTENT,
+              generationStatus: {
+                isGenerating: true,
+                progress: 5,
+                error: null,
+                stage: "小T思考中",
+              },
+              provider: state.aiProvider,
+            }));
+          } else {
+            aiMessage = get().addMessage({
+              type: "ai",
+              content: XIAOT_THINKING_CONTENT,
+              generationStatus: {
+                isGenerating: true,
+                progress: 5,
+                error: null,
+                stage: "小T思考中",
+              },
+              provider: state.aiProvider,
+            });
+          }
 
           // 3️⃣ patch 会话跟随聊天会话：同会话保留 agent 节点 id 映射
           //（小T下轮可继续引用上轮自造 id），仅聊天会话切换时才重置
@@ -8656,6 +8662,11 @@ export const useAIChatStore = create<AIChatState>()(
               imageOutputCount,
               notes: [
                 ...TANVA_CAPABILITY_MANIFEST.notes,
+                ...(options?.forceImageGeneration
+                  ? [
+                      "【本轮宿主已判定为生图任务·必须执行】只规划图片生成：整理用户需求为可执行提示词，选择合适的 GPT/图片生成节点，创建 textPrompt 并连接图片节点，然后 runNode。不要改成普通文字回答、视频或其他工具。",
+                    ]
+                  : []),
                 `【用户优选·必须遵守】未明确要求其他模型时：图片生成一律用 ${preferredImage.nodeType}${
                   preferredImage.extra
                     ? `（modelProvider=${preferredImage.extra}）`
@@ -9256,24 +9267,6 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
-          // 位于小T分流、Auto Agent trace、工具选择和占位消息之前。命中后只落固定
-          // 拒答，不再启动任何后端请求、联网搜索、积分扣除或画布任务。
-          if (shouldBlockAIRequest(input)) {
-            get().addMessage({ type: "user", content: input });
-            get().addMessage({
-              type: "ai",
-              content: AI_CONTENT_SAFETY_REFUSAL,
-              generationStatus: {
-                isGenerating: false,
-                progress: 100,
-                error: null,
-                stage: "已完成",
-              },
-            });
-            await get().refreshSessions({ immediate: true });
-            return;
-          }
-
           // 🤖 小T画布智能体模式：v1 只处理纯文本输入；带图片/PDF 附件不拦截，走原链路
           if (
             state.xiaotMode &&
@@ -9283,6 +9276,19 @@ export const useAIChatStore = create<AIChatState>()(
             !state.sourcePdfForAnalysis
           ) {
             await get().runXiaotAgent(input);
+            return;
+          }
+
+          // 普通 AI Chat 的手动“生成”模式不再直调 GPT/生图接口：整轮交给小T，
+          // 由小T整理提示词、选择用户优选的 GPT/图片模型并执行画布节点。
+          if (
+            state.manualAIMode === "generate" &&
+            state.sourceImagesForBlending.length === 0 &&
+            !state.sourceImageForEditing &&
+            !state.sourceImageForAnalysis &&
+            !state.sourcePdfForAnalysis
+          ) {
+            await get().runXiaotAgent(input, { forceImageGeneration: true });
             return;
           }
 
@@ -9655,6 +9661,17 @@ export const useAIChatStore = create<AIChatState>()(
           if (!selectedTool) {
             console.warn("⚠️ 未获取到工具选择结果，默认使用 chatResponse");
             selectedTool = "chatResponse";
+          }
+
+          // Auto 模式只用现有工具选择判断“是不是生图”。一旦命中，后续提示词理解、
+          // GPT 图片模型选择与实际执行全部改由小T负责，不再进入旧 generateImage 直调链路。
+          if (selectedTool === "generateImage") {
+            set({ autoSelectedTool: selectedTool });
+            await get().runXiaotAgent(input, {
+              override: messageOverride,
+              forceImageGeneration: true,
+            });
+            return;
           }
 
           // 🔥 第二步：根据选择的工具决定是否应用 multiplier
