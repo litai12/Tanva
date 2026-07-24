@@ -88,6 +88,7 @@ import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-c
 import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
+import { AiContentSafetyGuard } from './guards/ai-content-safety.guard';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -143,7 +144,7 @@ type BananaRouteSuccessRateStats = {
 };
 
 @ApiTags('ai')
-@UseGuards(ApiKeyOrJwtGuard)
+@UseGuards(ApiKeyOrJwtGuard, AiContentSafetyGuard)
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);

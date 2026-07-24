@@ -17,6 +17,10 @@ import {
 } from './agent.types';
 import { VolcResearchSearchService, VolcResearchSearchPayload } from './volc-research-search.service';
 import { XiaotAgentService } from './xiaot-agent.service';
+import {
+  assessXiaotPromptSafety,
+  XIAOT_SAFETY_REFUSAL,
+} from './xiaot-safety-policy';
 
 type AgentEventSubscriber = (event: AgentRunEvent) => void;
 
@@ -75,6 +79,41 @@ export class AgentRuntimeService {
     teamId?: string,
   ): AgentRunSummary {
     this.cleanupExpiredRuns();
+
+    // 普通 Auto/Research Agent 与小T共用同一站点边界。这里在意图选择、联网搜索、
+    // 模型调用和画布执行之前终止，保证关闭小T也不能绕过。
+    const safetyCategory = assessXiaotPromptSafety(dto.prompt);
+    if (safetyCategory) {
+      const now = new Date();
+      const run: AgentRunRecord = {
+        id: randomUUID(),
+        userId,
+        prompt: dto.prompt,
+        status: 'queued',
+        intent: 'text_chat',
+        selectedTool: 'chatResponse',
+        workflow: 'content_safety_refusal',
+        createdAt: now,
+        updatedAt: now,
+        events: [],
+      };
+      this.runs.set(run.id, run);
+      setTimeout(() => {
+        run.status = 'running';
+        this.emit(run, 'assistant_delta', {
+          data: { delta: XIAOT_SAFETY_REFUSAL },
+        });
+        this.emit(run, 'final', {
+          message: XIAOT_SAFETY_REFUSAL,
+          data: { text: XIAOT_SAFETY_REFUSAL },
+        });
+        this.emit(run, 'done', {});
+        run.status = 'completed';
+        run.completedAt = new Date();
+        run.updatedAt = new Date();
+      }, 0);
+      return this.toSummary(run);
+    }
 
     // canvasAgent 模式：绕过本地 intent/plan 流程，直接经 new-api 流式调用小T。
     if (dto.mode === 'canvasAgent') {
