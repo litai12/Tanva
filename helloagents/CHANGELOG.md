@@ -996,3 +996,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 # 2026-07-24
 
 - 系统设置新增可定时、可指定用户、可配置每用户展示次数的维护公告；公告支持标题、富文本和纯图片正文，并改为服务端跨设备展示计数。
+- Image Chat 从 GPT-5.6 Luna 恢复为 Gemini 多模态三档（2.5 Flash / 3.5 Flash / 3.1 Pro），ToAPIs 补齐真实模型 ID、abilities 与后端一致的 0.1 元固定价；小T新增 `analyze_image` 宿主工具并复用相同图片分析接口。

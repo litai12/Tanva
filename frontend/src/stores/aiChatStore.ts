@@ -9030,6 +9030,99 @@ export const useAIChatStore = create<AIChatState>()(
                       });
                     })()
                   );
+                } else if (toolName === "analyze_image") {
+                  hostToolHandled = true;
+                  const requestedTier =
+                    toolArgs.tier === "fast" ||
+                    toolArgs.tier === "pro" ||
+                    toolArgs.tier === "ultra"
+                      ? toolArgs.tier
+                      : state.aiProvider === "banana-2.5"
+                        ? "fast"
+                        : state.aiProvider === "banana-3.1" || state.aiProvider === "nano2"
+                          ? "ultra"
+                          : "pro";
+                  const analyzeProvider: AIProviderType =
+                    requestedTier === "fast"
+                      ? "banana-2.5"
+                      : requestedTier === "ultra"
+                        ? "banana-3.1"
+                        : "banana";
+                  const analyzeModel =
+                    analyzeProvider === "banana-2.5"
+                      ? "gemini-2.5-flash"
+                      : analyzeProvider === "banana-3.1"
+                        ? "gemini-3.1-pro"
+                        : "gemini-3.5-flash";
+                  const argumentUrls = Array.isArray(toolArgs.imageUrls)
+                    ? toolArgs.imageUrls.filter(
+                        (value): value is string =>
+                          typeof value === "string" && value.trim().length > 0
+                      )
+                    : [];
+                  const messageUrls = [
+                    xiaotUserMessage?.imageRemoteUrl,
+                    xiaotUserMessage?.sourceImageData,
+                    ...(xiaotUserMessage?.sourceImagesData || []),
+                    xiaotUserMessage?.imageData,
+                    xiaotUserMessage?.thumbnail,
+                  ].filter(
+                    (value): value is string =>
+                      typeof value === "string" && value.trim().length > 0
+                  );
+                  const imageUrls = Array.from(
+                    new Set([...argumentUrls, ...messageUrls].map((value) => value.trim()))
+                  );
+                  const prompt =
+                    typeof toolArgs.prompt === "string" && toolArgs.prompt.trim()
+                      ? toolArgs.prompt.trim()
+                      : input;
+                  pendingHostTools.push(
+                    (async () => {
+                      if (imageUrls.length === 0) {
+                        throw new Error("图像分析工具没有收到图片，请先上传图片或指定画布图片。");
+                      }
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        generationStatus: {
+                          isGenerating: true,
+                          progress: 65,
+                          error: null,
+                          stage: "小T正在分析图片",
+                        },
+                      }));
+                      const result = await aiImageService.analyzeImage({
+                        prompt,
+                        sourceImage: imageUrls[0],
+                        sourceImages: imageUrls.length > 1 ? imageUrls : undefined,
+                        aiProvider: analyzeProvider,
+                        model: analyzeModel,
+                        providerOptions: withBananaRouteProviderOptions(
+                          analyzeProvider,
+                          undefined,
+                          state.bananaImageRoute
+                        ),
+                      });
+                      const analysis = result.data?.analysis?.trim();
+                      if (!result.success || !analysis) {
+                        throw new Error(
+                          result.error?.message || "图片分析没有返回内容，请稍后重试。"
+                        );
+                      }
+                      typeTarget = analysis;
+                      pumpTypewriter();
+                      await drainTypewriter();
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        metadata: {
+                          ...(msg.metadata || {}),
+                          xiaotHostTool: "analyze_image",
+                          analyzedImageCount: imageUrls.length,
+                          analyzeModel,
+                        },
+                      }));
+                    })()
+                  );
                 }
               } else if (event.type === "host_ui") {
                 // 小T交互卡片：choices/media 追加进 xiaotCards；

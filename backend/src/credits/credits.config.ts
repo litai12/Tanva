@@ -106,22 +106,22 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana-2.5 融合',
   },
   'gemini-image-analyze': {
-    serviceName: 'GPT-5.6 图像分析',
+    serviceName: 'Gemini 3.5 图像分析',
     provider: 'new-api',
     creditsPerCall: 10,
-    description: '使用 GPT-5.6 分析图像内容',
+    description: '使用 Gemini 3.5 Flash 分析图像内容',
   },
   'gemini-3.1-image-analyze': {
-    serviceName: 'GPT-5.6 图像分析',
+    serviceName: 'Gemini 3.1 图像分析',
     provider: 'new-api',
     creditsPerCall: 10,
-    description: '使用 GPT-5.6 分析图像内容',
+    description: '使用 Gemini 3.1 Pro 分析图像内容',
   },
   'gemini-2.5-image-analyze': {
-    serviceName: 'GPT-5.6 图像分析',
+    serviceName: 'Gemini 2.5 图像分析',
     provider: 'new-api',
     creditsPerCall: 10,
-    description: '使用 GPT-5.6 分析图像内容',
+    description: '使用 Gemini 2.5 Flash 分析图像内容',
   },
 
   // ── 极速通道（beqlee 官方代理，官方价 ×1.1）────────────────────────────────

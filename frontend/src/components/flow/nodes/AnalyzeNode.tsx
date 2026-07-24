@@ -4,7 +4,7 @@ import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edg
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
-import { getAdvancedTextModelForProvider, useAIChatStore } from '@/stores/aiChatStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
@@ -61,6 +61,12 @@ type AnalysisSkillOption = {
   label: string;
   description: string;
   prompt: string;
+};
+
+const getImageChatModelForProvider = (provider: ProviderToggleValue): string => {
+  if (provider === 'banana-2.5') return 'gemini-2.5-flash';
+  if (provider === 'banana-3.1') return 'gemini-3.1-pro';
+  return 'gemini-3.5-flash';
 };
 
 const DEFAULT_ANALYSIS_SKILL_ID: AnalysisSkillId = 'prompt';
@@ -690,7 +696,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const analyzeBananaImageRoute: 'normal' | 'stable' =
     bananaImageRoute === 'stable' ? 'stable' : 'normal';
   const analysisModel = React.useMemo(
-    () => getAdvancedTextModelForProvider(effectiveProvider),
+    () => getImageChatModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
 

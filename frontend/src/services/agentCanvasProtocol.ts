@@ -123,6 +123,24 @@ export const TANVA_CAPABILITY_MANIFEST = {
         query: { type: "string", description: "完整的案例检索需求" },
       },
     },
+    {
+      name: "analyze_image",
+      description:
+        "调用 Tanva Image Chat 的 Gemini 多模态分析接口。用户要求识图、描述图片、提取图片提示词、比较图片或分析画布/附件图片时使用。优先传 canvas_context 中真实图片节点的远程 URL；消息附件可省略 imageUrls，由宿主自动补齐。",
+      parameters: {
+        prompt: { type: "string", description: "对图片的完整分析要求" },
+        imageUrls: {
+          type: "array",
+          items: { type: "string" },
+          description: "待分析图片的远程 URL，可传多张；消息附件可不传",
+        },
+        tier: {
+          type: "string",
+          enum: ["fast", "pro", "ultra"],
+          description: "可选分析档位，默认沿用用户当前图片模型档位",
+        },
+      },
+    },
   ],
   nodeSpecs: [
     // ── 第一层：完整 spec ──
@@ -395,7 +413,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [
-    "宿主工具调用规则：用户明确要求“只出图/不要文字”时调用 host_tool{name:'legacy_image_only',arguments:{prompt}}，不要再创建生图 flow_patch；用户要求找案例/案例搜索/参考资料/建筑先例时调用 host_tool{name:'case_search',arguments:{query}}。这两项必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
+    "宿主工具调用规则：用户明确要求“只出图/不要文字”时调用 host_tool{name:'legacy_image_only',arguments:{prompt}}，不要再创建生图 flow_patch；用户要求找案例/案例搜索/参考资料/建筑先例时调用 host_tool{name:'case_search',arguments:{query}}；用户要求识图、描述图片、提取图片提示词、比较图片或分析画布/附件图片时调用 host_tool{name:'analyze_image',arguments:{prompt,imageUrls?,tier?}}，不要仅凭语言模型猜图。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",

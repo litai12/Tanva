@@ -173,17 +173,17 @@ export class AiController {
     seedream5: 'gpt-5.4',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
-    gemini: 'gpt-5.6-luna',
-    'gemini-pro': 'gpt-5.6-luna',
-    banana: 'gpt-5.6-luna',
-    'banana-2.5': 'gpt-5.6-luna',
-    'banana-3.1': 'gpt-5.6-luna',
-    'deepseek-v4-flash': 'gpt-5.6-luna',
-    'deepseek-v4-pro': 'gpt-5.6-luna',
-    runninghub: 'gpt-5.6-luna',
-    midjourney: 'gpt-5.6-luna',
-    nano2: 'gpt-5.6-luna',
-    seedream5: 'gpt-5.6-luna',
+    gemini: 'gemini-3.5-flash',
+    'gemini-pro': 'gemini-3.5-flash',
+    banana: 'gemini-3.5-flash',
+    'banana-2.5': 'gemini-2.5-flash',
+    'banana-3.1': 'gemini-3.1-pro',
+    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
+    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
+    runninghub: 'gemini-3.5-flash',
+    midjourney: 'gemini-3.5-flash',
+    nano2: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.5-flash',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -2149,7 +2149,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gpt-5.6-luna';
+      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.5-flash';
     }
     return this.providerDefaultAnalyzeModels.gemini;
   }

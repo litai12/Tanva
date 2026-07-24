@@ -208,6 +208,7 @@ export class NewApiProvider implements IAIProvider {
     const result = await this.chat(
       {
         model: request.model || 'gpt-5.6-luna',
+        max_tokens: 4096,
         messages: [{ role: 'user', content }],
       },
       request.providerOptions,

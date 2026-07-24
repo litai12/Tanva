@@ -147,3 +147,8 @@
   - `doubao-seed-2-0-mini` -> `doubao-seedance-2-0-fast-260128`
   - `doubao-seedance-2-0` -> `doubao-seedance-2-0-260128`
 - This prevents `model ... does not support content generation` errors caused by outdated or custom requestProfile model values.
+## 2026-07-24 Image Chat Gemini / ToAPIs
+
+- `/api/ai/analyze-image` 的 Image Chat 三档恢复为 ToAPIs 模型广场真实基础 ID：Fast `gemini-2.5-flash`、Pro `gemini-3.5-flash`、Ultra `gemini-3.1-pro`，均走 OpenAI-compatible `/v1/chat/completions` 并显式发送 `max_tokens=4096`。
+- ToAPIs 数据补丁 `new-api/patches/2026-07-24/001-add-toapis-gemini-image-chat.sql` 为 type=59 ToAPIs 渠道追加模型与 abilities，并按 Tanva 后端 Image Chat 统一 `10 credits = RMB 0.10/次` 写入固定 `ModelPrice`。ToAPIs 2026-07-24 页面参考 token 价分别为 12/100、60/360、80/480 credits/1M input/output；产品对用户仍采用后端固定价。
+- 小T capability manifest 暴露宿主工具 `analyze_image`。识图、图片描述、图片比较、提示词反推等任务必须调用该工具；宿主复用同一个 analyze endpoint、三档模型与积分逻辑，并从工具参数或当前消息附件收集图片。
