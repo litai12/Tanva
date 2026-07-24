@@ -3747,7 +3747,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {/* 小T大脑选择器 - 小T模式下替换常规模型下拉 */}
-                {xiaotMode && (
+                {false && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -3819,7 +3819,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {/* 小T优选图片模型选择器 */}
-                {xiaotMode && (
+                {false && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -3892,7 +3892,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {/* 小T优选视频模型选择器 */}
-                {xiaotMode && (
+                {false && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -4061,7 +4061,7 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenu>
                 )}
 
-                {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
+                {false && MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
                   <DropdownMenu className='order-3 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <button
@@ -4118,7 +4118,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {showAspectRatioControls && (
+              {false && showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -4150,7 +4150,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 视频尺寸选择按钮 */}
-              {xiaotMode && (
+              {false && xiaotMode && (
                 <Button
                   ref={videoAspectButtonRef}
                   onClick={() => setIsVideoAspectOpen((v) => !v)}
@@ -4186,7 +4186,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 视频时长选择按钮 */}
-              {xiaotMode && (
+              {false && xiaotMode && (
                 <Button
                   ref={videoDurationButtonRef}
                   onClick={() => setIsVideoDurationOpen((v) => !v)}
@@ -4221,7 +4221,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {showImageSizeControls && (
+              {false && showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
@@ -4283,7 +4283,7 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {showAspectRatioControls &&
+              {false && showAspectRatioControls &&
                 isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4326,7 +4326,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 视频尺寸下拉菜单 */}
-              {xiaotMode &&
+              {false && xiaotMode &&
                 isVideoAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4375,7 +4375,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 视频时长下拉菜单 */}
-              {xiaotMode &&
+              {false && xiaotMode &&
                 isVideoDurationOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4429,7 +4429,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 图像尺寸下拉菜单 - Gemini Pro 和 Banana API */}
-              {showImageSizeControls &&
+              {false && showImageSizeControls &&
                 isImageSizeOpen &&
                 typeof document !== "undefined" &&
                 createPortal(

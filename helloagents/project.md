@@ -46,6 +46,7 @@
 - AI Chat 固定使用小T单轨入口，不再提供小T开关；preferences v5 会忽略历史关闭偏好并固定开启。旧能力必须作为小T宿主工具接入，不能以关闭小T回到旧链路。
 - 小T是 AI Chat 的单一入口；原生“只出图”和“案例搜索”作为 `host_tool` 宿主能力暴露给小T，由小T判断并调用。Tanva 在当前小T消息内执行旧链路并展示图片或案例卡片，不得在进入小T之前做前端分流，也不得要求用户切换回旧聊天模式。
 - 小T单轨仍保留图片比例、图片尺寸、视频比例、视频时长和附件上传入口；四项生成规格作为结构化偏好随每轮 capability manifest 交给小T，用户当轮明确指定的规格优先于已保存偏好。
+- 小T的大脑档位、图片/视频模型、图片/视频规格、输出数量与风格锚定统一收口到输入区的“设置”弹窗；不再分别展示模型下拉和画幅/尺寸小按钮，底层偏好字段与持久化行为保持不变。
 - 小T请求的内容安全与敏感话题判断由小T facade 渠道自身负责；三档大脑固定为 Fast=`xiaot-agent-gpt-5-4`、Pro=`xiaot-agent-gpt-5-5`、Ultra=`xiaot-agent-gpt-5-6-luna`。Tanvas 只负责原样转发用户输入、能力清单和画布上下文，不维护本地关键词规则或额外安全 Guard。
 - 普通 AI Chat 的纯生图对话统一经小T执行：手动“生成”模式直接进入 `runXiaotAgent`；Auto 模式可沿用工具选择识别生图意图，但命中 `generateImage` 后必须停止旧的前端直调生图流程，把既有用户消息/AI 占位消息交给小T复用。小T使用当前所选 `xiaotModel` 大脑整理提示词，并依图片优选/用户点名选择 GPT Image、Banana 或其他图片节点，完成 `textPrompt → image node → runNode`。
 - 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6-luna`。视频理解继续使用 Gemini 专用链路；小T三档为 Fast GPT-5.4、Pro GPT-5.5、Ultra GPT-5.6 Luna，默认 Fast。
