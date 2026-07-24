@@ -10421,8 +10421,7 @@ export const useAIChatStore = create<AIChatState>()(
             : "normal",
           // v5: 小T改为单轨入口，忽略历史开关偏好并固定开启。
           xiaotMode: true,
-          // v3: 小T大脑只保留 GPT 5.4 / 5.5。旧值或未知值统一回落 5.4，
-          // 避免持久化偏好继续覆盖新的产品默认模型。
+          // v5: 小T大脑为 Fast/Pro/Ultra 三档；旧值或未知值统一回落 Fast。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
             ? (state.xiaotModel as XiaotChatModel)
             : DEFAULT_XIAOT_CHAT_MODEL,

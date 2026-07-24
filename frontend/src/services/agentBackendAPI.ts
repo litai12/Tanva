@@ -13,6 +13,7 @@ const API_BASE_URL =
 export const XIAOT_CHAT_MODELS = [
   "xiaot-agent-gpt-5-4",
   "xiaot-agent-gpt-5-5",
+  "xiaot-agent-gpt-5-6-luna",
 ] as const;
 export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
 

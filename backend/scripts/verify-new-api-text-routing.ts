@@ -19,6 +19,15 @@ const originalEnv = {
 };
 
 globalThis.fetch = async (input, init) => {
+  if (String(input).startsWith('https://assets.test/')) {
+    return new Response(Uint8Array.from([137, 80, 78, 71]), {
+      status: 200,
+      headers: {
+        'content-type': 'image/png',
+        'content-length': '4',
+      },
+    });
+  }
   const headers = new Headers(init?.headers);
   captured.push({
     url: String(input),
@@ -70,7 +79,7 @@ async function main(): Promise<void> {
     (captured[0]?.body.messages as Array<{ content?: unknown }> | undefined)?.[0]?.content,
     [
       { type: 'text', text: 'find public sources' },
-      { type: 'image_url', image_url: { url: 'https://assets.test/reference.png' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw==' } },
     ],
   );
 
@@ -81,6 +90,13 @@ async function main(): Promise<void> {
   assert.equal(captured[1]?.body.model, 'gpt-5.6-luna');
   assert.equal(captured[1]?.url, 'https://new-api.test/v1/chat/completions');
   assert.equal(captured[1]?.authorization, 'Bearer new-api-key');
+  const analysisContent = (
+    captured[1]?.body.messages as Array<{ content?: Array<Record<string, any>> }> | undefined
+  )?.[0]?.content;
+  assert.match(
+    String(analysisContent?.[1]?.image_url?.url || ''),
+    /^data:image\/png;base64,/,
+  );
 
   const legacyResult = await provider.generateText({
     prompt: 'legacy model uses the same gateway',
