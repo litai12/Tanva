@@ -188,6 +188,8 @@ const API_USAGE_MODEL_NODES: ApiUsageModelNode[] = [
 const API_USAGE_MODEL_NODE_MAP = new Map(API_USAGE_MODEL_NODES.map((item) => [item.key, item]));
 
 export interface LoginNoticeView {
+  id: string;
+  title: string;
   enabled: boolean;
   content: string;
   contentHtml: string;
@@ -482,6 +484,12 @@ export class AdminService {
   }
 
   private parseLoginNoticeValue(value: string | null | undefined): {
+    title: string;
+    maxViews: number;
+    effectiveAt: string;
+    expiresAt: string;
+    audience: 'all' | 'specified';
+    targetUsers: string[];
     enabled: boolean;
     content: string;
     contentHtml: string;
@@ -496,6 +504,7 @@ export class AdminService {
   } {
     if (!value) {
       return {
+        title: '', maxViews: 1, effectiveAt: '', expiresAt: '', audience: 'all', targetUsers: [],
         enabled: false,
         content: '',
         contentHtml: '',
@@ -524,6 +533,14 @@ export class AdminService {
             : 'image'
           : null;
         return {
+          title: typeof objectValue.title === 'string' ? objectValue.title.trim() : '',
+          maxViews: Math.max(1, Math.min(100, Math.floor(Number(objectValue.maxViews) || 1))),
+          effectiveAt: typeof objectValue.effectiveAt === 'string' ? objectValue.effectiveAt : '',
+          expiresAt: typeof objectValue.expiresAt === 'string' ? objectValue.expiresAt : '',
+          audience: objectValue.audience === 'specified' ? 'specified' : 'all',
+          targetUsers: Array.isArray(objectValue.targetUsers)
+            ? objectValue.targetUsers.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+            : [],
           enabled: objectValue.enabled === true,
           content: content || this.extractLoginNoticeTextFromHtml(contentHtml),
           contentHtml,
@@ -542,6 +559,7 @@ export class AdminService {
     }
 
     return {
+      title: '', maxViews: 1, effectiveAt: '', expiresAt: '', audience: 'all', targetUsers: [],
       enabled: true,
       content: value,
       contentHtml: '',
@@ -2036,9 +2054,12 @@ export class AdminService {
     const buttonQrSetting = await this.getSetting(LOGIN_NOTICE_BUTTON_QRCODE_SETTING_KEY);
     const parsed = this.parseLoginNoticeValue(setting?.value);
     const content = parsed.content.trim();
+    const hasContentImage = /<img\b[^>]*\bsrc=["'](?:https?:\/\/|\/)/i.test(parsed.contentHtml);
 
     return {
-      enabled: parsed.enabled && content.length > 0,
+      id: setting?.updatedAt ? setting.updatedAt.toISOString() : '',
+      title: parsed.title,
+      enabled: parsed.enabled && (content.length > 0 || hasContentImage),
       content: parsed.content,
       contentHtml: parsed.contentHtml,
       mediaType: parsed.mediaType,
@@ -2051,6 +2072,48 @@ export class AdminService {
       secondaryButtonQrUrl: this.sanitizeLoginNoticeUrl(buttonQrSetting?.value) || parsed.secondaryButtonQrUrl,
       updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
     };
+  }
+
+  async getLoginNoticeForUser(userId: string): Promise<LoginNoticeView> {
+    const empty = (): LoginNoticeView => ({
+      id: '', title: '', enabled: false, content: '', contentHtml: '', mediaType: null,
+      mediaUrl: '', posterUrl: '', primaryButtonText: '', primaryButtonUrl: '',
+      secondaryButtonText: '', secondaryButtonUrl: '', secondaryButtonQrUrl: '', updatedAt: null,
+    });
+    if (!userId) return empty();
+
+    const setting = await this.getSetting(LOGIN_NOTICE_SETTING_KEY);
+    if (!setting) return empty();
+    const parsed = this.parseLoginNoticeValue(setting.value);
+    const now = new Date();
+    const effectiveAt = parsed.effectiveAt ? new Date(parsed.effectiveAt) : null;
+    const expiresAt = parsed.expiresAt ? new Date(parsed.expiresAt) : null;
+    const hasContentImage = /<img\b[^>]*\bsrc=["'](?:https?:\/\/|\/)/i.test(parsed.contentHtml);
+    if (!parsed.enabled || (!parsed.content.trim() && !hasContentImage)) return empty();
+    if (effectiveAt && !Number.isNaN(effectiveAt.getTime()) && effectiveAt > now) return empty();
+    if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt <= now) return empty();
+
+    if (parsed.audience === 'specified') {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId }, select: { id: true, phone: true, email: true },
+      });
+      if (!user) return empty();
+      const targets = new Set(parsed.targetUsers.map((item) => item.toLowerCase()));
+      if (![user.id, user.phone, user.email || ''].some((item) => targets.has(item.toLowerCase()))) return empty();
+    }
+
+    const announcementId = setting.updatedAt.toISOString();
+    const consumed = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.announcementView.upsert({
+        where: { userId_announcementId: { userId, announcementId } },
+        create: { userId, announcementId, viewCount: 1 },
+        update: { viewCount: { increment: 1 } },
+        select: { viewCount: true },
+      });
+      return result.viewCount;
+    });
+    if (consumed > parsed.maxViews) return empty();
+    return this.getLoginNotice();
   }
 
   /**

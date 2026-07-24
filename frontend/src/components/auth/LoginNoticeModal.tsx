@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getStoredLastAuthAt } from "@/services/authApi";
 import { getLoginNotice, type LoginNotice } from "@/services/loginNoticeApi";
 import { useAuthStore } from "@/stores/authStore";
 import { useLocaleText } from "@/utils/localeText";
@@ -17,7 +16,6 @@ import {
 import { CAMPAIGN_NOTICE_DETAIL_EVENT } from "@/utils/campaignNoticeDetail";
 import tanvasAiNoticeImage from "@/assets/TanvasAI.png";
 
-const DISMISSED_KEY_PREFIX = "tanva:login-notice:dismissed";
 const DEFAULT_CONTEST_NOTICE_UPDATED_AT = "contest-default-2026-06-06";
 const ENABLE_DEFAULT_CONTEST_NOTICE = false;
 const CONTEST_DETAIL_URL =
@@ -38,6 +36,8 @@ const buildApiUrl = (path: string) => {
 };
 
 const DEFAULT_CONTEST_NOTICE: LoginNotice = {
+  id: DEFAULT_CONTEST_NOTICE_UPDATED_AT,
+  title: "2026 Tanvas AI 全球AI创意自由创作公开赛",
   enabled: true,
   content:
     "2026 Tanvas AI 全球AI创意自由创作公开赛\n参赛赢百万算力 | 全年会员 | 商业签约 | 丰厚奖金\n赛程设置:初赛晋级赛决赛三轮选拔，8月2日12:00初赛截稿。1月中旬，横琴举办线下颁奖典礼，赛事收官;",
@@ -56,7 +56,8 @@ const DEFAULT_CONTEST_NOTICE: LoginNotice = {
 
 const resolveNotice = (nextNotice: LoginNotice): LoginNotice => {
   const content = nextNotice.content.trim();
-  if (nextNotice.enabled && content) return nextNotice;
+  const hasContentImage = /<img\b/i.test(nextNotice.contentHtml);
+  if (nextNotice.enabled && (content || hasContentImage)) return nextNotice;
   if (!ENABLE_DEFAULT_CONTEST_NOTICE) {
     return { ...nextNotice, enabled: false };
   }
@@ -65,26 +66,6 @@ const resolveNotice = (nextNotice: LoginNotice): LoginNotice => {
     secondaryButtonQrUrl:
       nextNotice.secondaryButtonQrUrl || DEFAULT_CONTEST_NOTICE.secondaryButtonQrUrl,
   };
-};
-
-const buildDismissedKey = (
-  userId: string,
-  authAt: number,
-  noticeUpdatedAt: string | null
-) => `${DISMISSED_KEY_PREFIX}:${userId}:${authAt}:${noticeUpdatedAt || "none"}`;
-
-const isDismissed = (key: string) => {
-  try {
-    return localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-};
-
-const markDismissed = (key: string) => {
-  try {
-    localStorage.setItem(key, "1");
-  } catch {}
 };
 
 const sanitizeNoticeUrl = (value: unknown) => {
@@ -161,7 +142,6 @@ export default function LoginNoticeModal() {
   const navigate = useNavigate();
   const location = useLocation();
   const [notice, setNotice] = useState<LoginNotice | null>(null);
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [secondaryQrOpen, setSecondaryQrOpen] = useState(false);
   const [noticeButtonQrUrl, setNoticeButtonQrUrl] = useState("");
@@ -198,25 +178,14 @@ export default function LoginNoticeModal() {
   useEffect(() => {
     let cancelled = false;
     setNotice(null);
-    setDismissedKey(null);
     setVisible(false);
     setSecondaryQrOpen(false);
 
     if (location.pathname !== "/app") return;
     if (!user?.id) return;
 
-    const authAt = getStoredLastAuthAt();
-    if (!authAt) return;
     const showResolvedNotice = (resolvedNotice: LoginNotice) => {
-      const nextDismissedKey = buildDismissedKey(
-        user.id,
-        authAt,
-        resolvedNotice.updatedAt
-      );
-      if (isDismissed(nextDismissedKey)) return;
-
       setNotice(resolvedNotice);
-      setDismissedKey(nextDismissedKey);
       setVisible(true);
     };
 
@@ -249,7 +218,6 @@ export default function LoginNoticeModal() {
     const handleOpenCampaignNoticeDetail = () => {
       void refreshLoginNoticeQrUrls();
       setNotice(DEFAULT_CONTEST_NOTICE);
-      setDismissedKey(null);
       setSecondaryQrOpen(false);
       setVisible(true);
     };
@@ -269,9 +237,6 @@ export default function LoginNoticeModal() {
   if (!visible || !notice) return null;
 
   const markAndHide = () => {
-    if (dismissedKey) {
-      markDismissed(dismissedKey);
-    }
     setVisible(false);
   };
 
@@ -467,7 +432,7 @@ export default function LoginNoticeModal() {
       <div className='relative flex max-h-[calc(100vh-56px)] w-[min(94vw,840px)] flex-col overflow-hidden rounded-[12px] bg-white shadow-[0_28px_90px_rgba(0,0,0,0.30)] lg:w-[min(70vw,840px)] lg:min-w-[680px]'>
         {closeButton}
         <h2 id='login-notice-title' className='sr-only'>
-          {lt("用户提醒", "Notice")}
+          {notice.title || lt("维护公告", "Notice")}
         </h2>
         <div className='relative aspect-[16/9] max-h-[340px] w-full shrink-0 overflow-hidden bg-[#07101d]'>
           {mediaType === "video" ? (
@@ -496,8 +461,13 @@ export default function LoginNoticeModal() {
         </div>
 
         <div className='min-h-0 flex-1 overflow-y-auto bg-white px-8 pb-5 pt-7 sm:px-10 sm:pb-6 sm:pt-8'>
+          {notice.title ? (
+            <h3 className='mb-4 break-words text-2xl font-bold leading-tight text-slate-950'>
+              {notice.title}
+            </h3>
+          ) : null}
           <div
-            className='break-words text-base font-normal leading-normal text-slate-950 [&_li]:ml-6 [&_li]:list-disc [&_ol>li]:list-decimal [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ol]:my-3'
+            className='break-words text-base font-normal leading-normal text-slate-950 [&_img]:mx-auto [&_img]:my-3 [&_img]:h-auto [&_img]:max-w-full [&_li]:ml-6 [&_li]:list-disc [&_ol>li]:list-decimal [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ol]:my-3'
             dangerouslySetInnerHTML={{ __html: noticeHtml }}
           />
         </div>

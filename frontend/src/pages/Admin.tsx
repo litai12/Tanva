@@ -9479,6 +9479,12 @@ function ModelManagementTab() {
 
 type LoginNoticeSettingForm = {
   enabled: boolean;
+  title: string;
+  maxViews: number;
+  effectiveAt: string;
+  expiresAt: string;
+  audience: "all" | "specified";
+  targetUsers: string[];
   content: string;
   contentHtml: string;
   mediaType: "image" | "video";
@@ -9495,6 +9501,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
   if (!setting?.value) {
     return {
       enabled: false,
+      title: "", maxViews: 1, effectiveAt: "", expiresAt: "", audience: "all", targetUsers: [],
       content: "",
       contentHtml: "",
       mediaType: "image" as const,
@@ -9522,6 +9529,12 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
       const mediaType = mediaUrl && parsed.mediaType === "video" ? "video" : "image";
       return {
         enabled: parsed.enabled === true,
+        title: typeof parsed.title === "string" ? parsed.title : "",
+        maxViews: Math.max(1, Math.min(100, Math.floor(Number(parsed.maxViews) || 1))),
+        effectiveAt: typeof parsed.effectiveAt === "string" ? parsed.effectiveAt : "",
+        expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : "",
+        audience: parsed.audience === "specified" ? "specified" : "all",
+        targetUsers: Array.isArray(parsed.targetUsers) ? parsed.targetUsers.filter((item: unknown): item is string => typeof item === "string") : [],
         content,
         contentHtml,
         mediaType,
@@ -9539,6 +9552,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
   } catch {
     return {
       enabled: true,
+      title: "", maxViews: 1, effectiveAt: "", expiresAt: "", audience: "all", targetUsers: [],
       content: setting.value,
       contentHtml: plainTextToLoginNoticeHtml(setting.value),
       mediaType: "image" as const,
@@ -9554,6 +9568,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
 
   return {
     enabled: false,
+    title: "", maxViews: 1, effectiveAt: "", expiresAt: "", audience: "all", targetUsers: [],
     content: "",
     contentHtml: "",
     mediaType: "image" as const,
@@ -9581,6 +9596,12 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 function LoginNoticeSettingsTab() {
   const [enabled, setEnabled] = useState(false);
+  const [title, setTitle] = useState("");
+  const [maxViews, setMaxViews] = useState(1);
+  const [effectiveAt, setEffectiveAt] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [audience, setAudience] = useState<"all" | "specified">("all");
+  const [targetUsersText, setTargetUsersText] = useState("");
   const [contentHtml, setContentHtml] = useState("");
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [mediaUrl, setMediaUrl] = useState("");
@@ -9606,6 +9627,12 @@ function LoginNoticeSettingsTab() {
       const setting = await getSetting(LOGIN_NOTICE_SETTING_KEY);
       const parsed = parseLoginNoticeSetting(setting);
       setEnabled(parsed.enabled);
+      setTitle(parsed.title);
+      setMaxViews(parsed.maxViews);
+      setEffectiveAt(parsed.effectiveAt ? new Date(parsed.effectiveAt).toISOString().slice(0, 16) : "");
+      setExpiresAt(parsed.expiresAt ? new Date(parsed.expiresAt).toISOString().slice(0, 16) : "");
+      setAudience(parsed.audience);
+      setTargetUsersText(parsed.targetUsers.join("\n"));
       setContentHtml(parsed.contentHtml || plainTextToLoginNoticeHtml(parsed.content));
       setMediaType(parsed.mediaType);
       setMediaUrl(parsed.mediaUrl);
@@ -9618,6 +9645,7 @@ function LoginNoticeSettingsTab() {
       setLastUpdatedAt(setting.updatedAt);
     } catch {
       setEnabled(false);
+      setTitle(""); setMaxViews(1); setEffectiveAt(""); setExpiresAt(""); setAudience("all"); setTargetUsersText("");
       setContentHtml("");
       setMediaType("image");
       setMediaUrl("");
@@ -9688,8 +9716,18 @@ function LoginNoticeSettingsTab() {
     const normalizedMediaUrl = sanitizeLoginNoticeSettingUrl(mediaUrl);
     const normalizedPosterUrl = sanitizeLoginNoticeSettingUrl(posterUrl);
     const normalizedSecondaryButtonQrUrl = sanitizeLoginNoticeSettingUrl(secondaryButtonQrUrl);
-    if (enabled && normalizedContent.length === 0) {
-      setStatusText("开启提醒时，提醒内容不能为空");
+    const hasContentImage = /<img\b/i.test(sanitizedContentHtml);
+    if (enabled && normalizedContent.length === 0 && !hasContentImage) {
+      setStatusText("开启公告时，正文文字或图片至少配置一项");
+      return;
+    }
+    if (enabled && !title.trim()) {
+      setStatusText("开启公告时，公告标题不能为空");
+      return;
+    }
+    const targetUsers = targetUsersText.split(/[\n,，;；]+/).map((item) => item.trim()).filter(Boolean);
+    if (enabled && audience === "specified" && targetUsers.length === 0) {
+      setStatusText("指定人员时，至少填写一个用户 ID、手机号或邮箱");
       return;
     }
     if (normalizedContent.length > LOGIN_NOTICE_MAX_TEXT_LENGTH) {
@@ -9705,6 +9743,12 @@ function LoginNoticeSettingsTab() {
         value: JSON.stringify(
           {
             enabled,
+            title: title.trim(),
+            maxViews: Math.max(1, Math.min(100, Math.floor(maxViews) || 1)),
+            effectiveAt: effectiveAt ? new Date(effectiveAt).toISOString() : "",
+            expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
+            audience,
+            targetUsers,
             content: normalizedContent,
             contentHtml: sanitizedContentHtml,
             mediaType: normalizedMediaUrl ? mediaType : null,
@@ -9719,7 +9763,7 @@ function LoginNoticeSettingsTab() {
           null,
           2
         ),
-        description: "登录后用户提醒弹窗配置",
+        description: "维护公告弹窗配置",
       });
       setLastUpdatedAt(saved.updatedAt);
       setStatusText("保存成功");
@@ -9739,9 +9783,9 @@ function LoginNoticeSettingsTab() {
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
           <div>
-            <h3 className='text-lg font-semibold mb-2'>登录提醒弹窗</h3>
+            <h3 className='text-lg font-semibold mb-2'>维护公告</h3>
             <p className='text-sm text-gray-500'>
-              开启后，用户每次登录后会看到此提醒，并需要手动点击关闭。
+              默认每位用户展示一次，可配置展示次数、指定人员与生效时间。
             </p>
             {lastUpdatedAt ? (
               <div className='mt-2 text-xs text-gray-400'>
@@ -9753,6 +9797,39 @@ function LoginNoticeSettingsTab() {
             <Switch checked={enabled} onCheckedChange={setEnabled} />
             {enabled ? "已开启" : "已关闭"}
           </label>
+        </div>
+
+        <div className='mt-6 grid gap-4 rounded-lg border border-gray-200 bg-gray-50/60 p-4 md:grid-cols-2'>
+          <div className='md:col-span-2'>
+            <label className='block text-sm font-medium text-gray-700'>公告标题</label>
+            <Input className='mt-2 bg-white' value={title} onChange={(event) => setTitle(event.target.value)} placeholder='例如：系统维护公告' disabled={saving} />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700'>每位用户可见次数</label>
+            <Input className='mt-2 bg-white' type='number' min={1} max={100} value={maxViews} onChange={(event) => setMaxViews(Number(event.target.value))} disabled={saving} />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700'>可见人员</label>
+            <select className='mt-2 h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm' value={audience} onChange={(event) => setAudience(event.target.value === "specified" ? "specified" : "all")} disabled={saving}>
+              <option value='all'>全部用户</option>
+              <option value='specified'>指定人员</option>
+            </select>
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700'>开始生效时间</label>
+            <Input className='mt-2 bg-white' type='datetime-local' value={effectiveAt} onChange={(event) => setEffectiveAt(event.target.value)} disabled={saving} />
+            <p className='mt-1 text-xs text-gray-400'>留空表示保存并开启后立即生效</p>
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700'>结束时间（可选）</label>
+            <Input className='mt-2 bg-white' type='datetime-local' value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} disabled={saving} />
+          </div>
+          {audience === "specified" ? (
+            <div className='md:col-span-2'>
+              <label className='block text-sm font-medium text-gray-700'>指定用户</label>
+              <textarea className='mt-2 min-h-28 w-full rounded-lg border border-gray-200 bg-white p-3 text-sm outline-none' value={targetUsersText} onChange={(event) => setTargetUsersText(event.target.value)} placeholder={'每行填写一个用户 ID、手机号或邮箱\n也支持用逗号分隔'} disabled={saving} />
+            </div>
+          ) : null}
         </div>
 
         <div className='mt-6 rounded-lg border border-gray-200 bg-gray-50/60 p-4'>

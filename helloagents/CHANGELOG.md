@@ -993,3 +993,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Volc asset review responses retain the upstream error code and request ID for diagnosis without exposing raw upstream details to users.
 - Manual and connection-triggered image review failures now show an immediate error toast while keeping the same message on the image node.
 - Added `npm run verify:volc-asset-errors` to cover Ark response parsing and user-facing error mapping without making a paid upstream request.
+# 2026-07-24
+
+- 系统设置新增可定时、可指定用户、可配置每用户展示次数的维护公告；公告支持标题、富文本和纯图片正文，并改为服务端跨设备展示计数。

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Italic, Palette, PaintBucket, RemoveFormatting, Type, Underline } from "lucide-react";
+import { Bold, ImagePlus, Italic, Palette, PaintBucket, RemoveFormatting, Type, Underline } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   LOGIN_NOTICE_FONT_OPTIONS,
@@ -36,8 +36,10 @@ export default function LoginNoticeRichTextEditor({
   maxLength = LOGIN_NOTICE_MAX_TEXT_LENGTH,
 }: LoginNoticeRichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const lastEmittedHtmlRef = useRef("");
   const [textLength, setTextLength] = useState(() => loginNoticeHtmlToText(value).length);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const isOverLimit = textLength > maxLength;
 
   const sanitizedValue = useMemo(() => sanitizeLoginNoticeHtml(value), [value]);
@@ -109,6 +111,28 @@ export default function LoginNoticeRichTextEditor({
     window.requestAnimationFrame(emitChange);
   };
 
+  const handleImageUpload = async (file: File) => {
+    if (disabled || !file.type.startsWith("image/")) return;
+    setUploadingImage(true);
+    try {
+      const { uploadToOSS } = await import("@/services/ossUploadService");
+      const result = await uploadToOSS(file, {
+        dir: "settings/login-notices/content/",
+        fileName: file.name,
+      });
+      if (!result.success || !result.url) throw new Error(result.error || "图片上传失败");
+      focusEditor();
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<img src="${result.url.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" alt="" />`
+      );
+      emitChange();
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   return (
     <div className='rounded-lg border border-gray-200 bg-white'>
       <div className='flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50/80 px-3 py-2'>
@@ -121,6 +145,28 @@ export default function LoginNoticeRichTextEditor({
           title='加粗'
         >
           <Bold className='h-4 w-4' />
+        </Button>
+        <input
+          ref={imageInputRef}
+          type='file'
+          accept='image/*'
+          className='hidden'
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void handleImageUpload(file);
+            event.target.value = "";
+          }}
+        />
+        <Button
+          type='button'
+          variant='outline'
+          className='h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-700 hover:bg-gray-50'
+          onClick={() => imageInputRef.current?.click()}
+          disabled={disabled || uploadingImage}
+          title='插入正文图片'
+        >
+          <ImagePlus className='mr-1 h-3.5 w-3.5' />
+          {uploadingImage ? "上传中" : "图片"}
         </Button>
         <Button
           type='button'
@@ -230,7 +276,7 @@ export default function LoginNoticeRichTextEditor({
       />
 
       <div className='flex justify-between border-t border-gray-100 px-3 py-2 text-xs text-gray-400'>
-        <span>支持局部字体、字号、颜色、加粗、下划线；粘贴内容会按纯文本处理。</span>
+        <span>支持文字样式和正文图片；图片上传后保存为远程 URL。</span>
         <span className={isOverLimit ? "text-red-500" : undefined}>
           {textLength}/{maxLength}
         </span>

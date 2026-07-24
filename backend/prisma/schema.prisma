@@ -48,6 +48,7 @@ model User {
   ownedTeams                 Team[]           @relation("TeamOwner")
   authoredComments           CanvasComment[]        @relation("CommentAuthor")
   resolvedCommentThreads     CanvasCommentThread[]  @relation("ThreadResolver")
+  announcementViews          AnnouncementView[]
 
   // 索引优化：加速用户验证和查找
   @@index([phone, status])  // 手机号登录优化
@@ -612,6 +613,19 @@ model SystemSetting {
   updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model AnnouncementView {
+  id             String   @id @default(uuid())
+  userId         String
+  announcementId String
+  viewCount      Int      @default(0)
+  firstViewedAt  DateTime @default(now())
+  lastViewedAt   DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, announcementId])
+  @@index([announcementId])
 }
 
 // 节点配置管理 - 控制前端节点面板的显示状态和计费

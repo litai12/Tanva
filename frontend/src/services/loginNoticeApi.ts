@@ -15,6 +15,8 @@ const buildUrl = (path: string) => {
 };
 
 export interface LoginNotice {
+  id: string;
+  title: string;
   enabled: boolean;
   content: string;
   contentHtml: string;
@@ -40,8 +42,7 @@ const sanitizeNoticeUrl = (value: unknown) => {
 
 export async function getLoginNotice(): Promise<LoginNotice> {
   const response = await fetchWithAuth(buildUrl("/api/settings/login-notice"), {
-    auth: "omit",
-    allowRefresh: false,
+    auth: "auto",
   });
 
   if (!response.ok) {
@@ -59,6 +60,8 @@ export async function getLoginNotice(): Promise<LoginNotice> {
   const mediaUrl = sanitizeNoticeUrl(data?.mediaUrl);
   const mediaType = mediaUrl ? (data?.mediaType === "video" ? "video" : "image") : null;
   return {
+    id: typeof data?.id === "string" ? data.id : "",
+    title: typeof data?.title === "string" ? data.title.trim() : "",
     enabled: data?.enabled === true,
     content,
     contentHtml,

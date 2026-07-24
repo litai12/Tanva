@@ -23,7 +23,6 @@ const BLOCKED_TAGS = new Set([
   "embed",
   "svg",
   "math",
-  "img",
   "video",
   "audio",
   "canvas",
@@ -45,6 +44,7 @@ const ALLOWED_TAGS = new Set([
   "ul",
   "ol",
   "li",
+  "img",
 ]);
 
 const FONT_SIZE_BY_COMMAND: Record<string, string> = {
@@ -236,6 +236,16 @@ const appendSanitizedNode = (source: Node, target: Node) => {
   }
 
   const cleanElement = document.createElement(tagName);
+  if (tagName === "img") {
+    const src = (sourceElement.getAttribute("src") || "").trim();
+    if (!/^(?:https?:\/\/|\/)/i.test(src)) return;
+    cleanElement.setAttribute("src", src);
+    cleanElement.setAttribute("alt", (sourceElement.getAttribute("alt") || "").slice(0, 200));
+    cleanElement.setAttribute("loading", "lazy");
+    cleanElement.setAttribute("style", "display: block; max-width: 100%; height: auto; margin: 12px auto");
+    target.appendChild(cleanElement);
+    return;
+  }
   if (tagName !== "br") {
     const cssText = getElementStyles(sourceElement, tagName);
     if (cssText) cleanElement.setAttribute("style", cssText);

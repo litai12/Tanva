@@ -1,6 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiCookieAuth } from '@nestjs/swagger';
 import { AdminService, CONTEST_REGISTRATION_QRCODE_SETTING_KEY } from './admin.service';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 
 @ApiTags('公开设置')
 @Controller('settings')
@@ -28,9 +29,11 @@ export class SettingsPublicController {
   }
 
   @Get('login-notice')
-  @ApiOperation({ summary: '获取登录后用户提醒配置（公开接口）' })
-  async getLoginNotice() {
-    return this.adminService.getLoginNotice();
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '获取当前用户下一次可见的维护公告，并记录一次展示' })
+  async getLoginNotice(@Req() req: any) {
+    return this.adminService.getLoginNoticeForUser(req.user.id || req.user.sub);
   }
 
   @Get('seedream-provider')
