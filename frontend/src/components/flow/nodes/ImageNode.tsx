@@ -3,7 +3,7 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "@xyflow/react";
 import { NodeResizeControl } from "@xyflow/react";
-import { Send as SendIcon, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
+import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import ImageAnnotationModal, {
   type ImageAnnotationHistoryItem,
@@ -36,6 +36,7 @@ import { getImageSplitHandleIndex, getImageSplitPrimaryHandleId } from "../utils
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { loadSharedImage } from "../utils/sharedImageLoad";
+import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
 import type { BioAuthStatus } from "@/services/bioAuthAPI";
 import { BioAuthModal } from "./BioAuthModal";
@@ -1152,10 +1153,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
     ]
   );
 
-  // Legacy audit fields remain readable so old projects and bio-auth state can be cleaned up.
-  // Seedance generation no longer reuses these provider-side asset IDs.
+  // Manual review is diagnostic only. Seedance generation still creates a fresh,
+  // task-scoped review asset and does not reuse this provider-side asset ID.
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
-  const volcAssetStatus: "processing" | "active" | "failed" | undefined = (data as any)?.volcAssetStatus;
+  const volcAssetStatus: VolcAssetStatus | undefined = (data as any)?.volcAssetStatus;
   const volcAssetError: string | undefined = (data as any)?.volcAssetError;
   const volcReviewDate: string | undefined = (data as any)?.volcReviewDate;
 
@@ -1167,6 +1168,62 @@ function ImageNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id]);
+
+  React.useEffect(() => {
+    if (volcAssetStatus === "processing" && !volcAssetId) {
+      patchNode({
+        volcAssetStatus: "failed",
+        volcAssetError: "审核中断，请重试",
+      });
+    }
+    // Only recover state persisted by an interrupted request on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleReviewClick = React.useCallback(async () => {
+    const sourceUrl =
+      typeof data.imageUrl === "string" && data.imageUrl.trim()
+        ? data.imageUrl.trim()
+        : undefined;
+    if (!sourceUrl) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先上传图片再送审", type: "warning" },
+        })
+      );
+      return;
+    }
+    if (volcAssetStatus === "processing") return;
+
+    patchNode({
+      volcAssetStatus: "processing",
+      volcAssetError: undefined,
+      volcReviewDate: undefined,
+    });
+    try {
+      const result = await uploadVolcAsset(sourceUrl);
+      patchNode({
+        volcAssetId: result.assetId,
+        volcAssetStatus: result.status,
+        volcAssetError: result.errorMessage,
+        ...(result.status === "active"
+          ? { volcReviewDate: new Date().toISOString() }
+          : {}),
+      });
+    } catch (error: any) {
+      const message = error?.message || "图片审核失败，请稍后重试。";
+      patchNode({
+        volcAssetId: undefined,
+        volcAssetStatus: "failed",
+        volcAssetError: message,
+      });
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type: "error" },
+        })
+      );
+    }
+  }, [data.imageUrl, patchNode, volcAssetStatus]);
 
 
   // ── Bio Auth state ────────────────────────────────────────────────────────
@@ -2178,6 +2235,43 @@ function ImageNodeInner({ id, data, selected }: Props) {
           </div>
         )}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          {(() => {
+            const reviewTitle =
+              volcAssetStatus === "active"
+                ? "图片审核已通过；点击可重新审核"
+                : volcAssetStatus === "processing"
+                  ? "图片审核中…"
+                  : volcAssetStatus === "failed"
+                    ? (volcAssetError || "图片审核失败，点击重试")
+                    : "审核这张图片，检查是否可用于视频生成";
+            return (
+              <button
+                type="button"
+                onClick={handleReviewClick}
+                title={reviewTitle}
+                aria-label={reviewTitle}
+                disabled={volcAssetStatus === "processing"}
+                style={{
+                  fontSize: 12,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  cursor: volcAssetStatus === "processing" ? "not-allowed" : "pointer",
+                }}
+              >
+                {volcAssetStatus === "active" ? (
+                  <ShieldCheck size={14} className="text-green-600" />
+                ) : volcAssetStatus === "processing" ? (
+                  <Loader2 size={14} className="animate-spin text-amber-500" />
+                ) : volcAssetStatus === "failed" ? (
+                  <ShieldAlert size={14} className="text-red-500" />
+                ) : (
+                  <Shield size={14} className="text-gray-400" />
+                )}
+              </button>
+            );
+          })()}
           {/* Bio Auth Badge */}
           {(() => {
             const bioTitle =
