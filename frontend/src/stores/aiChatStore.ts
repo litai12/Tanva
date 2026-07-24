@@ -81,6 +81,11 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
+import {
+  AI_CONTENT_SAFETY_REFUSAL,
+  sanitizeAITextOutput,
+  shouldBlockAIRequest,
+} from "@/utils/aiContentSafety";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
 import {
   resolveImageToBlob,
@@ -6934,6 +6939,28 @@ export const useAIChatStore = create<AIChatState>()(
         ) => {
           // 🔥 并行模式：不检查全局状态
 
+          // 其他调用方可能绕过 processUserInput 直接调用文本工具，因此这里再次闭合入口。
+          if (shouldBlockAIRequest(prompt)) {
+            const blockedMessageId = options?.override?.aiMessageId;
+            if (blockedMessageId) {
+              get().updateMessage(blockedMessageId, (msg) => ({
+                ...msg,
+                content: AI_CONTENT_SAFETY_REFUSAL,
+                generationStatus: {
+                  isGenerating: false,
+                  progress: 100,
+                  error: null,
+                  stage: "已完成",
+                },
+              }));
+            } else {
+              get().addMessage({ type: "user", content: prompt });
+              get().addMessage({ type: "ai", content: AI_CONTENT_SAFETY_REFUSAL });
+            }
+            await get().refreshSessions({ immediate: true });
+            return;
+          }
+
           const metrics = options?.metrics;
           logProcessStep(metrics, "generateTextResponse entered");
 
@@ -7029,6 +7056,7 @@ export const useAIChatStore = create<AIChatState>()(
             );
 
             if (result.success && result.data) {
+              const safeResponseText = sanitizeAITextOutput(result.data.text);
               // 🔥 更新消息内容和完成状态
               set((state) => ({
                 messages: optimizeMessagesMemory(
@@ -7036,7 +7064,7 @@ export const useAIChatStore = create<AIChatState>()(
                     msg.id === aiMessageId
                       ? {
                           ...msg,
-                          content: result.data!.text,
+                          content: safeResponseText,
                           webSearchResult: result.data!.webSearchResult,
                           metadata: {
                             ...(msg.metadata || {}),
@@ -7060,7 +7088,7 @@ export const useAIChatStore = create<AIChatState>()(
                   (m) => m.id === aiMessageId
                 );
                 if (message) {
-                  message.content = result.data!.text;
+                  message.content = safeResponseText;
                   message.webSearchResult = result.data!.webSearchResult;
                   message.metadata = {
                     ...(message.metadata || {}),
@@ -9227,6 +9255,24 @@ export const useAIChatStore = create<AIChatState>()(
           }
 
           get().refreshSessions();
+
+          // 位于小T分流、Auto Agent trace、工具选择和占位消息之前。命中后只落固定
+          // 拒答，不再启动任何后端请求、联网搜索、积分扣除或画布任务。
+          if (shouldBlockAIRequest(input)) {
+            get().addMessage({ type: "user", content: input });
+            get().addMessage({
+              type: "ai",
+              content: AI_CONTENT_SAFETY_REFUSAL,
+              generationStatus: {
+                isGenerating: false,
+                progress: 100,
+                error: null,
+                stage: "已完成",
+              },
+            });
+            await get().refreshSessions({ immediate: true });
+            return;
+          }
 
           // 🤖 小T画布智能体模式：v1 只处理纯文本输入；带图片/PDF 附件不拦截，走原链路
           if (
