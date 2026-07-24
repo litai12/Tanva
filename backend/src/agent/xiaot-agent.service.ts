@@ -247,8 +247,13 @@ export class XiaotAgentService {
               acc.args += tc.function.arguments;
             }
 
-            // 累积对所有 name 通用，flush 时按 name 分派（当前认 flow_patch / host_ui）。
-            if (acc.name !== 'flow_patch' && acc.name !== 'host_ui') continue;
+            // 累积对所有 name 通用，flush 时按 name 分派。
+            if (
+              acc.name !== 'flow_patch' &&
+              acc.name !== 'host_tool' &&
+              acc.name !== 'host_ui'
+            )
+              continue;
             let parsedArgs: unknown;
             try {
               parsedArgs = JSON.parse(acc.args);
@@ -261,6 +266,18 @@ export class XiaotAgentService {
               patchCount += 1;
               emit('flow_patch', {
                 data: { patch: parsedArgs as Record<string, unknown> },
+              });
+            } else if (acc.name === 'host_tool') {
+              const args = parsedArgs as Record<string, unknown>;
+              if (typeof args.name !== 'string') continue;
+              emit('host_tool', {
+                data: {
+                  name: args.name,
+                  arguments:
+                    args.arguments && typeof args.arguments === 'object'
+                      ? args.arguments
+                      : {},
+                },
               });
             } else {
               // host_ui：协议 v1.1 富格式卡片，必须带 string 类型 kind（choices/suggestions/media）。

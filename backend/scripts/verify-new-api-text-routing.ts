@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     sourceImage: 'https://assets.test/source.png',
   });
   assert.equal(analysisResult.success, true);
-  assert.equal(captured[1]?.body.model, 'gpt-5.6');
+  assert.equal(captured[1]?.body.model, 'gpt-5.6-luna');
   assert.equal(captured[1]?.url, 'https://new-api.test/v1/chat/completions');
   assert.equal(captured[1]?.authorization, 'Bearer new-api-key');
 

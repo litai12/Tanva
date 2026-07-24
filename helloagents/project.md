@@ -43,11 +43,13 @@
 - AI 图片生成、编辑、融合的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` 前最终校验。任何一层无法取得远程 URL 都必须失败关闭，禁止内联图片进入任务 `requestData`、Redis/BullMQ 或 new-api。
 
 ### Flow / AI 运行约定
-- AI Chat 的小T画布智能体模式面向全量用户默认开启，并持久化用户主动切换后的偏好；旧版偏好中没有该字段的用户升级后按开启处理。
+- AI Chat 固定使用小T单轨入口，不再提供小T开关；preferences v5 会忽略历史关闭偏好并固定开启。旧能力必须作为小T宿主工具接入，不能以关闭小T回到旧链路。
+- 小T是 AI Chat 的单一入口；原生“只出图”和“案例搜索”作为 `host_tool` 宿主能力暴露给小T，由小T判断并调用。Tanva 在当前小T消息内执行旧链路并展示图片或案例卡片，不得在进入小T之前做前端分流，也不得要求用户切换回旧聊天模式。
+- 小T单轨仍保留图片比例、图片尺寸、视频比例、视频时长和附件上传入口；四项生成规格作为结构化偏好随每轮 capability manifest 交给小T，用户当轮明确指定的规格优先于已保存偏好。
 - 小T请求的内容安全与敏感话题判断由 `xiaot-agent-gpt-5-4|5-5` 渠道自身负责；Tanvas 只负责原样转发用户输入、能力清单和画布上下文，不维护本地政治人物名单/关键词规则，不在前端替换模型输出，不增加后端内容安全 Guard，也不额外注入 Tanvas 安全 system prompt，避免两套策略口径冲突。
 - 普通 AI Chat 的纯生图对话统一经小T执行：手动“生成”模式直接进入 `runXiaotAgent`；Auto 模式可沿用工具选择识别生图意图，但命中 `generateImage` 后必须停止旧的前端直调生图流程，把既有用户消息/AI 占位消息交给小T复用。小T使用当前所选 `xiaotModel` 大脑整理提示词，并依图片优选/用户点名选择 GPT Image、Banana 或其他图片节点，完成 `textPrompt → image node → runNode`。
-- 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6`。不得回退到 `gpt-5.4-mini`、`gemini-3.5-flash` 或旧 provider 档位。视频理解继续使用 Gemini 专用链路；小T使用 `xiaot-agent-gpt-5-4|5-5` facade，默认 GPT-5.4。
-- Tanva 后端只通过 `NEW_API_BASE_URL` 与 `NEW_API_KEY` 访问 new-api；tc-api 的 base URL 与 `tc_sk` 只保存在 new-api 渠道配置中，Tanva 后端不得读取或要求 `TC_API_KEY` / `TAPCANVAS_API_KEY`。部署使用的 new-api 必须为 `default` 分组启用普通 `gpt-5.4` 与 `gpt-5.6` abilities（不能用小T专属的 `xiaot-agent-gpt-5-4|5-5` 代替）；缺少网关 ability 时应直接修复 new-api 渠道，不得让后端直连上游。积分记录与客户端模型外显统一标记为 new-api + 实际 GPT 模型。可运行 `cd backend && npm run verify:new-api-text-routing` 做无付费 mock 路由验证。
+- 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6-luna`，禁止再发送网关没有 ability 的裸 `gpt-5.6`。视频理解继续使用 Gemini 专用链路；小T使用 `xiaot-agent-gpt-5-4|5-5` facade，默认 GPT-5.4。
+- Tanva 后端只通过 `NEW_API_BASE_URL` 与 `NEW_API_KEY` 访问 new-api；tc-api 的 base URL 与 `tc_sk` 只保存在 new-api 渠道配置中。部署使用的 new-api 必须为 `default` 分组启用普通 `gpt-5.4` 与 `gpt-5.6-luna` abilities；缺少网关 ability 时应修复渠道，不得让后端直连上游。积分记录与客户端模型外显统一标记为 new-api + 实际 GPT 模型。可运行 `cd backend && npm run verify:new-api-text-routing` 做无付费 mock 路由验证。
 - AI Chat 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免切换/新建项目时把旧本地历史串入当前项目。
 - 项目内容本地缓存使用 `frontend/src/services/projectCacheStore.ts` 的 IndexedDB（`tanva_project_cache`）：打开项目可先用账号隔离缓存水合，再后台校验远端 `contentVersion/updatedAt`；校验中自动/手动保存需暂停，保存成功写入与云端一致的 sanitized 内容，避免本地运行时字段或旧缓存覆盖远端。切换项目的体感性能还受 Paper `importJSON`、Raster 重建和 Flow hydrate 影响；下拉快速切换应先关闭菜单并延后一拍触发 `projectStore.open()`，Paper 项目切换路径在已提前清空时可跳过导入前的重复 `project.clear()`。
 - 同项目 Undo/Redo 只恢复内容快照并标记为未保存修改，不得恢复历史快照携带的 `contentVersion`/`lastSavedAt`，也不得重置 `dirtyCounter`、保存锁、缓存校验或 stale 保护状态；`Project.contentVersion` 是云端乐观锁基线，在同一项目会话内只能随成功保存前进。

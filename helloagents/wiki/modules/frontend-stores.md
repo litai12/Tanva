@@ -9,7 +9,7 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
-- `aiChatStore` 的非小T模型按任务固定分层：普通 Text、Flow Text Chat、提示词优化、工具选择和 PDF 分析使用 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6`。文本/分析模式不再显示 Fast/Pro/Ultra/DeepSeek 模型切换；模型按钮外显为 `new-api · GPT-5.4/5.6`，视频分析仍显式选择 Gemini 视频模型，小T模型偏好保持独立。
+- `aiChatStore` 的非小T模型按任务固定分层：普通 Text、Flow Text Chat、提示词优化、工具选择和 PDF 分析使用 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6-luna`。模型按钮外显实际 Luna 档位，视频分析仍显式选择 Gemini 视频模型，小T模型偏好保持独立。
 - AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接对话历史。迭代计数与上下文依赖检测独立，Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
 - AI Chat Auto/Generate 的多图输出数量默认来自 `autoModeMultiplier`，但会先解析本次输入里的明确输出数量（如“画两张”“生成 3 张”“多张方案”）并覆盖默认倍数；“用两张参考图/把两张图融合”等输入素材数量不应触发输出倍数。明确数量触发并行时，每个 slot 会使用拆分后的单张 prompt，强调“本次只生成 1 张完整图片”，避免把总张数画成单图拼图或同图多主体。
 - 小T模式不使用上述自然语言覆盖逻辑：`autoModeMultiplier` 直接写入 `imageOutputCount`，同时由 `XiaotImagePatchContract` 限制实际落板的单输出图片节点、prompt、连线和 `runNode`。`gptImage2` 的宿主能力声明包含 `text/img` 输入与单个 `img:image` 输出，使 facade 能把 `runNode` 事实归类为异步图片提交。小T patch 队列完成后自动触发 `flow:auto-layout`，并聚焦本轮首个图片生成节点。

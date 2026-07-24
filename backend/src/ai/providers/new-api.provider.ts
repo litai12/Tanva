@@ -102,7 +102,7 @@ export class NewApiProvider implements IAIProvider {
       supportedModels: [
         'gemini',
         'gpt-5.4',
-        'gpt-5.6',
+        'gpt-5.6-luna',
         'gpt-image-2',
         'sora-2',
         'kling-v3',
@@ -205,7 +205,7 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.chat(
       {
-        model: request.model || 'gpt-5.6',
+        model: request.model || 'gpt-5.6-luna',
         messages: [{ role: 'user', content }],
       },
       request.providerOptions,
@@ -330,7 +330,7 @@ export class NewApiProvider implements IAIProvider {
   ): Promise<AIProviderResponse<PaperJSResult>> {
     const result = await this.generateText({
       prompt: request.prompt,
-      model: request.model || 'gpt-5.6',
+      model: request.model || 'gpt-5.6-luna',
       thinkingLevel: request.thinkingLevel,
     });
 
@@ -380,7 +380,7 @@ export class NewApiProvider implements IAIProvider {
       .join('\n');
 
     const result = await this.chat({
-      model: request.model || 'gpt-5.6',
+      model: request.model || 'gpt-5.6-luna',
       messages: [
         {
           role: 'user',

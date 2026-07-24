@@ -137,7 +137,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 4;
+const AI_CHAT_PREFERENCES_VERSION = 5;
 const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
@@ -1003,7 +1003,7 @@ const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const STANDARD_TEXT_MODEL = "gpt-5.4";
-const ADVANCED_TEXT_MODEL = "gpt-5.6";
+const ADVANCED_TEXT_MODEL = "gpt-5.6-luna";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
@@ -3077,7 +3077,7 @@ interface AIChatState {
   imageInputTarget: ImageInputTarget;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
-  xiaotMode: boolean; // 小T画布智能体模式开关
+  xiaotMode: boolean; // 小T单轨标记（固定 true，仅供现有 UI 条件兼容）
   xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
   xiaotPreferredImage: XiaotPreferredImageModel; // 小T优选图片模型
   xiaotPreferredVideo: XiaotPreferredVideoModel; // 小T优选视频模型
@@ -3087,7 +3087,6 @@ interface AIChatState {
   showDialog: () => void;
   hideDialog: () => void;
   toggleDialog: () => void;
-  toggleXiaotMode: () => void;
   setXiaotModel: (model: XiaotChatModel) => void;
   setXiaotPreferredImage: (value: XiaotPreferredImageModel) => void;
   setXiaotPreferredVideo: (value: XiaotPreferredVideoModel) => void;
@@ -3669,8 +3668,6 @@ export const useAIChatStore = create<AIChatState>()(
         },
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
-        toggleXiaotMode: () =>
-          set((state) => ({ xiaotMode: !state.xiaotMode })),
         setXiaotModel: (model) => set({ xiaotModel: model }),
         setXiaotPreferredImage: (value) =>
           set({ xiaotPreferredImage: value }),
@@ -8531,12 +8528,14 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 2️⃣ 用户消息 + 占位 AI 消息。普通 Auto 模式已经创建过消息时复用它们，
           // 避免“GPT 工具选择气泡 + 小T气泡”重复出现。
-          if (!options?.override) {
-            get().addMessage({
+          const xiaotUserMessage = !options?.override
+            ? get().addMessage({
               type: "user",
               content: input,
-            });
-          }
+            })
+            : get().messages.find(
+                (message) => message.id === options.override!.userMessageId
+              );
           let aiMessage = options?.override
             ? get().messages.find(
                 (message) => message.id === options.override!.aiMessageId
@@ -8575,6 +8574,8 @@ export const useAIChatStore = create<AIChatState>()(
           let assembled = "";
           let patchCount = 0;
           let streamErrored = false;
+          let hostToolHandled = false;
+          const pendingHostTools: Promise<void>[] = [];
           let videoRewriteToasted = false;
           let imageRewriteToasted = false;
           const pendingXiaotMediaCards: Array<{
@@ -8672,6 +8673,7 @@ export const useAIChatStore = create<AIChatState>()(
                     ? `（modelProvider=${preferredImage.extra}）`
                     : ""
                 }；视频生成优先用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9），但纯文本→视频若该模型仅支持图生，请改用支持文生的模型（见 notes 视频两路径）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
+                `【生成规格偏好】用户当前图片比例=${state.aspectRatio ?? "自动"}、图片尺寸=${state.imageSize ?? "自动"}；视频比例=${state.videoAspectRatio ?? "自动"}、视频时长=${state.videoDurationSeconds ? `${state.videoDurationSeconds}秒` : "自动"}。用户本轮文字明确指定规格时以文字为准，否则创建图片/视频节点时必须采用这些结构化偏好。`,
               ],
             };
             // 视频节点改写目标解析（用户明确选择 = 强制对齐，高于小T自选）：
@@ -8946,6 +8948,89 @@ export const useAIChatStore = create<AIChatState>()(
                     }));
                   }
                 }
+              } else if (event.type === "host_tool") {
+                const toolName =
+                  typeof event.data?.name === "string" ? event.data.name : "";
+                const toolArgs =
+                  event.data?.arguments && typeof event.data.arguments === "object"
+                    ? (event.data.arguments as Record<string, unknown>)
+                    : {};
+                if (toolName === "legacy_image_only") {
+                  hostToolHandled = true;
+                  const prompt =
+                    typeof toolArgs.prompt === "string" && toolArgs.prompt.trim()
+                      ? toolArgs.prompt.trim()
+                      : input;
+                  pendingHostTools.push(
+                    get().generateImage(prompt, {
+                      override: {
+                        userMessageId:
+                          options?.override?.userMessageId ??
+                          xiaotUserMessage?.id ??
+                          "",
+                        aiMessageId: aiMessage.id,
+                      },
+                    })
+                  );
+                } else if (toolName === "case_search") {
+                  hostToolHandled = true;
+                  const query =
+                    typeof toolArgs.query === "string" && toolArgs.query.trim()
+                      ? toolArgs.query.trim()
+                      : input;
+                  pendingHostTools.push(
+                    (async () => {
+                      const researchRun = await createAgentRunViaAPI({
+                        prompt: query,
+                        mode: "research",
+                        sessionId,
+                        projectId:
+                          useProjectContentStore.getState().projectId || undefined,
+                        aiProvider: state.aiProvider,
+                        model: getAdvancedTextModelForProvider(state.aiProvider),
+                        providerOptions: withBananaRouteProviderOptions(
+                          state.aiProvider,
+                          undefined,
+                          state.bananaImageRoute
+                        ),
+                        thinkingLevel: state.thinkingLevel || undefined,
+                        enableWebSearch: true,
+                        context: buildAgentRunContext(query),
+                      });
+                      await streamAgentRunEvents(researchRun.id, (researchEvent) => {
+                        get().updateMessage(aiMessage.id, (msg) => {
+                          const currentTrace = msg.metadata?.agentTrace as
+                            | AgentTraceState
+                            | undefined;
+                          const nextTrace = applyAgentEventToTrace(
+                            currentTrace,
+                            researchEvent
+                          );
+                          const researchText =
+                            researchEvent.type === "research_text"
+                              ? String(
+                                  researchEvent.data?.text ||
+                                    researchEvent.message ||
+                                    ""
+                                ).trim()
+                              : researchEvent.type === "research_result"
+                                ? formatResearchResultAsText(
+                                    researchEvent.data?.result
+                                  )
+                                : "";
+                          return {
+                            ...msg,
+                            content: researchText || msg.content,
+                            metadata: {
+                              ...(msg.metadata || {}),
+                              agentTrace: nextTrace,
+                            },
+                          };
+                        });
+                      });
+                    })()
+                  );
+                }
               } else if (event.type === "host_ui") {
                 // 小T交互卡片：choices/media 追加进 xiaotCards；
                 // suggestions 覆盖式写 xiaotSuggestions（始终显示最新一批）
@@ -9022,6 +9107,10 @@ export const useAIChatStore = create<AIChatState>()(
                 }));
               }
             }, { signal: controller.signal });
+
+            if (pendingHostTools.length > 0) {
+              await Promise.all(pendingHostTools);
+            }
 
             // 与生成节点无关的尾部提示词仍可落画布；属于超量图片工作流的
             // prompt 会由契约丢弃，避免留下孤儿 prompt 节点。
@@ -9145,15 +9234,19 @@ export const useAIChatStore = create<AIChatState>()(
             if (!streamErrored) {
               // 收尾前让打字机把最后一段吐完，再落定完整文本，避免「已完成」
               // 却截断在打字中途。
-              typeTarget = assembled || typeTarget;
-              await drainTypewriter();
+              if (!hostToolHandled) {
+                typeTarget = assembled || typeTarget;
+                await drainTypewriter();
+              }
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
-                content: resolveXiaotTerminalContent(
-                  assembled,
-                  msg.content,
-                  "completed"
-                ),
+                content: hostToolHandled
+                  ? msg.content
+                  : resolveXiaotTerminalContent(
+                      assembled,
+                      msg.content,
+                      "completed"
+                    ),
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,
@@ -9267,9 +9360,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
-          // 🤖 小T画布智能体模式：v1 只处理纯文本输入；带图片/PDF 附件不拦截，走原链路
+          // 🤖 小T单轨：纯文本请求固定先进入小T；带图片/PDF附件暂走宿主兼容能力。
           if (
-            state.xiaotMode &&
             state.sourceImagesForBlending.length === 0 &&
             !state.sourceImageForEditing &&
             !state.sourceImageForAnalysis &&
@@ -10327,9 +10419,8 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
-          // v4: 小T全量默认开启；已有显式开关偏好继续尊重用户选择。
-          xiaotMode:
-            typeof state.xiaotMode === "boolean" ? state.xiaotMode : true,
+          // v5: 小T改为单轨入口，忽略历史开关偏好并固定开启。
+          xiaotMode: true,
           // v3: 小T大脑只保留 GPT 5.4 / 5.5。旧值或未知值统一回落 5.4，
           // 避免持久化偏好继续覆盖新的产品默认模型。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
@@ -10353,7 +10444,6 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
-        xiaotMode: state.xiaotMode,
         xiaotModel: state.xiaotModel,
         xiaotPreferredImage: state.xiaotPreferredImage,
         xiaotPreferredVideo: state.xiaotPreferredVideo,

@@ -279,7 +279,6 @@ const AIChatDialog: React.FC = () => {
     updateMessageStatus,
     toggleWebSearch,
     xiaotMode,
-    toggleXiaotMode,
     xiaotModel,
     setXiaotModel,
     xiaotPreferredImage,
@@ -660,7 +659,7 @@ const AIChatDialog: React.FC = () => {
     manualAIMode === "text"
       ? "new-api · GPT-5.4"
       : manualAIMode === "analyze"
-        ? "new-api · GPT-5.6"
+        ? "new-api · GPT-5.6 Luna"
         : currentProviderOption
           ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
           : t("chat.labels.domesticModel");
@@ -2715,7 +2714,7 @@ const AIChatDialog: React.FC = () => {
       generationStatus.isGenerating ||
       autoOptimizing ||
       sendInFlightRef.current ||
-      (xiaotMode && xiaotRunning) // 小T流式进行中：禁止再起新一轮（先停止）
+      xiaotRunning // 小T流式进行中：禁止再起新一轮（先停止）
     )
       return;
 
@@ -3208,7 +3207,7 @@ const AIChatDialog: React.FC = () => {
     !autoOptimizing &&
     (manualAIMode === "auto" || isManualModeSupported);
   // 小T 正在流式运行：发送按钮切成「停止」，点击中断当前会话
-  const isXiaotBusy = xiaotMode && xiaotRunning;
+  const isXiaotBusy = xiaotRunning;
   const hasHistoryContent = messages.length > 0 || isStreaming;
   const shouldShowHistoryPanel =
     (showHistory || isMaximized) && (hasHistoryContent || showHistory);
@@ -4115,47 +4114,10 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenu>
                 )}
 
-                {/* 小T画布智能体模式开关 */}
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={false}
-                  onClick={toggleXiaotMode}
-                  aria-pressed={xiaotMode}
-                  className={cn(
-                    "relative order-4 h-7 px-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
-                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                    xiaotMode
-                      ? isBlackTheme
-                        ? "bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
-                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                      : !generationStatus.isGenerating
-                      ? isBlackTheme
-                        ? "text-gray-400 border-gray-600"
-                        : "hover:bg-gray-100 text-gray-700"
-                      : "opacity-50 cursor-not-allowed text-gray-400"
-                  )}
-                  title={lt(
-                    `小T画布智能体模式: ${xiaotMode ? "开启" : "关闭"}`,
-                    `XiaoT canvas agent mode: ${xiaotMode ? "On" : "Off"}`
-                  )}
-                >
-                  <span className='font-medium'>{lt("小T", "XiaoT")}</span>
-                  <span
-                    className={cn(
-                      "pointer-events-none absolute -top-1.5 -right-1.5 rounded-full px-1 py-px text-[9px] font-semibold leading-none",
-                      isBlackTheme
-                        ? "bg-amber-500 text-black"
-                        : "bg-amber-500 text-white"
-                    )}
-                  >
-                    beta
-                  </span>
-                </Button>
               </div>
 
               {/* 长宽比选择按钮 */}
-              {!xiaotMode && showAspectRatioControls && (
+              {showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -4187,7 +4149,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 视频尺寸选择按钮 */}
-              {isVideoMode && (
+              {xiaotMode && (
                 <Button
                   ref={videoAspectButtonRef}
                   onClick={() => setIsVideoAspectOpen((v) => !v)}
@@ -4195,7 +4157,7 @@ const AIChatDialog: React.FC = () => {
                   size='sm'
                   variant='outline'
                   className={cn(
-                    "absolute right-28 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
+                    "absolute right-36 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     videoAspectRatio
                       ? isBlackTheme
@@ -4223,7 +4185,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 视频时长选择按钮 */}
-              {isVideoMode && (
+              {xiaotMode && (
                 <Button
                   ref={videoDurationButtonRef}
                   onClick={() => setIsVideoDurationOpen((v) => !v)}
@@ -4231,7 +4193,7 @@ const AIChatDialog: React.FC = () => {
                   size='sm'
                   variant='outline'
                   className={cn(
-                    "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
+                    "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     videoDurationSeconds
                       ? isBlackTheme
@@ -4258,7 +4220,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {!xiaotMode && showImageSizeControls && (
+              {showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
@@ -4363,7 +4325,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 视频尺寸下拉菜单 */}
-              {isVideoMode &&
+              {xiaotMode &&
                 isVideoAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4412,7 +4374,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 视频时长下拉菜单 */}
-              {isVideoMode &&
+              {xiaotMode &&
                 isVideoDurationOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4630,8 +4592,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {/* +号上传按钮 - 替换原来的上传图片按钮位置（小T模式 v1 不支持附件，先隐藏） */}
-              {!xiaotMode && (
+              {/* +号上传按钮：小T单轨仍保留图片、PDF/文档等附件入口。 */}
+              {(
               <DropdownMenu
                 open={isUploadMenuOpen}
                 onOpenChange={setIsUploadMenuOpen}

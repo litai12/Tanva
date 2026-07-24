@@ -173,17 +173,17 @@ export class AiController {
     seedream5: 'gpt-5.4',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
-    gemini: 'gpt-5.6',
-    'gemini-pro': 'gpt-5.6',
-    banana: 'gpt-5.6',
-    'banana-2.5': 'gpt-5.6',
-    'banana-3.1': 'gpt-5.6',
-    'deepseek-v4-flash': 'gpt-5.6',
-    'deepseek-v4-pro': 'gpt-5.6',
-    runninghub: 'gpt-5.6',
-    midjourney: 'gpt-5.6',
-    nano2: 'gpt-5.6',
-    seedream5: 'gpt-5.6',
+    gemini: 'gpt-5.6-luna',
+    'gemini-pro': 'gpt-5.6-luna',
+    banana: 'gpt-5.6-luna',
+    'banana-2.5': 'gpt-5.6-luna',
+    'banana-3.1': 'gpt-5.6-luna',
+    'deepseek-v4-flash': 'gpt-5.6-luna',
+    'deepseek-v4-pro': 'gpt-5.6-luna',
+    runninghub: 'gpt-5.6-luna',
+    midjourney: 'gpt-5.6-luna',
+    nano2: 'gpt-5.6-luna',
+    seedream5: 'gpt-5.6-luna',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -999,7 +999,8 @@ export class AiController {
     const aiProvider = providerName || 'gemini';
     const requestModel =
       typeof extraParams?.model === 'string' ? extraParams.model.trim().toLowerCase() : '';
-    const isGatewayGptTextRequest = requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6';
+    const isGatewayGptTextRequest =
+      requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6-luna';
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
@@ -2148,7 +2149,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gpt-5.6';
+      return this.providerDefaultAnalyzeModels[providerName] || 'gpt-5.6-luna';
     }
     return this.providerDefaultAnalyzeModels.gemini;
   }

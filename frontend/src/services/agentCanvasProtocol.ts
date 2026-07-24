@@ -104,6 +104,26 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "action_banner",
     "role_note",
   ],
+  // 小T单轨宿主工具：由小T判断何时调用，Tanva 在当前小T消息内执行并展示结果。
+  // facade 通过 host_tool({name, arguments}) 发起调用。
+  hostTools: [
+    {
+      name: "legacy_image_only",
+      description:
+        "沿用 AI Chat 原生只出图链路。适用于用户明确要求只要图片、不要解释/文字，或明确点名“只出图”。",
+      parameters: {
+        prompt: { type: "string", description: "用于生成图片的完整提示词" },
+      },
+    },
+    {
+      name: "case_search",
+      description:
+        "沿用 AI Chat 案例搜索能力，返回联网文字结论与带真实图片/来源的案例卡片。适用于找案例、参考、资料、建筑先例等请求。",
+      parameters: {
+        query: { type: "string", description: "完整的案例检索需求" },
+      },
+    },
+  ],
   nodeSpecs: [
     // ── 第一层：完整 spec ──
     {
@@ -375,6 +395,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [
+    "宿主工具调用规则：用户明确要求“只出图/不要文字”时调用 host_tool{name:'legacy_image_only',arguments:{prompt}}，不要再创建生图 flow_patch；用户要求找案例/案例搜索/参考资料/建筑先例时调用 host_tool{name:'case_search',arguments:{query}}。这两项必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",

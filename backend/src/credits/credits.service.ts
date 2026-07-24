@@ -848,7 +848,7 @@ export class CreditsService {
     model?: string,
   ): number {
     const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
-    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6') {
+    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6-luna') {
       return currentCredits;
     }
     const candidates = [
@@ -2022,7 +2022,7 @@ export class CreditsService {
     }
 
     const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
-    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6') {
+    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6-luna') {
       return defaultCredits;
     }
 
