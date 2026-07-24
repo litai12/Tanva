@@ -228,7 +228,7 @@ export class EditImageDto {
   @ValidateIf((o) => !o.sourceImageUrl)
   @IsString()
   @IsNotEmpty()
-  sourceImage?: string; // base64
+  sourceImage?: string; // uploaded remote http(s) URL
 
   @ValidateIf((o) => !o.sourceImage)
   @IsString()
@@ -462,7 +462,7 @@ export class AnalyzeImageDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
-  sourceImages?: string[]; // base64/url array
+  sourceImages?: string[]; // uploaded remote http(s) URL array
 
   @IsOptional()
   @IsString()

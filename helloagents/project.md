@@ -40,7 +40,7 @@
 - `Project.contentJson` / `PublicTemplate.templateData` 只允许保存远程 URL/路径引用；禁止 `data:`/`blob:`/base64 图片等内联内容进入 DB/OSS。
 - UI 渲染（画板/图层/缩略图等）：避免直接用 `data:image/*`/裸 base64 做渲染；优先转为 `blob:`（objectURL）或走 `canvas`（参考 `frontend/src/components/ui/SmartImage.tsx`、`frontend/src/hooks/useNonBase64ImageSrc.ts`）。
 - Canvas/Flow 正式图片资产必须先完成托管上传并取得远程 URL，再创建节点或图元；上传失败时阻止创建，不得以 `data:`、`blob:`、裸 base64 或未托管外链作为正式资产兜底。裁剪、蒙版、画笔等组件内部可短暂使用 Blob/object URL 预览，但保存、替换正式资产或提交 AI 生成前必须上传。
-- AI 图片生成、编辑、融合的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` 前最终校验。唯一例外是同步图像识别：输入与持久化仍为远程 URL，但 `NewApiProvider` 调用 `gpt-5.6-luna` 前在最后一跳安全下载到内存并转为 base64 data URL，以绕过上游无法拉取国内 TOS 的问题；该临时值不得回写设计 JSON、DTO、DB、Redis 或 BullMQ。
+- AI 图片生成、编辑、融合及同步图像识别的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` / `image_url` 前最终校验。图像识别统一使用 Gemini/ToAPIs，包含小T大脑选择 `gpt-5.6-luna` 的场景；任何图片识别链路均不得下载图片或转换、透传 base64。
 
 ### Flow / AI 运行约定
 - AI Chat 固定使用小T单轨入口，不再提供小T开关；preferences v5 会忽略历史关闭偏好并固定开启。旧能力必须作为小T宿主工具接入，不能以关闭小T回到旧链路。

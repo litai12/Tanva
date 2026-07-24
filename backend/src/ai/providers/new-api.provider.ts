@@ -28,8 +28,6 @@ const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
 const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 const IMAGE_MAX_RETRIES = 2;
 const IMAGE_RETRY_DELAYS = [5_000, 15_000];
-const ANALYSIS_IMAGE_FETCH_TIMEOUT_MS = 15_000;
-const ANALYSIS_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 const GEMINI_BASE_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '2:3',
@@ -197,8 +195,11 @@ export class NewApiProvider implements IAIProvider {
     );
     const hasPdf = fileReferences.some((item) => this.isPdfReference(item));
 
+    const model = request.model || 'gemini-2.5-flash';
     const fileParts = await Promise.all(
-      fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+      fileReferences.map((item, index) =>
+        this.toAnalysisContentPart(item, index),
+      ),
     );
     const content: Array<Record<string, unknown>> = [
       { type: 'text', text: request.prompt || (hasPdf ? '请分析这个 PDF 文件。' : '请分析这张图片。') },
@@ -207,7 +208,7 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.chat(
       {
-        model: request.model || 'gpt-5.6-luna',
+        model,
         max_tokens: 4096,
         messages: [{ role: 'user', content }],
       },
@@ -225,6 +226,7 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async generateText(request: TextChatRequest): Promise<AIProviderResponse<TextResult>> {
+    const model = request.model || 'gpt-5.4';
     const imageReferences = Array.from(
       new Set(
         [
@@ -240,13 +242,15 @@ export class NewApiProvider implements IAIProvider {
         ? [
             { type: 'text', text: request.prompt },
             ...(await Promise.all(
-              imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+              imageReferences.map((item, index) =>
+                this.toAnalysisContentPart(item, index),
+              ),
             )),
           ]
         : request.prompt;
 
     const payload = {
-      model: request.model || 'gpt-5.4',
+      model,
       messages: [{ role: 'user', content }],
       ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
     };
@@ -902,84 +906,10 @@ export class NewApiProvider implements IAIProvider {
     return `data:application/pdf;base64,${buffer.toString('base64')}`;
   }
 
-  /**
-   * 图像识别专用的最后一跳转换：持久化边界仍只接收远程 URL，只有在调用
-   * gpt-5.6-luna 前才下载到内存并转成 data URL，绕过部分上游无法拉取国内
-   * TOS/CDN 的问题。该值不回写请求 DTO、数据库或任务数据。
-   */
-  private async fetchAnalysisImageDataUrl(url: string, index: number): Promise<string> {
-    const trimmed = String(url || '').trim();
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      throw new Error(`Invalid analysis image URL at index ${index}`);
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(`Analysis image at index ${index} must use http(s)`);
-    }
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (
-      hostname === 'localhost' ||
-      hostname === '::1' ||
-      hostname.startsWith('127.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('169.254.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
-    ) {
-      throw new Error(`Analysis image at index ${index} points to a private host`);
-    }
-
-    const response = await fetch(parsed, {
-      signal: AbortSignal.timeout(ANALYSIS_IMAGE_FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok || !response.body) {
-      throw new Error(
-        `Failed to fetch analysis image ${index + 1}: ${response.status} ${response.statusText}`,
-      );
-    }
-    const mimeType = (response.headers.get('content-type') || '')
-      .split(';', 1)[0]
-      .trim()
-      .toLowerCase();
-    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(mimeType)) {
-      throw new Error(
-        `Unsupported analysis image content type at index ${index}: ${mimeType || 'unknown'}`,
-      );
-    }
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (Number.isFinite(declaredLength) && declaredLength > ANALYSIS_IMAGE_MAX_BYTES) {
-      throw new Error(
-        `Analysis image ${index + 1} exceeds ${ANALYSIS_IMAGE_MAX_BYTES / 1024 / 1024}MB`,
-      );
-    }
-
-    const chunks: Buffer[] = [];
-    let totalBytes = 0;
-    const reader = response.body.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        totalBytes += value.byteLength;
-        if (totalBytes > ANALYSIS_IMAGE_MAX_BYTES) {
-          throw new Error(
-            `Analysis image ${index + 1} exceeds ${ANALYSIS_IMAGE_MAX_BYTES / 1024 / 1024}MB`,
-          );
-        }
-        chunks.push(Buffer.from(value));
-      }
-    } finally {
-      void reader.cancel().catch(() => undefined);
-    }
-    if (totalBytes === 0) {
-      throw new Error(`Analysis image ${index + 1} is empty`);
-    }
-    return `data:${mimeType};base64,${Buffer.concat(chunks, totalBytes).toString('base64')}`;
-  }
-
-  private async toAnalysisContentPart(value: string, index: number): Promise<Record<string, unknown>> {
+  private async toAnalysisContentPart(
+    value: string,
+    index: number,
+  ): Promise<Record<string, unknown>> {
     if (this.isPdfReference(value)) {
       const trimmed = String(value || '').trim();
       return {
@@ -997,9 +927,7 @@ export class NewApiProvider implements IAIProvider {
     return {
       type: 'image_url',
       image_url: {
-        url: /^https?:\/\//i.test(trimmed)
-          ? await this.fetchAnalysisImageDataUrl(trimmed, index)
-          : this.toImageReference(value),
+        url: this.requireRemoteImageReference(trimmed, `analysis image[${index}]`),
       },
     };
   }

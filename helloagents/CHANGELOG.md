@@ -2,8 +2,8 @@
 
 - 2026-07-24：AI Chat 将小T大脑、图片/视频模型、图片比例/尺寸、视频比例/时长、图片数量和风格锚定合并为一个“设置”弹窗，复用原风格入口并移除重复的独立控件。
 - 2026-07-24：小T大脑统一为三档产品命名：Fast=GPT-5.4、Pro=GPT-5.5、Ultra=GPT-5.6 Luna；前后端白名单、选择器文案和生产 facade 映射同步更新。
-- 2026-07-24：`gpt-5.6-luna` 图像识别改为后端最后一跳内存转换：客户端与持久化仍只传远程 URL，`NewApiProvider` 以 15 秒超时、12MB 上限和图片 MIME 校验下载后转成 base64 data URL 请求 Luna，绕过 RightAPI 拉取广州 TOS 超时。
-- 2026-07-24：非小T高级文本/视觉能力从网关不存在的裸 `gpt-5.6` 改为 `gpt-5.6-luna`，覆盖图像分析、HTML PPT、Paper.js、图像转矢量和普通 Agent 研究；路由验证与积分模型识别同步更新。
+- 2026-07-24：图片识别统一切到 Gemini 三档并只传远程 URL；小T即使使用 `gpt-5.6-luna` 大脑，也通过 `analyze_image` 宿主工具调用 Gemini。删除 Luna 下载图片并转 base64 的兼容分支，Image Chat 与小T分析前会先上传所有临时图片，后端拒绝内联图片。
+- 2026-07-24：非小T高级文本能力从网关不存在的裸 `gpt-5.6` 改为 `gpt-5.6-luna`，覆盖 HTML PPT、Paper.js、图像转矢量和普通 Agent 研究；路由验证与积分模型识别同步更新。图像分析随后独立统一到 Gemini 三档。
 - 2026-07-24：小T单轨恢复图片比例/尺寸与视频比例/时长四项生成偏好，并随每轮 capability manifest 传给小T；上传图片、PDF、文档入口继续保留。
 - 2026-07-24：移除 AI Chat 的小T开关，小T成为固定单轨入口；preferences 升级到 v5 并忽略历史关闭偏好。旧能力统一通过小T `host_tool` 调用，不再允许用户切换回双轨模式。
 - 2026-07-24：小T单轨补齐宿主工具协议 `host_tool`，把旧 AI Chat 的“只出图”和“案例搜索”注册为小T能力。请求始终先由小T判断，宿主在当前消息内复用原生生图或案例检索链路，不再前置分流。
@@ -14,7 +14,7 @@
 - 2026-07-23：Canvas/Flow 图片正式资产改为“先上传、后创建”，文件选择、粘贴、拖放、快速生成及外部图片不再以本地 base64/blob 或未托管外链兜底。AI 生图、编辑、融合与高清放大统一在前端提交边界上传当前渲染输入；后端 Controller、BullMQ 入队服务和 `NewApiProvider` 逐层只接受 HTTP(S) 图片 URL，阻止内联图片进入任务 `requestData`、Redis 或 new-api `image_urls`。
 - 2026-07-23：小T大脑改为 GPT-5.4 / GPT-5.5 两档并默认 GPT-5.4；生图数量以底部 `1/2/4/8` 倍数为唯一权威，通过结构化 manifest 传递并在宿主执行层拦截额外图片、prompt、连线和运行任务。`gptImage2` manifest 显式声明单图片输出，使异步 `runNode` 可被 facade 按图片交付证据验收。小T新增节点自动复用一键整理并聚焦首个生图节点；一键整理改为优先使用持久化 `boxW/boxH`，修复放大图片节点相互覆盖。
 - 2026-07-23：修复 Safari 15.6 调用小T后白屏：`remark-gfm` 的自动链接解析器会在渲染回复时动态创建后行断言正则，旧 Safari 抛出 `Invalid regular expression: invalid group specifier name`。前端现按正则能力启用 GFM，旧浏览器回退到基础 Markdown；同时为小T对话、Flow 画布和应用根节点增加分级错误边界，局部回复/节点异常不再卸载整页。
-- 2026-07-22：撤销 Tanva 后端直连 tc-api 的 GPT 硬路由，普通对话、Flow Text Chat、提示词优化、工具选择、PDF/图像分析、HTML PPT、Paper.js 与普通 Agent 文本现统一使用 `NEW_API_BASE_URL` / `NEW_API_KEY` 调用 new-api `/v1/chat/completions`，tc-api 地址和 `tc_sk` 仅由 new-api 渠道集中管理。积分 provider、API usage channel 与成功 metadata 同步更正为 `new-api`；AI 对话框外显 `new-api · GPT-5.4/5.6`，Text Chat 与 Prompt Optimizer 外显实际 `GPT-5.4`。新增反向 mock 门禁，确保存在 tc-api key 也不会绕过 new-api。
+- 2026-07-22：撤销 Tanva 后端直连 tc-api 的 GPT 硬路由，普通对话、Flow Text Chat、提示词优化、工具选择、PDF 分析、HTML PPT、Paper.js 与普通 Agent 文本现统一使用 `NEW_API_BASE_URL` / `NEW_API_KEY` 调用 new-api `/v1/chat/completions`，tc-api 地址和 `tc_sk` 仅由 new-api 渠道集中管理。积分 provider、API usage channel 与成功 metadata 同步更正为 `new-api`；AI 对话框外显 `new-api · GPT-5.4/5.6`，Text Chat 与 Prompt Optimizer 外显实际 `GPT-5.4`。新增反向 mock 门禁，确保存在 tc-api key 也不会绕过 new-api；图片分析现由后续 Gemini 专用链路负责。
 - 2026-07-21：非小T AI 对话硬切 tc-api GPT 路由：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 分析统一使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究统一使用 `gpt-5.6`。移除活动链路中的 `gemini-3.5-flash` / `gpt-5.4-mini` 与误导性的旧文本模型选择，视频分析继续走 Gemini、小T继续走专属 GPT-5.6 facade。后端新增独立 tc-api base URL/key、缺 key 显式失败与 mock 路由验证，积分展示元数据同步标记为 tc-api，现有 Tanva 固定积分价格保持不变。
 - 2026-07-21：修复 Flow 视频输入节点上传/加载视频后未持久化真实 `duration`，导致连接 Seedance 2.0/Fast/Mini 时试算始终只按输出时长显示固定积分的问题。视频输入节点现在在本地上传阶段读取媒体时长，并在已有远程视频元数据加载后自动补齐或校正；Seedance 下游还会直接探测所有已连接远程成片（包括画布内生成与合成视频）的实际媒体时长，节点请求时长只作探测失败兜底。试算随总输入时长重新请求，实际生成前仍由后端 `ffprobe` 复核；后端实际预扣链路复用可测试的总时长函数，并新增 `npm run verify:seedance-billing` 门禁。
 - 2026-07-21：Flow 通用视频节点的 Run 积分展示改为只消费后端 `/api/credits/preview` 试算结果；删除前端 Seedance 2.0/Fast/Mini 硬编码单价和节点配置静态兜底。模型、分辨率、输出时长及输入视频总时长仍由前端作为试算参数提交，但价格规则、最终积分和实际预扣统一由后端同一报价解析器负责；接口未返回时不展示可能过期的积分数。

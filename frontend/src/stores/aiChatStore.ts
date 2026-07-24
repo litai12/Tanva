@@ -1521,9 +1521,11 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
 };
 
 export const getAnalyzeModelForProvider = (
-  _provider: AIProviderType
+  provider: AIProviderType
 ): string => {
-  return ADVANCED_TEXT_MODEL;
+  if (provider === "banana-2.5") return "gemini-2.5-flash";
+  if (provider === "banana-3.1" || provider === "nano2") return "gemini-3.1-pro";
+  return "gemini-3.5-flash";
 };
 
 export const getTextModelForProvider = (_provider: AIProviderType): string => {
@@ -6579,22 +6581,25 @@ export const useAIChatStore = create<AIChatState>()(
             });
 
             // 🔥 统一改为先上传到 OSS，用 URL 传给后端
-            const primaryAnalyzeSource = normalizedAnalyzeSources[0];
             const projectIdAnalyze = useProjectContentStore.getState().projectId;
-            const remoteUrlAnalyze = normalizeRemoteUrl(primaryAnalyzeSource);
-            const remoteAllowedAnalyze = Boolean(
-              remoteUrlAnalyze && isLikelyBackendAllowedRemoteUrl(remoteUrlAnalyze)
-            );
-            const uploadedAnalyzeUrl = remoteUrlAnalyze && remoteAllowedAnalyze
-              ? remoteUrlAnalyze
-              : await uploadImageToOSS(primaryAnalyzeSource, projectIdAnalyze);
-            if (!uploadedAnalyzeUrl) {
-              if (remoteUrlAnalyze && !remoteAllowedAnalyze) {
-                throw new Error(
-                  "源图 URL 域名不在后端白名单，且上传失败。请先上传到画布/素材库后重试。"
-                );
+            const analyzeSourceUrls = await mapWithLimit(
+              normalizedAnalyzeSources,
+              2,
+              async (item) => {
+                const remoteUrl = normalizeRemoteUrl(item);
+                if (remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)) return remoteUrl;
+                return uploadImageToOSS(item, projectIdAnalyze);
               }
-              throw new Error("源图上传 OSS 失败，请重新选择图片。");
+            );
+            const normalizedAnalyzeSourceUrls = analyzeSourceUrls.filter(
+              (item): item is string =>
+                typeof item === "string" && /^https?:\/\//i.test(item.trim())
+            );
+            if (
+              normalizedAnalyzeSourceUrls.length === 0 ||
+              normalizedAnalyzeSourceUrls.length !== normalizedAnalyzeSources.length
+            ) {
+              throw new Error("部分源图片上传失败，请重新选择后重试。");
             }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
@@ -6626,35 +6631,17 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API分析图像（后端接受多图 base64）
+            // 调用后端 API 分析图像：只传已上传的远程 URL，禁止 base64。
             const modelToUse = getAnalyzeModelForProvider(state.aiProvider);
-            const analyzeSourceBase64List = await mapWithLimit(
-              normalizedAnalyzeSources,
-              2,
-              async (item) => resolveImageToDataUrl(item)
-            );
-            const normalizedAnalyzeSourceBase64List = analyzeSourceBase64List.filter(
-              (item): item is string =>
-                typeof item === "string" && item.trim().length > 0
-            );
-            if (
-              normalizedAnalyzeSourceBase64List.length === 0 ||
-              normalizedAnalyzeSourceBase64List.length !==
-                normalizedAnalyzeSources.length
-            ) {
-              throw new Error("部分源图片读取失败，请重新选择后重试。");
-            }
-            const primaryAnalyzeSourceBase64 =
-              normalizedAnalyzeSourceBase64List[0];
             const defaultAnalyzePrompt =
-              normalizedAnalyzeSourceBase64List.length > 1
+              normalizedAnalyzeSourceUrls.length > 1
                 ? "请详细分析这组图片，并总结它们的差异与共同点"
                 : "请详细分析这张图片的内容";
 
             const result = await analyzeImageViaAPI({
               prompt: prompt || defaultAnalyzePrompt,
-              sourceImage: primaryAnalyzeSourceBase64,
-              sourceImages: normalizedAnalyzeSourceBase64List,
+              sourceImage: normalizedAnalyzeSourceUrls[0],
+              sourceImages: normalizedAnalyzeSourceUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
             });
@@ -9070,7 +9057,7 @@ export const useAIChatStore = create<AIChatState>()(
                     (value): value is string =>
                       typeof value === "string" && value.trim().length > 0
                   );
-                  const imageUrls = Array.from(
+                  const imageSources = Array.from(
                     new Set([...argumentUrls, ...messageUrls].map((value) => value.trim()))
                   );
                   const prompt =
@@ -9079,8 +9066,27 @@ export const useAIChatStore = create<AIChatState>()(
                       : input;
                   pendingHostTools.push(
                     (async () => {
-                      if (imageUrls.length === 0) {
+                      if (imageSources.length === 0) {
                         throw new Error("图像分析工具没有收到图片，请先上传图片或指定画布图片。");
+                      }
+                      const projectId = useProjectContentStore.getState().projectId;
+                      const uploadedImageUrls = await mapWithLimit(
+                        imageSources,
+                        2,
+                        async (source) => {
+                          const remoteUrl = normalizeRemoteUrl(source);
+                          if (remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)) {
+                            return remoteUrl;
+                          }
+                          return uploadImageToOSS(source, projectId);
+                        }
+                      );
+                      const imageUrls = uploadedImageUrls.filter(
+                        (value): value is string =>
+                          typeof value === "string" && /^https?:\/\//i.test(value.trim())
+                      );
+                      if (imageUrls.length !== imageSources.length) {
+                        throw new Error("小T分析前上传图片失败，请重新上传图片后重试。");
                       }
                       get().updateMessage(aiMessage.id, (msg) => ({
                         ...msg,

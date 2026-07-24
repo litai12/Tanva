@@ -45,7 +45,7 @@
 - 状态查询先校验 `VideoTask.userId`，再合并内存状态与持久化结果；即使内存状态已过期或进程重启，已落库的成功/失败结果仍可查询。计费层使用同一个幂等键，记录 `provider=hunyuan-3d`、`model=3.1`。
 
 ## 2026-07-22 new-api GPT Text Routing
-- 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6-luna`，不得发送裸 `gpt-5.6`。
+- 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6-luna`，不得发送裸 `gpt-5.6`。图片识别/分析是独立的 Gemini 三档链路，不随文本模型切换。
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
 - new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6-luna` abilities；小T专属 Fast/Pro/Ultra facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
 - `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
@@ -149,6 +149,6 @@
 - This prevents `model ... does not support content generation` errors caused by outdated or custom requestProfile model values.
 ## 2026-07-24 Image Chat Gemini / ToAPIs
 
-- `/api/ai/analyze-image` 的 Image Chat 三档恢复为 ToAPIs 模型广场真实基础 ID：Fast `gemini-2.5-flash`、Pro `gemini-3.5-flash`、Ultra `gemini-3.1-pro`，均走 OpenAI-compatible `/v1/chat/completions` 并显式发送 `max_tokens=4096`。
+- `/api/ai/analyze-image` 的 Image Chat 三档使用 ToAPIs 模型广场真实基础 ID：Fast `gemini-2.5-flash`、Pro `gemini-3.5-flash`、Ultra `gemini-3.1-pro`，均走 OpenAI-compatible `/v1/chat/completions` 并显式发送 `max_tokens=4096`。接口只接受并直接传递远程 `image_url`，不下载或转换 base64；即使小T大脑是 `gpt-5.6-luna`，图片识别也必须通过 `analyze_image` 宿主工具切到上述 Gemini 模型。
 - ToAPIs 数据补丁 `new-api/patches/2026-07-24/001-add-toapis-gemini-image-chat.sql` 为 type=59 ToAPIs 渠道追加模型与 abilities，并按 Tanva 后端 Image Chat 统一 `10 credits = RMB 0.10/次` 写入固定 `ModelPrice`。ToAPIs 2026-07-24 页面参考 token 价分别为 12/100、60/360、80/480 credits/1M input/output；产品对用户仍采用后端固定价。
 - 小T capability manifest 暴露宿主工具 `analyze_image`。识图、图片描述、图片比较、提示词反推等任务必须调用该工具；宿主复用同一个 analyze endpoint、三档模型与积分逻辑，并从工具参数或当前消息附件收集图片。

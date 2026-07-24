@@ -2143,15 +2143,22 @@ export class AiController {
   }
 
   private resolveAnalyzeModel(providerName: string | null, requestedModel?: string): string {
-    const model = requestedModel?.trim();
-    if (model?.length) {
-      this.logger.debug(`[${providerName || 'default'}] Using requested analyze model: ${model}`);
-      return model;
+    const model = requestedModel?.trim().toLowerCase();
+    const allowedModels = new Set([
+      'gemini-2.5-flash',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro',
+    ]);
+    if (model && allowedModels.has(model)) return model;
+
+    if (model) {
+      this.logger.warn(
+        `[${providerName || 'default'}] Ignoring non-Gemini image analyze model: ${model}`,
+      );
     }
-    if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.5-flash';
-    }
-    return this.providerDefaultAnalyzeModels.gemini;
+    if (providerName === 'banana-2.5') return 'gemini-2.5-flash';
+    if (providerName === 'banana-3.1' || providerName === 'nano2') return 'gemini-3.1-pro';
+    return 'gemini-3.5-flash';
   }
 
   private isPdfAnalysisSource(value: string): boolean {
@@ -4357,8 +4364,16 @@ export class AiController {
     if (normalizedImages.length === 0) {
       throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
     }
-    const primarySourceImage = normalizedImages[0];
     const hasPdf = normalizedImages.some((item) => this.isPdfAnalysisSource(item));
+    if (!hasPdf) {
+      normalizedImages.forEach((item, index) => {
+        normalizedImages[index] = this.requireRemoteImageForGenerationTask(
+          item,
+          `sourceImages[${index}]`,
+        );
+      });
+    }
+    const normalizedPrimarySourceImage = normalizedImages[0];
     const model = hasPdf
       ? this.resolvePdfAnalyzeModel(providerName, dto.model)
       : this.resolveAnalyzeModel(providerName, dto.model);
@@ -4426,7 +4441,7 @@ export class AiController {
         const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
-          sourceImage: primarySourceImage,
+          sourceImage: normalizedPrimarySourceImage,
           sourceImages: normalizedImages,
           model,
           providerOptions: dto.providerOptions,
@@ -4462,7 +4477,7 @@ export class AiController {
             .join('\n');
           const visionResult = await visionProvider.analyzeImage({
             prompt: visionPrompt,
-            sourceImage: primarySourceImage,
+            sourceImage: normalizedPrimarySourceImage,
             sourceImages: normalizedImages,
             model: visionModel,
           });
@@ -4510,7 +4525,7 @@ export class AiController {
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       const result = await this.imageGeneration.analyzeImage({
         ...dto,
-        sourceImage: primarySourceImage,
+        sourceImage: normalizedPrimarySourceImage,
         sourceImages: normalizedImages,
         customApiKey,
       });
