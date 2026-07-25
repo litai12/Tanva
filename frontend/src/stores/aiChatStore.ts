@@ -3079,7 +3079,7 @@ interface AIChatState {
   imageInputTarget: ImageInputTarget;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
-  xiaotMode: boolean; // 小T单轨标记（固定 true，仅供现有 UI 条件兼容）
+  xiaotMode: boolean; // 小T Beta 模式；关闭时回到旧图片编辑/Auto 入口
   xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
   xiaotPreferredImage: XiaotPreferredImageModel; // 小T优选图片模型
   xiaotPreferredVideo: XiaotPreferredVideoModel; // 小T优选视频模型
@@ -3090,6 +3090,7 @@ interface AIChatState {
   hideDialog: () => void;
   toggleDialog: () => void;
   setXiaotModel: (model: XiaotChatModel) => void;
+  setXiaotMode: (enabled: boolean) => void;
   setXiaotPreferredImage: (value: XiaotPreferredImageModel) => void;
   setXiaotPreferredVideo: (value: XiaotPreferredVideoModel) => void;
   setXiaotStyleAnchor: (anchor: XiaotStyleAnchor | null) => void;
@@ -3656,7 +3657,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
-        xiaotMode: true, // 小T画布智能体模式全量默认开启
+        xiaotMode: true, // 默认进入小T Beta；用户可切回旧图片编辑/Auto
         xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.4
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
@@ -3671,6 +3672,7 @@ export const useAIChatStore = create<AIChatState>()(
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
         setXiaotModel: (model) => set({ xiaotModel: model }),
+        setXiaotMode: (enabled) => set({ xiaotMode: enabled }),
         setXiaotPreferredImage: (value) =>
           set({ xiaotPreferredImage: value }),
         setXiaotPreferredVideo: (value) =>
@@ -10518,8 +10520,8 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
-          // v5: 小T改为单轨入口，忽略历史开关偏好并固定开启。
-          xiaotMode: true,
+          // 小T Beta 开关：保留用户在新旧入口之间的选择。
+          xiaotMode: typeof state.xiaotMode === "boolean" ? state.xiaotMode : true,
           // v5: 小T大脑为 Fast/Pro/Ultra 三档；旧值或未知值统一回落 Fast。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
             ? (state.xiaotModel as XiaotChatModel)
@@ -10542,6 +10544,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
+        xiaotMode: state.xiaotMode,
         xiaotModel: state.xiaotModel,
         xiaotPreferredImage: state.xiaotPreferredImage,
         xiaotPreferredVideo: state.xiaotPreferredVideo,

@@ -280,6 +280,7 @@ const AIChatDialog: React.FC = () => {
     updateMessageStatus,
     toggleWebSearch,
     xiaotMode,
+    setXiaotMode,
     xiaotModel,
     setXiaotModel,
     xiaotPreferredImage,
@@ -3656,6 +3657,23 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => setXiaotMode(!xiaotMode)}
+                  className={cn(
+                    "h-7 px-2.5 rounded-full text-xs",
+                    xiaotMode
+                      ? "border-violet-300 bg-violet-50 text-violet-700"
+                      : "border-gray-200 bg-white/70 text-gray-600"
+                  )}
+                  title={lt(
+                    xiaotMode ? "切回图片编辑 / Auto" : "进入小T Beta",
+                    xiaotMode ? "Switch to Image Edit / Auto" : "Enter Xiaot Beta"
+                  )}
+                >
+                  {xiaotMode ? "小T Beta" : "图片编辑 / Auto"}
+                </Button>
                 {!xiaotMode && (
                 <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>

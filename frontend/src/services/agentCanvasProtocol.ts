@@ -619,12 +619,12 @@ export const NODE_FORCED_DATA: Record<string, Record<string, string>> = {
 };
 
 // 缺省填充：仅当 node.data 没有该键时填（agent 给了就用 agent 的，保留用户意图）。
-// seedanceMode 不能硬钉：用户说"seedance2.0 首尾帧"时小T会给 start_end，硬覆盖
-// 成 first_frame 会丢意图；缺 mode 时才填 first_frame（最通用图生模式）。
+// Seedance 2.0 / Seed 2.0 的产品默认是“全能参考”；用户明确指定首帧/首尾帧/智能多帧时，
+// 小T传回的 mode 仍优先保留，不能在这里硬覆盖。
 // 注意：audioStudio 的 mode 也由小T按任务在 data 指定，不放缺省。
 export const NODE_DEFAULT_DATA: Record<string, Record<string, string>> = {
-  seedance20Video: { seedanceMode: "first_frame" },
-  seedVideo: { seedanceMode: "first_frame" },
+  seedance20Video: { seedanceMode: "reference_images" },
+  seedVideo: { seedanceMode: "reference_images" },
 };
 
 // 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。
