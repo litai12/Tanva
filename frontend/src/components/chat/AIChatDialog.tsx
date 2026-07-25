@@ -3982,15 +3982,13 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenu>
                 )}
 
-                {/* 小T风格锚定 */}
-                {xiaotMode && (
-                  <XiaotStyleAnchorButton
-                    isBlackTheme={isBlackTheme}
-                    disabled={generationStatus.isGenerating}
-                    dropdownSide={dropdownSide}
-                    lt={lt}
-                  />
-                )}
+                {/* 统一生成设置：小T Beta 与旧图片编辑 / Auto 共用图片规格选择 */}
+                <XiaotStyleAnchorButton
+                  isBlackTheme={isBlackTheme}
+                  disabled={generationStatus.isGenerating}
+                  dropdownSide={dropdownSide}
+                  lt={lt}
+                />
 
                 {!xiaotMode && !shouldHideImageParamControls && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>

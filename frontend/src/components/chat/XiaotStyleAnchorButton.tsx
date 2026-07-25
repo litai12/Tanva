@@ -175,7 +175,7 @@ export default function XiaotStyleAnchorButton({
                 ? "border-gray-600 text-gray-300 hover:bg-white/10"
                 : "text-gray-700 hover:bg-gray-100"
             )}
-            title={lt("小T统一设置", "XiaoT settings")}
+            title={lt("统一生成设置", "Generation settings")}
           >
             <Settings2 className='h-3.5 w-3.5' />
             <span className='font-medium'>{lt("设置", "Settings")}</span>
@@ -189,7 +189,7 @@ export default function XiaotStyleAnchorButton({
           className='w-[380px] max-h-[72vh] overflow-y-auto rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-md'
         >
           <div className='space-y-4 text-xs'>
-            <Section title={lt("小T大脑", "XiaoT brain")}>
+            <Section title={lt("小T大脑（Beta）", "XiaoT brain (Beta)")}>
               <ChoiceGrid
                 options={BRAIN_OPTIONS.map((option) => option.value)}
                 value={xiaotModel}
