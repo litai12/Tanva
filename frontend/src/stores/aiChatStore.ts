@@ -137,7 +137,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 5;
+const AI_CHAT_PREFERENCES_VERSION = 6;
 const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
@@ -3657,7 +3657,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
-        xiaotMode: true, // 默认进入小T Beta；用户可切回旧图片编辑/Auto
+        xiaotMode: false, // 默认使用旧图片编辑 / Auto；用户主动选择后进入小T Beta
         xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.4
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
@@ -10520,8 +10520,8 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
-          // 小T Beta 开关：保留用户在新旧入口之间的选择。
-          xiaotMode: typeof state.xiaotMode === "boolean" ? state.xiaotMode : true,
+          // v6：小T Beta 改为用户主动选择，旧版本曾强制写入 true，统一迁回旧入口。
+          xiaotMode: false,
           // v5: 小T大脑为 Fast/Pro/Ultra 三档；旧值或未知值统一回落 Fast。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
             ? (state.xiaotModel as XiaotChatModel)
@@ -10544,7 +10544,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
-        xiaotMode: state.xiaotMode,
+          xiaotMode: state.xiaotMode,
         xiaotModel: state.xiaotModel,
         xiaotPreferredImage: state.xiaotPreferredImage,
         xiaotPreferredVideo: state.xiaotPreferredVideo,
