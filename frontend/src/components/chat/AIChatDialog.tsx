@@ -3319,8 +3319,8 @@ const AIChatDialog: React.FC = () => {
       }}
       onDoubleClick={handleOuterDoubleClick}
       onDoubleClickCapture={handleDoubleClickCapture}
-    >
-      <div
+      >
+        <div
         ref={dialogRef}
         data-prevent-add-panel
         // 文档拖拽落点 = 整个对话框：用户拖文件时不会精准瞄准底部输入条，
@@ -3379,6 +3379,23 @@ const AIChatDialog: React.FC = () => {
             </div>
           </div>
         )}
+
+        <button
+          type='button'
+          onClick={() => setXiaotMode(!xiaotMode)}
+          className={cn(
+            "absolute right-3 top-3 z-20 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors",
+            xiaotMode
+              ? "border-violet-300 bg-violet-100 text-violet-700 hover:bg-violet-200"
+              : "border-slate-200 bg-white/80 text-slate-500 hover:bg-slate-100"
+          )}
+          title={lt(
+            xiaotMode ? "切回图片编辑 / Auto" : "进入小T Beta",
+            xiaotMode ? "Switch to Image Edit / Auto" : "Enter Xiaot Beta"
+          )}
+        >
+          {xiaotMode ? "小T · Beta" : "小T"}
+        </button>
 
         {showHistoryHoverIndicator && (
           <button
@@ -3657,23 +3674,6 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => setXiaotMode(!xiaotMode)}
-                  className={cn(
-                    "h-7 px-2.5 rounded-full text-xs",
-                    xiaotMode
-                      ? "border-violet-300 bg-violet-50 text-violet-700"
-                      : "border-gray-200 bg-white/70 text-gray-600"
-                  )}
-                  title={lt(
-                    xiaotMode ? "切回图片编辑 / Auto" : "进入小T Beta",
-                    xiaotMode ? "Switch to Image Edit / Auto" : "Enter Xiaot Beta"
-                  )}
-                >
-                  {xiaotMode ? "小T Beta" : "图片编辑 / Auto"}
-                </Button>
                 {!xiaotMode && (
                 <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>
@@ -3983,12 +3983,14 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {/* 统一生成设置：小T Beta 与旧图片编辑 / Auto 共用图片规格选择 */}
-                <XiaotStyleAnchorButton
-                  isBlackTheme={isBlackTheme}
-                  disabled={generationStatus.isGenerating}
-                  dropdownSide={dropdownSide}
-                  lt={lt}
-                />
+                {xiaotMode && (
+                  <XiaotStyleAnchorButton
+                    isBlackTheme={isBlackTheme}
+                    disabled={generationStatus.isGenerating}
+                    dropdownSide={dropdownSide}
+                    lt={lt}
+                  />
+                )}
 
                 {!xiaotMode && !shouldHideImageParamControls && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
@@ -4077,7 +4079,7 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenu>
                 )}
 
-                {false && MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
+                {!xiaotMode && MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
                   <DropdownMenu className='order-3 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <button
