@@ -4134,7 +4134,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {false && showAspectRatioControls && (
+              {!xiaotMode && showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -4237,7 +4237,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {false && showImageSizeControls && (
+              {!xiaotMode && showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
