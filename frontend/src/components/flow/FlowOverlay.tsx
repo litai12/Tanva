@@ -16169,7 +16169,25 @@ function FlowInner() {
   // runNode 同步防重锁：runNodeInner 里 status:"running" 要等一串 await（@图解析/
   // 音频时长/参考图上传）后才落地，期间的重复触发会各自预扣积分（2026-07-17 线上
   // 同一节点同秒 5 次 -600 事故），这里在入口同步占位拦截。
-  const runNodeInFlightRef = React.useRef<Set<string>>(new Set());
+const runNodeInFlightRef = React.useRef<Set<string>>(new Set());
+const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
+const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
+  "wan26",
+  "wan2R2V",
+  "happyhorseR2V",
+  "wan27Video",
+  "sora2Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedance20Video",
+  "seedVideo",
+  "omniFlashExtVideo",
+]);
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNodeInner = React.useCallback(
@@ -16183,6 +16201,32 @@ function FlowInner() {
       if ((node.data as any)?.status === "running") {
         console.log("[runNode] 节点正在运行，忽略重复触发");
         return;
+      }
+      const normalizedNodeType = normalizeFlowNodeType(node.type || "") || node.type || "";
+      if (FLOW_VIDEO_GENERATION_NODE_TYPES.has(normalizedNodeType)) {
+        const lastRunAt = Number((node.data as any)?.videoLastRunAt || 0);
+        const remainingMs = VIDEO_NODE_REGENERATE_COOLDOWN_MS - (Date.now() - lastRunAt);
+        if (lastRunAt > 0 && remainingMs > 0) {
+          const remainingSeconds = Math.ceil(remainingMs / 1000);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `该视频节点刚刚运行过，请 ${remainingSeconds} 秒后再重新生成`,
+                type: "warning",
+              },
+            }),
+          );
+          return;
+        }
+        // 以单节点为粒度记录最近一次 Run；停止任务不会清除它，
+        // 防止“取消后立即重复提交”绕过 10 秒保护。
+        setNodes((ns) =>
+          ns.map((item) =>
+            item.id === nodeId
+              ? { ...item, data: { ...item.data, videoLastRunAt: Date.now() } }
+              : item,
+          ),
+        );
       }
       const clientProjectId = useProjectContentStore.getState().projectId || undefined;
       const clientRunId =
@@ -20869,27 +20913,6 @@ function FlowInner() {
           }
         });
 
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    taskId: undefined,
-                    apiUsageId: undefined,
-                    videoTaskProvider: undefined,
-                    videoTaskStartedAt: undefined,
-                    pendingVideoPrompt: undefined,
-                    taskPhase: undefined,
-                  },
-                }
-              : n
-          )
-        );
-
         // 根据供应商调整参数
         const aspectRatioForAPI =
           isOmniFlashExtNode
@@ -21011,6 +21034,31 @@ function FlowInner() {
           provider !== "vidu" && provider !== "viduq3-pro"
             ? undefined
             : viduSemantics.videoMode;
+
+        // Only show running after all local preflight work (prompt rewriting,
+        // media resolution/upload, duration checks) has completed. Earlier this
+        // was set before the API call, so a stuck preflight looked like a video
+        // task even though the backend had no pending usage record.
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    taskId: undefined,
+                    apiUsageId: undefined,
+                    videoTaskProvider: undefined,
+                    videoTaskStartedAt: undefined,
+                    pendingVideoPrompt: undefined,
+                    taskPhase: undefined,
+                  },
+                }
+              : n
+          )
+        );
 
         try {
           console.log("🎬 [Flow] Sending video request", {

@@ -252,42 +252,30 @@ export function VideoComposeEditorModal({
 
       const newClips: EditableClip[] = [];
       try {
-        for (const src of resolvedUpstreamVideos) {
-          if (cancelled) break;
-          const res = await fetchClip(src.url);
-          if (!res.body) throw new Error(`无法加载：${src.title || src.url}`);
-          const clip = new MP4Clip(res.body);
-          await clip.ready;
-          if (cancelled) {
-            clip.destroy();
-            break;
-          }
-
-          const { duration } = clip.meta;
-          const thumbCount = Math.max(
-            4,
-            Math.min(20, Math.ceil(duration / US_PER_S) * 2)
-          );
-          const step = Math.floor(duration / thumbCount);
-          let thumbs: { ts: number; url: string }[] = [];
-          try {
-            const raw = await clip.thumbnails(120, { start: 0, end: duration, step });
-            thumbs = raw.map(({ ts, img }) => ({ ts, url: URL.createObjectURL(img) }));
-          } catch {
-            /* optional */
-          }
-
-          newClips.push({
-            id: newClipId(),
-            clip,
-            sourceUrl: src.url,
-            sourceMeta: { title: src.title, thumbnailUrl: src.thumbnailUrl },
-            duration,
-            trimStart: 0,
-            trimEnd: 0,
-            thumbs,
-          });
-        }
+        // 所有片段并行拉取和解析；缩略图另行后台生成，不阻塞编辑器首屏。
+        const loaded = await Promise.all(
+          resolvedUpstreamVideos.map(async (src) => {
+            const res = await fetchClip(src.url);
+            if (!res.body) throw new Error(`无法加载：${src.title || src.url}`);
+            const clip = new MP4Clip(res.body);
+            await clip.ready;
+            if (cancelled) {
+              clip.destroy();
+              return null;
+            }
+            return {
+              id: newClipId(),
+              clip,
+              sourceUrl: src.url,
+              sourceMeta: { title: src.title, thumbnailUrl: src.thumbnailUrl },
+              duration: clip.meta.duration,
+              trimStart: 0,
+              trimEnd: 0,
+              thumbs: [],
+            } as EditableClip;
+          })
+        );
+        newClips.push(...(loaded.filter(Boolean) as EditableClip[]));
 
         newClips.sort((a, b) =>
           (a.sourceMeta.title || a.sourceUrl).localeCompare(
@@ -302,6 +290,37 @@ export function VideoComposeEditorModal({
 
         destroyEditClips(editClipsRef.current);
         setEditClips(newClips);
+
+        void Promise.all(
+          newClips.map(async (ec) => {
+            const thumbCount = Math.max(4, Math.min(20, Math.ceil(ec.duration / US_PER_S) * 2));
+            const step = Math.floor(ec.duration / thumbCount);
+            try {
+              const raw = await ec.clip.thumbnails(120, {
+                start: 0,
+                end: ec.duration,
+                step,
+              });
+              return {
+                id: ec.id,
+                thumbs: raw.map(({ ts, img }) => ({ ts, url: URL.createObjectURL(img) })),
+              };
+            } catch {
+              return { id: ec.id, thumbs: [] };
+            }
+          })
+        ).then((thumbResults) => {
+          if (cancelled) {
+            thumbResults.forEach((r) => r.thumbs.forEach((t) => URL.revokeObjectURL(t.url)));
+            return;
+          }
+          setEditClips((prev) =>
+            prev.map((ec) => {
+              const result = thumbResults.find((r) => r.id === ec.id);
+              return result ? { ...ec, thumbs: result.thumbs } : ec;
+            })
+          );
+        });
 
         if (newClips.length > 0 && canvasRef.current) {
           const { video } = await newClips[0].clip.tick(0);

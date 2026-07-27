@@ -6,6 +6,7 @@ import { useLocaleText } from "@/utils/localeText";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { VideoComposeContent } from "./VideoComposeContent";
 import { VideoComposeEditorModal } from "./VideoComposeEditorModal";
+import { prewarmClip } from "./reliableClipFetch";
 import {
   collectUpstreamComposeSources,
   collectUpstreamComposeAudioTracks,
@@ -69,6 +70,10 @@ function VideoComposeNodeInner({ id, data, selected }: Props) {
     },
     [id]
   );
+
+  React.useEffect(() => {
+    for (const source of upstreamVideos) prewarmClip(source.url);
+  }, [upstreamVideos]);
 
   const handleComposeDone = React.useCallback(
     async (blob: Blob) => {

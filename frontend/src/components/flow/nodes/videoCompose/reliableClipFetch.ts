@@ -23,7 +23,20 @@ export type FetchClipOptions = {
   baseDelayMs?: number;
   /** 可注入的 sleep（测试用） */
   sleep?: (ms: number) => Promise<void>;
+  /** 内部使用：预热任务本身不能再次等待缓存。 */
+  skipByteCache?: boolean;
 };
+
+// 仅存在于当前页面内，不会写入画布或项目 JSON。
+const MAX_CACHED_CLIP_BYTES = 256 * 1024 * 1024;
+const MAX_SINGLE_CACHED_CLIP_BYTES = 96 * 1024 * 1024;
+let cachedClipBytes = 0;
+const clipByteCache = new Map<string, Promise<Uint8Array>>();
+
+function responseFromBytes(bytes: Uint8Array): Response {
+  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return new Response(body, { headers: { "content-type": "video/mp4" } });
+}
 
 function isHtmlResponse(res: Response): boolean {
   const ct = (res.headers.get("content-type") || "").toLowerCase();
@@ -61,6 +74,10 @@ export async function fetchClip(
   options?: FetchClipOptions
 ): Promise<Response> {
   const signal = options?.signal;
+  if (!options?.skipByteCache) {
+    const cached = clipByteCache.get(clipUrl);
+    if (cached) return responseFromBytes(await cached);
+  }
   const attempts = Math.max(1, options?.attempts ?? 3);
   const baseDelayMs = options?.baseDelayMs ?? 400;
   const sleep = options?.sleep ?? defaultSleep;
@@ -110,4 +127,24 @@ export async function fetchClip(
   throw lastErr instanceof Error
     ? lastErr
     : new Error(`failed to fetch clip: ${clipUrl}`);
+}
+
+/** 连接素材后后台预热；相同 URL 共用一个任务，失败不影响正常打开。 */
+export function prewarmClip(clipUrl: string): void {
+  if (!clipUrl || clipByteCache.has(clipUrl)) return;
+  const task = (async () => {
+    const res = await fetchClip(clipUrl, { skipByteCache: true });
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength > MAX_SINGLE_CACHED_CLIP_BYTES) {
+      throw new Error("clip too large for memory prewarm cache");
+    }
+    const bytes = new Uint8Array(buffer);
+    if (cachedClipBytes + bytes.byteLength > MAX_CACHED_CLIP_BYTES) {
+      throw new Error("prewarm cache full");
+    }
+    cachedClipBytes += bytes.byteLength;
+    return bytes;
+  })();
+  clipByteCache.set(clipUrl, task);
+  void task.catch(() => clipByteCache.delete(clipUrl));
 }
