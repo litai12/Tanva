@@ -73,7 +73,10 @@ function VideoComposeNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     for (const source of upstreamVideos) prewarmClip(source.url);
-  }, [upstreamVideos]);
+    // 音频同样会在真正合成时被重新拉取和解析，提前下载可以避免点击合成后
+    // 才开始等待配音/BGM。
+    for (const track of upstreamAudioTracks) prewarmClip(track.url);
+  }, [upstreamVideos, upstreamAudioTracks]);
 
   const handleComposeDone = React.useCallback(
     async (blob: Blob) => {

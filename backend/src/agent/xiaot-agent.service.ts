@@ -159,30 +159,42 @@ export class XiaotAgentService {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      const requestBody = {
+        model,
+        stream: true,
+        // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
+        stream_options: { include_usage: true },
+        user: dto.sessionId || `tanva:${userId}`,
+        metadata: { host_user_id: hostScopeId },
+        host_user_id: hostScopeId,
+        messages: this.buildMessages(dto),
+      };
+      let response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          stream: true,
-          // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
-          stream_options: { include_usage: true },
-          user: dto.sessionId || `tanva:${userId}`, // 会话级隔离（不变）
-          // 记忆/skill/画像隔离维度：facade 读此字段拼进传给 agents-cli 的 userId 按此分叉。
-          // 与 user(会话)正交。团队模式=team:${teamId}(成员共享)，个人模式=user:${userId}(独立)。
-          // **关键**：顶层 host_user_id 会被 new-api 的 GeneralOpenAIRequest 固定结构体丢弃（无该字段、
-          // 无兜底 map）→ 到 facade 恒空 → 所有 Tanva 用户塌缩同一 owner 目录、记忆互串。故主通道走
-          // metadata.host_user_id（OpenAI 标准字段，new-api 结构体有 Metadata、原样透传）；顶层保留只为
-          // 直连 facade(绕过 new-api)的调用方兜底。facade 优先读 metadata、回落顶层。
-          metadata: { host_user_id: hostScopeId },
-          host_user_id: hostScopeId,
-          messages: this.buildMessages(dto),
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
+
+      // 模型目录可能暂时没有 Ultra/Luna 渠道。自动回落到默认 Fast，
+      // 避免用户因为持久化的模型选择而整次创作失败；若 Fast 也不可用，继续返回原始错误。
+      if (response.status === 503 && model !== DEFAULT_XIAOT_CHAT_MODEL) {
+        const errorBody = await response.clone().text().catch(() => '');
+        if (errorBody.includes('model_not_found')) {
+          response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({ ...requestBody, model: DEFAULT_XIAOT_CHAT_MODEL }),
+            signal: controller.signal,
+          });
+        }
+      }
 
       if (!response.ok || !response.body) {
         let detail = '';

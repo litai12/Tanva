@@ -12,6 +12,17 @@ const positiveDimension = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+// 生成类视频节点包含完整的模型参数面板、预览和媒体控制器，实际渲染高度
+// 会明显大于其历史持久化 boxH（通常仍是 260）。整理若只按 boxH 排版，
+// 网格换行后的第二行会压进第一行。
+const VIDEO_LAYOUT_TYPES: ReadonlySet<string> = new Set([
+  "video", "sora2Video", "wan26", "wan2R2V", "happyhorseR2V",
+  "wan27Video", "omniFlashExtVideo", "klingVideo", "kling26Video",
+  "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo",
+  "seedance20Video", "seedVideo", "volcEnhanceVideo",
+]);
+const GENERATED_VIDEO_MIN_LAYOUT_HEIGHT = 720;
+
 /**
  * Resolve the rendered node size used by layout. Persisted resize values are
  * authoritative because React Flow's measured width/height can lag one render.
@@ -19,7 +30,7 @@ const positiveDimension = (value: unknown): number | null => {
 export function resolveNodeLayoutSize(node: Node, fallback: Size): Size {
   const data = node.data as { boxW?: unknown; boxH?: unknown } | undefined;
   const style = node.style as { width?: unknown; height?: unknown } | undefined;
-  return {
+  const resolved = {
     w:
       positiveDimension(data?.boxW) ??
       positiveDimension(style?.width) ??
@@ -31,6 +42,14 @@ export function resolveNodeLayoutSize(node: Node, fallback: Size): Size {
       positiveDimension(node.height) ??
       fallback.h,
   };
+
+  // Keep tidy's row spacing safe before and after a video task produces a
+  // result. Measured height, when available, is still allowed to be larger.
+  if (VIDEO_LAYOUT_TYPES.has(String(node.type ?? ""))) {
+    resolved.h = Math.max(resolved.h, GENERATED_VIDEO_MIN_LAYOUT_HEIGHT);
+  }
+
+  return resolved;
 }
 
 // 节点尺寸读取器（由调用方注入，复用 FlowOverlay 的 getNodeRenderSize）。

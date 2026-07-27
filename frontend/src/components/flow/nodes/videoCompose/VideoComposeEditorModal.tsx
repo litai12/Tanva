@@ -322,13 +322,8 @@ export function VideoComposeEditorModal({
           );
         });
 
-        if (newClips.length > 0 && canvasRef.current) {
-          const { video } = await newClips[0].clip.tick(0);
-          if (video && canvasRef.current) {
-            drawContain(canvasRef.current, video);
-            video.close();
-          }
-        }
+        // 首帧解码不阻塞编辑器打开。MP4Clip.ready 已经完成了时间线所需的
+        // 元数据解析；首帧只负责预览画面，等 canvas 真正渲染出来后再后台解码。
       } catch (err) {
         destroyEditClips(newClips);
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "加载失败");
@@ -343,6 +338,33 @@ export function VideoComposeEditorModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, resolvedUpstreamVideos]);
+
+  // 弹窗先显示时间线，再异步解码首帧。大视频/高分辨率视频的首帧解码可能
+  // 明显慢于 MP4 元数据解析，不能让它继续占住整个 loading 状态。
+  const firstClipId = editClips[0]?.id;
+  React.useEffect(() => {
+    if (!opened || loading || loadError || !firstClipId) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      const first = editClipsRef.current[0];
+      if (!first || first.id !== firstClipId || cancelled) return;
+      void first.clip
+        .tick(0)
+        .then(({ video }: { video?: VideoFrame }) => {
+          if (!cancelled && video && canvasRef.current) {
+            drawContain(canvasRef.current, video);
+          }
+          video?.close();
+        })
+        .catch(() => {
+          // 首帧预览失败不影响剪辑和后续合成，播放/拖动时仍会再次尝试解码。
+        });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [opened, loading, loadError, firstClipId]);
 
   // ── Cleanup on close ──────────────────────────────────────────────────────
   React.useEffect(() => {
