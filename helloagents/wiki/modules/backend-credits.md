@@ -1,5 +1,9 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-07-27 Flow 视频同步直出兼容
+- 部分视频供应商会在创建接口直接返回 `videoUrl`，不返回异步 `taskId`；后端对此类结果会直接完成积分结算。
+- 前端视频响应校验与 Flow Run 已兼容该同步结果：直接写回视频节点与视频历史，不进入轮询；仅有异步任务时才保存 `taskId/apiUsageId` 并保持 `pending`。
+
 ## 2026-06-19 Admin API credit audit filters
 - `GET /api/admin/api-usage/filter-options` returns provider and model filter choices for the admin API usage records page.
 - The options are sourced from `CreditTransaction.apiUsageId -> ApiUsageRecord.provider/model`, matching the provider/model data shown in credit details. Recent API usage is used only as a fallback when no linked credit transactions exist.

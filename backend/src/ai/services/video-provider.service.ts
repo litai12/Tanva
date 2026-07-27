@@ -1171,6 +1171,12 @@ export class VideoProviderService {
 
     const model = this.resolveNewApiVideoModel(options);
     const isOmniFlashExt = model === "omni-flash-ext";
+    if (!isOmniFlashExt && /doubao-seedance-2/i.test(model)) {
+      const promptLength = typeof options.prompt === "string" ? options.prompt.length : 0;
+      if (promptLength > 5000) {
+        throw new BadRequestException("Seedance 2.0 提示词最多支持 5000 个字符，请缩短后重试");
+      }
+    }
     // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
@@ -1436,6 +1442,22 @@ export class VideoProviderService {
         throw err;
       }
     }
+    const createStatus = this.normalizeNewApiStatus(result);
+    if (createStatus === "failed") {
+      const createData = this.firstNewApiDataEntry(result);
+      const createError =
+        createData?.error?.message ||
+        createData?.error?.code ||
+        result?.error?.message ||
+        result?.error?.code ||
+        result?.fail_reason ||
+        createData?.fail_reason ||
+        result?.message ||
+        createData?.message ||
+        "Seedance 视频任务创建失败";
+      throw new BadRequestException(String(createError));
+    }
+
     const rawTaskId = this.extractTaskId(result);
     if (!rawTaskId) {
       throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
@@ -1483,16 +1505,18 @@ export class VideoProviderService {
     }
 
     if (status === "failed") {
+      const data = this.firstNewApiDataEntry(result);
+      const nestedError = data?.error || result?.error;
       const error =
-        result?.data?.error?.message ||
-        result?.data?.error?.code ||
-        result?.error?.message ||
-        result?.error?.code ||
+        nestedError?.message ||
+        nestedError?.code ||
         result?.fail_reason ||
-        result?.data?.fail_reason ||
+        data?.fail_reason ||
+        result?.reason ||
+        data?.reason ||
         result?.message ||
-        result?.data?.message ||
-        undefined;
+        data?.message ||
+        "Seedance 视频任务失败";
       return { status, thumbnailUrl, error };
     }
 
@@ -2034,7 +2058,22 @@ export class VideoProviderService {
     if (["succeeded", "success", "succeed", "completed", "complete", "finished", "finish"].includes(raw)) {
       return "succeeded";
     }
-    if (["failed", "failure", "error", "cancelled", "canceled"].includes(raw)) {
+    if ([
+      "failed",
+      "failure",
+      "error",
+      "cancelled",
+      "canceled",
+      "rejected",
+      "reject",
+      "blocked",
+      "content_violation",
+      "content-violation",
+      "terminated",
+      "timeout",
+      "timed_out",
+      "expired",
+    ].includes(raw)) {
       return "failed";
     }
     return raw || "processing";

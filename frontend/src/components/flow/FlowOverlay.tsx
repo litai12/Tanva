@@ -17623,6 +17623,46 @@ function FlowInner() {
                 ? providerResult.apiUsageId.trim()
                 : undefined;
             videoUrl = providerResult.videoUrl;
+            if (!providerResult.taskId && providerResult.videoUrl) {
+              const historyEntry = {
+                id: `video-history-${Date.now()}`,
+                videoUrl: providerResult.videoUrl,
+                thumbnail: providerResult.thumbnailUrl,
+                prompt: promptTextForRequest || promptText,
+                createdAt: new Date().toISOString(),
+                elapsedSeconds: Math.max(1, Math.round((Date.now() - generationStartedAt) / 1000)),
+              };
+              recordFlowVideoHistory(nodeId, "wan27Video", historyEntry, {
+                provider: providerResult.provider || "wan2.7",
+                apiUsageId: wanApiUsageId,
+                taskId: undefined,
+              });
+              setNodes((current) =>
+                current.map((item) =>
+                  item.id === nodeId
+                    ? {
+                        ...item,
+                        data: {
+                          ...item.data,
+                          status: "succeeded",
+                          videoUrl: providerResult.videoUrl,
+                          thumbnail: providerResult.thumbnailUrl,
+                          error: undefined,
+                          videoVersion: Number((item.data as any)?.videoVersion || 0) + 1,
+                          history: appendVideoHistory((item.data as any)?.history, historyEntry),
+                          taskId: undefined,
+                          apiUsageId: undefined,
+                          videoTaskProvider: undefined,
+                          videoTaskStartedAt: undefined,
+                          pendingVideoPrompt: undefined,
+                        },
+                      }
+                    : item,
+                ),
+              );
+              return;
+            }
+            if (!providerResult.taskId) throw new Error("未返回任务ID或视频链接");
             recoveredVideoTaskIdsRef.current.add(providerResult.taskId);
             setNodes((current) =>
               current.map((item) =>
@@ -20699,6 +20739,14 @@ function FlowInner() {
           }
         }
 
+        // VideoProviderRequestDto and Seedance upstream both cap prompt input at
+        // 5000 characters. Check the final prompt after the @image mapping note
+        // is appended; checking only the raw user text can miss that extra text.
+        if (isSeedanceNode && isSeedance20Request && (finalPrompt || "").length > 5000) {
+          failCurrentVideoNode("Seedance 2.0 提示词最多支持 5000 个字符，请缩短后重试");
+          return;
+        }
+
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
         referenceImages.forEach((img, i) => {
           console.log(`🎬 [VideoProvider] 参考图${i + 1}: ${img?.slice(0, 60)}...`);
@@ -21211,7 +21259,50 @@ function FlowInner() {
             clientRunId,
             runSource: "flow-node",
           });
-          const createdTaskId = createResult.taskId.trim();
+          if (!createResult.taskId && createResult.videoUrl) {
+            const historyEntry = {
+              id: `video-history-${Date.now()}`,
+              videoUrl: createResult.videoUrl,
+              thumbnail: createResult.thumbnailUrl,
+              prompt: promptText,
+              createdAt: new Date().toISOString(),
+              elapsedSeconds: Math.max(1, Math.round((Date.now() - generationStartMs) / 1000)),
+            };
+            recordFlowVideoHistory(nodeId, normalizedVideoNodeType, historyEntry, {
+              provider: createResult.provider || provider,
+              apiUsageId: createResult.apiUsageId,
+              duration: durationForAPI,
+              aspectRatio: aspectRatioForAPI,
+              seedanceMode,
+              viduVideoMode: viduVideoModeForAPI,
+              referenceImageCount: referenceImageUrls.length,
+            });
+            setNodes((current) =>
+              current.map((item) =>
+                item.id === nodeId
+                  ? {
+                      ...item,
+                      data: {
+                        ...item.data,
+                        status: "succeeded",
+                        videoUrl: createResult.videoUrl,
+                        thumbnail: createResult.thumbnailUrl,
+                        error: undefined,
+                        taskId: undefined,
+                        apiUsageId: undefined,
+                        videoTaskProvider: undefined,
+                        videoTaskStartedAt: undefined,
+                        pendingVideoPrompt: undefined,
+                        videoVersion: Number((item.data as any)?.videoVersion || 0) + 1,
+                        history: appendVideoHistory((item.data as any)?.history, historyEntry),
+                      },
+                    }
+                  : item,
+              ),
+            );
+            return;
+          }
+          const createdTaskId = createResult.taskId?.trim() || "";
           if (!createdTaskId) {
             throw new Error("视频任务创建失败：未返回有效任务 ID");
           }

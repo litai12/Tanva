@@ -48,6 +48,16 @@ test("rejects an HTTP 200 payload without a task ID", () => {
   );
 });
 
+test("accepts a synchronous video result without a task ID", () => {
+  const result = validateVideoGenerationResponse(
+    { status: "succeeded", videoUrl: "https://cdn.example.com/video.mp4" },
+    { ok: true, status: 200 }
+  );
+
+  assert.equal(result.taskId, undefined);
+  assert.equal(result.videoUrl, "https://cdn.example.com/video.mp4");
+});
+
 test("returns a normalized valid task ID for a successful creation response", () => {
   const result = validateVideoGenerationResponse(
     { taskId: "  newapi:task-1  ", status: "queued", apiUsageId: "usage-1" },

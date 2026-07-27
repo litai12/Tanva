@@ -97,7 +97,7 @@ export interface VideoGenerationRequest {
 }
 
 export interface VideoGenerationResult {
-  taskId: string;
+  taskId?: string;
   videoUrl?: string;
   thumbnailUrl?: string;
   status: string;

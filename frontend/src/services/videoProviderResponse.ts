@@ -49,7 +49,7 @@ export const extractVideoProviderErrorMessage = (
 export const validateVideoGenerationResponse = (
   payload: unknown,
   response: { ok: boolean; status: number }
-): Record<string, unknown> & { taskId: string } => {
+): Record<string, unknown> & { taskId?: string; videoUrl?: string } => {
   if (!response.ok) {
     throw new Error(
       extractVideoProviderErrorMessage(payload, `HTTP ${response.status}`)
@@ -69,7 +69,10 @@ export const validateVideoGenerationResponse = (
   }
 
   const taskId = typeof result.taskId === "string" ? result.taskId.trim() : "";
-  if (!taskId) {
+  const videoUrl = typeof result.videoUrl === "string" ? result.videoUrl.trim() : "";
+  // 部分供应商会同步返回成片，不创建异步 task。后端对此类结果已经完成结算，
+  // 不能因为缺少 taskId 再把成功响应判成失败。
+  if (!taskId && !videoUrl) {
     throw new Error(
       extractVideoProviderErrorMessage(
         result,
@@ -78,5 +81,5 @@ export const validateVideoGenerationResponse = (
     );
   }
 
-  return { ...result, taskId };
+  return { ...result, ...(taskId ? { taskId } : {}), ...(videoUrl ? { videoUrl } : {}) };
 };
