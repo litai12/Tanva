@@ -820,6 +820,44 @@ const remapFlowGroupChildIds = (
   };
 };
 
+/**
+ * 复制/粘贴/克隆节点时，把 textPrompt.data.mentions 里指向 flow 节点的引用
+ * 一起重映射到副本 id。否则副本里的 @图N 仍指着原始图片节点：预览缩略图查不到候选
+ * （候选是按副本的兄弟图 id 建的）、生成时也会拿原组的图，用户只能删掉重新 @ 一次。
+ * 不在 idMap 里的引用（组外节点/库图片）保持原样。
+ */
+const remapPromptMentionNodeIds = <T extends Record<string, unknown> | null | undefined>(
+  data: T,
+  idMap: Map<string, string>
+): T => {
+  if (!data || !Array.isArray(data.mentions) || data.mentions.length === 0) return data;
+  let changed = false;
+  const mentions = data.mentions.map((item: unknown) => {
+    if (!item || typeof item !== 'object') return item;
+    const mention = item as Record<string, unknown>;
+    const ref = mention.ref && typeof mention.ref === 'object'
+      ? (mention.ref as Record<string, unknown>)
+      : null;
+    const oldNodeId = typeof ref?.nodeId === 'string' ? ref.nodeId : '';
+    if (!oldNodeId) return item;
+    const newNodeId = idMap.get(oldNodeId);
+    if (!newNodeId || newNodeId === oldNodeId) return item;
+    changed = true;
+    // mention.id 形如 `flow:<nodeId>:<handle>:<index>`，同步替换前缀保持查表键一致。
+    const oldId = typeof mention.id === 'string' ? mention.id : '';
+    const nextId = oldId.includes(`:${oldNodeId}:`)
+      ? oldId.replace(`:${oldNodeId}:`, `:${newNodeId}:`)
+      : oldId;
+    return {
+      ...mention,
+      id: nextId || oldId,
+      ref: { ...ref, nodeId: newNodeId },
+    };
+  });
+  if (!changed) return data;
+  return { ...data, mentions } as T;
+};
+
 const expandFlowDeleteIdsWithGroupChildren = (
   allNodes: RFNode[],
   ids: Iterable<string>
@@ -7608,9 +7646,12 @@ function FlowInner() {
 
     const newNodes = payload.nodes.map((node) => {
       const newId = idMap.get(node.id) || generateId(node.type || "n");
-      const data: any = sanitizeNodeData(node.data || {}, {
-        preserveImagePayload: true,
-      });
+      const data: any = remapPromptMentionNodeIds(
+        sanitizeNodeData(node.data || {}, {
+          preserveImagePayload: true,
+        }),
+        idMap
+      );
       if (node.type === FLOW_GROUP_NODE_TYPE) {
         const explicitChildren = Array.isArray(data?.childNodeIds)
           ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
@@ -9671,7 +9712,10 @@ function FlowInner() {
       const mappedNodes = rawNodes.map((n: any, idx: number) => {
         const origId = String(n.id || `n_${idx}`);
         const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
-        const data = cleanNodeData(n.data, { compactForImport: true }) || {};
+        const data = remapPromptMentionNodeIds(
+          cleanNodeData(n.data, { compactForImport: true }) || {},
+          idMap
+        );
         if (n.type === FLOW_GROUP_NODE_TYPE) {
           const explicitChildren = Array.isArray((data as any).childNodeIds)
             ? (data as any).childNodeIds.map(
@@ -26950,6 +26994,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         delete data.status;
         delete data.error;
         delete data.progressStartedAt;
+        Object.assign(data, remapPromptMentionNodeIds(data, idMap));
         if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
           const explicitChildren = Array.isArray(data.childNodeIds)
             ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
@@ -27388,6 +27433,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   delete data.error;
                   delete data.progressStartedAt;
                   data = remapFlowGroupChildIds(nodeType, data, idMap);
+                  data = remapPromptMentionNodeIds(data, idMap);
                 }
                 return {
                   id: newId,
