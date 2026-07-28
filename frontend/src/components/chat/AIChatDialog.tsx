@@ -4301,7 +4301,7 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {false && showAspectRatioControls &&
+              {!xiaotMode && showAspectRatioControls &&
                 isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4447,7 +4447,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 图像尺寸下拉菜单 - Gemini Pro 和 Banana API */}
-              {false && showImageSizeControls &&
+              {!xiaotMode && showImageSizeControls &&
                 isImageSizeOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -4493,7 +4493,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 思考级别下拉菜单 - Gemini Pro 和 Banana API */}
-              {showThinkingLevelControls &&
+              {!xiaotMode && showThinkingLevelControls &&
                 isThinkingLevelOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
