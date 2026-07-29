@@ -19,6 +19,7 @@ import {
 } from '@/stores/personalLibraryStore';
 import {
   findPromptMentionTokenMatches,
+  hasPromptMentionTokenInText,
   isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
   type PromptImageMention,
@@ -914,13 +915,31 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const buildUniqueToken = React.useCallback((label: string, currentText: string): string => {
     const existingTokens = new Set(mentionsRef.current.map((mention) => mention.token));
     const normalized = normalizePromptMentionTokenLabel(label) || '图';
-    const baseToken = `@${normalized}`;
-    if (!currentText.includes(baseToken) && !existingTokens.has(baseToken)) {
+    // 用带边界判定的检测，避免 "@图1" 被 "@图10" 的子串误判为已占用（那会退化出 @图1-2）。
+    const isTaken = (token: string): boolean =>
+      existingTokens.has(token) || hasPromptMentionTokenInText(currentText, token);
+
+    // "图N / 项目图N / 资产N" 这类顺序编号名没有二级类目：冲突时顺延编号（图1→图2→图3），
+    // 而不是加 "-2" 后缀。只有非编号名（如角色名 @老孟婆）才用 "-N" 区分同名不同图。
+    const numbered = /^(.*?)(\d+)$/.exec(normalized);
+    if (numbered) {
+      const prefix = numbered[1];
+      const start = Number(numbered[2]);
+      const baseToken = `@${prefix}${start}`;
+      if (!isTaken(baseToken)) return baseToken;
+      for (let n = 1; n < 1000; n += 1) {
+        if (n === start) continue;
+        const token = `@${prefix}${n}`;
+        if (!isTaken(token)) return token;
+      }
       return baseToken;
     }
+
+    const baseToken = `@${normalized}`;
+    if (!isTaken(baseToken)) return baseToken;
     for (let i = 2; i < 1000; i += 1) {
       const token = `${baseToken}-${i}`;
-      if (!currentText.includes(token) && !existingTokens.has(token)) return token;
+      if (!isTaken(token)) return token;
     }
     return `${baseToken}-${Date.now()}`;
   }, []);
