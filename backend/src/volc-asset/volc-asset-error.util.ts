@@ -37,7 +37,7 @@ export function toVolcAssetClientError(error: unknown): VolcAssetClientError {
     return {
       statusCode: 400,
       code: 'VOLC_ASSET_REVIEW_REJECTED',
-      message: '图片内容审核未通过，请更换图片后重试。',
+      message: '素材内容审核未通过，请更换图片、视频或音频后重试。',
     };
   }
 
@@ -81,8 +81,8 @@ export function toVolcAssetClientError(error: unknown): VolcAssetClientError {
     if (upstreamCode?.toLowerCase().startsWith('invalidparameter.')) {
       return {
         statusCode: 400,
-        code: 'VOLC_ASSET_INVALID_IMAGE',
-        message: '图片不符合素材审核要求，请检查图片格式和尺寸后重试。',
+        code: 'VOLC_ASSET_INVALID_MEDIA',
+        message: '素材不符合审核要求，请检查图片尺寸、视频/音频格式、时长和数量后重试。',
         ...common,
       };
     }
@@ -90,7 +90,7 @@ export function toVolcAssetClientError(error: unknown): VolcAssetClientError {
     return {
       statusCode: 502,
       code: 'VOLC_ASSET_UPSTREAM_ERROR',
-      message: '图片审核服务暂时不可用，请稍后重试。',
+      message: '素材审核服务暂时不可用，请稍后重试。',
       ...common,
     };
   }
@@ -98,6 +98,6 @@ export function toVolcAssetClientError(error: unknown): VolcAssetClientError {
   return {
     statusCode: 502,
     code: 'VOLC_ASSET_UPLOAD_FAILED',
-    message: '图片审核失败，请稍后重试。',
+    message: '素材上传或审核失败，请稍后重试。',
   };
 }

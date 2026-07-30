@@ -573,6 +573,21 @@ export class OssService {
     return { key, url: this.publicUrl(key) };
   }
 
+  /** Delete an object created only for a short-lived server-side workflow. */
+  async deleteObject(key: string): Promise<void> {
+    const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
+    if (!normalizedKey || !this.isOssEnabled()) return;
+
+    if (this.isTosHost(this.resolveObjectHost())) {
+      await this.withTosSecretCandidates(async (client) => {
+        await client.deleteObject({ key: normalizedKey });
+      });
+      return;
+    }
+
+    await this.client().delete(normalizedKey);
+  }
+
   async putBufferWithHeaders(
     key: string,
     buffer: Buffer,

@@ -1670,7 +1670,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           ? lt("生成时长：4-10 秒", "Output duration: 4-10s")
           : lt("生成时长：4-15 秒", "Output duration: 4-15s"),
         resolutionTip,
-        lt("参考视频最多 3 条；音频最多 3 条且每条≤5秒", "Video refs <=3; audio refs <=3 and <=5s each"),
+        lt(
+          "参考视频最多 3 条（每条 2–15 秒）；音频最多 3 条（每条 2–5 秒）",
+          "Video refs <=3 (2–15s each); audio refs <=3 (2–5s each)"
+        ),
         ...(seedanceModel === "seed-2.0-mini"
           ? [lt("Mini 暂不支持 Smart Frames 模式", "Mini does not support Smart Frames mode yet")]
           : []),
@@ -1692,8 +1695,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               value: "reference_images",
               label: lt("全能参考", "Omni reference"),
               description: lt(
-                "文不限，图≤9，视频≤3，音频≤3（每条≤5秒）",
-                "Text unlimited, image<=9, video<=3, audio<=3 (<=5s each)"
+                "文不限，图≤9，视频≤3（每条 2–15 秒），音频≤3（每条 2–5 秒）",
+                "Text unlimited, image<=9, video<=3 (2–15s each), audio<=3 (2–5s each)"
               ),
             },
             {
@@ -2264,9 +2267,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               });
             });
 
-            if (duration < 5 || duration > 30) {
+            if (duration < 2 || duration > 5) {
               throw new Error(
-                lt("每个音频文件时长需在 5 到 30 秒之间", "Each audio file must be between 5 and 30 seconds")
+                lt("每个音频文件时长需在 2 到 5 秒之间", "Each audio file must be between 2 and 5 seconds")
               );
             }
           } finally {
@@ -2757,7 +2760,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             transform: "translate(-100%, -50%)",
           }}
         >
-          {isSeedanceModel ? "audio (1-3, <=5s)" : "audio"}
+          {isSeedanceModel ? "audio (1-3, 2-5s)" : "audio"}
         </div>
       )}
       {hover === "video-out" && (

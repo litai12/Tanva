@@ -52,10 +52,10 @@ async function main(): Promise<void> {
     ),
   );
   assert.equal(invalidImageResult.statusCode, 400);
-  assert.equal(invalidImageResult.code, 'VOLC_ASSET_INVALID_IMAGE');
+  assert.equal(invalidImageResult.code, 'VOLC_ASSET_INVALID_MEDIA');
   assert.equal(
     invalidImageResult.message,
-    '图片不符合素材审核要求，请检查图片格式和尺寸后重试。',
+    '素材不符合审核要求，请检查图片尺寸、视频/音频格式、时长和数量后重试。',
   );
   assert.ok(!invalidImageResult.message.includes('internal upstream detail'));
 
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   assert.deepEqual(rejectedResult, {
     statusCode: 400,
     code: 'VOLC_ASSET_REVIEW_REJECTED',
-    message: '图片内容审核未通过，请更换图片后重试。',
+      message: '素材内容审核未通过，请更换图片、视频或音频后重试。',
   });
 
   const controllerError = new VolcAssetUpstreamError(

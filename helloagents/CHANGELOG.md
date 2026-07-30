@@ -3,6 +3,8 @@
 ## 2026-07-30
 
 - Backend/Seedance 2.0: reference video and audio inputs now join each request's temporary Ark asset group as `Video` and `Audio` assets. The submitted SD2 request uses their `asset://` URIs alongside image assets, the new-api Doubao adapter preserves them as `reference_video` / `reference_audio`, and the existing task-terminal cleanup removes the whole group.
+- Backend/Video Analysis: frame-based video analysis now uploads extracted JPEG buffers to temporary OSS URLs before new-api image analysis, then cleans up the remote frames. This keeps base64/blob out of the multimodal analysis request and fixes the remote-reference validation failure.
+- Backend/Seedance 2.0: server-side reference-media validation now reports video/audio counts and durations before Ark upload (up to 3 videos at 2–15s each, and up to 3 audio clips at 2–5s each). Ark asset errors now use media-aware copy instead of incorrectly describing all failures as image-size issues.
 
 - 2026-07-25：小T创建 Seedance 2.0 / Seed 2.0 视频节点时，未显式指定生成模式现在默认使用“全能参考”（`reference_images`），仍保留用户明确指定的首帧、首尾帧和智能多帧意图。
 - 2026-07-25：AI 对话框恢复“小T Beta / 图片编辑·Auto”入口切换；默认使用原图片编辑与 Auto 逻辑，用户主动选择后才进入小T Beta，并持久化后续选择。统一生成设置在两种模式下均可选择图片规格。

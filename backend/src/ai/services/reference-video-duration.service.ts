@@ -56,17 +56,17 @@ export class ReferenceVideoDurationService {
     };
   }
 
-  async probeDuration(rawUrl: string): Promise<number> {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tanva-reference-video-'));
-    const tempPath = path.join(tempDir, 'reference.mp4');
+  async probeDuration(rawUrl: string, mediaLabel = '参考媒体'): Promise<number> {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tanva-reference-media-'));
+    const tempPath = path.join(tempDir, 'reference-media');
 
     try {
       await this.downloadToFile(rawUrl, tempPath);
       return await this.probeLocalFile(tempPath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Reference video duration probe failed: ${message}`);
-      throw new BadRequestException('无法读取参考视频时长，请确认视频链接可访问且为有效 MP4');
+      this.logger.warn(`${mediaLabel} duration probe failed: ${message}`);
+      throw new BadRequestException(`无法读取${mediaLabel}时长，请确认链接可访问且媒体文件有效`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }

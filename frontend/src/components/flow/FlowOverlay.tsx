@@ -20529,11 +20529,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
                 ? hintedDuration
                 : await readAudioDurationFromUrl(audioUrl);
-            if (duration < 5 || duration > 30) {
+            if (duration < 2 || duration > 5) {
               failCurrentVideoNode(
                 `${lt(
-                  "音频时长需在 5-30 秒内，当前约",
-                  "Audio duration must be between 5 and 30 seconds, current"
+                  "音频时长需在 2-5 秒内，当前约",
+                  "Audio duration must be between 2 and 5 seconds, current"
                 )} ${duration.toFixed(1)}${lt("秒", "s")}`
               );
               return;
@@ -20590,9 +20590,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
                 ? hintedDuration
                 : await readAudioDurationFromUrl(audioUrl);
-            if (duration > 5) {
+            if (duration < 2 || duration > 5) {
               failCurrentVideoNode(
-                `Seedance 2.0 音频每条需不超过 5 秒，当前约 ${duration.toFixed(1)} 秒`
+                `Seedance 2.0 音频每条需在 2–5 秒之间，当前约 ${duration.toFixed(1)} 秒`
               );
               return;
             }

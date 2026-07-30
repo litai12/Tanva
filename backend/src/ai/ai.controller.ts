@@ -1573,6 +1573,53 @@ export class AiController {
     return finalizeSeedance20Billing();
   }
 
+  private async validateSeedance20ReferenceMedia(dto: VideoProviderRequestDto): Promise<void> {
+    if (dto.provider !== 'doubao' || !this.isSeedance20Model(dto.seedanceModel)) return;
+
+    const uniqueUrls = (values: Array<string | undefined>): string[] =>
+      Array.from(
+        new Set(
+          values
+            .filter((value): value is string => typeof value === 'string')
+            .map((value) => value.trim())
+            .filter(Boolean),
+        ),
+      );
+    const referenceVideos = uniqueUrls([
+      ...(Array.isArray(dto.referenceVideos) ? dto.referenceVideos : []),
+      dto.referenceVideo,
+    ]);
+    const referenceAudios = uniqueUrls(Array.isArray(dto.audioUrls) ? dto.audioUrls : []);
+
+    if (referenceVideos.length > 3) {
+      throw new BadRequestException(`Seedance 2.0 最多支持 3 条参考视频，当前为 ${referenceVideos.length} 条`);
+    }
+    if (referenceAudios.length > 3) {
+      throw new BadRequestException(`Seedance 2.0 最多支持 3 条参考音频，当前为 ${referenceAudios.length} 条`);
+    }
+    if (!referenceVideos.length && !referenceAudios.length) return;
+    if (!this.referenceVideoDuration) {
+      throw new ServiceUnavailableException('参考媒体时长探测服务不可用，请稍后重试');
+    }
+
+    for (const [index, url] of referenceVideos.entries()) {
+      const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考视频`);
+      if (duration < 2 || duration > 15) {
+        throw new BadRequestException(
+          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance 2.0 单条需在 2–15 秒之间`,
+        );
+      }
+    }
+    for (const [index, url] of referenceAudios.entries()) {
+      const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考音频`);
+      if (duration < 2 || duration > 5) {
+        throw new BadRequestException(
+          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance 2.0 单条需在 2–5 秒之间`,
+        );
+      }
+    }
+  }
+
   private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
@@ -2392,19 +2439,18 @@ export class AiController {
     });
   }
 
-  private async extractFramesAsDataUrls(params: {
+  private async extractFramesAsBuffers(params: {
     videoPath: string;
     maxFrames: number;
     intervalSeconds: number;
-  }): Promise<string[]> {
+  }): Promise<Buffer[]> {
     const os = await import('os');
     const path = await import('path');
     const fsp = await import('fs/promises');
 
     // Hard internal ceilings so this can never balloon the heap regardless of
-    // what a caller passes. All frames are base64-encoded and held in one array
-    // (~1.33x raw bytes each), so an unbounded frame count / huge frames is a
-    // heap-OOM risk (incident 2026-06-25).
+    // what a caller passes. Frames remain server-side buffers and are uploaded
+    // as temporary remote references before multimodal analysis.
     const MAX_FRAMES_CEILING = 16;
     const MAX_TOTAL_FRAME_BYTES = 48 * 1024 * 1024; // 48MB of raw jpg bytes
     const frameCount = Math.min(
@@ -2443,7 +2489,7 @@ export class AiController {
         .sort()
         .slice(0, frameCount);
 
-      const dataUrls: string[] = [];
+      const frames: Buffer[] = [];
       let totalBytes = 0;
       for (const file of files) {
         const buf = await fsp.readFile(path.join(framesDir, file));
@@ -2451,17 +2497,45 @@ export class AiController {
         if (totalBytes > MAX_TOTAL_FRAME_BYTES) {
           // Stop accumulating rather than risk OOM; return what we have so far.
           this.logger?.warn?.(
-            `extractFramesAsDataUrls: frame bytes exceeded ${MAX_TOTAL_FRAME_BYTES}, truncating at ${dataUrls.length} frames`,
+            `extractFramesAsBuffers: frame bytes exceeded ${MAX_TOTAL_FRAME_BYTES}, truncating at ${frames.length} frames`,
           );
           break;
         }
-        dataUrls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
+        frames.push(buf);
       }
-      return dataUrls;
+      return frames;
     } finally {
       try {
         await fsp.rm(framesDir, { recursive: true, force: true });
       } catch {}
+    }
+  }
+
+  private async uploadVideoAnalysisFrames(
+    frames: Buffer[],
+    req: any,
+  ): Promise<Array<{ key: string; url: string }>> {
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException('OSS 未配置，无法为视频分析准备远程帧素材');
+    }
+
+    const userId = this.resolveRequestUserId(req) || 'anonymous';
+    const userTag = crypto.createHash('sha1').update(userId).digest('hex').slice(0, 8);
+    const batchKey = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+    const uploaded: Array<{ key: string; url: string }> = [];
+    try {
+      for (let index = 0; index < frames.length; index += 1) {
+        const key = `ai/video-analysis/${userTag}/${batchKey}/frame-${String(index + 1).padStart(3, '0')}.jpg`;
+        const { url } = await this.oss.putBuffer(key, frames[index], 'image/jpeg');
+        if (!/^https?:\/\//i.test(url)) {
+          throw new ServiceUnavailableException('视频分析帧上传后未获得有效远程 URL');
+        }
+        uploaded.push({ key, url });
+      }
+      return uploaded;
+    } catch (error) {
+      await Promise.allSettled(uploaded.map(({ key }) => this.oss.deleteObject(key)));
+      throw error;
     }
   }
 
@@ -5807,6 +5881,7 @@ export class AiController {
       }
     }
     await this.assertSeedance2Entitlement(userId, effectiveDto, req);
+    await this.validateSeedance20ReferenceMedia(effectiveDto);
 
     // Whitelist/admin users can skip watermark for doubao provider.
     if (effectiveDto.provider === 'doubao') {
@@ -7554,6 +7629,7 @@ export class AiController {
 
       let tempFile: string | null = null;
       let uploadedFileName: string | null = null;
+      let uploadedFrameKeys: string[] = [];
       let geminiClient: GoogleGenAI | null = null;
       let stage = 'download_video';
 
@@ -7633,7 +7709,7 @@ export class AiController {
           const maxFrames = 8;
           const intervalSeconds = 3;
           this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
-          const frames = await this.extractFramesAsDataUrls({
+          const frames = await this.extractFramesAsBuffers({
             videoPath: tempFile,
             maxFrames,
             intervalSeconds,
@@ -7642,15 +7718,19 @@ export class AiController {
             throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
           }
 
+          stage = 'upload_frames';
+          const uploadedFrames = await this.uploadVideoAnalysisFrames(frames, req);
+          uploadedFrameKeys = uploadedFrames.map(({ key }) => key);
+
           stage = 'analyze_frames';
           const visionModel = this.resolveImageModel(providerName, dto.model);
           const framePrompt =
             '请描述这一帧画面（场景、人物、动作、字幕/界面元素），尽量客观，不要编造。';
           const frameAnalyses: string[] = [];
-          for (let i = 0; i < frames.length; i++) {
+          for (let i = 0; i < uploadedFrames.length; i++) {
             const result = await provider.analyzeImage({
               prompt: framePrompt,
-              sourceImage: frames[i],
+              sourceImage: uploadedFrames[i].url,
               model: visionModel,
               providerOptions: videoProviderOptions,
             });
@@ -7693,7 +7773,7 @@ export class AiController {
             model,
             provider: providerName || 'new-api',
             processingTime,
-            frameCount: frames.length,
+            frameCount: uploadedFrames.length,
           };
         }
 
@@ -7792,6 +7872,16 @@ export class AiController {
             await geminiClient?.files.delete({ name: uploadedFileName });
           }
         } catch {}
+
+        if (uploadedFrameKeys.length > 0) {
+          const cleanup = await Promise.allSettled(
+            uploadedFrameKeys.map((key) => this.oss.deleteObject(key)),
+          );
+          const failed = cleanup.filter((result) => result.status === 'rejected').length;
+          if (failed > 0) {
+            this.logger.warn(`视频分析临时帧清理失败: ${failed}/${uploadedFrameKeys.length}`);
+          }
+        }
       }
     }, 1, 0, undefined, this.buildCreditRequestParams(providerName, {
       model,
