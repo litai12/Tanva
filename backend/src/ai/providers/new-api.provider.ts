@@ -17,6 +17,8 @@ import {
   TextResult,
   ToolSelectionRequest,
   ToolSelectionResult,
+  VideoAnalysisRequest,
+  VideoAnalysisResult,
 } from './ai-provider.interface';
 import { normalizeGeminiImageSize } from '../image-size.util';
 
@@ -28,6 +30,15 @@ const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
 const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 const IMAGE_MAX_RETRIES = 2;
 const IMAGE_RETRY_DELAYS = [5_000, 15_000];
+const INLINE_VIDEO_MAX_BYTES = 15 * 1024 * 1024;
+const SUPPORTED_INLINE_VIDEO_MIME_TYPES = new Set([
+  'video/mp4',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/mpeg',
+  'video/3gpp',
+  'video/x-flv',
+]);
 const GEMINI_BASE_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '2:3',
@@ -221,6 +232,68 @@ export class NewApiProvider implements IAIProvider {
       data: {
         text: result.data?.text || '',
         tags: [],
+      },
+    };
+  }
+
+  async analyzeVideo(
+    request: VideoAnalysisRequest,
+  ): Promise<AIProviderResponse<VideoAnalysisResult>> {
+    let inlineVideo: { dataUrl: string; mimeType: string; fileName: string };
+    try {
+      inlineVideo = this.normalizeInlineVideo(request);
+    } catch (error) {
+      return this.errorResponse('VIDEO_ANALYSIS_FAILED', error);
+    }
+
+    const result = await this.chat(
+      {
+        model: request.model || 'gemini-3.5-flash',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text:
+                  request.prompt ||
+                  '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
+              },
+              {
+                type: 'file',
+                file: {
+                  filename: inlineVideo.fileName,
+                  file_data: inlineVideo.dataUrl,
+                },
+              },
+            ],
+          },
+        ],
+      },
+      request.providerOptions,
+    );
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: {
+          code: 'VIDEO_ANALYSIS_FAILED',
+          message: result.error?.message || 'Video analysis failed',
+          details: result.error?.details,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        text: result.data?.text || '',
+        metadata: {
+          ...(result.data?.metadata || {}),
+          inputMimeType: inlineVideo.mimeType,
+          inputMode: 'inline_file_data',
+        },
       },
     };
   }
@@ -884,6 +957,53 @@ export class NewApiProvider implements IAIProvider {
     if (/^data:application\/pdf(?:;[^,]*)?,/i.test(trimmed)) return true;
     if (/^https?:\/\/.+\.pdf(?:[?#].*)?$/i.test(trimmed)) return true;
     return /^JVBERi/i.test(trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''));
+  }
+
+  private normalizeInlineVideo(request: VideoAnalysisRequest): {
+    dataUrl: string;
+    mimeType: string;
+    fileName: string;
+  } {
+    const mimeType = String(request.mimeType || '')
+      .split(';', 1)[0]
+      .trim()
+      .toLowerCase();
+    if (!SUPPORTED_INLINE_VIDEO_MIME_TYPES.has(mimeType)) {
+      throw new Error(`Unsupported inline video MIME type: ${mimeType || 'unknown'}`);
+    }
+
+    const raw = String(request.videoData || '')
+      .trim()
+      .replace(/^data:video\/[\w.+-]+;base64,/i, '')
+      .replace(/\s+/g, '');
+    if (!raw || !/^[A-Za-z0-9+/]*={0,2}$/.test(raw)) {
+      throw new Error('Inline video data must be valid base64');
+    }
+
+    const padding = raw.endsWith('==') ? 2 : raw.endsWith('=') ? 1 : 0;
+    const estimatedBytes = Math.floor((raw.length * 3) / 4) - padding;
+    if (estimatedBytes <= 0 || estimatedBytes > INLINE_VIDEO_MAX_BYTES) {
+      throw new Error(
+        `Inline video exceeds ${INLINE_VIDEO_MAX_BYTES / 1024 / 1024}MB limit`,
+      );
+    }
+
+    const fallbackExtension: Record<string, string> = {
+      'video/mp4': 'mp4',
+      'video/quicktime': 'mov',
+      'video/x-msvideo': 'avi',
+      'video/mpeg': 'mpeg',
+      'video/3gpp': '3gp',
+      'video/x-flv': 'flv',
+    };
+    const requestedFileName = String(request.fileName || '').trim();
+    const fileName = requestedFileName || `video-analysis.${fallbackExtension[mimeType] || 'mp4'}`;
+
+    return {
+      dataUrl: `data:${mimeType};base64,${raw}`,
+      mimeType,
+      fileName,
+    };
   }
 
   private toPdfFileReference(value: string): string {

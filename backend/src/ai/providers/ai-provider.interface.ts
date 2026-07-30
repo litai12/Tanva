@@ -123,6 +123,20 @@ export interface ImageAnalysisRequest {
   providerOptions?: ProviderOptionsPayload;
 }
 
+export interface VideoAnalysisRequest {
+  prompt?: string;
+  videoData: string; // runtime-only raw base64; never persist in project/task data
+  mimeType: string;
+  fileName?: string;
+  model?: string;
+  providerOptions?: ProviderOptionsPayload;
+}
+
+export interface VideoAnalysisResult {
+  text: string;
+  metadata?: Record<string, any>;
+}
+
 export interface TextChatRequest {
   prompt: string;
   model?: string;
@@ -230,6 +244,14 @@ export interface IAIProvider {
   analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>>;
+
+  /**
+   * 分析完整视频。仅支持运行时内联数据的 provider 实现该可选能力；
+   * 调用方不得把 videoData 写入设计 JSON、DB、Redis 或任务持久化字段。
+   */
+  analyzeVideo?(
+    request: VideoAnalysisRequest
+  ): Promise<AIProviderResponse<VideoAnalysisResult>>;
 
   /**
    * 文本对话

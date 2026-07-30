@@ -2,6 +2,7 @@
 
 ## 2026-07-30
 
+- Backend/Video Analysis: restored full Gemini video understanding for files up to 15MB. `/api/ai/analyze-video` now sends runtime-only `file.file_data=data:video/*;base64,...` through new-api, preserving motion/audio context while keeping project/task persistence URL-only; oversized videos retain the remote-frame fallback. Legacy Gemini 3 preview model names map to the currently available Gemini 3.5 Flash / 3.1 Pro routes.
 - Backend/Seedance 2.0: reference video and audio inputs now join each request's temporary Ark asset group as `Video` and `Audio` assets. The submitted SD2 request uses their `asset://` URIs alongside image assets, the new-api Doubao adapter preserves them as `reference_video` / `reference_audio`, and the existing task-terminal cleanup removes the whole group.
 - Backend/Video Analysis: frame-based video analysis now uploads extracted JPEG buffers to temporary OSS URLs before new-api image analysis, then cleans up the remote frames. This keeps base64/blob out of the multimodal analysis request and fixes the remote-reference validation failure.
 - Backend/Seedance 2.0: server-side reference-media validation now reports video/audio counts and durations before Ark upload (up to 3 videos at 2–15s each, and up to 3 audio clips at 2–5s each). Ark asset errors now use media-aware copy instead of incorrectly describing all failures as image-size issues.

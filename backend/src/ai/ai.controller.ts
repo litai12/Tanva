@@ -2241,9 +2241,14 @@ export class AiController {
   private resolveGeminiVideoModel(requestedModel?: string): string {
     const trimmed = requestedModel?.trim();
     if (trimmed && /^gemini-/i.test(trimmed)) {
-      return trimmed;
+      const legacyAliases: Record<string, string> = {
+        'gemini-3-flash-preview': 'gemini-3.5-flash',
+        'gemini-3-flash': 'gemini-3.5-flash',
+        'gemini-3.1-pro-preview': 'gemini-3.1-pro',
+      };
+      return legacyAliases[trimmed.toLowerCase()] || trimmed;
     }
-    return 'gemini-3-flash-preview';
+    return 'gemini-3.5-flash';
   }
 
   private summarizeError(error: any): string {
@@ -7623,6 +7628,7 @@ export class AiController {
     return this.withCredits(req, 'gemini-video-analyze', model, async () => {
       const startTime = Date.now();
       const MAX_VIDEO_BYTES = 500 * 1024 * 1024; // 500MB
+      const MAX_INLINE_VIDEO_BYTES = 15 * 1024 * 1024; // runtime-only base64 path
       const PROCESSING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
       const parsedUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
@@ -7653,7 +7659,26 @@ export class AiController {
           throw new Error('Empty video response body');
         }
 
-        const contentType = videoResponse.headers.get('content-type') || 'video/mp4';
+        const responseContentType = videoResponse.headers.get('content-type') || '';
+        const normalizedContentType = responseContentType.split(';', 1)[0].trim().toLowerCase();
+        const extensionMimeTypes: Record<string, string> = {
+          '.mp4': 'video/mp4',
+          '.mov': 'video/quicktime',
+          '.avi': 'video/x-msvideo',
+          '.mpeg': 'video/mpeg',
+          '.mpg': 'video/mpeg',
+          '.3gp': 'video/3gpp',
+          '.flv': 'video/x-flv',
+        };
+        const sourceExtension = (() => {
+          const pathname = parsedUrl.pathname.toLowerCase();
+          return Object.keys(extensionMimeTypes).find((candidate) => pathname.endsWith(candidate));
+        })();
+        const contentType = normalizedContentType.startsWith('video/')
+          ? normalizedContentType
+          : sourceExtension
+            ? extensionMimeTypes[sourceExtension]
+            : 'video/mp4';
         const contentLengthHeader = videoResponse.headers.get('content-length');
         if (contentLengthHeader) {
           const size = Number(contentLengthHeader);
@@ -7702,10 +7727,51 @@ export class AiController {
 
         this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
 
-        // 非 Google provider：抽帧 -> 走现有图片分析/文本总结链路（国内可用，如 banana/147）
+        // new-api/Gemini 小视频优先发送完整视频：设计数据仍只保存远程 URL，
+        // base64 只存在于这一跳的请求内存中，不进入 DB/OSS/Redis/任务数据。
         if (!customApiKey) {
-          stage = 'extract_frames';
           const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+          if (received <= MAX_INLINE_VIDEO_BYTES && provider.analyzeVideo) {
+            stage = 'analyze_inline_video';
+            const fsp = await import('fs/promises');
+            const videoBuffer = await fsp.readFile(tempFile);
+            const result = await provider.analyzeVideo({
+              prompt:
+                dto.prompt ||
+                '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
+              videoData: videoBuffer.toString('base64'),
+              mimeType: contentType,
+              fileName: `video-analysis${ext}`,
+              model,
+              providerOptions: videoProviderOptions,
+            });
+            if (!result.success || !result.data) {
+              throw new ServiceUnavailableException(
+                result.error?.message || 'Failed to analyze inline video',
+              );
+            }
+
+            const analysisText = result.data.text || '';
+            const processingTime = Date.now() - startTime;
+            this.logger.log(
+              `✅ Video analysis (inline file_data) completed in ${processingTime}ms`,
+            );
+            return {
+              analysis: analysisText,
+              text: analysisText,
+              model,
+              provider: providerName || 'new-api',
+              processingTime,
+              analysisMode: 'inline_file_data',
+              videoBytes: received,
+            };
+          }
+
+          // 超过安全内联上限或 provider 不支持完整视频时，保留抽帧兜底。
+          stage = 'extract_frames';
+          this.logger.warn(
+            `Video inline analysis unavailable (bytes=${received}, limit=${MAX_INLINE_VIDEO_BYTES}, providerSupport=${Boolean(provider.analyzeVideo)}); falling back to frames`,
+          );
           const maxFrames = 8;
           const intervalSeconds = 3;
           this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
