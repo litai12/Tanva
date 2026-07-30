@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-30
+
+- Backend/Seedance 2.0: reference video and audio inputs now join each request's temporary Ark asset group as `Video` and `Audio` assets. The submitted SD2 request uses their `asset://` URIs alongside image assets, the new-api Doubao adapter preserves them as `reference_video` / `reference_audio`, and the existing task-terminal cleanup removes the whole group.
+
 - 2026-07-25：小T创建 Seedance 2.0 / Seed 2.0 视频节点时，未显式指定生成模式现在默认使用“全能参考”（`reference_images`），仍保留用户明确指定的首帧、首尾帧和智能多帧意图。
 - 2026-07-25：AI 对话框恢复“小T Beta / 图片编辑·Auto”入口切换；默认使用原图片编辑与 Auto 逻辑，用户主动选择后才进入小T Beta，并持久化后续选择。统一生成设置在两种模式下均可选择图片规格。
 - 2026-07-24：AI Chat 将小T大脑、图片/视频模型、图片比例/尺寸、视频比例/时长、图片数量和风格锚定合并为一个“设置”弹窗，复用原风格入口并移除重复的独立控件。

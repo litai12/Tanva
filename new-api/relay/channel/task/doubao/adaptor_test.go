@@ -90,3 +90,32 @@ func TestConvertReferenceVideoForcesReferenceOnly(t *testing.T) {
 		t.Fatalf("reference_video missing, got %v", findRoles(r.Content))
 	}
 }
+
+// Seedance 2.0 音频参考必须经强类型 audio_urls 下发，且 asset:// URI 不得被网关改写。
+func TestConvertReferenceAudioUsesAssetURI(t *testing.T) {
+	a := &TaskAdaptor{}
+	req := &relaycommon.TaskSubmitReq{
+		Model:           "doubao-seedance-2-0-260128",
+		Prompt:          "根据参考音频节奏生成画面",
+		Images:          []string{"asset://image-1"},
+		ReferenceAudios: []string{"asset://audio-1"},
+	}
+
+	r, err := a.convertToRequestPayload(req)
+	if err != nil {
+		t.Fatalf("convertToRequestPayload error: %v", err)
+	}
+
+	var audio *ContentItem
+	for i := range r.Content {
+		if r.Content[i].Type == "audio_url" {
+			audio = &r.Content[i]
+		}
+		if r.Content[i].Role == "first_frame" || r.Content[i].Role == "last_frame" {
+			t.Fatalf("audio reference must force reference-only roles, got %v", findRoles(r.Content))
+		}
+	}
+	if audio == nil || audio.Role != "reference_audio" || audio.AudioURL == nil || audio.AudioURL.URL != "asset://audio-1" {
+		t.Fatalf("reference audio item missing/wrong: %+v (roles=%v)", audio, findRoles(r.Content))
+	}
+}

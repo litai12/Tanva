@@ -70,21 +70,28 @@ async function verifyServiceLifecycle(): Promise<void> {
   let assetSequence = 0;
   const deletedGroups: string[] = [];
   (service as any).createAssetGroup = async () => 'group-run-1';
-  (service as any).createAsset = async () => `asset-new-${++assetSequence}`;
+  const createdAssetTypes: string[] = [];
+  (service as any).createAsset = async (_groupId: string, _url: string, assetType: string) => {
+    createdAssetTypes.push(assetType);
+    return `asset-new-${++assetSequence}`;
+  };
   (service as any).pollAssetActive = async () => undefined;
   (service as any).deleteAssetGroup = async (groupId: string) => {
     deletedGroups.push(groupId);
   };
 
   const prepared = await service.createTaskAssetGroup([
-    'https://cdn.test/current-crop-1.png',
-    'https://cdn.test/current-crop-2.png',
+    { url: 'https://cdn.test/current-crop-1.png', assetType: 'image' },
+    { url: 'https://cdn.test/current-input.mp4', assetType: 'video' },
+    { url: 'https://cdn.test/current-input.mp3', assetType: 'audio' },
   ]);
   assert.equal(prepared.groupId, 'group-run-1');
   assert.deepEqual(
     prepared.references.map((item) => item.volcAssetId),
-    ['asset-new-1', 'asset-new-2'],
+    ['asset-new-1', 'asset-new-2', 'asset-new-3'],
   );
+  assert.deepEqual(createdAssetTypes, ['image', 'video', 'audio']);
+  assert.deepEqual(prepared.references.map((item) => item.assetType), ['image', 'video', 'audio']);
 
   await service.bindTaskAssetGroup(prepared.groupId, 'newapi:task-1');
   assert.equal(rows.get(prepared.groupId)?.taskId, 'newapi:task-1');
@@ -111,18 +118,21 @@ async function verifyVideoProviderLifecycle(): Promise<void> {
   const deletedGroups: string[] = [];
   const bound: Array<[string, string]> = [];
   const cleanedTasks: Array<[string, string]> = [];
+  const preparedAssetTypes: string[][] = [];
   let groupSequence = 0;
   const assetService = {
-    createTaskAssetGroup: async (urls: string[]) => {
+    createTaskAssetGroup: async (assets: Array<{ url: string; assetType: string }>) => {
       const sequence = ++groupSequence;
       const groupId = `group-${sequence}`;
       createdGroups.push(groupId);
+      preparedAssetTypes.push(assets.map((asset) => asset.assetType));
       return {
         groupId,
-        references: urls.map((url, index) => ({
-          url,
+        references: assets.map((asset, index) => ({
+          url: asset.url,
           volcAssetId: `asset-fresh-${sequence}-${index}`,
           volcAssetStatus: 'active' as const,
+          assetType: asset.assetType as 'image' | 'video' | 'audio',
         })),
       };
     },
@@ -186,6 +196,21 @@ async function verifyVideoProviderLifecycle(): Promise<void> {
   assert.equal(submittedRefs[1][0].volcAssetId, 'asset-fresh-2-0');
   assert.ok(!JSON.stringify(submittedRefs).includes('asset-deleted-from-old-project'));
   assert.deepEqual(bound, [['group-2', 'newapi:task-retried']]);
+
+  const multimediaSubmission: any[] = [];
+  (provider as any).generateVideoAttempt = async (options: any) => {
+    multimediaSubmission.push(options);
+    return { taskId: 'newapi:task-media', status: 'queued' };
+  };
+  await provider.generateVideo({
+    provider: 'doubao',
+    seedanceModel: 'seedance-2.0',
+    referenceVideos: ['https://cdn.test/input.mp4'],
+    audioUrls: ['https://cdn.test/input.mp3'],
+  });
+  assert.deepEqual(multimediaSubmission[0].referenceVideos, ['asset://asset-fresh-3-0']);
+  assert.deepEqual(multimediaSubmission[0].audioUrls, ['asset://asset-fresh-3-1']);
+  assert.deepEqual(preparedAssetTypes[2], ['video', 'audio']);
 
   (provider as any).queryTaskAttempt = async () => ({ status: 'succeeded', videoUrl: 'https://cdn.test/out.mp4' });
   await provider.queryTask('doubao', 'newapi:task-retried');

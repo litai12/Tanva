@@ -683,6 +683,10 @@ type TaskSubmitReq struct {
 	// otherwise drops unknown top-level keys (callers previously had to smuggle videos
 	// through metadata.content).
 	ReferenceVideos []string `json:"reference_videos,omitempty"`
+	// ReferenceAudios carries Seedance 2 reference-audio URLs. The doubao adaptor
+	// emits each as an audio_url content item with role="reference_audio".
+	// Keeping this typed prevents the generic task parser from dropping audio_urls.
+	ReferenceAudios []string `json:"audio_urls,omitempty"`
 	// VideoWithRoles is the provider-neutral representation of role-tagged video
 	// inputs. ToAPIs Seedance 2 accepts reference videos through this top-level
 	// field; keeping it typed prevents the generic task parser from dropping it.

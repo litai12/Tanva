@@ -779,7 +779,7 @@ export class VideoProviderService {
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const sourceOptions = this.withoutVolcAssetHints(options);
-    if (!this.isSeedance20Request(sourceOptions) || !this.hasRemoteReferenceImages(sourceOptions)) {
+    if (!this.isSeedance20Request(sourceOptions) || !this.hasRemoteSeedanceAssets(sourceOptions)) {
       return this.generateVideoAttempt(sourceOptions);
     }
 
@@ -870,11 +870,18 @@ export class VideoProviderService {
       : new ServiceUnavailableException(payload);
   }
 
-  private hasRemoteReferenceImages(options: VideoProviderRequestDto): boolean {
-    return (options.referenceImages || []).some((item) => {
-      const url = typeof item === "string" ? item : item?.url;
-      return typeof url === "string" && /^https?:\/\//i.test(url.trim());
-    });
+  private hasRemoteSeedanceAssets(options: VideoProviderRequestDto): boolean {
+    const imageUrls = (options.referenceImages || []).map((item) =>
+      typeof item === "string" ? item : item?.url,
+    );
+    const mediaUrls = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      ...(options.referenceVideo ? [options.referenceVideo] : []),
+      ...(Array.isArray(options.audioUrls) ? options.audioUrls : []),
+    ];
+    return [...imageUrls, ...mediaUrls].some(
+      (url) => typeof url === "string" && /^https?:\/\//i.test(url.trim()),
+    );
   }
 
   private withoutVolcAssetHints(options: VideoProviderRequestDto): VideoProviderRequestDto {
@@ -914,25 +921,54 @@ export class VideoProviderService {
     options: VideoProviderRequestDto;
   }> {
     const items = options.referenceImages || [];
-    const sourceUrls = items
+    const imageInputs = items
       .filter((item) => typeof item === "string" || item.volcAssetKind !== "bio-auth")
       .map((item) => (typeof item === "string" ? item : item.url))
       .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url.trim()))
-      .map((url) => this.normalizeFirstPartyAssetUrl(url.trim()));
-    if (!sourceUrls.length) return { options };
-    const taskAssets = await this.volcAssetService.createTaskAssetGroup(sourceUrls);
-    let remoteIndex = 0;
+      .map((url) => ({ url: this.normalizeFirstPartyAssetUrl(url.trim()), assetType: 'image' as const }));
+    const videoInputs = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      ...(options.referenceVideo ? [options.referenceVideo] : []),
+    ]
+      .filter((url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url.trim()))
+      .map((url) => ({ url: this.normalizeFirstPartyAssetUrl(url.trim()), assetType: 'video' as const }));
+    const audioInputs = (Array.isArray(options.audioUrls) ? options.audioUrls : [])
+      .filter((url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url.trim()))
+      .map((url) => ({ url: this.normalizeFirstPartyAssetUrl(url.trim()), assetType: 'audio' as const }));
+    const sourceAssets = [...imageInputs, ...videoInputs, ...audioInputs];
+    if (!sourceAssets.length) return { options };
+    const taskAssets = await this.volcAssetService.createTaskAssetGroup(sourceAssets);
+    let imageIndex = 0;
     const referenceImages = items.map((item) => {
       if (typeof item !== "string" && item.volcAssetKind === "bio-auth") return item;
       const url = typeof item === "string" ? item : item.url;
       if (typeof url !== "string" || !/^https?:\/\//i.test(url.trim())) return item;
-      const resolved = taskAssets.references[remoteIndex];
-      remoteIndex += 1;
+      const resolved = taskAssets.references[imageIndex];
+      imageIndex += 1;
       return resolved;
     });
+    let mediaIndex = imageInputs.length;
+    const replaceRemoteMediaUrls = (urls: string[] | undefined): string[] | undefined =>
+      Array.isArray(urls)
+        ? urls.map((url) => {
+            if (!/^https?:\/\//i.test(url.trim())) return url;
+            const resolved = taskAssets.references[mediaIndex];
+            mediaIndex += 1;
+            return `asset://${resolved.volcAssetId}`;
+          })
+        : undefined;
+    const referenceVideos = replaceRemoteMediaUrls(options.referenceVideos);
+    const referenceVideo = options.referenceVideo && /^https?:\/\//i.test(options.referenceVideo.trim())
+      ? (() => {
+          const resolved = taskAssets.references[mediaIndex];
+          mediaIndex += 1;
+          return `asset://${resolved.volcAssetId}`;
+        })()
+      : options.referenceVideo;
+    const audioUrls = replaceRemoteMediaUrls(options.audioUrls);
     return {
       groupId: taskAssets.groupId,
-      options: { ...options, referenceImages },
+      options: { ...options, referenceImages, referenceVideos, referenceVideo, audioUrls },
     };
   }
 

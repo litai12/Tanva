@@ -14,6 +14,14 @@ export type TaskAssetReference = {
   url: string;
   volcAssetId: string;
   volcAssetStatus: 'active';
+  assetType: TaskAssetType;
+};
+
+export type TaskAssetType = 'image' | 'video' | 'audio';
+
+export type TaskAssetInput = {
+  url: string;
+  assetType: TaskAssetType;
 };
 
 type InMemoryTaskGroup = {
@@ -95,15 +103,25 @@ export class VolcAssetService implements OnModuleInit {
     return { status, ...(errorMessage ? { errorMessage } : {}) };
   }
 
-  async createTaskAssetGroup(sourceUrls: string[]): Promise<{
+  async createTaskAssetGroup(sourceAssets: Array<string | TaskAssetInput>): Promise<{
     groupId: string;
     references: TaskAssetReference[];
   }> {
     if (!this.isConfigured()) {
       throw new Error('VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未配置，素材上传不可用');
     }
-    const urls = sourceUrls.map((url) => url.trim()).filter(Boolean);
-    if (!urls.length) throw new Error('一次性审核素材组缺少图片 URL');
+    // Keep accepting strings for callers created before video/audio reference support.
+    const assets = sourceAssets
+      .map((asset): TaskAssetInput =>
+        typeof asset === 'string'
+          ? { url: asset.trim(), assetType: 'image' }
+          : { url: asset?.url?.trim() || '', assetType: asset?.assetType },
+      )
+      .filter(
+        (asset): asset is TaskAssetInput =>
+          !!asset.url && ['image', 'video', 'audio'].includes(asset.assetType),
+      );
+    if (!assets.length) throw new Error('一次性审核素材组缺少远程素材 URL');
 
     const suffix = randomUUID().replace(/-/g, '').slice(0, 16);
     const groupId = await this.createAssetGroup(
@@ -114,9 +132,9 @@ export class VolcAssetService implements OnModuleInit {
     await this.rememberTaskGroup({ groupId, expiresAt });
 
     try {
-      const created = [] as Array<{ url: string; assetId: string }>;
-      for (const url of urls) {
-        created.push({ url, assetId: await this.createAsset(groupId, url) });
+      const created = [] as Array<TaskAssetInput & { assetId: string }>;
+      for (const asset of assets) {
+        created.push({ ...asset, assetId: await this.createAsset(groupId, asset.url, asset.assetType) });
       }
       const auditResults = await Promise.allSettled(
         created.map(({ assetId }) => this.pollAssetActive(assetId, 120_000)),
@@ -127,10 +145,11 @@ export class VolcAssetService implements OnModuleInit {
       if (rejectedAudit) throw rejectedAudit.reason;
       return {
         groupId,
-        references: created.map(({ url, assetId }) => ({
+        references: created.map(({ url, assetId, assetType }) => ({
           url,
           volcAssetId: assetId,
           volcAssetStatus: 'active' as const,
+          assetType,
         })),
       };
     } catch (error) {
@@ -394,11 +413,15 @@ export class VolcAssetService implements OnModuleInit {
     }
   }
 
-  private async createAsset(groupId: string, sourceUrl: string): Promise<string> {
+  private async createAsset(
+    groupId: string,
+    sourceUrl: string,
+    assetType: TaskAssetType = 'image',
+  ): Promise<string> {
     const result = await this.volcCall('CreateAsset', {
       GroupId: groupId,
       URL: sourceUrl,
-      AssetType: 'Image',
+      AssetType: assetType[0].toUpperCase() + assetType.slice(1),
       ProjectName: this.projectName,
     });
     const id = (result as any)?.Id as string;

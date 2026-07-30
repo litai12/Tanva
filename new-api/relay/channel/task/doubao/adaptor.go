@@ -359,10 +359,10 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	// referenceImages) into req.Images, so iterate req.Images once and dedupe;
 	// the separate ReferenceImages pass below is a defensive top-up (req bypassed
 	// normalize) and never double-emits thanks to the shared `seen` set.
-	// Reference videos (Seedance 2.0 视频参考 / 换主体) are subject references just like
-	// reference images: their presence puts the whole request in r2v mode, so NO image
-	// may be tagged first_frame (else Ark 400s on mixed first/last-frame + reference media).
-	referenceOnly := len(req.ReferenceImages) > 0 || len(req.ReferenceVideos) > 0
+	// Reference videos and audio are subject references just like reference images:
+	// their presence puts the whole request in r2v mode, so NO image may be tagged
+	// first_frame (else Ark 400s on mixed first/last-frame + reference media).
+	referenceOnly := len(req.ReferenceImages) > 0 || len(req.ReferenceVideos) > 0 || len(req.ReferenceAudios) > 0
 	seen := make(map[string]bool, len(req.Images)+len(req.ReferenceImages))
 	if req.HasImage() {
 		for i, imgURL := range req.Images {
@@ -414,6 +414,18 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 			Type:     "video_url",
 			Role:     "reference_video",
 			VideoURL: &MediaURL{URL: videoURL},
+		})
+	}
+	// 音频参考(reference_audio)：保留 Ark asset:// URI，不下载、转码或改写。
+	for _, audioURL := range req.ReferenceAudios {
+		if audioURL == "" || seen[audioURL] {
+			continue
+		}
+		seen[audioURL] = true
+		r.Content = append(r.Content, ContentItem{
+			Type:     "audio_url",
+			Role:     "reference_audio",
+			AudioURL: &MediaURL{URL: audioURL},
 		})
 	}
 
