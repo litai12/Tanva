@@ -14,13 +14,17 @@ func TestDefaultSeedance2ModelRatiosUseOnePointFiveMarkup(t *testing.T) {
 }
 
 func TestDefaultDoubaoSeed20RatiosUseSupportedVersions(t *testing.T) {
-	for _, model := range []string{
-		"doubao-seed-2-0-mini-260428",
-		"doubao-seed-2-0-lite-260428",
-		"doubao-seed-2-0-pro-260215",
-	} {
+	expectedRatios := map[string]float64{
+		"doubao-seed-2-0-mini-260428": 0.2 / 1000 * USD * 1.5,
+		"doubao-seed-2-0-lite-260428": 0.6 / 1000 * USD * 1.5,
+		"doubao-seed-2-0-pro-260215":  3.2 / 1000 * USD * 1.5,
+	}
+	for model, expectedRatio := range expectedRatios {
 		if _, ok := defaultModelRatio[model]; !ok {
 			t.Errorf("defaultModelRatio does not contain %s", model)
+		}
+		if got := defaultModelRatio[model]; got != expectedRatio {
+			t.Errorf("%s default ratio = %v, want %v", model, got, expectedRatio)
 		}
 		if _, ok := defaultCompletionRatio[model]; !ok {
 			t.Errorf("defaultCompletionRatio does not contain %s", model)
@@ -32,5 +36,13 @@ func TestDefaultDoubaoSeed20RatiosUseSupportedVersions(t *testing.T) {
 
 	if _, ok := defaultModelRatio["doubao-seed-2-0-pro-260428"]; ok {
 		t.Error("defaultModelRatio contains unsupported doubao-seed-2-0-pro-260428")
+	}
+	for _, model := range []string{
+		"doubao-seed-2-0-mini-260428",
+		"doubao-seed-2-0-lite-260428",
+	} {
+		if got := defaultAudioRatio[model]; got != 15 {
+			t.Errorf("%s default audio ratio = %v, want 15", model, got)
+		}
 	}
 }

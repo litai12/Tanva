@@ -272,17 +272,19 @@ var defaultModelRatio = map[string]float64{
 	"doubao-seed-1-6-251015":          0.27 / 2,
 	"doubao-seed-1-6-flash-250828":    0.15,
 	"doubao-seed-1-6-thinking-250715": 0.55 / 2,
-	// Doubao Seed 2.0 (Volcengine 直连) 按[0,32]K档定价，$ = ¥，×1.2溢价
+	// Doubao Seed 2.0 (Volcengine 直连) 按[0,32]K档配置网关基础倍率，
+	// 用户零售价 = 火山官方人民币价 ×1.5。更高上下文档位由 Tanva 后端
+	// 根据 Responses usage 精确结算。
 	// pro:  输入 3.2 元/M，输出 16 元/M，completion=5
 	// lite: 输入 0.6 元/M，输出 3.6 元/M，completion=6
 	// mini: 输入 0.2 元/M，输出 2.0 元/M，completion=10
-	"doubao-seed-2-0-pro-260215":  3.2 / 1000 * USD * 1.2,
-	"doubao-seed-2.0-pro":         3.2 / 1000 * USD * 1.2,
-	"doubao-seed-2-0-lite-260428": 0.6 / 1000 * USD * 1.2,
-	"doubao-seed-2-0-lite-260215": 0.6 / 1000 * USD * 1.2,
-	"doubao-seed-2.0-lite":        0.6 / 1000 * USD * 1.2,
-	"doubao-seed-2-0-mini-260428": 0.2 / 1000 * USD * 1.2,
-	"doubao-seed-2.0-mini":        0.2 / 1000 * USD * 1.2,
+	"doubao-seed-2-0-pro-260215":  3.2 / 1000 * USD * 1.5,
+	"doubao-seed-2.0-pro":         3.2 / 1000 * USD * 1.5,
+	"doubao-seed-2-0-lite-260428": 0.6 / 1000 * USD * 1.5,
+	"doubao-seed-2-0-lite-260215": 0.6 / 1000 * USD * 1.5,
+	"doubao-seed-2.0-lite":        0.6 / 1000 * USD * 1.5,
+	"doubao-seed-2-0-mini-260428": 0.2 / 1000 * USD * 1.5,
+	"doubao-seed-2.0-mini":        0.2 / 1000 * USD * 1.5,
 	// Perplexity online 模型对搜索额外收费，有需要应自行调整，此处不计入搜索费用
 	"llama-3-sonar-small-32k-chat":   0.2 / 1000 * USD,
 	"llama-3-sonar-small-32k-online": 0.2 / 1000 * USD,
@@ -401,6 +403,12 @@ var defaultAudioRatio = map[string]float64{
 	"gpt-4o-realtime-preview":      8,
 	"gpt-4o-mini-realtime-preview": 16.67,
 	"gpt-4o-mini-tts":              25,
+	// Seed 2.0 Lite/Mini 官方音频输入价是同档非音频输入价的 15 倍。
+	"doubao-seed-2-0-lite-260428": 15,
+	"doubao-seed-2-0-lite-260215": 15,
+	"doubao-seed-2.0-lite":        15,
+	"doubao-seed-2-0-mini-260428": 15,
+	"doubao-seed-2.0-mini":        15,
 }
 
 var defaultAudioCompletionRatio = map[string]float64{

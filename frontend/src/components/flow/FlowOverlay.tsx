@@ -3391,21 +3391,26 @@ const resolveStableRouteCredits = (params: {
       typeof nodeData?.analysisModel === "string" && nodeData.analysisModel.trim()
         ? nodeData.analysisModel.trim()
         : null;
-    const providerKey = String(providerForPricing || "").trim().toLowerCase();
-    const tier: BananaPricingTier =
-      resolveBananaPricingTierByModel(explicitAnalysisModel) ||
-      (providerKey === "banana-2.5"
-        ? "fast"
-        : providerKey === "banana-3.1" || providerKey === "nano2"
-        ? "ultra"
-        : resolveBananaPricingTierByModel(globalImageModel) || "pro");
-    const routeKey =
-      !explicitAnalysisModel && bananaImageRoute === "stable"
-        ? "stable"
-        : "normal";
-    const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
-    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
-      resolvedCredits = configuredCredits;
+    if (explicitAnalysisModel?.startsWith("doubao-seed-2-0-")) {
+      // 豆包视频理解按实际 Responses token usage 后扣，固定积分预览会误导。
+      resolvedCredits = 0;
+    } else {
+      const providerKey = String(providerForPricing || "").trim().toLowerCase();
+      const tier: BananaPricingTier =
+        resolveBananaPricingTierByModel(explicitAnalysisModel) ||
+        (providerKey === "banana-2.5"
+          ? "fast"
+          : providerKey === "banana-3.1" || providerKey === "nano2"
+          ? "ultra"
+          : resolveBananaPricingTierByModel(globalImageModel) || "pro");
+      const routeKey =
+        !explicitAnalysisModel && bananaImageRoute === "stable"
+          ? "stable"
+          : "normal";
+      const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+      if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+        resolvedCredits = configuredCredits;
+      }
     }
   }
 

@@ -1691,7 +1691,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 60, serviceType: 'gemini-video-analyze', priceYuan: 0.6, description: '通过 new-api 使用豆包或 Gemini 分析视频内容' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },
@@ -1761,6 +1761,19 @@ export class NodeConfigService {
         category: 'audio',
         isVisible: true,
         metadata: buildAudioStudioNodeMetadata() as any,
+      },
+    });
+
+    // 豆包视频分析现按实际 token usage 后扣。旧数据库里的 60 积分静态配置
+    // 会让 palette / 历史节点继续显示固定价，因此启动时幂等清零；Gemini 的
+    // 固定档位仍由模型感知的 credits resolver 单独给出。
+    await this.prisma.nodeConfig.updateMany({
+      where: { nodeKey: 'videoAnalyze' },
+      data: {
+        creditsPerCall: 0,
+        priceYuan: new Prisma.Decimal(0),
+        description:
+          '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位',
       },
     });
 
@@ -2395,7 +2408,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 60, serviceType: 'gemini-video-analyze', priceYuan: 0.6, description: '通过 new-api 使用豆包或 Gemini 分析视频内容' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },

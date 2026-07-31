@@ -65,6 +65,8 @@
 - new-api 的 `default` 分组必须启用所选豆包 Seed 2.0 视频理解模型 ability，并配置可处理 Responses API 的火山渠道；Tanva 不保存或直连火山凭据。
 - Gemini 2.5 Flash/3.5 Flash/3.1 Pro 继续走既有兼容路径：不超过 15MB 时最后一跳使用 Chat Completions `file.file_data` 完整视频，超限时抽帧、上传临时远程 URL、逐帧理解后总结；临时文件和帧在结束时清理。
 - 视频分析模型白名单由 Controller 统一校验，旧 Gemini Preview 别名仍映射到当前模型。`npm run verify:new-api-video-analysis` 以 mock `fetch` 同时验证豆包 Responses 远程视频负载、Gemini inline file_data 负载及非法输入拦截。
+- 豆包计费使用 Responses 返回的真实 `input_tokens` / `output_tokens` / `input_tokens_details.cached_tokens` / `audio_tokens`。定价器按实际输入长度选择火山官方 `0–32K`、`32–128K`、`128–256K` 常规在线推理价格，用户价为 `官方成本 × 1.5`，再按 `100 积分 = 1 元` 换算并向上取整；API usage 的 `pricingSnapshot` 保留 token、档位、官方成本、倍率、人民币售价和实际积分。节点显示“按量”与上次实扣，不再把旧固定档位当报价。
+- 旧 `2026-05-14/001` 只写 options、没有注册可路由能力。生产必须继续执行新幂等补丁 `new-api/patches/2026-07-31/002-enable-doubao-seed-2-0-video-analysis.sql`，它补齐三条 model catalog、`ark-doubao.models`、`default`/渠道分组 abilities，并将 `[0,32K]` 基础倍率从旧 `×1.2` 修正为 `×1.5`。`npm run verify:doubao-video-analysis-pricing` 覆盖分档边界、缓存/音频 token、100 积分兑 1 元和整数舍入。
 
 ## 2026-07-30 Wan / HappyHorse new-api Routing
 
@@ -136,7 +138,7 @@
 ## 2026-05-05 lt-dev9 选择性迁移补充
 - `POST /api/ai/text-chat` 在非 Gemini provider 路径会把 provider 返回的 `webSearchResult` 与 `metadata` 一并透传给前端，保持 AI Chat/Flow 文本节点元数据链路一致。
 - `buildCreditRequestParams` 会保留调用方显式传入的 `channelHint`；仅当 Banana route 或 Banana/Nano provider 有更明确路线时才覆盖。
-- `POST /api/ai/analyze-video` 计费对齐 `lt-dev9`：节点默认 `60` 积分，且按 Banana route/channel 与 Fast/Pro/Ultra 档位动态扣费（normal `60/90/120`，stable `80/120/160`）。
+- `POST /api/ai/analyze-video` 的 Gemini 兼容路径仍保留既有固定档位；豆包 Seed 2.0 已改为官方 token 分档价 `×1.5` 的真实 usage 后扣，旧的 normal `60/90/120`、stable `80/120/160` 不得再用于豆包报价或扣费。
 - `POST /api/ai/analyze-video` 对不超过 15MB 的受支持视频优先使用完整视频理解：远程视频下载到临时文件后，仅在调用 new-api 的最后一跳编码成 `file.file_data=data:video/*;base64,...`，因此 Gemini 能读取连续动作、字幕和音频；该 base64 不进入设计 JSON、DB、Redis、OSS 或任务持久化字段。超过 15MB 或 provider 不支持完整视频时，才回退到抽帧链路：JPEG Buffer 上传短生命周期 OSS URL 后逐帧识别，并在结束时删除临时帧和本地视频。旧 `gemini-3-flash-preview` / `gemini-3.1-pro-preview` 分别兼容映射到 `gemini-3.5-flash` / `gemini-3.1-pro`。
 - `VideoProviderService` 的远程视频转存缓存改为 `{ url, touchedAt }`，缓存命中会刷新访问时间，并按 1 小时 TTL / 500 条上限清理，避免长时间运行的后端进程无限增长。
 

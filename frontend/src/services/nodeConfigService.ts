@@ -167,7 +167,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "volcEnhanceVideo", nameZh: "视频画质增强", nameEn: "Video Enhance", category: "video", status: "normal", sortOrder: 37, creditsPerCall: 0, serviceType: "volc-enhance-video" },
 
     // 其他节点
-    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 60 },
+    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 0 },
     { nodeKey: "videoFrameExtract", nameZh: "视频帧提取", nameEn: "Frame Extract", category: "other", status: "normal", sortOrder: 32, creditsPerCall: 0 },
     { nodeKey: "analysis", nameZh: "Image Chat", nameEn: "Image Chat", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 10, description: IMAGE_CHAT_DESCRIPTION },
     { nodeKey: "promptOptimize", nameZh: "提示词优化", nameEn: "Optimize", category: "other", status: "normal", sortOrder: 34, creditsPerCall: 10 },
@@ -194,4 +194,3 @@ function normalizeNodeConfig(config: NodeConfig): NodeConfig {
     description: IMAGE_CHAT_DESCRIPTION,
   };
 }
-

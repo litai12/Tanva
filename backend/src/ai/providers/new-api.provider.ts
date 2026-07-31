@@ -21,6 +21,7 @@ import {
   VideoAnalysisResult,
 } from './ai-provider.interface';
 import { normalizeGeminiImageSize } from '../image-size.util';
+import { extractNewApiTokenUsage } from '../services/doubao-seed-video-analysis-pricing';
 
 // 图片生成/编辑链路上游可能跑很久（大图 + 4K），把 undici 默认 5 分钟
 // 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
@@ -729,6 +730,7 @@ export class NewApiProvider implements IAIProvider {
           metadata: {
             provider: 'new-api',
             model: payload.model,
+            usage: extractNewApiTokenUsage(result),
             raw: result,
           },
         },
@@ -760,6 +762,7 @@ export class NewApiProvider implements IAIProvider {
           metadata: {
             provider: 'new-api',
             model: payload.model,
+            usage: extractNewApiTokenUsage(result),
             raw: result,
           },
         },

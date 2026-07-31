@@ -16,7 +16,18 @@ globalThis.fetch = async (input, init) => {
   return new Response(
     JSON.stringify(
       url.endsWith('/v1/responses')
-        ? { output_text: 'doubao video verified' }
+        ? {
+            output_text: 'doubao video verified',
+            usage: {
+              input_tokens: 12_000,
+              output_tokens: 1_500,
+              total_tokens: 13_500,
+              input_tokens_details: {
+                cached_tokens: 500,
+                audio_tokens: 2_000,
+              },
+            },
+          }
         : { choices: [{ message: { content: 'video verified' } }] },
     ),
     { status: 200, headers: { 'content-type': 'application/json' } },
@@ -63,6 +74,13 @@ async function main(): Promise<void> {
   });
   assert.equal(doubaoResult.success, true);
   assert.equal(doubaoResult.data?.text, 'doubao video verified');
+  assert.deepEqual(doubaoResult.data?.metadata?.usage, {
+    inputTokens: 12_000,
+    outputTokens: 1_500,
+    totalTokens: 13_500,
+    cachedInputTokens: 500,
+    audioInputTokens: 2_000,
+  });
   assert.equal(captured.length, 2);
   assert.equal(captured[1]?.url, 'https://new-api.test/v1/responses');
   assert.equal(captured[1]?.body.model, 'doubao-seed-2-0-lite-260428');

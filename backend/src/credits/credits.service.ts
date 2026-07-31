@@ -2020,19 +2020,14 @@ export class CreditsService {
     const normalizedModel = String(model || requestParams?.model || '')
       .trim()
       .toLowerCase();
-    const doubaoTier: BananaTextPricingTier | null =
-      normalizedModel.includes('doubao-seed-2-0-mini')
-        ? 'fast'
-        : normalizedModel.includes('doubao-seed-2-0-lite')
-          ? 'pro'
-          : normalizedModel.includes('doubao-seed-2-0-pro')
-            ? 'ultra'
-            : null;
-    const routeKey = doubaoTier
-      ? 'normal'
-      : this.resolveBananaRouteFromRequestParams(requestParams) || 'normal';
+    // 豆包 Seed 2.0 由 analyze-video 在拿到 Responses usage 后精确后扣；
+    // preview 只能返回 0（按量），不能继续伪装成 60/90/120 固定价。
+    if (normalizedModel.includes('doubao-seed-2-0-')) {
+      return 0;
+    }
+    const routeKey =
+      this.resolveBananaRouteFromRequestParams(requestParams) || 'normal';
     const tier =
-      doubaoTier ||
       this.resolveBananaTextPricingTier(requestParams, model, true) ||
       'fast';
     const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
@@ -4515,12 +4510,12 @@ export class CreditsService {
   }
 
   /**
-   * 单轨网关计费：扣除一个【已知】金额（new-api 已定价并回报）。
+   * 按量计费：扣除一个调用完成后才能确定的【已知】金额。
    *
    * 与 preDeductCredits 不同点：不做 credits.config 价格查询/动态计价——金额由
-   * 调用方（new-api 响应头 X-NewApi-Consumed-Credits）给定。复用 preDeductCredits
-   * 的扣费原语（lot 扣减计划 + 账户余额更新 + SPEND 流水），并直接落 SUCCESS 的
-   * 用量记录（先扣后记，扣的就是上游实际消耗，无需后续 finalize）。
+   * 调用方根据网关响应头或上游 token usage 给定。复用 preDeductCredits 的扣费
+   * 原语（lot 扣减计划 + 账户余额更新 + SPEND 流水），并直接落 SUCCESS 的用量
+   * 记录（先扣后记，扣的就是本次实际消耗，无需后续 finalize）。
    *
    * teamId 非空（团队项目）时：只建 SUCCESS 用量记录、不动个人积分；团队积分由
    * 控制器侧 TeamCreditLedger 处理。

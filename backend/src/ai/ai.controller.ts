@@ -88,6 +88,12 @@ import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-c
 import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
+import {
+  calculateDoubaoSeedVideoAnalysisBilling,
+  extractNewApiTokenUsage,
+  getDoubaoSeedVideoAnalysisPreflightCredits,
+  isDoubaoSeedVideoAnalysisModel,
+} from './services/doubao-seed-video-analysis-pricing';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -129,6 +135,13 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
 // 取最坏情况 = 封顶 120s × 单价 2 积分/秒（1.2 元/分钟，1 元=100 积分）= 240。
 // 必须 >= new-api 实际可能扣的最大值，否则余额介于护栏与真实最大值之间会漏扣一次。
 const SEED_AUDIO_MAX_CREDITS = 240;
+
+type MeteredCreditOptions = {
+  balanceGuardCredits?: number;
+  balanceGuardLabel?: string;
+  provider?: string;
+  model?: string;
+};
 
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
@@ -2064,21 +2077,22 @@ export class AiController {
   }
 
   /**
-   * 单轨网关计费包装器（seed-audio 专用）。
+   * 按量计费包装器。
    *
-   * 与 withCredits 的固定预扣不同：价格只存在于 new-api，后端按 new-api 实际回报的
-   * 积分【后扣】。
-   *  (a) 调用前只做余额护栏（>= 最坏情况 SEED_AUDIO_MAX_CREDITS，不是实际扣费）。
-   *  (b) 执行 op()，它返回 { result, consumedCredits }（来自 new-api 响应头）。
-   *  (c) 成功后用 deductExact 精确扣 consumedCredits。
-   *  (d) 抛错则一分不扣（无预扣即无需退款）。
-   * API Key 认证路径与 withCredits 一致——跳过扣费。
+   * 与 withCredits 的固定预扣不同：调用前只做余额护栏，成功后再用上游 usage /
+   * 网关响应头计算出的整数积分执行 deductExact。seed-audio 使用网关响应头；
+   * 豆包视频分析使用 Responses usage 和火山官方分档价格。
    */
   private async withCreditsFromGateway<T>(
     req: any,
     serviceType: ServiceType,
-    op: () => Promise<{ result: T; consumedCredits?: number }>,
+    op: () => Promise<{
+      result: T;
+      consumedCredits?: number;
+      billingMetadata?: Record<string, any>;
+    }>,
     requestParams?: Record<string, any>,
+    options?: MeteredCreditOptions,
   ): Promise<T> {
     const userId = this.getUserId(req);
 
@@ -2098,29 +2112,36 @@ export class AiController {
       (await this.isNonPersonalTeam(teamId))
     );
 
-    // (a) 最坏情况护栏（不是实际扣费）。
+    const balanceGuardCredits = Math.max(
+      0,
+      Math.round(options?.balanceGuardCredits ?? SEED_AUDIO_MAX_CREDITS),
+    );
+    const balanceGuardLabel =
+      options?.balanceGuardLabel || '音频生成最多可能消耗';
+
+    // (a) 余额护栏（不是实际扣费）。
     if (isTeamProject && teamId) {
       const account = await this.prisma.teamCreditAccount.findUnique({
         where: { teamId },
         select: { balance: true, frozenBalance: true },
       });
       const available = account ? account.balance - account.frozenBalance : 0;
-      if (available < SEED_AUDIO_MAX_CREDITS) {
+      if (available < balanceGuardCredits) {
         throw new BadRequestException(
-          `团队积分不足（音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}，当前可用 ${available}）`,
+          `团队积分不足（${balanceGuardLabel} ${balanceGuardCredits} 积分，当前可用 ${available}）`,
         );
       }
     } else {
       const balance = await this.creditsService.getBalance(userId);
-      if (balance < SEED_AUDIO_MAX_CREDITS) {
+      if (balance < balanceGuardCredits) {
         throw new BadRequestException(
-          `积分不足，当前余额: ${balance}，音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}`,
+          `积分不足，当前余额: ${balance}，${balanceGuardLabel} ${balanceGuardCredits} 积分`,
         );
       }
     }
 
     // (b) 执行上游操作（抛错则向上传播，不扣费）。
-    const { result, consumedCredits } = await op();
+    const { result, consumedCredits, billingMetadata } = await op();
 
     const amount =
       Number.isFinite(consumedCredits) && (consumedCredits as number) > 0
@@ -2134,24 +2155,46 @@ export class AiController {
       return result;
     }
 
+    // 豆包可能因输入超过首档而高于预授权护栏；团队模式在落 SUCCESS
+    // 用量记录前按实际金额复查，避免先产出记录后才发现无法预留。
+    if (isTeamProject && teamId) {
+      const account = await this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      });
+      const available = account ? account.balance - account.frozenBalance : 0;
+      if (available < amount) {
+        throw new BadRequestException(
+          `团队积分不足，本次实际用量需 ${amount} 积分，当前可用 ${available}`,
+        );
+      }
+    }
+
     const sanitizedRequestParams = {
       ...(requestParams
         ? Object.fromEntries(
             Object.entries(requestParams).filter(([, value]) => value !== undefined),
           )
         : {}),
+      ...(billingMetadata || {}),
       // 团队出资：打 teamId 标记（个人「积分使用记录」据此过滤）。
       ...(isTeamProject && teamId ? { teamId } : {}),
     };
 
     // (c) 精确后扣 new-api 回报的积分。
-    const deducted = await this.creditsService.deductExact(userId, teamId ?? null, amount, {
-      serviceType,
-      provider: 'volcengine',
-      requestParams: sanitizedRequestParams,
-      ipAddress: req.ip,
-      userAgent: req.headers?.['user-agent'],
-    });
+    const deducted = await this.creditsService.deductExact(
+      userId,
+      isTeamProject ? teamId : null,
+      amount,
+      {
+        serviceType,
+        provider: options?.provider || 'volcengine',
+        model: options?.model,
+        requestParams: sanitizedRequestParams,
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      },
+    );
 
     // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
     if (isTeamProject && teamId) {
@@ -2278,6 +2321,7 @@ export class AiController {
     const aliases: Record<string, string> = {
       'doubao-seed-2-0-mini': 'doubao-seed-2-0-mini-260428',
       'doubao-seed-2-0-lite': 'doubao-seed-2-0-lite-260428',
+      'doubao-seed-2-0-lite-260215': 'doubao-seed-2-0-lite-260428',
       'doubao-seed-2-0-pro': 'doubao-seed-2-0-pro-260215',
       'gemini-3-flash-preview': 'gemini-3.5-flash',
       'gemini-3-flash': 'gemini-3.5-flash',
@@ -2286,7 +2330,6 @@ export class AiController {
     const normalized = aliases[trimmed] || trimmed;
     const allowedModels = new Set([
       'doubao-seed-2-0-mini-260428',
-      'doubao-seed-2-0-lite-260215',
       'doubao-seed-2-0-lite-260428',
       'doubao-seed-2-0-pro-260215',
       'gemini-2.5-flash',
@@ -2295,10 +2338,6 @@ export class AiController {
     ]);
     if (allowedModels.has(normalized)) return normalized;
     throw new BadRequestException(`不支持的视频分析模型：${requestedModel}`);
-  }
-
-  private isDoubaoVideoAnalysisModel(model: string): boolean {
-    return /^doubao-seed-2-0-(?:mini|lite|pro)-\d{6}$/i.test(model);
   }
 
   private summarizeError(error: any): string {
@@ -7135,6 +7174,106 @@ export class AiController {
         ...(dto.bananaImageRoute ? { imageRoute: dto.bananaImageRoute } : {}),
       },
     };
+    const creditRequestParams = this.buildCreditRequestParams(providerName, {
+      model,
+      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
+      ...(dto.channelHint ? { channelHint: dto.channelHint } : {}),
+      nodeConfigKey: 'videoAnalyze',
+      nodeConfigNameZh: '视频分析节点',
+      nodeConfigNameEn: 'Video Analysis',
+      billingTitleSource: 'node',
+    }, videoProviderOptions);
+
+    if (isDoubaoSeedVideoAnalysisModel(model)) {
+      return this.withCreditsFromGateway(
+        req,
+        'gemini-video-analyze',
+        async () => {
+          const startTime = Date.now();
+          const parsedUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
+          const provider = this.factory.getProvider(model, providerName);
+          if (!provider.analyzeVideo) {
+            throw new ServiceUnavailableException('当前 AI Provider 不支持视频分析');
+          }
+
+          const result = await provider.analyzeVideo({
+            prompt:
+              dto.prompt ||
+              '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
+            videoUrl: parsedUrl.toString(),
+            model,
+            providerOptions: videoProviderOptions,
+          });
+          if (!result.success || !result.data) {
+            throw new ServiceUnavailableException(
+              result.error?.message || 'Failed to analyze remote video',
+            );
+          }
+
+          const analysisText = result.data.text || '';
+          if (!analysisText.trim()) {
+            throw new BadGatewayException(
+              '豆包视频分析成功但未返回可用文本',
+            );
+          }
+          const metadata = result.data.metadata || {};
+          const usage = extractNewApiTokenUsage(
+            metadata.raw || { usage: metadata.usage },
+          );
+          if (usage.inputTokens + usage.outputTokens <= 0) {
+            throw new BadGatewayException(
+              '豆包视频分析未返回 token usage，无法按官方价格结算',
+            );
+          }
+          const billing = calculateDoubaoSeedVideoAnalysisBilling(model, usage);
+          const processingTime = Date.now() - startTime;
+          this.logger.log(
+            `✅ Video analysis (Doubao remote input_video) completed in ${processingTime}ms; ` +
+              `usage=${usage.inputTokens}/${usage.outputTokens}, tier=${billing.tier}, ` +
+              `credits=${billing.creditsCharged}`,
+          );
+
+          return {
+            result: {
+              analysis: analysisText,
+              text: analysisText,
+              model,
+              provider: providerName,
+              processingTime,
+              analysisMode: 'remote_input_video',
+              usage,
+              billing,
+            },
+            consumedCredits: billing.creditsCharged,
+            billingMetadata: {
+              billingMode: billing.billingMode,
+              tokenUsage: usage,
+              pricingSnapshot: {
+                source: 'volcengine_official_token_usage',
+                model,
+                tier: billing.tier,
+                unitPriceYuanPerMillionTokens:
+                  billing.unitPriceYuanPerMillionTokens,
+                officialCostYuan: billing.officialCostYuan,
+                markup: billing.markup,
+                retailPriceYuan: billing.retailPriceYuan,
+                creditsPerYuan: billing.creditsPerYuan,
+                exactCredits: billing.exactCredits,
+                creditsCharged: billing.creditsCharged,
+              },
+            },
+          };
+        },
+        creditRequestParams,
+        {
+          balanceGuardCredits:
+            getDoubaoSeedVideoAnalysisPreflightCredits(model),
+          balanceGuardLabel: '视频分析按量计费预授权需至少',
+          provider: providerName,
+          model,
+        },
+      );
+    }
 
     return this.withCredits(req, 'gemini-video-analyze', model, async () => {
       const startTime = Date.now();
@@ -7151,41 +7290,6 @@ export class AiController {
       let stage = 'download_video';
 
       try {
-        if (this.isDoubaoVideoAnalysisModel(model)) {
-          stage = 'analyze_remote_video';
-          const provider = this.factory.getProvider(model, providerName);
-          if (!provider.analyzeVideo) {
-            throw new ServiceUnavailableException('当前 AI Provider 不支持视频分析');
-          }
-          const result = await provider.analyzeVideo({
-            prompt:
-              dto.prompt ||
-              '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
-            videoUrl: parsedUrl.toString(),
-            model,
-            providerOptions: videoProviderOptions,
-          });
-          if (!result.success || !result.data) {
-            throw new ServiceUnavailableException(
-              result.error?.message || 'Failed to analyze remote video',
-            );
-          }
-
-          const analysisText = result.data.text || '';
-          const processingTime = Date.now() - startTime;
-          this.logger.log(
-            `✅ Video analysis (Doubao remote input_video) completed in ${processingTime}ms`,
-          );
-          return {
-            analysis: analysisText,
-            text: analysisText,
-            model,
-            provider: providerName,
-            processingTime,
-            analysisMode: 'remote_input_video',
-          };
-        }
-
         // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
         stage = 'download_video';
         this.logger.log('📥 Downloading video from OSS...');
@@ -7489,15 +7593,7 @@ export class AiController {
           }
         }
       }
-    }, 1, 0, undefined, this.buildCreditRequestParams(providerName, {
-      model,
-      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
-      ...(dto.channelHint ? { channelHint: dto.channelHint } : {}),
-      nodeConfigKey: 'videoAnalyze',
-      nodeConfigNameZh: '视频分析节点',
-      nodeConfigNameEn: 'Video Analysis',
-      billingTitleSource: 'node',
-    }, videoProviderOptions));
+    }, 1, 0, undefined, creditRequestParams);
   }
 
   /**

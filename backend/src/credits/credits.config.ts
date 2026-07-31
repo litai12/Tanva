@@ -214,8 +214,8 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-video-analyze': {
     serviceName: '视频分析',
     provider: 'new-api',
-    creditsPerCall: 60,
-    description: '通过 new-api 使用豆包或 Gemini 分析视频内容',
+    creditsPerCall: 0,
+    description: '豆包按官方 token 价格×1.5 结算；Gemini 使用固定档位',
   },
 
   // Sora 视频服务

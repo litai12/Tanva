@@ -45,6 +45,9 @@ type Props = {
     storyboardRowCount?: number;
     storyboardColumnCount?: number;
     analysisMode?: string;
+    lastCreditsUsed?: number;
+    lastBillingPriceYuan?: number;
+    lastBillingTier?: string;
   };
   selected?: boolean;
 };
@@ -115,8 +118,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const isFlowDark = useFlowNodeDarkTheme();
   const rf = useReactFlow();
   const { status, error } = data;
-  const hasRunCredits =
-    typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
 
@@ -158,6 +159,12 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const selectedModelOption =
     VIDEO_ANALYZE_MODELS.find((option) => option.value === selectedModel) ||
     VIDEO_ANALYZE_MODELS[0];
+  const usesMeteredDoubaoPricing =
+    selectedModel.startsWith('doubao-seed-2-0-');
+  const hasRunCredits =
+    !usesMeteredDoubaoPricing &&
+    typeof data.creditsPerCall === 'number' &&
+    data.creditsPerCall > 0;
 
   React.useEffect(() => {
     if (data.analysisModel === selectedModel) return;
@@ -375,6 +382,12 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           'The model returned no parseable analysis result',
         ));
       }
+      const chargedCredits = Number(result.billing?.creditsCharged);
+      const retailPriceYuan = Number(result.billing?.retailPriceYuan);
+      const billingTier =
+        typeof result.billing?.tier === 'string'
+          ? result.billing.tier
+          : undefined;
 
       updateNodeData({
         status: 'succeeded',
@@ -383,6 +396,15 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         text: analysisText,
         analysisModel: selectedModel,
         analysisMode: result.analysisMode,
+        lastCreditsUsed:
+          Number.isFinite(chargedCredits) && chargedCredits > 0
+            ? chargedCredits
+            : undefined,
+        lastBillingPriceYuan:
+          Number.isFinite(retailPriceYuan) && retailPriceYuan > 0
+            ? retailPriceYuan
+            : undefined,
+        lastBillingTier: billingTier,
       });
       const output = upsertStoryboardPromptNode(analysisText);
       updateNodeData({
@@ -487,7 +509,30 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           ) : (
             <>
               <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
-              {hasRunCredits ? (
+              {usesMeteredDoubaoPricing ? (
+                <span
+                  title={lt(
+                    '按实际 token 用量结算：火山官方价 × 1.5，100 积分 = 1 元',
+                    'Metered by actual tokens: official VolcEngine price × 1.5; 100 credits = ¥1',
+                  )}
+                  className="run-credit-badge"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '2px 5px',
+                    borderRadius: 4,
+                    background: 'rgba(255,255,255,0.15)',
+                    border: '1px solid rgba(255,255,255,0.25)',
+                    color: '#fef3c7',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {lt('按量', 'Metered')}
+                </span>
+              ) : hasRunCredits ? (
                 <RunCreditBadge credits={data.creditsPerCall} runButton />
               ) : null}
             </>
@@ -575,6 +620,29 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             selectedModelOption.descriptionEn,
           )}
         </span>
+        {usesMeteredDoubaoPricing ? (
+          <span
+            style={{
+              display: 'block',
+              marginTop: 3,
+              fontSize: 10,
+              color: isFlowDark ? '#facc15' : '#a16207',
+            }}
+          >
+            {lt(
+              `按实际 token：官方价 × 1.5，100 积分 = 1 元${
+                typeof data.lastCreditsUsed === 'number'
+                  ? `；上次 ${data.lastCreditsUsed} 积分`
+                  : ''
+              }`,
+              `Actual-token billing: official price × 1.5; 100 credits = ¥1${
+                typeof data.lastCreditsUsed === 'number'
+                  ? `; last run ${data.lastCreditsUsed} credits`
+                  : ''
+              }`,
+            )}
+          </span>
+        ) : null}
       </label>
 
       <div>
