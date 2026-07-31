@@ -152,7 +152,11 @@ const buildAudioStudioNodeMetadata = (): Record<string, any> => ({
   },
 });
 
-const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0'];
+const SEEDANCE20_SUPPORTED_MODELS = [
+  'seedance-1.5-pro',
+  'seedance-2.0',
+  'seedance-2.5',
+];
 const SEED20_SUPPORTED_MODELS = ['seed-2.0-pro', 'seed-2.0-lite', 'seed-2.0-mini'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
@@ -173,7 +177,8 @@ const SEEDANCE20_INPUT_MODES = [
   'image_video_audio',
 ];
 const SEEDANCE20_NOTES = [
-  '当前接入模型 ID: doubao-seedance-2-0-260128',
+  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5',
+  'Seedance 2.5 仅支持 480P / 720P，按 Seedance 2.0 当前每秒单价的 1.5 倍计费',
   '节点采用自动模式推导：最多支持 9 张参考图，视频/音频各最多 3 路，运行时按已连接输入自动确定上游 video_mode',
   '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
 ];

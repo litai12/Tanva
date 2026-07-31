@@ -6,6 +6,7 @@ export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 7.5;
 // Canvas retail pricing previously reflected cost x1.2. Raising it to x1.5
 // means scaling every existing per-second price by 1.5 / 1.2 = 1.25.
 export const SEEDANCE20_PRICE_SCALE = 1.5 / 1.2;
+export const SEEDANCE25_PRICE_MULTIPLIER = 1.5;
 
 export const calculateSeedance20BillingDuration = (
   outputDurationSec: number,
@@ -56,6 +57,20 @@ const applySeedance20Discount = (unitPriceYuan: number): number =>
     ? 0
     : Number((unitPriceYuan * SEEDANCE20_PRICE_SCALE).toFixed(4));
 
+// Seedance 2.5 is a separate paid SKU. Its catalog price is always 1.5x the
+// current Seedance 2.0 retail price and is intentionally not part of the
+// SEEDANCE20_FREE campaign switch.
+export const applySeedance25Price = (
+  seedance20BaseUnitPriceYuan: number,
+): number =>
+  Number(
+    (
+      seedance20BaseUnitPriceYuan *
+      SEEDANCE20_PRICE_SCALE *
+      SEEDANCE25_PRICE_MULTIPLIER
+    ).toFixed(4),
+  );
+
 export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook => ({
   version: 'v2',
   dimensions: [
@@ -66,6 +81,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       required: true,
       options: [
         { value: 'seedance-2.0', label: 'Seedance 2.0' },
+        { value: 'seedance-2.5', label: 'Seedance 2.5' },
         { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
         { value: 'seed-2.0-mini', label: 'Seedance 2.0 Mini' },
       ],
@@ -90,6 +106,32 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
     },
   ],
   matchingRules: [
+    {
+      ruleKey: 'seedance25_480p',
+      label: 'Seedance 2.5 480P',
+      enabled: true,
+      priority: 130,
+      evaluatorKey: 'seedance25_480p_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '480P' },
+        ],
+      },
+    },
+    {
+      ruleKey: 'seedance25_720p',
+      label: 'Seedance 2.5 720P',
+      enabled: true,
+      priority: 130,
+      evaluatorKey: 'seedance25_720p_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '720P' },
+        ],
+      },
+    },
     {
       ruleKey: 'seedance20_fast_480p',
       label: 'Seedance 2.0 Fast 480P',
@@ -196,6 +238,16 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
     },
   ],
   evaluators: {
+    seedance25_480p_eval: {
+      type: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: applySeedance25Price(1.0),
+    },
+    seedance25_720p_eval: {
+      type: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: applySeedance25Price(1.2),
+    },
     seedance20_fast_480p_eval: {
       type: 'linear',
       unitField: 'duration',
@@ -231,6 +283,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
     specAxes: ['seedanceModel', 'resolution', 'duration'],
     labels: {
       'seedanceModel.seedance-2.0': 'Seedance 2.0',
+      'seedanceModel.seedance-2.5': 'Seedance 2.5',
       'seedanceModel.seedance-2.0-fast': 'Seedance 2.0 Fast',
       'seedanceModel.seed-2.0-mini': 'Seedance 2.0 Mini',
       'resolution.480P': '480P',
@@ -248,6 +301,8 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       { seedanceModel: 'seedance-2.0', resolution: '720P', duration: 10 },
       { seedanceModel: 'seedance-2.0', resolution: '1080P', duration: 5 },
       { seedanceModel: 'seedance-2.0', resolution: '4K', duration: 5 },
+      { seedanceModel: 'seedance-2.5', resolution: '480P', duration: 5 },
+      { seedanceModel: 'seedance-2.5', resolution: '720P', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '480P', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '720P', duration: 5 },
       { seedanceModel: 'seed-2.0-mini', resolution: '480P', duration: 5 },

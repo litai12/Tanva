@@ -1,5 +1,11 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-07-31 Seedance 2.5 按时长计费
+- 2.5 与 Seedance 2.0 共用 `modelKey=seedance-2.0` 的统一定价书，通过 `seedanceModel=seedance-2.5` 命中独立规则；账单服务名与模型标签分别显示为 `Seedance 2.5视频生成`、`Seedance 2.5`。
+- 标准 2.0 当前画布商业单价为 480P `1.25 元/秒`、720P `1.50 元/秒`；2.5 按对应档位的 `1.5x` 计为 480P `1.875 元/秒`、720P `2.25 元/秒`，按 `100 积分 = 1 元` 向上取整。仅输出 5 秒时分别为 `938`、`1125` 积分。
+- 若有参考视频，规则中的 `duration` 使用 `billingDurationSec = outputDurationSec + inputVideoDurationSec`。例如 720P 输出 5 秒并输入唯一参考视频 5 秒，2.5 按 10 秒计 `2250` 积分。
+- `SEEDANCE20_FREE` 仍只控制 Seedance 2.0 / Fast / Mini；Seedance 2.5 是独立付费 SKU，不随该活动开关归零。
+
 ## 2026-07-27 Flow 视频同步直出兼容
 - 部分视频供应商会在创建接口直接返回 `videoUrl`，不返回异步 `taskId`；后端对此类结果会直接完成积分结算。
 - 前端视频响应校验与 Flow Run 已兼容该同步结果：直接写回视频节点与视频历史，不进入轮询；仅有异步任务时才保存 `taskId/apiUsageId` 并保持 `pending`。
@@ -81,7 +87,7 @@
   - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
 - `POST /api/ai/generate-video-provider` 现在会在解析出模型管理线路后，将该线路 `pricing.displayConfig.defaultSelections` 用作缺失规格的计费默认值；例如对话框 Seedance 2.0 未显式选择分辨率/时长时，按模型管理默认 `720P / 5s` 参与规格定价，避免回退到静态 `doubao-video` 价格。
-- Seedance 2.0 (`seedance-2.0`) 规格定价按 3.5 折后的 `unitPriceYuan` 扣费，并继续按 `100 积分 = 1 元` 折算：Fast 480P `0.2821` 元/秒、Fast 720P `0.3381` 元/秒、标准 480P `0.35` 元/秒、标准 720P `0.42` 元/秒、标准 1080P `1.05` 元/秒；默认 `720P / 5s` 为 `210` 积分。
+- Seedance 2.0 (`seedance-2.0`) 当前画布规格定价按原 `x1.2` 单价整体乘 `1.5/1.2`，并按 `100 积分 = 1 元` 折算：Fast/Mini 480P `1.0075` 元/秒、Fast/Mini 720P `1.2075` 元/秒、标准 480P `1.25` 元/秒、标准 720P `1.50` 元/秒、标准 1080P `3.75` 元/秒、标准 4K `7.50` 元/秒；标准默认 `720P / 5s` 为 `750` 积分。2.5 的 480P/720P 对应档位再乘 `1.5`。
 - 新增只读接口 `GET /api/credits/pricing/models`：
   - 面向画布右上角“定价一览”弹层。
   - 支持通过 `modelKey` 查询单模型，未传时返回全部模型。

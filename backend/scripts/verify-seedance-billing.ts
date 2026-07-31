@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { calculateSeedance20BillingDuration } from '../src/ai/services/seedance20-pricing';
+import {
+  applySeedance25Price,
+  calculateSeedance20BillingDuration,
+  createSeedance20DiscountPricingTemplate,
+} from '../src/ai/services/seedance20-pricing';
+import { resolveManagedVendorPricing } from '../src/ai/services/model-pricing-resolver';
 
 assert.deepEqual(calculateSeedance20BillingDuration(5, []), {
   outputDurationSec: 5,
@@ -28,4 +33,64 @@ assert.throws(
   /reference video durations must be positive numbers/,
 );
 
-console.log('Seedance billing duration verification passed');
+assert.equal(applySeedance25Price(1.0), 1.875);
+assert.equal(applySeedance25Price(1.2), 2.25);
+
+const seedancePricing = createSeedance20DiscountPricingTemplate();
+const seedance25Models = seedancePricing.dimensions
+  ?.filter((dimension) => typeof dimension !== 'string' && dimension.key === 'seedanceModel')
+  .flatMap((dimension) => (typeof dimension === 'string' ? [] : dimension.options ?? []))
+  .map((option) => option.value);
+assert.ok(seedance25Models?.includes('seedance-2.5'));
+
+const seedance25Vendor = {
+  vendorKey: 'seedance_api',
+  pricing: seedancePricing,
+};
+assert.deepEqual(
+  resolveManagedVendorPricing(seedance25Vendor, {
+    seedanceModel: 'seedance-2.5',
+    resolution: '480P',
+    duration: 5,
+  }),
+  {
+    source: 'vendor_rule',
+    vendorKey: 'seedance_api',
+    ruleKey: 'seedance25_480p',
+    label: 'Seedance 2.5 480P',
+    price: {
+      priceYuan: 9.375,
+      credits: 938,
+    },
+    evaluatorKey: 'seedance25_480p_eval',
+    evaluatorType: 'linear',
+    pricingVersion: 'v2',
+    calcTrace: {
+      evaluatorType: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: 1.875,
+      unitValue: 5,
+    },
+  },
+);
+assert.deepEqual(
+  resolveManagedVendorPricing(seedance25Vendor, {
+    seedanceModel: 'seedance-2.5',
+    resolution: '720P',
+    duration: 5,
+  }).price,
+  {
+    priceYuan: 11.25,
+    credits: 1125,
+  },
+);
+assert.equal(
+  resolveManagedVendorPricing(seedance25Vendor, {
+    seedanceModel: 'seedance-2.5',
+    resolution: '1080P',
+    duration: 5,
+  }).source,
+  'none',
+);
+
+console.log('Seedance billing duration and Seedance 2.5 pricing verification passed');

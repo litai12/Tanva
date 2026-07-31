@@ -38,7 +38,7 @@ INSERT INTO channels (
 
 -- ── Ark / 火山方舟（doubao）──────────────────────────────────────────────────
 (54, 'ark-doubao-video', 'default',
-  'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128,doubao-seedance-2-5',
   NULL, 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL),
 

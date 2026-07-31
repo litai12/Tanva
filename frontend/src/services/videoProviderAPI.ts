@@ -78,6 +78,7 @@ export interface VideoGenerationRequest {
   seedanceModel?:
     | "seedance-1.5-pro"
     | "seedance-2.0"
+    | "seedance-2.5"
     | "seed-2.0-pro"
     | "seed-2.0-lite"
     | "seed-2.0-mini"

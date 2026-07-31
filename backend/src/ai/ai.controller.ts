@@ -493,7 +493,7 @@ export class AiController {
     const access = await this.resolveSeedance2CombinedAccess(userId, req);
     if (!access.allowed) {
       throw new BadRequestException(
-        'Seed2.0 仅支持 VIP 或水印白名单用户使用',
+        'Seedance 2.x 仅支持 VIP 或水印白名单用户使用',
       );
     }
   }
@@ -580,6 +580,11 @@ export class AiController {
   private isSeedance20Model(seedanceModel: unknown): boolean {
     const normalized = typeof seedanceModel === 'string' ? seedanceModel.trim().toLowerCase() : '';
     return (
+      normalized === 'seedance-2.5' ||
+      normalized === 'seedance-2-5' ||
+      normalized === 'doubao-seedance-2-5' ||
+      normalized === 'doubao-seedance-2.5' ||
+      normalized === '2.5' ||
       normalized === 'seedance-2.0' ||
       normalized === '2.0' ||
       normalized === 'seed-2.0-pro' ||
@@ -599,9 +604,26 @@ export class AiController {
     );
   }
 
-  private normalizeSeed2LegacyLiteAlias(dto: VideoProviderRequestDto): void {
+  private isSeedance25Model(seedanceModel: unknown): boolean {
+    const normalized =
+      typeof seedanceModel === 'string' ? seedanceModel.trim().toLowerCase() : '';
+    return (
+      normalized === 'seedance-2.5' ||
+      normalized === 'seedance-2-5' ||
+      normalized === 'doubao-seedance-2-5' ||
+      normalized === 'doubao-seedance-2.5' ||
+      normalized === '2.5'
+    );
+  }
+
+  private normalizeSeedanceModelAlias(dto: VideoProviderRequestDto): void {
     const raw = typeof dto.seedanceModel === 'string' ? dto.seedanceModel.trim().toLowerCase() : '';
     if (!raw) return;
+
+    if (this.isSeedance25Model(raw)) {
+      dto.seedanceModel = 'seedance-2.5';
+      return;
+    }
 
     const isLiteAlias =
       raw === 'seed-2.0-lite' ||
@@ -633,7 +655,7 @@ export class AiController {
       byAdmin = byAdmin || this.isPrivilegedAdminRole(user?.role);
       byWhitelist = byAdmin || user?.noWatermark === true;
     } catch (e) {
-      this.logger.warn('Failed to resolve watermark whitelist for Seedance 2.0 access check', e);
+      this.logger.warn('Failed to resolve watermark whitelist for Seedance 2.x access check', e);
       byWhitelist = await this.canSkipWatermark(req);
     }
 
@@ -1456,7 +1478,7 @@ export class AiController {
 
       const outputDurationSec = Number(params.duration ?? params.durationSec);
       if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) {
-        throw new BadRequestException('Seedance 2.0 计费需要明确的正数输出时长');
+        throw new BadRequestException('Seedance 2.x 计费需要明确的正数输出时长');
       }
 
       let inputVideoDurationsSec: number[] = [];
@@ -1576,6 +1598,16 @@ export class AiController {
   private async validateSeedance20ReferenceMedia(dto: VideoProviderRequestDto): Promise<void> {
     if (dto.provider !== 'doubao' || !this.isSeedance20Model(dto.seedanceModel)) return;
 
+    if (this.isSeedance25Model(dto.seedanceModel)) {
+      const resolution =
+        typeof dto.resolution === 'string' ? dto.resolution.trim().toUpperCase() : '';
+      if (resolution && resolution !== '480P' && resolution !== '720P') {
+        throw new BadRequestException(
+          `Seedance 2.5 仅支持 480P / 720P，当前为 ${resolution}`,
+        );
+      }
+    }
+
     const uniqueUrls = (values: Array<string | undefined>): string[] =>
       Array.from(
         new Set(
@@ -1592,10 +1624,10 @@ export class AiController {
     const referenceAudios = uniqueUrls(Array.isArray(dto.audioUrls) ? dto.audioUrls : []);
 
     if (referenceVideos.length > 3) {
-      throw new BadRequestException(`Seedance 2.0 最多支持 3 条参考视频，当前为 ${referenceVideos.length} 条`);
+      throw new BadRequestException(`Seedance 2.x 最多支持 3 条参考视频，当前为 ${referenceVideos.length} 条`);
     }
     if (referenceAudios.length > 3) {
-      throw new BadRequestException(`Seedance 2.0 最多支持 3 条参考音频，当前为 ${referenceAudios.length} 条`);
+      throw new BadRequestException(`Seedance 2.x 最多支持 3 条参考音频，当前为 ${referenceAudios.length} 条`);
     }
     if (!referenceVideos.length && !referenceAudios.length) return;
     if (!this.referenceVideoDuration) {
@@ -1606,7 +1638,7 @@ export class AiController {
       const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考视频`);
       if (duration < 2 || duration > 15) {
         throw new BadRequestException(
-          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance 2.0 单条需在 2–15 秒之间`,
+          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance 2.x 单条需在 2–15 秒之间`,
         );
       }
     }
@@ -1614,7 +1646,7 @@ export class AiController {
       const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考音频`);
       if (duration < 2 || duration > 5) {
         throw new BadRequestException(
-          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance 2.0 单条需在 2–5 秒之间`,
+          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance 2.x 单条需在 2–5 秒之间`,
         );
       }
     }
@@ -5814,7 +5846,17 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
-    this.normalizeSeed2LegacyLiteAlias(effectiveDto);
+    this.normalizeSeedanceModelAlias(effectiveDto);
+    if (
+      effectiveDto.provider === 'doubao' &&
+      this.isSeedance25Model(effectiveDto.seedanceModel)
+    ) {
+      // Seedance 2.5 is an Ark official/default-only SKU. Do not let a stale
+      // Tencent VOD selection silently execute another Seedance version.
+      effectiveDto.channelTier = 'default';
+      effectiveDto.vendorKey = 'seedance_api';
+      effectiveDto.platformKey = 'seedance_api';
+    }
     // Vidu 统一节点可在 Q2/Q3 间切换，历史节点可能残留另一家族的 managedModelKey。
     // 实际上游模型以 viduModelVariant/viduModel 为准；在计费和路由前同步托管 key，
     // 避免 managedModelKey=vidu-q3 + viduModel=q2 导致预估/实扣与请求模型串台。

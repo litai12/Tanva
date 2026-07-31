@@ -1329,6 +1329,11 @@ export class CreditsService {
         ? requestParams.seedanceModel.trim().toLowerCase()
         : '';
     if (
+      seedanceModel === 'seedance-2.5' ||
+      seedanceModel === 'seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2.5' ||
+      seedanceModel === '2.5' ||
       seedanceModel === 'seedance-2.0' ||
       seedanceModel === 'seed-2.0-pro' ||
       seedanceModel === 'seedance-2.0-pro' ||
@@ -1679,6 +1684,16 @@ export class CreditsService {
       typeof requestParams?.seedanceModel === 'string'
         ? requestParams.seedanceModel.trim().toLowerCase()
         : '';
+
+    if (
+      seedanceModel === 'seedance-2.5' ||
+      seedanceModel === 'seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2.5' ||
+      seedanceModel === '2.5'
+    ) {
+      return 'Seedance 2.5视频生成';
+    }
 
     if (
       seedanceModel === 'seed-2.0-pro' ||
@@ -2788,6 +2803,17 @@ export class CreditsService {
 
     if (this.isOmniFlashExtRequest(requestParams, model)) {
       return OMNI_FLASH_EXT_MODEL_KEY;
+    }
+
+    const seedanceModel = this.asNonEmptyString(requestParams?.seedanceModel)?.toLowerCase();
+    if (
+      seedanceModel === 'seedance-2.5' ||
+      seedanceModel === 'seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2-5' ||
+      seedanceModel === 'doubao-seedance-2.5' ||
+      seedanceModel === '2.5'
+    ) {
+      return 'Seedance 2.5';
     }
 
     const isVideoService =

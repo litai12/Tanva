@@ -146,8 +146,17 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
 
 const CREDITS_PER_YUAN = 100;
 const SEEDANCE20_DISCOUNT_RATE = 1.5 / 1.2;
+const SEEDANCE25_PRICE_MULTIPLIER = 1.5;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+const applySeedance25Price = (seedance20BaseUnitPriceYuan: number): number =>
+  Number(
+    (
+      seedance20BaseUnitPriceYuan *
+      SEEDANCE20_DISCOUNT_RATE *
+      SEEDANCE25_PRICE_MULTIPLIER
+    ).toFixed(4)
+  );
 
 const EMPTY_RECHARGE_ORDERS: AdminUserRechargeOrders = {
   membership: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
@@ -1997,14 +2006,20 @@ const createWanPricingTemplate = (
 const createSeedance20PricingTemplate = () => ({
   version: "v2",
   dimensions: [
-    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast", "seed-2.0-mini"], {
-      required: true,
-      labels: {
-        "seedance-2.0": "Seedance 2.0",
-        "seedance-2.0-fast": "Seedance 2.0 Fast",
-        "seed-2.0-mini": "Seedance 2.0 Mini",
-      },
-    }),
+    createEnumDimension(
+      "seedanceModel",
+      "Seedance 型号",
+      ["seedance-2.0", "seedance-2.5", "seedance-2.0-fast", "seed-2.0-mini"],
+      {
+        required: true,
+        labels: {
+          "seedance-2.0": "Seedance 2.0",
+          "seedance-2.5": "Seedance 2.5",
+          "seedance-2.0-fast": "Seedance 2.0 Fast",
+          "seed-2.0-mini": "Seedance 2.0 Mini",
+        },
+      }
+    ),
     createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], {
       required: true,
       labels: {
@@ -2019,6 +2034,34 @@ const createSeedance20PricingTemplate = () => ({
     }),
   ],
   matchingRules: [
+    {
+      ruleKey: "seedance25_480p",
+      label: "Seedance 2.5 480P",
+      enabled: true,
+      priority: 130,
+      evaluatorKey: "seedance25_480p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "480P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance25_720p",
+      label: "Seedance 2.5 720P",
+      enabled: true,
+      priority: 130,
+      evaluatorKey: "seedance25_720p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
     {
       ruleKey: "seedance20_fast_480p",
       label: "Seedance 2.0 Fast 480P",
@@ -2119,6 +2162,16 @@ const createSeedance20PricingTemplate = () => ({
     },
   ],
   evaluators: {
+    seedance25_480p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: applySeedance25Price(1.0),
+    },
+    seedance25_720p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: applySeedance25Price(1.2),
+    },
     seedance20_fast_480p_eval: {
       type: "linear" as const,
       unitField: "duration",
@@ -2149,6 +2202,7 @@ const createSeedance20PricingTemplate = () => ({
     specAxes: ["seedanceModel", "resolution", "duration"],
     labels: {
       "seedanceModel.seedance-2.0": "Seedance 2.0",
+      "seedanceModel.seedance-2.5": "Seedance 2.5",
       "seedanceModel.seedance-2.0-fast": "Seedance 2.0 Fast",
       "seedanceModel.seed-2.0-mini": "Seedance 2.0 Mini",
       "resolution.480P": "480P",
@@ -2164,6 +2218,8 @@ const createSeedance20PricingTemplate = () => ({
       { seedanceModel: "seedance-2.0", resolution: "720P", duration: 5 },
       { seedanceModel: "seedance-2.0", resolution: "720P", duration: 10 },
       { seedanceModel: "seedance-2.0", resolution: "1080P", duration: 5 },
+      { seedanceModel: "seedance-2.5", resolution: "480P", duration: 5 },
+      { seedanceModel: "seedance-2.5", resolution: "720P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "480P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "720P", duration: 5 },
       { seedanceModel: "seed-2.0-mini", resolution: "480P", duration: 5 },
@@ -2406,7 +2462,12 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
   },
 } as const;
 
-const SEEDANCE20_SUPPORTED_MODELS = ["seedance-1.5-pro", "seedance-2.0", "seedance-2.0-fast"];
+const SEEDANCE20_SUPPORTED_MODELS = [
+  "seedance-1.5-pro",
+  "seedance-2.0",
+  "seedance-2.5",
+  "seedance-2.0-fast",
+];
 const SEEDANCE20_VOD_METADATA = {
   outputConfig: {
     aspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
@@ -2427,7 +2488,8 @@ const SEEDANCE20_VOD_METADATA = {
     "image_video_audio",
   ],
   notes: [
-    "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seed-2-0-lite-260428",
+    "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5 / doubao-seed-2-0-lite-260428",
+    "Seedance 2.5 仅支持 480P / 720P，按 Seedance 2.0 当前每秒单价的 1.5 倍计费",
     "多图参考支持 1-9 张图片，首尾帧固定 1-2 张，智能多帧支持 2-10 张图片",
     "在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10",
   ],

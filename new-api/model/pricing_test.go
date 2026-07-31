@@ -55,6 +55,45 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 	assertSpecPriceCNY("video:1080p:6s", 3.0*6)
 }
 
+func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testing.T) {
+	meta := &Model{
+		ModelName: "doubao-seedance-2-5",
+		ParamsDef: `[
+			{"key":"duration","type":"enum","label":"时长","default":4,
+			 "options":[{"value":4,"label":"4s"},{"value":6,"label":"6s"}]},
+			{"key":"resolution","type":"enum","label":"分辨率","default":"720p",
+			 "options":[{"value":"480p","label":"480p"},{"value":"720p","label":"720p"}]}
+		]`,
+	}
+
+	pricing := buildParamPricing("doubao-seedance-2-5", meta)
+	if pricing == nil {
+		t.Fatal("expected param pricing")
+	}
+	if len(pricing.Results) != 4 {
+		t.Fatalf("len(results) = %d, want 4", len(pricing.Results))
+	}
+
+	assertSpecPriceCNY := func(specKey string, want float64) {
+		t.Helper()
+		for _, item := range pricing.Results {
+			if item.SpecKey != specKey {
+				continue
+			}
+			if math.Abs(item.PriceCNY-want) > 1e-9 {
+				t.Fatalf("%s price_cny = %.6f, want %.6f", specKey, item.PriceCNY, want)
+			}
+			return
+		}
+		t.Fatalf("spec %s not found", specKey)
+	}
+
+	assertSpecPriceCNY("video:480p:4s", 1.5*4)
+	assertSpecPriceCNY("video:480p:6s", 1.5*6)
+	assertSpecPriceCNY("video:720p:4s", 1.8*4)
+	assertSpecPriceCNY("video:720p:6s", 1.8*6)
+}
+
 func TestBuildParamPricingForSeedanceFaceAddsTenPercent(t *testing.T) {
 	meta := &Model{
 		ModelName: "doubao-seedance-2.0-face",

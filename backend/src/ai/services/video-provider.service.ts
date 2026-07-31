@@ -92,6 +92,7 @@ type ViduManagedModelVersion = "q2" | "q3";
 type SeedanceManagedModelVersion =
   | "1.5-pro"
   | "2.0"
+  | "2.5"
   | "2.0-pro"
   | "2.0-lite"
   | "2.0-mini";
@@ -123,6 +124,8 @@ type ManagedV2ParsedTask = {
 
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
+    case "2.5":
+      return "doubao-seedance-2-5";
     case "2.0-pro":
       return "doubao-seedance-2-0-260128";
     case "2.0-lite":
@@ -162,6 +165,9 @@ const normalizeSeedanceUpstreamModelIdAlias = (
   }
   if (normalized === "doubao-seedance-2-0") {
     return "doubao-seedance-2-0-260128";
+  }
+  if (normalized === "doubao-seedance-2.5") {
+    return "doubao-seedance-2-5";
   }
 
   return rawModelId;
@@ -946,7 +952,7 @@ export class VideoProviderService {
   private isSeedance20Request(options: VideoProviderRequestDto): boolean {
     return (
       options.provider === "doubao" &&
-      /doubao-seedance-2-0/i.test(this.resolveNewApiVideoModel(options))
+      /doubao-seedance-2-(?:0|5)/i.test(this.resolveNewApiVideoModel(options))
     );
   }
 
@@ -1695,11 +1701,20 @@ export class VideoProviderService {
     // managedModelKey="seedance-2.0" — so for Seedance we must trust
     // seedanceModel first, mirroring the kling branch below. Using the
     // managedModelKey-first `explicit` here silently ran 1.5-pro as 2.0.
-    // Order matters: fast/lite/mini and 1.5 before the generic 2.0 branch.
+    // Order matters: 2.5, fast/lite/mini and 1.5 before the generic 2.0 branch.
     if (options.provider === "doubao" || explicit.includes("seedance") || explicit.includes("seed-")) {
       const seedanceHint = String(options.seedanceModel || options.managedModelKey || explicit)
         .trim()
         .toLowerCase();
+      if (
+        seedanceHint === "seedance-2.5" ||
+        seedanceHint === "seedance-2-5" ||
+        seedanceHint === "doubao-seedance-2-5" ||
+        seedanceHint === "doubao-seedance-2.5" ||
+        seedanceHint === "2.5"
+      ) {
+        return "doubao-seedance-2-5";
+      }
       if (
         seedanceHint.includes("2.0-fast") || seedanceHint.includes("2-0-fast") ||
         seedanceHint.includes("seed-2.0-lite") || seedanceHint.includes("seed-2.0-mini")
@@ -3342,6 +3357,19 @@ export class VideoProviderService {
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
     if (
+      normalized === "seedance-2.5" ||
+      normalized === "seedance-2-5" ||
+      normalized === "doubao-seedance-2-5" ||
+      normalized === "doubao-seedance-2.5" ||
+      normalized === "2.5"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.5",
+        label: "Seedance 2.5",
+      };
+    }
+    if (
       normalized === "seed-2.0-pro" ||
       normalized === "seed-2-0-pro" ||
       normalized === "seedance-2.0-pro" ||
@@ -3802,6 +3830,7 @@ export class VideoProviderService {
     const params: string[] = [];
     const isSeedance2Model =
       modelVersion === "2.0" ||
+      modelVersion === "2.5" ||
       modelVersion === "2.0-pro" ||
       modelVersion === "2.0-lite" ||
       modelVersion === "2.0-mini";

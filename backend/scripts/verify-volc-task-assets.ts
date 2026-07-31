@@ -155,6 +155,25 @@ async function verifyVideoProviderLifecycle(): Promise<void> {
     {} as any,
     assetService,
   );
+  assert.equal(
+    (provider as any).resolveNewApiVideoModel({
+      provider: 'doubao',
+      managedModelKey: 'seedance-2.0',
+      seedanceModel: 'seedance-2.5',
+    }),
+    'doubao-seedance-2-5',
+  );
+  assert.deepEqual(
+    (provider as any).resolveManagedSeedanceModel({
+      provider: 'doubao',
+      seedanceModel: 'seedance-2.5',
+    }),
+    {
+      modelKey: 'seedance-2.0',
+      modelVersion: '2.5',
+      label: 'Seedance 2.5',
+    },
+  );
   const bioReference = {
     url: 'https://cdn.test/authorized-person.png',
     volcAssetId: 'asset-bio-authorized',

@@ -1400,12 +1400,30 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "videoCompose",
 ];
 
+type NormalizedSeedanceModel =
+  | "seedance-1.5-pro"
+  | "seedance-2.0"
+  | "seedance-2.5"
+  | "seedance-2.0-fast"
+  | "seed-2.0-pro"
+  | "seed-2.0-lite"
+  | "seed-2.0-mini";
+
 const normalizeSeedanceModelValue = (
   value?: unknown
-): "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-pro" | "seed-2.0-lite" | "seed-2.0-mini" => {
+): NormalizedSeedanceModel => {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
+  if (
+    normalized === "seedance-2.5" ||
+    normalized === "seedance-2-5" ||
+    normalized === "doubao-seedance-2-5" ||
+    normalized === "doubao-seedance-2.5" ||
+    normalized === "2.5"
+  ) {
+    return "seedance-2.5";
+  }
   if (
     normalized === "seed-2.0-pro" ||
     normalized === "seedance-2.0-pro" ||
@@ -1430,12 +1448,10 @@ const normalizeSeedanceModelValue = (
   ) {
     return "seed-2.0-mini";
   }
-  if (
-    normalized === "seedance-2.0" ||
-    normalized === "2.0" ||
-    normalized === "seedance-2.0-fast" ||
-    normalized === "2.0-fast"
-  ) {
+  if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
+    return "seedance-2.0-fast";
+  }
+  if (normalized === "seedance-2.0" || normalized === "2.0") {
     return "seedance-2.0";
   }
   return "seedance-1.5-pro";
@@ -11820,7 +11836,7 @@ function FlowInner() {
       node?: Node | null
     ): {
       isSeedance20: boolean;
-      model: "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite";
+      model: NormalizedSeedanceModel;
     } | null => {
       if (!isSeedanceVideoNode(node)) return null;
       const nodeData = (node?.data || {}) as Record<string, any>;
@@ -20335,6 +20351,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         })();
         const metadataSupportsSeedance20 =
           nodeSupportedSeedanceModels.has("seedance-2.0") ||
+          nodeSupportedSeedanceModels.has("seedance-2.5") ||
           nodeSupportedSeedanceModels.has("seed-2.0-lite") ||
           nodeSupportedSeedanceModels.has("seedance-2.0-fast");
         const effectiveConfiguredDurationOptions = (() => {

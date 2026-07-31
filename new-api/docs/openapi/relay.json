@@ -394,7 +394,7 @@
       "post": {
         "summary": "视频生成",
         "deprecated": false,
-        "description": "视频生成接口，支持文生视频和图生视频。请求后立即返回 `task_id`，需通过 `GET /v1/videos/{task_id}` 轮询最终结果。\n\n**当前可用模型（model 字段）：**\n\n| model | 描述 | 时长 | 图生视频 |\n|---|---|---|---|\n| kling-v3 | 可灵 v3 | 5s / 10s | ✓ |\n| kling-v3-omni | 可灵 v3 Omni | 4s / 8s | ✓ |\n| kling-v2-master | 可灵 v2 Master | 5s / 10s | ✓ |\n| kling-v1-6 | 可灵 v1.6 | 5s / 10s | ✓ |\n| doubao-seedance-2.0 | 即梦豆包 2.0 | 4~15s | ✓ |\n| doubao-seedance-2.0-fast | 即梦豆包 2.0 Fast | 4~15s | ✓ |\n| veo3.1-fast | Veo 3.1 Fast | 5s / 8s | ✓ |\n\n**关键字段：**`prompt`（必填）、`model`、`duration`（秒）、`aspect_ratio`、`resolution`。\n\n图生视频时，在 `metadata.content` 中传入参考图片/视频 URL 数组：\n```json\n{\"metadata\": {\"content\": [\"https://example.com/ref.jpg\"]}}\n```",
+        "description": "视频生成接口，支持文生视频和图生视频。请求后立即返回 `task_id`，需通过 `GET /v1/videos/{task_id}` 轮询最终结果。\n\n**当前可用模型（model 字段）：**\n\n| model | 描述 | 时长 | 图生视频 |\n|---|---|---|---|\n| kling-v3 | 可灵 v3 | 5s / 10s | ✓ |\n| kling-v3-omni | 可灵 v3 Omni | 4s / 8s | ✓ |\n| kling-v2-master | 可灵 v2 Master | 5s / 10s | ✓ |\n| kling-v1-6 | 可灵 v1.6 | 5s / 10s | ✓ |\n| doubao-seedance-2.0 | 即梦豆包 2.0 | 4~15s | ✓ |\n| doubao-seedance-2.0-fast | 即梦豆包 2.0 Fast | 4~15s | ✓ |\n| doubao-seedance-2-5 | 即梦豆包 2.5（480p / 720p） | 4~15s | ✓ |\n| veo3.1-fast | Veo 3.1 Fast | 5s / 8s | ✓ |\n\n**关键字段：**`prompt`（必填）、`model`、`duration`（秒）、`aspect_ratio`、`resolution`。\n\n图生视频时，在 `metadata.content` 中传入参考图片/视频 URL 数组：\n```json\n{\"metadata\": {\"content\": [\"https://example.com/ref.jpg\"]}}\n```",
         "operationId": "createVideo",
         "tags": [
           "视频生成"

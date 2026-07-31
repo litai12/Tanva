@@ -1,3 +1,9 @@
+## 2026-07-31 Seedance 2.5
+- Generic Seedance video nodes expose `Seedance 2.5` as `seedanceModel=seedance-2.5`; request assembly preserves that selector instead of collapsing it to 2.0, allowing the backend to route the exact Ark model `doubao-seedance-2-5`.
+- The 2.5 resolution list is strictly `480P/720P`. Switching from 2.0 with a stored `1080P` or `4K` value automatically falls back to `720P`, and the help copy reflects the same capability.
+- 2.5 is currently an Ark default-route-only model. Its node hides Tencent VOD/Premium routes and ignores a stale VIP selection from an older saved node; the backend independently enforces the same route.
+- Price badges continue to use authenticated `/api/credits/preview` only. The frontend supplies the selected model, resolution, output duration, and connected reference-video durations; it does not carry a second runtime price table.
+
 ## 2026-07-22 GPT Text Model Display
 - Flow Text Chat and Prompt Optimizer continue to execute with `gpt-5.4` through new-api. Their visible badges show `GPT-5.4`, and the model tooltip identifies the managed route as `new-api · GPT-5.4`; they no longer claim a direct OpenAI route.
 

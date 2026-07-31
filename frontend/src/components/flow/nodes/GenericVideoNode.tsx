@@ -43,6 +43,7 @@ type ViduModel = ViduModelValue;
 type SeedanceModel =
   | "seedance-1.5-pro"
   | "seedance-2.0"
+  | "seedance-2.5"
   | "seedance-2.0-fast"
   | "seed-2.0-pro"
   | "seed-2.0-lite"
@@ -293,6 +294,7 @@ const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
 const SEEDANCE15_DOC_RESOLUTIONS = ["720P", "1080P"] as const;
 // Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
 const SEEDANCE20_BASE_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
+const SEEDANCE25_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 const SEED20_MINI_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
@@ -321,6 +323,15 @@ const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
 const normalizeSeedanceModelValue = (value: unknown): SeedanceModel => {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (
+    normalized === "seedance-2.5" ||
+    normalized === "seedance-2-5" ||
+    normalized === "doubao-seedance-2-5" ||
+    normalized === "doubao-seedance-2.5" ||
+    normalized === "2.5"
+  ) {
+    return "seedance-2.5";
+  }
   if (
     normalized === "seed-2.0-pro" ||
     normalized === "seedance-2.0-pro" ||
@@ -372,6 +383,7 @@ const getSeedance20SupportedModes = (model: SeedanceModel): Seedance20Mode[] =>
   model === "seed-2.0-mini" ? SEED20_MINI_SUPPORTED_MODES : SEEDANCE20_MODE_VALUES;
 
 const getSeedance20ResolutionList = (model: SeedanceModel): string[] => {
+  if (model === "seedance-2.5") return [...SEEDANCE25_DOC_RESOLUTIONS];
   if (model === "seed-2.0-lite") return [...SEED20_LITE_DOC_RESOLUTIONS];
   if (model === "seed-2.0-mini") return [...SEED20_MINI_DOC_RESOLUTIONS];
   // Seedance 2.0 Fast shares the doubao-seedance-2-0-fast upstream (480P/720P,
@@ -663,6 +675,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? probedVideoDuration.totalDurationSec
       : inputVideoDurationHintSec;
   const provider = data.provider || "kling";
+  const seedanceModel: SeedanceModel = normalizeSeedanceModelValue(data.seedanceModel);
   const rawNodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
@@ -673,16 +686,40 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [rawNodeConfigMetadata]
   );
   const sanitizedVendorKey = React.useMemo(
-    () =>
-      data.channelSelectionExplicit === true &&
+    () => {
+      // Seedance 2.5 is currently available only through the official Ark
+      // default route. Ignore a stale Tencent/VIP selection from older nodes.
+      if (provider === "doubao" && seedanceModel === "seedance-2.5") {
+        return "seedance_api";
+      }
+      return data.channelSelectionExplicit === true &&
       (data.channelTier === "vip" || data.channelTier === "default")
         ? sanitizeVideoVendorKey(data.vendorKey)
-        : undefined,
-    [data.channelSelectionExplicit, data.channelTier, data.vendorKey]
+        : undefined;
+    },
+    [
+      data.channelSelectionExplicit,
+      data.channelTier,
+      data.vendorKey,
+      provider,
+      seedanceModel,
+    ]
   );
   const managedRoutesMetadata = React.useMemo(
     () => getManagedRoutesMetadata(nodeConfigMetadata),
     [nodeConfigMetadata]
+  );
+  const visibleManagedRouteOptions = React.useMemo(
+    () =>
+      (managedRoutesMetadata?.vendors ?? []).filter(
+        (route) =>
+          !(
+            provider === "doubao" &&
+            seedanceModel === "seedance-2.5" &&
+            (route.vendorKey === "tencent_vod" || route.vendorKey === "tengxun")
+          )
+      ),
+    [managedRoutesMetadata, provider, seedanceModel]
   );
   const selectedManagedRoute = React.useMemo(
     () => getManagedRouteOption(nodeConfigMetadata, sanitizedVendorKey),
@@ -696,7 +733,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModel: ViduModel = normalizeViduModelValue(
     data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
   );
-  const seedanceModel: SeedanceModel = normalizeSeedanceModelValue(data.seedanceModel);
   const isSeedanceModel = provider === "doubao";
   const seedFamily: SeedFamily =
     (typeof data.seedFamily === "string" && data.seedFamily.trim().toLowerCase() === "seed2") ||
@@ -1022,7 +1058,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
       seed2InputTier: (data as any).seed2InputTier,
-      // duration/durationSec 由 pricingContext 提供；Seedance 2.0 会在其中使用
+      // duration/durationSec 由 pricingContext 提供；Seedance 2.x 会在其中使用
       // 输入参考视频总时长 + 输出时长，其他模型仍只使用输出时长。
       resolution:
         typeof data.resolution === "string" && data.resolution.trim()
@@ -1410,6 +1446,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
+      { label: "Seedance 2.5", value: "seedance-2.5" as const },
       { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
     []
@@ -1454,6 +1491,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       // 2.0 与 Seed 2.0 系列属于同一模型族，任一可用时都展示，方便切换。
       if (
         normalized.has("seedance-2.0") ||
+        normalized.has("seedance-2.5") ||
+        normalized.has("doubao-seedance-2-5") ||
         normalized.has("seed-2.0-pro") ||
         normalized.has("seedance-2.0-pro") ||
         normalized.has("seed-2.0-lite") ||
@@ -1462,6 +1501,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         normalized.has("seedance-2.0-fast")
       ) {
         normalized.add("seedance-2.0");
+        normalized.add("seedance-2.5");
         normalized.add("seedance-2.0-fast");
         normalized.add("seed-2.0-pro");
         normalized.add("seed-2.0-lite");
@@ -1630,19 +1670,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModelSelectionValue: "q2" | "q3" = viduModelFamily;
   const shouldShowResolutionSelector = resolutionOptions.length > 0;
   React.useEffect(() => {
-    if (provider !== "doubao" || !isSeedanceModel || isSeedance20Model) return;
+    if (provider !== "doubao" || !isSeedanceModel) return;
     const currentResolution =
       typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
     if (!currentResolution || resolutionOptions.includes(currentResolution)) return;
+    const fallbackResolution = resolutionOptions.includes("720P")
+      ? "720P"
+      : resolutionOptions[0];
+    if (!fallbackResolution) return;
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { resolution: resolutionOptions[0] || "720P" } },
+        detail: { id, patch: { resolution: fallbackResolution } },
       })
     );
   }, [
     data.resolution,
     id,
-    isSeedance20Model,
     isSeedanceModel,
     provider,
     resolutionOptions,
@@ -1655,7 +1698,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (!isSeedanceModel) return [] as string[];
     if (isSeedance20Model) {
       const resolutionTip =
-        seedanceModel === "seed-2.0-lite" || seedanceModel === "seed-2.0-mini"
+        seedanceModel === "seedance-2.5" ||
+        seedanceModel === "seedance-2.0-fast" ||
+        seedanceModel === "seed-2.0-lite" ||
+        seedanceModel === "seed-2.0-mini"
           ? lt(
               "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
               "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
@@ -1979,8 +2025,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             detail: {
               type: "info",
               message: lt(
-                "Seedance 2.0 / Seed 2.0 系列需开通 VIP 权益或进入水印白名单后才可选择",
-                "Seedance 2.0 / Seed 2.0 series requires VIP access or watermark whitelist access",
+                "Seedance 2.x / Seed 2.0 系列需开通 VIP 权益或进入水印白名单后才可选择",
+                "Seedance 2.x / Seed 2.0 series requires VIP access or watermark whitelist access",
               ),
             },
           })
@@ -2008,12 +2054,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           : 5;
       const currentResolution =
         typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
-      // Fast/Lite/Mini share the doubao-seedance-2-0-fast upstream (no 1080P).
+      const supportedResolutions = isSeedance20ModelValue(value)
+        ? getSeedance20ResolutionList(value)
+        : [...SEEDANCE15_DOC_RESOLUTIONS];
+      // Switching from a wider-capability model must not retain an unsupported
+      // resolution (Seedance 2.5/Fast/Lite/Mini currently expose 480P/720P only).
       const nextResolution =
-        (value === "seed-2.0-lite" ||
-          value === "seed-2.0-mini" ||
-          value === "seedance-2.0-fast") &&
-        currentResolution === "1080P"
+        currentResolution && !supportedResolutions.includes(currentResolution)
           ? "720P"
           : undefined;
       window.dispatchEvent(
@@ -3021,7 +3068,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {managedRoutesMetadata && managedRoutesMetadata.vendors.length > 1 && (
+      {managedRoutesMetadata && visibleManagedRouteOptions.length > 1 && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("通道", "Channel")}
@@ -3029,11 +3076,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `repeat(${managedRoutesMetadata.vendors.length}, minmax(0, 1fr))`,
+              gridTemplateColumns: `repeat(${visibleManagedRouteOptions.length}, minmax(0, 1fr))`,
               gap: 6,
             }}
           >
-            {managedRoutesMetadata.vendors.map((routeOption) => {
+            {visibleManagedRouteOptions.map((routeOption) => {
               const active = selectedManagedRoute?.vendorKey === routeOption.vendorKey;
               const premium =
                 routeOption.vendorKey === "tencent_vod" ||
@@ -3198,8 +3245,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   }}
                 >
                   {lt(
-                    "提示：Seedance 2.0 / Seed 2.0 系列需开通 VIP 权益",
-                    "Tip: Seedance 2.0 / Seed 2.0 series requires VIP access",
+                    "提示：Seedance 2.x / Seed 2.0 系列需开通 VIP 权益",
+                    "Tip: Seedance 2.x / Seed 2.0 series requires VIP access",
                   )}
                 </div>
               ) : null}
@@ -3222,12 +3269,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             onChange={(value) => handleSeedanceModeChange(value as SeedanceMode)}
             menuLabel={
               isSeedance20Model
-                ? lt("Seedance 2.0 模式", "Seedance 2.0 modes")
+                ? lt("Seedance 2.x 模式", "Seedance 2.x modes")
                 : lt("Seedance 1.5 模式", "Seedance 1.5 modes")
             }
             title={
               isSeedance20Model
-                ? lt("选择 Seedance 2.0 模式", "Select Seedance 2.0 mode")
+                ? lt("选择 Seedance 2.x 模式", "Select Seedance 2.x mode")
                 : lt("选择 Seedance 1.5 模式", "Select Seedance 1.5 mode")
             }
           />

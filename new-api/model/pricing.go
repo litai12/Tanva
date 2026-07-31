@@ -93,6 +93,12 @@ type fixedImagePricingRule struct {
 // Tanva keeps model pricing in RMB, and new-api ModelPrice/ParamPricing also
 // uses RMB 1:1 rather than upstream USD conversion.
 var linearVideoPricingRules = map[string][]linearVideoPricingRule{
+	// Seedance 2.5 is priced at 1.5x the matching Seedance 2.0 tier.
+	// The upstream currently exposes 480p and 720p only.
+	"doubao-seedance-2-5": {
+		{resolution: "480p", cnyPerSecond: 1.5000},
+		{resolution: "720p", cnyPerSecond: 1.8000},
+	},
 	// legacy model IDs (260128 snapshot) — same rates as 2.0 base
 	"doubao-seedance-2-0-260128": {
 		{resolution: "480p", cnyPerSecond: 1.0000},

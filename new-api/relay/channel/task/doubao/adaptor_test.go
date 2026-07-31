@@ -15,6 +15,15 @@ func findRoles(items []ContentItem) [][2]string {
 	return out
 }
 
+func TestModelListIncludesExactSeedance25ArkID(t *testing.T) {
+	for _, modelName := range ModelList {
+		if modelName == "doubao-seedance-2-5" {
+			return
+		}
+	}
+	t.Fatalf("ModelList does not contain doubao-seedance-2-5: %v", ModelList)
+}
+
 // Seedance 2.0 换主体：参考图 + 视频参考同时输入，必须各自带 reference_image /
 // reference_video role，且文本在最后。回归 issue：top-level reference_videos 被丢弃。
 func TestConvertReferenceImageAndVideoCoexist(t *testing.T) {

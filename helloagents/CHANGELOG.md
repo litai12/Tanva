@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-31
+
+- Flow/Seedance: added Seedance 2.5 to the shared Seedance selector, preserving `seedanceModel=seedance-2.5` through request assembly and restricting the node to 480P/720P with automatic fallback from stale unsupported resolutions.
+- Backend/Seedance: routed 2.5 to the exact Ark model ID `doubao-seedance-2-5`, reused the Seedance 2.x temporary asset, reference-media validation, polling, and total processed-duration billing paths, and added a server-side 480P/720P guard.
+- Credits: added paid 2.5 linear rules at 1.5x the current standard 2.0 tier—480P `1.875 元/秒`, 720P `2.25 元/秒`—with dedicated billing labels and verification coverage. The Seedance 2.0 free-campaign switch does not zero this separate SKU.
+- Gateway: registered `doubao-seedance-2-5` in the Ark Doubao adapter and model pricing catalog, documented it in OpenAPI, and added the idempotent PostgreSQL model/channel/ability patch `new-api/patches/2026-07-31/001-add-doubao-seedance-2-5.sql`.
+
 ## 2026-07-30
 
 - Backend/new-api: completed the Wan2.6, Wan2.7 I2V, and HappyHorse migration from direct DashScope calls to new-api `/v1/videos`. Existing `/api/ai/dashscope/*` compatibility URLs remain stable, new tasks use `newapi:` IDs, and Tanva no longer requires `DASHSCOPE_API_KEY`; the upstream credential belongs only to a type-17 Ali channel in new-api.
