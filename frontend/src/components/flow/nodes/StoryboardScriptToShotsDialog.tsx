@@ -12,10 +12,13 @@ import {
 import { useLocaleText } from '@/utils/localeText';
 import type { StoryboardPromptTableData } from '../types';
 import {
-  DEFAULT_SCRIPT_TO_STORYBOARD_SKILL,
   generateStoryboardFromScript,
   getStoryboardConversionModelLabel,
 } from '../storyboardScriptConversion';
+import {
+  DEFAULT_SCRIPT_TO_STORYBOARD_SKILL,
+  DEFAULT_SCRIPT_TO_STORYBOARD_SKILL_NAME,
+} from '../storyboardScriptSkill';
 
 type Props = {
   open: boolean;
@@ -32,7 +35,7 @@ type UploadTarget = 'skill' | 'script';
 const SKILL_MAX_CHARS = 50_000;
 const SCRIPT_MAX_CHARS = 200_000;
 
-const defaultSkillName = '我的分镜 Skill';
+const defaultSkillName = DEFAULT_SCRIPT_TO_STORYBOARD_SKILL_NAME;
 
 const sortSkills = (skills: StoryboardSkill[]): StoryboardSkill[] =>
   skills.slice().sort((left, right) => (

@@ -2,6 +2,7 @@
 
 ## 2026-07-31
 
+- Flow/Storyboard: replaced the short built-in script-to-storyboard prompt with a naturalistic fast-cut directing contract. Plain scripts may gain camera coverage without gaining plot; existing numbered/timed storyboards enter a locked refinement mode. The default table now exposes duration, 15-second beat, lighting/position, shot, dialogue, sound, notes, delivery-rate, breathing, and micro-action fields while retaining legacy analysis-field parsing. A follow-up detail-density gate now requires starting geometry, motion chain/path/speed, camera/focus, light/occlusion, end state, and sound; visible actions over one second receive at least three genuinely changing timeline segments.
 - Flow/Seedance: added Seedance 2.5 to the shared Seedance selector, preserving `seedanceModel=seedance-2.5` through request assembly and restricting the node to 480P/720P with automatic fallback from stale unsupported resolutions.
 - Backend/Seedance: routed 2.5 to the exact Ark model ID `doubao-seedance-2-5`, reused the Seedance 2.x temporary asset, reference-media validation, polling, and total processed-duration billing paths, and added a server-side 480P/720P guard.
 - Credits: added paid 2.5 linear rules at 1.5x the current standard 2.0 tier—480P `1.875 元/秒`, 720P `2.25 元/秒`—with dedicated billing labels and verification coverage. The Seedance 2.0 free-campaign switch does not zero this separate SKU.
@@ -61,8 +62,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Flow/剧本转分镜内置 Skill：新增拆镜创作/锁镜精修双模式，约束剧情与 `@` 标注保真、15 秒节拍、90–120 秒单集、拆镜模式 3 秒内切镜、中文 8 字换机位、英文不超过 3 词/秒、OS 闭唇、自然主义表演及空间/光影连续；新增八层镜头细节门槛和 3 秒手掌动作四段示例，超过 1 秒的可见动作至少拆成 3 个真实变化时序段，并为手部/面部/关键道具特写增加数量、关节/轮廓、纹理和遮挡关系的结构稳定约束；空分镜表同步增加时长、节拍、站位、运镜、音效、备注、语速和时序表演字段，并继续兼容历史视频分析列。
 - Flow/剧本转分镜：在文字类节点增加独立“分镜表节点”入口，并在分镜表标题栏加入 Skill + 剧本双栏转换弹窗；两栏支持 `.txt/.md/.markdown/.docx` 本地文本填充，输出按当前动态列回填。转换直接复用小T对话当前 Fast/Pro/Ultra 模型。新增按用户隔离的 `StoryboardSkill` 数据表和鉴权 CRUD，支持账号内跨项目/设备复用、更新与删除。
-- Flow/豆包视频分析计费与启用：补齐 Seed 2.0 Mini/Lite/Pro 在 `ark-doubao` 的模型目录、channel models 与 abilities，修复只有价格配置却无法路由的问题；基础倍率由旧 `×1.2` 更正为官方价 `×1.5`。Tanva 现按 Responses 真实输入、缓存、音频与输出 token 套用官方三档常规在线推理价格，再按 `100 积分 = 1 元` 精确后扣并向上取整；视频分析节点不展示“按量计费”、预估价格或上次实扣，公开接口只保留最终实扣供记账对账，`pricingSnapshot` 只保留在服务端/管理员审计记录中。
+- Flow/豆包视频分析计费与启用：补齐 Seed 2.0 Mini/Lite/Pro 在 `ark-doubao` 的模型目录、channel models 与 abilities。Lite 以标准付费 Seedance 2.0 480P 的 `1/3` 按后端探测到的视频真实时长计费（当前 `125/3 积分/秒`，整段总价向上取整），前端媒体时长只作试算；Mini/Pro 继续按 Responses 真实 token 和官方三档价格 `×1.5` 后扣。旧 `60/90/120` 固定扣费不再参与豆包报价，内部 `pricingSnapshot` 只供服务端/管理员审计。
 - Flow/视频分镜分析：视频分析节点新增独立模型选择，默认豆包 Seed 2.0 Lite，并支持豆包 Mini/Pro 与 Gemini 三档；豆包通过 new-api Responses `input_video` 直接读取远程视频 URL。分析结果自动生成标准 Prompt 的“分镜表”变体，按时间展开行、按返回字段动态生成列，支持表格/原文二次编辑、行列动态调整、镜头/时序作用域、表格单元内 `@` 三类资产及引用定位/原子删除、常驻横向滚动控制和 `.xlsx` 导入导出，同时保留标准 Prompt 连线与下游解析能力。
 - Frontend/Vite：强制 React 与 ReactDOM 在 pnpm 软链接依赖中去重，并将 `@xyflow/react` 纳入同一预构建图；修复从旧 `reactflow` 缓存迁移后 ReactFlowProvider 使用第二份 React dispatcher 导致的 Invalid hook call 与全页白屏。
 - Flow canvas engine upgraded from legacy `reactflow@11.11.4` to `@xyflow/react@12.11.2`, including the v12 named export, integrated node-resizer components, public node store selectors, and `nodeLookup` migration.

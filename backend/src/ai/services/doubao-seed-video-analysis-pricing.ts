@@ -1,5 +1,11 @@
+import { SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND } from './seedance20-pricing';
+
 export const DOUBAO_SEED_VIDEO_ANALYSIS_MARKUP = 1.5;
 export const TANVA_CREDITS_PER_YUAN = 100;
+export const DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL =
+  'doubao-seed-2-0-lite-260428' as const;
+export const DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR = 1;
+export const DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR = 3;
 
 // Official VolcEngine model price table (online inference, regular):
 // https://www.volcengine.com/docs/82379/1544106
@@ -52,6 +58,23 @@ export interface DoubaoSeedVideoAnalysisBilling {
   };
   officialCostYuan: number;
   markup: typeof DOUBAO_SEED_VIDEO_ANALYSIS_MARKUP;
+  retailPriceYuan: number;
+  creditsPerYuan: typeof TANVA_CREDITS_PER_YUAN;
+  exactCredits: number;
+  creditsCharged: number;
+}
+
+export interface DoubaoSeedLiteVideoAnalysisDurationBilling {
+  billingMode: 'duration_metered';
+  model: typeof DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL;
+  durationSec: number;
+  pricingAnchor: 'seedance-2.0-480p';
+  seedance20PriceYuanPerSecond: number;
+  priceRatio: {
+    numerator: typeof DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR;
+    denominator: typeof DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR;
+  };
+  exactPriceYuanPerSecond: number;
   retailPriceYuan: number;
   creditsPerYuan: typeof TANVA_CREDITS_PER_YUAN;
   exactCredits: number;
@@ -153,6 +176,58 @@ export function isDoubaoSeedVideoAnalysisModel(
     model === 'doubao-seed-2-0-lite-260428' ||
     model === 'doubao-seed-2-0-pro-260215'
   );
+}
+
+export function isDoubaoSeedLiteDurationPricedModel(
+  model: unknown,
+): model is typeof DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL {
+  return model === DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL;
+}
+
+/**
+ * Product price for Seed 2.0 Lite video analysis.
+ *
+ * Contract: the full analyzed media duration is priced at exactly one third
+ * of the standard paid Seedance 2.0 480P per-second retail price. Calculate
+ * the full request first and only then round up to integer Tanva credits; do
+ * not round the repeating one-third unit price before multiplying duration.
+ */
+export function calculateDoubaoSeedLiteVideoAnalysisDurationBilling(
+  durationSec: number,
+): DoubaoSeedLiteVideoAnalysisDurationBilling {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    throw new RangeError('Doubao Seed Lite video analysis duration must be positive');
+  }
+
+  const normalizedDurationSec = Number(durationSec.toFixed(3));
+  const rawRetailPriceYuan =
+    normalizedDurationSec *
+    SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND *
+    DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR /
+    DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR;
+  const rawExactCredits = rawRetailPriceYuan * TANVA_CREDITS_PER_YUAN;
+
+  return {
+    billingMode: 'duration_metered',
+    model: DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL,
+    durationSec: normalizedDurationSec,
+    pricingAnchor: 'seedance-2.0-480p',
+    seedance20PriceYuanPerSecond:
+      SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND,
+    priceRatio: {
+      numerator: DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR,
+      denominator: DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR,
+    },
+    exactPriceYuanPerSecond: roundDecimal(
+      SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND /
+        DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR,
+      12,
+    ),
+    retailPriceYuan: roundDecimal(rawRetailPriceYuan, 12),
+    creditsPerYuan: TANVA_CREDITS_PER_YUAN,
+    exactCredits: roundDecimal(rawExactCredits, 8),
+    creditsCharged: Math.max(1, Math.ceil(rawExactCredits - 1e-10)),
+  };
 }
 
 /**

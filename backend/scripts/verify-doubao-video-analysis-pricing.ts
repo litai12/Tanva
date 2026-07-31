@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {
+  calculateDoubaoSeedLiteVideoAnalysisDurationBilling,
   calculateDoubaoSeedVideoAnalysisBilling,
+  DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR,
+  DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR,
   DOUBAO_SEED_VIDEO_ANALYSIS_MARKUP,
   extractNewApiTokenUsage,
   getDoubaoSeedVideoAnalysisPreflightCredits,
   resolveDoubaoSeedVideoAnalysisTier,
   TANVA_CREDITS_PER_YUAN,
 } from '../src/ai/services/doubao-seed-video-analysis-pricing';
+import { SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND } from '../src/ai/services/seedance20-pricing';
 
 const usage = extractNewApiTokenUsage({
   usage: {
@@ -29,13 +33,16 @@ assert.deepEqual(usage, {
 
 assert.equal(DOUBAO_SEED_VIDEO_ANALYSIS_MARKUP, 1.5);
 assert.equal(TANVA_CREDITS_PER_YUAN, 100);
+assert.equal(SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND, 1.25);
+assert.equal(DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR, 1);
+assert.equal(DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_DENOMINATOR, 3);
 assert.equal(resolveDoubaoSeedVideoAnalysisTier(32_000), '0-32k');
 assert.equal(resolveDoubaoSeedVideoAnalysisTier(32_001), '32-128k');
 assert.equal(resolveDoubaoSeedVideoAnalysisTier(128_000), '32-128k');
 assert.equal(resolveDoubaoSeedVideoAnalysisTier(128_001), '128-256k');
 
-const liteBase = calculateDoubaoSeedVideoAnalysisBilling(
-  'doubao-seed-2-0-lite-260428',
+const miniBase = calculateDoubaoSeedVideoAnalysisBilling(
+  'doubao-seed-2-0-mini-260428',
   {
     inputTokens: 10_000,
     outputTokens: 2_000,
@@ -44,13 +51,12 @@ const liteBase = calculateDoubaoSeedVideoAnalysisBilling(
     audioInputTokens: 0,
   },
 );
-// 官方成本 = 10K×¥0.6/M + 2K×¥3.6/M = ¥0.0132；
-// 用户价 = ¥0.0132×1.5 = ¥0.0198 = 1.98 积分，整数积分向上取整为 2。
-assert.equal(liteBase.tier, '0-32k');
-assert.equal(liteBase.officialCostYuan, 0.0132);
-assert.equal(liteBase.retailPriceYuan, 0.0198);
-assert.equal(liteBase.exactCredits, 1.98);
-assert.equal(liteBase.creditsCharged, 2);
+// Mini/Pro continue to use token metering. Lite has a separate duration price.
+assert.equal(miniBase.tier, '0-32k');
+assert.equal(miniBase.officialCostYuan, 0.006);
+assert.equal(miniBase.retailPriceYuan, 0.009);
+assert.equal(miniBase.exactCredits, 0.9);
+assert.equal(miniBase.creditsCharged, 1);
 
 const miniAudio = calculateDoubaoSeedVideoAnalysisBilling(
   'doubao-seed-2-0-mini-260428',
@@ -66,8 +72,8 @@ assert.equal(miniAudio.officialCostYuan, 0.032);
 assert.equal(miniAudio.exactCredits, 4.8);
 assert.equal(miniAudio.creditsCharged, 5);
 
-const liteCachedMixed = calculateDoubaoSeedVideoAnalysisBilling(
-  'doubao-seed-2-0-lite-260428',
+const miniCachedMixed = calculateDoubaoSeedVideoAnalysisBilling(
+  'doubao-seed-2-0-mini-260428',
   {
     inputTokens: 10_000,
     outputTokens: 1_000,
@@ -76,15 +82,42 @@ const liteCachedMixed = calculateDoubaoSeedVideoAnalysisBilling(
     audioInputTokens: 4_000,
   },
 );
-assert.deepEqual(liteCachedMixed.tokenBreakdown, {
+assert.deepEqual(miniCachedMixed.tokenBreakdown, {
   regularInputTokens: 3_000,
   cachedInputTokens: 3_000,
   audioInputTokens: 4_000,
   cachedAudioInputTokens: 0,
   outputTokens: 1_000,
 });
-assert.equal(liteCachedMixed.officialCostYuan, 0.04176);
-assert.equal(liteCachedMixed.creditsCharged, 7);
+assert.equal(miniCachedMixed.officialCostYuan, 0.01472);
+assert.equal(miniCachedMixed.creditsCharged, 3);
+
+const durationCases = [
+  { durationSec: 1, exactCredits: 41.66666667, creditsCharged: 42 },
+  { durationSec: 3, exactCredits: 125, creditsCharged: 125 },
+  { durationSec: 5, exactCredits: 208.33333333, creditsCharged: 209 },
+  { durationSec: 10, exactCredits: 416.66666667, creditsCharged: 417 },
+  { durationSec: 30, exactCredits: 1_250, creditsCharged: 1_250 },
+  { durationSec: 60, exactCredits: 2_500, creditsCharged: 2_500 },
+] as const;
+
+for (const expected of durationCases) {
+  const billing = calculateDoubaoSeedLiteVideoAnalysisDurationBilling(
+    expected.durationSec,
+  );
+  assert.equal(billing.billingMode, 'duration_metered');
+  assert.equal(billing.durationSec, expected.durationSec);
+  assert.equal(billing.pricingAnchor, 'seedance-2.0-480p');
+  assert.equal(billing.seedance20PriceYuanPerSecond, 1.25);
+  assert.deepEqual(billing.priceRatio, { numerator: 1, denominator: 3 });
+  assert.equal(billing.exactCredits, expected.exactCredits);
+  assert.equal(billing.creditsCharged, expected.creditsCharged);
+}
+
+assert.throws(
+  () => calculateDoubaoSeedLiteVideoAnalysisDurationBilling(0),
+  /duration must be positive/,
+);
 
 const miniCachedAudio = calculateDoubaoSeedVideoAnalysisBilling(
   'doubao-seed-2-0-mini-260428',
@@ -131,17 +164,11 @@ assert.equal(
 );
 assert.equal(
   getDoubaoSeedVideoAnalysisPreflightCredits(
-    'doubao-seed-2-0-lite-260428',
-  ),
-  53,
-);
-assert.equal(
-  getDoubaoSeedVideoAnalysisPreflightCredits(
     'doubao-seed-2-0-pro-260215',
   ),
   55,
 );
 
 console.log(
-  'Doubao video analysis official ×1.5 token pricing verification passed',
+  'Doubao video analysis duration/token pricing verification passed',
 );

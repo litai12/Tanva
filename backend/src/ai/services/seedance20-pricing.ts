@@ -8,6 +8,13 @@ export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 7.5;
 export const SEEDANCE20_PRICE_SCALE = 1.5 / 1.2;
 export const SEEDANCE25_PRICE_MULTIPLIER = 1.5;
 
+// Standard paid retail price. Keep this independent from the temporary
+// SEEDANCE20_FREE generation campaign: other products may reference the
+// standard Seedance SKU as a pricing anchor without inheriting that campaign.
+export const SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND = Number(
+  (1.0 * SEEDANCE20_PRICE_SCALE).toFixed(4),
+);
+
 export const calculateSeedance20BillingDuration = (
   outputDurationSec: number,
   inputVideoDurationsSec: readonly number[],

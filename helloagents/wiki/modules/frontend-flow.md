@@ -77,6 +77,9 @@
 - 表格工具栏支持 `.xlsx` 导入/导出，不新增第三方 Excel 运行时；工作簿由“分镜表”“镜头总览”“列设置”三个 Sheet 组成，导入时恢复动态表头、镜头分组及镜头列/时序列作用域，并同步回标准 Prompt 文本。
 - 添加节点面板在“文字类节点”中提供独立“分镜表节点”卡片。该卡片通过 palette variant 创建 `textPrompt`，初始化完整默认列、一条 M001 空镜头和 `900×520` 尺寸；palette variant 使用独立去重键，但不会注册新的运行时节点类型或覆盖 Quick Connect 中普通 Prompt 的名称。
 - 分镜表标题栏的“剧本转分镜”打开双栏弹窗：左侧 Skill、右侧剧本，均复用 `documentTextExtract` 在浏览器本地读取 `.txt/.md/.markdown/.docx`。生成 prompt 会读取当前表格的 overview、镜头列和时序列，因此用户改列后仍按最新结构输出；结果经既有 parser/serializer 回填当前节点并切回表格。
+- 内置 Skill 为“自然主义快节奏分镜”：普通文本采用拆镜创作，可新增拍摄覆盖但不得新增剧情事实；已有镜号/时间码采用锁镜精修，保持镜号、镜数、顺序和时长。默认约 15 秒一个节拍、每集目标 90–120 秒、拆镜模式单镜 0.4–3.0 秒，并检查中文超过 8 字换机位、英文 `<=3 words/s`、`@` token 保真、OS 闭唇、全员可见反应、场景参照物站位及跨镜光影/道具/衣物连续。
+- Skill 的单镜细节质量线包含起始几何状态、动作动力链、路径、速度曲线、机位响应、焦点/景深、光影/遮挡和结束状态/声音。仅写“起始—过渡—结束”不合格；可见动作超过 1 秒必须拆成至少 3 个连续且状态真正变化的 timeline 段，内置 3 秒手掌张开的四段示例作为颗粒度标尺，但禁止机械套用到无关镜头。手部/面部/关键道具特写还需在备注锁定数量、身份、关节/轮廓、纹理和遮挡关系，避免增指、融指、反折、漂移与无来源形变。
+- 新建空分镜表使用面向剧本生产的字段集：时间段、镜号、完整时间区间、时长、节拍单元、剧本特征、场景与光影、人物站位、景别、运镜、构图、画面内容、台词、音效、备注、字数与语速，以及目标人物/表情与呼吸/细微肢体时序字段。解析器继续识别历史 `机位运动/画面整体内容/台词文本/面部肌肉与表情变化` 等视频分析字段。
 - 转换请求调用小T `canvasAgent` 流式接口并直接读取 `useAIChatStore.xiaotModel`，所以 Fast/Pro/Ultra 与小T对话设置同步，不存在节点私有模型选择。每次转换使用独立 session id，避免把剧本任务串入当前聊天上下文。
 
 ## 2026-06-03 Image Input Target Preference
@@ -406,7 +409,7 @@ Flow 鑺傜偣鎷栨嫿鏀寔涓庡叾浠栬妭鐐硅繘琛岃竟锟?涓�
 - `StoryboardSplitNode` can split by a custom sample format (`splitFormat`) and auto-derives output handle count from parsed segments, clearing stale `promptN` outputs after re-split.
 - Image generation reference previews use shared model-tier limits from `flowModelProvider`: Fast 3, Pro 11, Ultra 14.
 - `VideoAnalyzeNode` localizes its default prompt and sends Banana route/channel hints with analysis requests.
-- `VideoAnalyzeNode` run-credit preview follows the `lt-dev9` route/tier matrix: normal Fast/Pro/Ultra = `60/90/120`, stable Fast/Pro/Ultra = `80/120/160`.
+- `VideoAnalyzeNode` uses the connected video's metadata duration to request a backend credit preview for `doubao-seed-2-0-lite-260428`. The preview and Run badge use the shared `Seedance 2.0 480P × 1/3` pricing helper; the server independently probes the media duration for final billing. Mini/Pro remain token-metered after completion, so the client does not invent a static preview for them.
 - `Generate4Node` uses the shared Image Split handle helper for `imageN/imgN` reference inputs.
 - `Seedream5Node` can use `thumbnails[]` as its lightweight first-image preview while full-image preview still uses `imageUrls/images`.
 - AI Chat text responses preserve backend `metadata` on messages/context; context prompts are constrained to answer the current input directly instead of surfacing internal analysis.

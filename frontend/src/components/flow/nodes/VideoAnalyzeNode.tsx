@@ -17,6 +17,7 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
+import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 import {
   DEFAULT_VIDEO_STORYBOARD_PROMPT,
   parseStoryboardAnalysis,
@@ -61,8 +62,8 @@ const VIDEO_ANALYZE_MODELS: Array<{
   {
     value: 'doubao-seed-2-0-lite-260428',
     label: '豆包 Seed 2.0 Lite',
-    descriptionZh: '推荐 · 速度与细节均衡',
-    descriptionEn: 'Recommended · balanced speed and detail',
+    descriptionZh: '推荐 · 按视频时长计费（Seedance 2.0 480P 的 1/3）',
+    descriptionEn: 'Recommended · duration-priced at 1/3 of Seedance 2.0 480P',
   },
   {
     value: 'doubao-seed-2-0-pro-260215',
@@ -110,6 +111,13 @@ const shouldPassWheelToCanvas = (
   return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
 };
 
+const normalizeVideoDuration = (value: unknown): number | undefined => {
+  const duration = Number(value);
+  return Number.isFinite(duration) && duration > 0
+    ? Number(duration.toFixed(3))
+    : undefined;
+};
+
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
@@ -117,6 +125,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [loadedVideoDuration, setLoadedVideoDuration] = React.useState<
+    number | undefined
+  >(undefined);
 
   const connectedVideoUrl = useStore(
     React.useCallback(
@@ -140,7 +151,29 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       [id],
     ),
   );
+  const connectedVideoDuration = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edge = state.edges.find(
+          (candidate) => candidate.target === id && candidate.targetHandle === 'video',
+        );
+        if (!edge) return undefined;
+        const sourceNode = state.nodes.find((node) => node.id === edge.source);
+        const sourceData = sourceNode?.data as Record<string, unknown> | undefined;
+        return normalizeVideoDuration(
+          sourceData?.duration ??
+            sourceData?.videoDuration ??
+            sourceData?.mediaDuration,
+        );
+      },
+      [id],
+    ),
+  );
   const effectiveVideoUrl = connectedVideoUrl || data.videoUrl;
+
+  React.useEffect(() => {
+    setLoadedVideoDuration(undefined);
+  }, [effectiveVideoUrl]);
 
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -156,12 +189,31 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const selectedModelOption =
     VIDEO_ANALYZE_MODELS.find((option) => option.value === selectedModel) ||
     VIDEO_ANALYZE_MODELS[0];
-  const usesMeteredDoubaoPricing =
-    selectedModel.startsWith('doubao-seed-2-0-');
+  const usesLiteDurationPricing =
+    selectedModel === 'doubao-seed-2-0-lite-260428';
+  const effectiveVideoDuration =
+    connectedVideoDuration ?? loadedVideoDuration;
+  const durationPreviewParams = React.useMemo(
+    () =>
+      usesLiteDurationPricing && effectiveVideoDuration
+        ? {
+            durationSec: effectiveVideoDuration,
+            billingDurationSec: effectiveVideoDuration,
+          }
+        : null,
+    [effectiveVideoDuration, usesLiteDurationPricing],
+  );
+  const durationCreditPreview = useBackendCreditsPreview({
+    serviceType: 'gemini-video-analyze',
+    model: selectedModel,
+    requestParams: durationPreviewParams,
+    enabled: Boolean(durationPreviewParams),
+  });
+  const runCredits = usesLiteDurationPricing
+    ? durationCreditPreview.credits
+    : data.creditsPerCall;
   const hasRunCredits =
-    !usesMeteredDoubaoPricing &&
-    typeof data.creditsPerCall === 'number' &&
-    data.creditsPerCall > 0;
+    typeof runCredits === 'number' && runCredits > 0;
 
   React.useEffect(() => {
     if (data.analysisModel === selectedModel) return;
@@ -511,7 +563,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             <>
               <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
               {hasRunCredits ? (
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
+                <RunCreditBadge credits={runCredits} runButton />
               ) : null}
             </>
           )}
@@ -537,6 +589,11 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             controls
             preload="metadata"
+            onLoadedMetadata={(event) => {
+              setLoadedVideoDuration(
+                normalizeVideoDuration(event.currentTarget.duration),
+              );
+            }}
           />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
@@ -598,6 +655,23 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             selectedModelOption.descriptionEn,
           )}
         </span>
+        {usesLiteDurationPricing &&
+        effectiveVideoDuration &&
+        durationCreditPreview.hasCredits ? (
+          <span
+            style={{
+              display: 'block',
+              marginTop: 3,
+              fontSize: 10,
+              color: isFlowDark ? '#bfdbfe' : '#1d4ed8',
+            }}
+          >
+            {lt(
+              `按 ${Number(effectiveVideoDuration.toFixed(3))} 秒预估 ${durationCreditPreview.credits} 积分；实扣以后端识别时长为准`,
+              `Estimated ${durationCreditPreview.credits} credits for ${Number(effectiveVideoDuration.toFixed(3))}s; final billing uses the server-detected duration`,
+            )}
+          </span>
+        ) : null}
       </label>
 
       <div>

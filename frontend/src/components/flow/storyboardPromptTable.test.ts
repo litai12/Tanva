@@ -5,6 +5,7 @@ import {
   parseStoryboardAnalysis,
   serializeStoryboardPromptTable,
 } from './storyboardPromptTable.ts';
+import { DEFAULT_SCRIPT_TO_STORYBOARD_SKILL } from './storyboardScriptSkill.ts';
 import {
   buildStoryboardPromptWorkbook,
   parseStoryboardPromptWorkbook,
@@ -49,14 +50,62 @@ test('creates a ready-to-edit empty storyboard table for the text-node palette',
   );
 
   assert.equal(table.overview['总镜数'], '1');
+  assert.equal(
+    table.overview['全程说明'],
+    '全程无音乐，只保留音效。不生成字幕。',
+  );
   assert.equal(table.rows.length, 1);
   assert.equal(table.rows[0]?.values['镜号'], 'M001');
-  assert.equal(scopes.get('画面整体内容'), 'shot');
+  assert.equal(scopes.get('画面内容'), 'shot');
   assert.equal(scopes.get('时间段'), 'timeline');
+  assert.equal(scopes.get('表情与呼吸'), 'timeline');
+
+  [
+    '镜号',
+    '时长',
+    '景别',
+    '运镜',
+    '画面内容',
+    '台词',
+    '音效',
+    '备注',
+  ].forEach((label) => assert.ok(scopes.has(label), `missing ${label}`));
 
   const serialized = serializeStoryboardPromptTable(table);
   assert.match(serialized, /镜号：M001/);
   assert.match(serialized, /---镜头内时序细分/);
+});
+
+test('ships the naturalistic fast-cut script-to-storyboard contract', () => {
+  [
+    '拆镜创作模式',
+    '锁镜精修模式',
+    '90–120 秒',
+    '15 秒',
+    '0.4–3.0s',
+    '超过 8 个汉字',
+    '3 个英文单词/秒',
+    '@标注',
+    'OS 期间角色嘴唇闭合',
+    '全程无音乐，只保留音效。不生成字幕。',
+    '人物站位（本节拍起始）',
+    '字数与语速',
+    '镜头描述的最低细节密度',
+    '起始几何状态',
+    '动作动力链',
+    '焦点/景深变化',
+    '可见动作持续超过 1.0s 时，至少拆为 3 个',
+    '0.0–0.6s（动作前状态）',
+    '2.3–3.0s（落点与定格）',
+    '始终保持五指',
+    '禁止增指、缺指、融指',
+  ].forEach((requirement) => {
+    assert.ok(
+      DEFAULT_SCRIPT_TO_STORYBOARD_SKILL.includes(requirement),
+      `missing skill requirement: ${requirement}`,
+    );
+  });
+  assert.ok(DEFAULT_SCRIPT_TO_STORYBOARD_SKILL.length <= 50_000);
 });
 
 test('parses shot and timeline fields into dynamic storyboard columns', () => {

@@ -56,12 +56,31 @@ export const DEFAULT_VIDEO_STORYBOARD_PROMPT = `你作为影视视频智能解�
 额外输出附加字段（用于影视特效开发）：
 画面主色调、光影类型（硬光/软光）、画面IRE亮度参考、画面虚实（焦点位置）`;
 
-const OVERVIEW_LABEL_ORDER = ['总镜数', '素材总时长'];
+const OVERVIEW_LABEL_ORDER = [
+  '集数/标题',
+  '总镜数',
+  '素材总时长',
+  '节拍数',
+  '全程说明',
+];
 
 const SHOT_LABEL_ORDER = [
   '镜号',
   '时间区间（镜头完整区间）',
+  '时长',
+  '节拍单元',
+  '剧本特征',
+  '场景与光影',
+  '人物站位（本节拍起始）',
   '景别',
+  '运镜',
+  '构图',
+  '画面内容',
+  '台词',
+  '音效',
+  '备注',
+  '字数与语速',
+  // Legacy video-analysis labels remain recognized for existing tables.
   '机位运动',
   '构图方式',
   '画面整体内容',
@@ -76,6 +95,9 @@ const SHOT_LABEL_ORDER = [
 const TIMELINE_LABEL_ORDER = [
   '时间段',
   '目标人物',
+  '表情与呼吸',
+  '细微肢体与应激动作',
+  // Legacy video-analysis labels remain recognized for existing tables.
   '面部肌肉与表情变化',
   '肢体动作变化',
 ];
@@ -95,11 +117,36 @@ const CANONICAL_COLUMN_ORDER = [
   ...TIMELINE_LABEL_ORDER.filter((label) => label !== '时间段'),
 ];
 
+const DEFAULT_SCRIPT_STORYBOARD_COLUMNS: Array<{
+  label: string;
+  scope: StoryboardPromptColumn['scope'];
+}> = [
+  { label: '时间段', scope: 'timeline' },
+  { label: '镜号', scope: 'shot' },
+  { label: '时间区间（镜头完整区间）', scope: 'shot' },
+  { label: '时长', scope: 'shot' },
+  { label: '节拍单元', scope: 'shot' },
+  { label: '剧本特征', scope: 'shot' },
+  { label: '场景与光影', scope: 'shot' },
+  { label: '人物站位（本节拍起始）', scope: 'shot' },
+  { label: '景别', scope: 'shot' },
+  { label: '运镜', scope: 'shot' },
+  { label: '构图', scope: 'shot' },
+  { label: '画面内容', scope: 'shot' },
+  { label: '台词', scope: 'shot' },
+  { label: '音效', scope: 'shot' },
+  { label: '备注', scope: 'shot' },
+  { label: '字数与语速', scope: 'shot' },
+  { label: '目标人物', scope: 'timeline' },
+  { label: '表情与呼吸', scope: 'timeline' },
+  { label: '细微肢体与应激动作', scope: 'timeline' },
+];
+
 export const createEmptyStoryboardPromptTable = (): StoryboardPromptTableData => {
-  const columns = CANONICAL_COLUMN_ORDER.map((label) => ({
+  const columns = DEFAULT_SCRIPT_STORYBOARD_COLUMNS.map(({ label, scope }) => ({
     key: label,
     label,
-    scope: SHOT_LABELS.has(label) ? 'shot' as const : 'timeline' as const,
+    scope,
   }));
   const values = Object.fromEntries(
     columns.map((column) => [column.key, column.label === '镜号' ? 'M001' : '']),
@@ -107,8 +154,11 @@ export const createEmptyStoryboardPromptTable = (): StoryboardPromptTableData =>
   return {
     version: 1,
     overview: {
+      '集数/标题': '',
       总镜数: '1',
       素材总时长: '',
+      节拍数: '',
+      全程说明: '全程无音乐，只保留音效。不生成字幕。',
     },
     columns,
     rows: [{

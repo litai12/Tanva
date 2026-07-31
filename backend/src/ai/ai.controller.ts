@@ -89,9 +89,11 @@ import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
 import {
+  calculateDoubaoSeedLiteVideoAnalysisDurationBilling,
   calculateDoubaoSeedVideoAnalysisBilling,
   extractNewApiTokenUsage,
   getDoubaoSeedVideoAnalysisPreflightCredits,
+  isDoubaoSeedLiteDurationPricedModel,
   isDoubaoSeedVideoAnalysisModel,
 } from './services/doubao-seed-video-analysis-pricing';
 
@@ -2079,9 +2081,9 @@ export class AiController {
   /**
    * 按量计费包装器。
    *
-   * 与 withCredits 的固定预扣不同：调用前只做余额护栏，成功后再用上游 usage /
-   * 网关响应头计算出的整数积分执行 deductExact。seed-audio 使用网关响应头；
-   * 豆包视频分析使用 Responses usage 和火山官方分档价格。
+   * 与 withCredits 的固定预扣不同：调用前只做余额护栏，成功后按服务端确认的
+   * 动态价格执行 deductExact。seed-audio 使用网关响应头；豆包视频分析 Lite
+   * 使用真实视频时长，Mini/Pro 使用 Responses usage 与火山官方分档价格。
    */
   private async withCreditsFromGateway<T>(
     req: any,
@@ -7185,12 +7187,29 @@ export class AiController {
     }, videoProviderOptions);
 
     if (isDoubaoSeedVideoAnalysisModel(model)) {
+      const parsedVideoUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
+      const durationBilling = isDoubaoSeedLiteDurationPricedModel(model)
+        ? await (async () => {
+            if (!this.referenceVideoDuration) {
+              throw new ServiceUnavailableException(
+                '视频分析时长探测服务不可用，请稍后重试',
+              );
+            }
+            const durationSec = await this.referenceVideoDuration.probeDuration(
+              parsedVideoUrl.toString(),
+              '待分析视频',
+            );
+            return calculateDoubaoSeedLiteVideoAnalysisDurationBilling(
+              durationSec,
+            );
+          })()
+        : null;
+
       return this.withCreditsFromGateway(
         req,
         'gemini-video-analyze',
         async () => {
           const startTime = Date.now();
-          const parsedUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
           const provider = this.factory.getProvider(model, providerName);
           if (!provider.analyzeVideo) {
             throw new ServiceUnavailableException('当前 AI Provider 不支持视频分析');
@@ -7200,7 +7219,7 @@ export class AiController {
             prompt:
               dto.prompt ||
               '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
-            videoUrl: parsedUrl.toString(),
+            videoUrl: parsedVideoUrl.toString(),
             model,
             providerOptions: videoProviderOptions,
           });
@@ -7220,18 +7239,54 @@ export class AiController {
           const usage = extractNewApiTokenUsage(
             metadata.raw || { usage: metadata.usage },
           );
-          if (usage.inputTokens + usage.outputTokens <= 0) {
+          const hasTokenUsage = usage.inputTokens + usage.outputTokens > 0;
+          if (!durationBilling && !hasTokenUsage) {
             throw new BadGatewayException(
               '豆包视频分析未返回 token usage，无法完成按量计费',
             );
           }
-          const billing = calculateDoubaoSeedVideoAnalysisBilling(model, usage);
+          const tokenBilling = durationBilling
+            ? null
+            : calculateDoubaoSeedVideoAnalysisBilling(model, usage);
+          const billing = durationBilling || tokenBilling!;
           const processingTime = Date.now() - startTime;
           this.logger.log(
             `✅ Video analysis (Doubao remote input_video) completed in ${processingTime}ms; ` +
-              `usage=${usage.inputTokens}/${usage.outputTokens}, tier=${billing.tier}, ` +
+              (durationBilling
+                ? `duration=${durationBilling.durationSec}s, pricing=seedance20_480p/3, `
+                : `usage=${usage.inputTokens}/${usage.outputTokens}, tier=${tokenBilling!.tier}, `) +
               `credits=${billing.creditsCharged}`,
           );
+
+          const pricingSnapshot = durationBilling
+            ? {
+                source: 'seedance20_480p_duration_ratio',
+                model,
+                durationSec: durationBilling.durationSec,
+                pricingAnchor: durationBilling.pricingAnchor,
+                seedance20PriceYuanPerSecond:
+                  durationBilling.seedance20PriceYuanPerSecond,
+                priceRatio: durationBilling.priceRatio,
+                exactPriceYuanPerSecond:
+                  durationBilling.exactPriceYuanPerSecond,
+                retailPriceYuan: durationBilling.retailPriceYuan,
+                creditsPerYuan: durationBilling.creditsPerYuan,
+                exactCredits: durationBilling.exactCredits,
+                creditsCharged: durationBilling.creditsCharged,
+              }
+            : {
+                source: 'volcengine_official_token_usage',
+                model,
+                tier: tokenBilling!.tier,
+                unitPriceYuanPerMillionTokens:
+                  tokenBilling!.unitPriceYuanPerMillionTokens,
+                officialCostYuan: tokenBilling!.officialCostYuan,
+                markup: tokenBilling!.markup,
+                retailPriceYuan: tokenBilling!.retailPriceYuan,
+                creditsPerYuan: tokenBilling!.creditsPerYuan,
+                exactCredits: tokenBilling!.exactCredits,
+                creditsCharged: tokenBilling!.creditsCharged,
+              };
 
           return {
             result: {
@@ -7245,33 +7300,38 @@ export class AiController {
               billing: {
                 billingMode: billing.billingMode,
                 creditsCharged: billing.creditsCharged,
+                ...(durationBilling
+                  ? { durationSec: durationBilling.durationSec }
+                  : {}),
               },
             },
             consumedCredits: billing.creditsCharged,
             billingMetadata: {
               billingMode: billing.billingMode,
               tokenUsage: usage,
-              pricingSnapshot: {
-                source: 'volcengine_official_token_usage',
-                model,
-                tier: billing.tier,
-                unitPriceYuanPerMillionTokens:
-                  billing.unitPriceYuanPerMillionTokens,
-                officialCostYuan: billing.officialCostYuan,
-                markup: billing.markup,
-                retailPriceYuan: billing.retailPriceYuan,
-                creditsPerYuan: billing.creditsPerYuan,
-                exactCredits: billing.exactCredits,
-                creditsCharged: billing.creditsCharged,
-              },
+              ...(durationBilling
+                ? { durationSec: durationBilling.durationSec }
+                : {}),
+              pricingSnapshot,
             },
           };
         },
-        creditRequestParams,
+        {
+          ...creditRequestParams,
+          ...(durationBilling
+            ? {
+                durationSec: durationBilling.durationSec,
+                billingDurationSec: durationBilling.durationSec,
+              }
+            : {}),
+        },
         {
           balanceGuardCredits:
+            durationBilling?.creditsCharged ??
             getDoubaoSeedVideoAnalysisPreflightCredits(model),
-          balanceGuardLabel: '视频分析按量计费预授权需至少',
+          balanceGuardLabel: durationBilling
+            ? '视频分析按真实时长计费需'
+            : '视频分析按量计费预授权需至少',
           provider: providerName,
           model,
         },

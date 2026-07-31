@@ -1780,7 +1780,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   nano2: 20, // Nano Banana 2 生图
   gptImage2: 40, // GPT-Image-2 生图
   seedream5: "30-50", // Seedream 生图（按模型动态计费）
-  videoAnalyze: 60, // 视频分析节点 - 按模型档位与渠道动态计费
+  videoAnalyze: 0, // 视频分析节点 - 动态计费，运行前由后端按模型/时长试算
   three: 200, // 三维节点 - convert-2d-to-3d
   seed3d: 300, // Seed 3D - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
