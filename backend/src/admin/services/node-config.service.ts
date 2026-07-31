@@ -631,6 +631,13 @@ export class NodeConfigService {
       };
     }
 
+    if (config.nodeKey === 'videoAnalyze') {
+      return {
+        ...config,
+        description: '视频分析按实际用量结算',
+      };
+    }
+
     if (
       config.nodeKey !== 'doubaoVideo' &&
       config.nodeKey !== 'seedance20Video' &&
@@ -1691,7 +1698,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析按实际用量结算' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },
@@ -1772,8 +1779,7 @@ export class NodeConfigService {
       data: {
         creditsPerCall: 0,
         priceYuan: new Prisma.Decimal(0),
-        description:
-          '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位',
+        description: '视频分析按实际用量结算',
       },
     });
 
@@ -2408,7 +2414,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '豆包按火山官方 token 价格 ×1.5 按量结算；Gemini 使用固定档位' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析按实际用量结算' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },

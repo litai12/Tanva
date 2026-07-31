@@ -215,7 +215,7 @@ export const CREDIT_PRICING_CONFIG = {
     serviceName: '视频分析',
     provider: 'new-api',
     creditsPerCall: 0,
-    description: '豆包按官方 token 价格×1.5 结算；Gemini 使用固定档位',
+    description: '按实际用量或所选模型档位结算',
   },
 
   // Sora 视频服务

@@ -46,8 +46,6 @@ type Props = {
     storyboardColumnCount?: number;
     analysisMode?: string;
     lastCreditsUsed?: number;
-    lastBillingPriceYuan?: number;
-    lastBillingTier?: string;
   };
   selected?: boolean;
 };
@@ -170,6 +168,23 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     if (data.analysisModel === selectedModel) return;
     updateNodeData({ analysisModel: selectedModel });
   }, [data.analysisModel, selectedModel, updateNodeData]);
+
+  React.useEffect(() => {
+    const legacyData = data as typeof data & {
+      lastBillingPriceYuan?: unknown;
+      lastBillingTier?: unknown;
+    };
+    if (
+      legacyData.lastBillingPriceYuan === undefined &&
+      legacyData.lastBillingTier === undefined
+    ) {
+      return;
+    }
+    updateNodeData({
+      lastBillingPriceYuan: undefined,
+      lastBillingTier: undefined,
+    });
+  }, [data, updateNodeData]);
 
   const storedAnalysisPrompt =
     typeof data.analysisPrompt === 'string' ? data.analysisPrompt : '';
@@ -383,11 +398,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         ));
       }
       const chargedCredits = Number(result.billing?.creditsCharged);
-      const retailPriceYuan = Number(result.billing?.retailPriceYuan);
-      const billingTier =
-        typeof result.billing?.tier === 'string'
-          ? result.billing.tier
-          : undefined;
 
       updateNodeData({
         status: 'succeeded',
@@ -400,11 +410,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           Number.isFinite(chargedCredits) && chargedCredits > 0
             ? chargedCredits
             : undefined,
-        lastBillingPriceYuan:
-          Number.isFinite(retailPriceYuan) && retailPriceYuan > 0
-            ? retailPriceYuan
-            : undefined,
-        lastBillingTier: billingTier,
       });
       const output = upsertStoryboardPromptNode(analysisText);
       updateNodeData({
@@ -512,8 +517,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
               {usesMeteredDoubaoPricing ? (
                 <span
                   title={lt(
-                    '按实际 token 用量结算：火山官方价 × 1.5，100 积分 = 1 元',
-                    'Metered by actual tokens: official VolcEngine price × 1.5; 100 credits = ¥1',
+                    '按实际用量扣除积分',
+                    'Credits are charged by actual usage',
                   )}
                   className="run-credit-badge"
                   style={{
@@ -630,14 +635,14 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             }}
           >
             {lt(
-              `按实际 token：官方价 × 1.5，100 积分 = 1 元${
+              `按量计费${
                 typeof data.lastCreditsUsed === 'number'
-                  ? `；上次 ${data.lastCreditsUsed} 积分`
+                  ? `；上次消耗 ${data.lastCreditsUsed} 积分`
                   : ''
               }`,
-              `Actual-token billing: official price × 1.5; 100 credits = ¥1${
+              `Usage-based billing${
                 typeof data.lastCreditsUsed === 'number'
-                  ? `; last run ${data.lastCreditsUsed} credits`
+                  ? `; last run used ${data.lastCreditsUsed} credits`
                   : ''
               }`,
             )}

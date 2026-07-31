@@ -1,6 +1,23 @@
 import React from 'react';
 import type { StoryboardPromptTableData } from '../types';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  downloadStoryboardPromptWorkbook,
+  parseStoryboardPromptWorkbook,
+} from '../storyboardPromptExcel';
+
+export type StoryboardCellInputContext = {
+  rowIndex: number;
+  columnKey: string;
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  element: HTMLTextAreaElement;
+};
+
+export type StoryboardPromptTableViewHandle = {
+  focusToken: (token: string) => boolean;
+};
 
 type Props = {
   table: StoryboardPromptTableData;
@@ -8,6 +25,12 @@ type Props = {
   dark: boolean;
   onChange: (table: StoryboardPromptTableData) => void;
   onWheelCapture: (event: React.WheelEvent<HTMLDivElement>) => void;
+  onCellInput?: (context: StoryboardCellInputContext) => void;
+  onCellSelect?: (context: StoryboardCellInputContext) => void;
+  onCellKeyDown?: (
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    context: StoryboardCellInputContext,
+  ) => void;
 };
 
 const getColumnWidth = (label: string): number => {
@@ -74,13 +97,22 @@ const getNextShotNumber = (table: StoryboardPromptTableData): string => {
   return `M${String(highest + 1).padStart(3, '0')}`;
 };
 
-function StoryboardPromptTableView({
+const getCellRefKey = (rowId: string, columnKey: string): string =>
+  `${rowId}::${columnKey}`;
+
+const StoryboardPromptTableView = React.forwardRef<
+  StoryboardPromptTableViewHandle,
+  Props
+>(function StoryboardPromptTableView({
   table,
   editable,
   dark,
   onChange,
   onWheelCapture,
-}: Props) {
+  onCellInput,
+  onCellSelect,
+  onCellKeyDown,
+}, forwardedRef) {
   const { lt } = useLocaleText();
   const borderColor = dark ? '#3a3a3a' : '#e5e7eb';
   const headerBackground = dark ? '#252525' : '#f8fafc';
@@ -98,6 +130,15 @@ function StoryboardPromptTableView({
   const [selectedColumnKey, setSelectedColumnKey] = React.useState<string | null>(
     table.columns[0]?.key || null,
   );
+  const scrollViewportRef = React.useRef<HTMLDivElement>(null);
+  const tableElementRef = React.useRef<HTMLTableElement>(null);
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+  const cellRefs = React.useRef(new Map<string, HTMLTextAreaElement>());
+  const [isImporting, setIsImporting] = React.useState(false);
+  const [horizontalScroll, setHorizontalScroll] = React.useState({
+    left: 0,
+    max: 0,
+  });
   const selectedColumn = table.columns.find(
     (column) => column.key === selectedColumnKey,
   );
@@ -105,6 +146,67 @@ function StoryboardPromptTableView({
     selectedRowIndex !== null &&
     selectedRowIndex >= 0 &&
     selectedRowIndex < table.rows.length;
+
+  const showToast = React.useCallback((
+    message: string,
+    type: 'success' | 'warning' | 'error' = 'warning',
+  ) => {
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { message, type },
+    }));
+  }, []);
+
+  const updateScrollMetrics = React.useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    const max = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    setHorizontalScroll((current) => {
+      const left = Math.max(0, Math.min(viewport.scrollLeft, max));
+      return current.left === left && current.max === max
+        ? current
+        : { left, max };
+    });
+  }, []);
+
+  React.useLayoutEffect(() => {
+    updateScrollMetrics();
+    const viewport = scrollViewportRef.current;
+    const tableElement = tableElementRef.current;
+    if (typeof ResizeObserver === 'undefined' || !viewport || !tableElement) {
+      return undefined;
+    }
+    const observer = new ResizeObserver(updateScrollMetrics);
+    observer.observe(viewport);
+    observer.observe(tableElement);
+    return () => observer.disconnect();
+  }, [table.columns, table.rows.length, updateScrollMetrics]);
+
+  React.useImperativeHandle(forwardedRef, () => ({
+    focusToken: (token: string): boolean => {
+      if (!token) return false;
+      for (const row of table.rows) {
+        for (const column of table.columns) {
+          const value = String(row.values[column.key] || '');
+          const tokenIndex = value.indexOf(token);
+          if (tokenIndex < 0) continue;
+          const textarea = cellRefs.current.get(
+            getCellRefKey(row.id, column.key),
+          );
+          if (!textarea) return false;
+          textarea.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.setSelectionRange(
+              tokenIndex,
+              tokenIndex + token.length,
+            );
+          });
+          return true;
+        }
+      }
+      return false;
+    },
+  }), [table.columns, table.rows]);
 
   React.useEffect(() => {
     setSelectedRowIndex((current) => {
@@ -125,9 +227,7 @@ function StoryboardPromptTableView({
   }, [selectedColumnKey, table.columns]);
 
   const showStructureWarning = (message: string) => {
-    window.dispatchEvent(new CustomEvent('toast', {
-      detail: { message, type: 'warning' },
-    }));
+    showToast(message, 'warning');
   };
 
   const addRow = (mode: 'timeline' | 'shot') => {
@@ -384,10 +484,147 @@ function StoryboardPromptTableView({
     });
   }, [onChange, table]);
 
+  const getCellInputContext = React.useCallback((
+    element: HTMLTextAreaElement,
+    rowIndex: number,
+    columnKey: string,
+  ): StoryboardCellInputContext => ({
+    rowIndex,
+    columnKey,
+    value: element.value,
+    selectionStart: element.selectionStart ?? element.value.length,
+    selectionEnd: element.selectionEnd ?? element.value.length,
+    element,
+  }), []);
+
+  const openAssetMentionPicker = React.useCallback(() => {
+    if (
+      !hasSelectedRow ||
+      selectedRowIndex === null ||
+      !selectedColumnKey
+    ) {
+      showToast(
+        lt('请先选择一个表格单元格', 'Select a table cell first'),
+        'warning',
+      );
+      return;
+    }
+    const row = table.rows[selectedRowIndex];
+    if (!row) return;
+    const textarea = cellRefs.current.get(
+      getCellRefKey(row.id, selectedColumnKey),
+    );
+    if (!textarea) return;
+
+    textarea.focus();
+    const selectionStart = textarea.selectionStart ?? textarea.value.length;
+    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+    textarea.setRangeText('@', selectionStart, selectionEnd, 'end');
+    updateCell(selectedRowIndex, selectedColumnKey, textarea.value);
+    onCellInput?.(
+      getCellInputContext(
+        textarea,
+        selectedRowIndex,
+        selectedColumnKey,
+      ),
+    );
+  }, [
+    getCellInputContext,
+    hasSelectedRow,
+    lt,
+    onCellInput,
+    selectedColumnKey,
+    selectedRowIndex,
+    showToast,
+    table.rows,
+    updateCell,
+  ]);
+
+  const scrollHorizontally = React.useCallback((distance: number) => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ left: distance, behavior: 'smooth' });
+  }, []);
+
+  const handleTableWheelCapture = React.useCallback((
+    event: React.WheelEvent<HTMLDivElement>,
+  ) => {
+    onWheelCapture(event);
+    if (!event.isPropagationStopped()) return;
+
+    const viewport = scrollViewportRef.current;
+    if (!viewport || horizontalScroll.max <= 0) return;
+    const horizontalDelta =
+      event.shiftKey && Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+        ? event.deltaY
+        : event.deltaX;
+    if (Math.abs(horizontalDelta) < 0.5) return;
+    viewport.scrollLeft += horizontalDelta;
+    event.preventDefault();
+    updateScrollMetrics();
+  }, [horizontalScroll.max, onWheelCapture, updateScrollMetrics]);
+
+  const handleExportExcel = React.useCallback(() => {
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      downloadStoryboardPromptWorkbook(table, `分镜表-${date}`);
+      showToast(lt('Excel 已导出', 'Excel exported'), 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : lt('Excel 导出失败', 'Failed to export Excel'),
+        'error',
+      );
+    }
+  }, [lt, showToast, table]);
+
+  const handleImportExcel = React.useCallback(async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) {
+      showToast(
+        lt('请选择 .xlsx 格式的 Excel 文件', 'Choose an .xlsx Excel file'),
+        'warning',
+      );
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const nextTable = parseStoryboardPromptWorkbook(
+        new Uint8Array(await file.arrayBuffer()),
+      );
+      setSelectedRowIndex(nextTable.rows.length > 0 ? 0 : null);
+      setSelectedColumnKey(nextTable.columns[0]?.key || null);
+      onChange(nextTable);
+      showToast(
+        lt(
+          `已导入 ${nextTable.rows.length} 行、${nextTable.columns.length} 列`,
+          `Imported ${nextTable.rows.length} rows and ${nextTable.columns.length} columns`,
+        ),
+        'success',
+      );
+      requestAnimationFrame(updateScrollMetrics);
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : lt('Excel 导入失败', 'Failed to import Excel'),
+        'error',
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  }, [lt, onChange, showToast, updateScrollMetrics]);
+
   return (
     <div
       className={editable ? 'nodrag nopan nowheel' : undefined}
-      onWheelCapture={onWheelCapture}
+      onWheelCapture={handleTableWheelCapture}
       onPointerDownCapture={(event) => {
         if (editable) event.stopPropagation();
       }}
@@ -576,6 +813,55 @@ function StoryboardPromptTableView({
           >
             {lt('删除列', 'Delete column')}
           </button>
+          <button
+            type="button"
+            disabled={!hasSelectedRow || !selectedColumn}
+            onClick={openAssetMentionPicker}
+            style={structureButtonStyle(!hasSelectedRow || !selectedColumn)}
+            title={lt(
+              '在当前单元格插入 @ 并选择工作流、项目库或个人库资产',
+              'Insert @ in the active cell and choose a workflow, project, or personal asset',
+            )}
+          >
+            {lt('@ 资产', '@ Asset')}
+          </button>
+
+          <span
+            aria-hidden="true"
+            style={{
+              flex: '0 0 auto',
+              width: 1,
+              height: 18,
+              margin: '0 2px',
+              background: borderColor,
+            }}
+          />
+
+          <button
+            type="button"
+            disabled={isImporting}
+            onClick={() => importInputRef.current?.click()}
+            style={structureButtonStyle(isImporting)}
+            title={lt(
+              '从 .xlsx 导入动态列、镜头总览和时序行',
+              'Import dynamic columns, overview, and timeline rows from .xlsx',
+            )}
+          >
+            {isImporting
+              ? lt('导入中…', 'Importing…')
+              : lt('导入 Excel', 'Import Excel')}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            style={structureButtonStyle()}
+            title={lt(
+              '导出分镜表、镜头总览和列设置',
+              'Export the storyboard, overview, and column settings',
+            )}
+          >
+            {lt('导出 Excel', 'Export Excel')}
+          </button>
 
           <span
             style={{
@@ -605,16 +891,109 @@ function StoryboardPromptTableView({
         </div>
       )}
 
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={handleImportExcel}
+        style={{ display: 'none' }}
+      />
+
+      {horizontalScroll.max > 1 && (
+        <div
+          className="nodrag nopan nowheel"
+          style={{
+            flex: '0 0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            minHeight: 30,
+            padding: '4px 8px',
+            borderBottom: `1px solid ${borderColor}`,
+            background: toolbarBackground,
+          }}
+          title={lt(
+            '拖动滑块或使用 Shift + 滚轮横向浏览',
+            'Drag the slider or use Shift + wheel to scroll horizontally',
+          )}
+        >
+          <span
+            style={{
+              flex: '0 0 auto',
+              color: mutedColor,
+              fontSize: 10,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {lt('横向浏览', 'Horizontal')}
+          </span>
+          <button
+            type="button"
+            aria-label={lt('向左滚动', 'Scroll left')}
+            disabled={horizontalScroll.left <= 0}
+            onClick={() =>
+              scrollHorizontally(
+                -(scrollViewportRef.current?.clientWidth || 320) * 0.7,
+              )}
+            style={structureButtonStyle(horizontalScroll.left <= 0)}
+          >
+            ‹
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(1, horizontalScroll.max)}
+            step={1}
+            value={Math.min(horizontalScroll.left, horizontalScroll.max)}
+            aria-label={lt('表格横向滚动位置', 'Horizontal table position')}
+            onChange={(event) => {
+              const viewport = scrollViewportRef.current;
+              if (!viewport) return;
+              viewport.scrollLeft = Number(event.target.value);
+              updateScrollMetrics();
+            }}
+            style={{
+              flex: 1,
+              minWidth: 80,
+              height: 16,
+              cursor: 'ew-resize',
+              accentColor: selectedBorder,
+            }}
+          />
+          <button
+            type="button"
+            aria-label={lt('向右滚动', 'Scroll right')}
+            disabled={horizontalScroll.left >= horizontalScroll.max - 1}
+            onClick={() =>
+              scrollHorizontally(
+                (scrollViewportRef.current?.clientWidth || 320) * 0.7,
+              )}
+            style={structureButtonStyle(
+              horizontalScroll.left >= horizontalScroll.max - 1,
+            )}
+          >
+            ›
+          </button>
+        </div>
+      )}
+
       <div
+        ref={scrollViewportRef}
+        onScroll={updateScrollMetrics}
         style={{
           flex: 1,
           minHeight: 0,
           overflow: 'auto',
           scrollbarWidth: 'thin',
+          scrollbarGutter: 'stable',
+          overscrollBehavior: 'contain',
           background: cellBackground,
         }}
       >
         <table
+          ref={tableElementRef}
           style={{
             borderCollapse: 'separate',
             borderSpacing: 0,
@@ -721,17 +1100,61 @@ function StoryboardPromptTableView({
                       }}
                     >
                       <textarea
+                        ref={(element) => {
+                          const refKey = getCellRefKey(row.id, column.key);
+                          if (element) {
+                            cellRefs.current.set(refKey, element);
+                          } else {
+                            cellRefs.current.delete(refKey);
+                          }
+                        }}
                         value={row.values[column.key] || ''}
                         readOnly={!editable}
                         tabIndex={editable ? 0 : -1}
-                        onFocus={() => {
+                        onFocus={(event) => {
                           if (!editable) return;
                           setSelectedRowIndex(rowIndex);
                           setSelectedColumnKey(column.key);
+                          onCellSelect?.(
+                            getCellInputContext(
+                              event.currentTarget,
+                              rowIndex,
+                              column.key,
+                            ),
+                          );
                         }}
-                        onChange={(event) => (
-                          updateCell(rowIndex, column.key, event.target.value)
-                        )}
+                        onSelect={(event) => {
+                          if (!editable) return;
+                          onCellSelect?.(
+                            getCellInputContext(
+                              event.currentTarget,
+                              rowIndex,
+                              column.key,
+                            ),
+                          );
+                        }}
+                        onKeyDown={(event) => {
+                          if (!editable) return;
+                          onCellKeyDown?.(
+                            event,
+                            getCellInputContext(
+                              event.currentTarget,
+                              rowIndex,
+                              column.key,
+                            ),
+                          );
+                        }}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          updateCell(rowIndex, column.key, nextValue);
+                          onCellInput?.(
+                            getCellInputContext(
+                              event.currentTarget,
+                              rowIndex,
+                              column.key,
+                            ),
+                          );
+                        }}
                         style={{
                           boxSizing: 'border-box',
                           display: 'block',
@@ -740,6 +1163,8 @@ function StoryboardPromptTableView({
                           minHeight: 76,
                           resize: 'none',
                           overflow: 'auto',
+                          scrollbarWidth: 'thin',
+                          scrollbarGutter: 'stable',
                           border: 'none',
                           borderRadius: 0,
                           outline: 'none',
@@ -784,6 +1209,6 @@ function StoryboardPromptTableView({
       </div>
     </div>
   );
-}
+});
 
 export default React.memo(StoryboardPromptTableView);

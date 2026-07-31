@@ -905,6 +905,25 @@ export class CreditsService {
     return null;
   }
 
+  /**
+   * 用户侧用量记录只需要呈现请求上下文和最终扣费结果。
+   * 完整定价快照仍保存在 ApiUsageRecord 中，供服务端与管理员审计，
+   * 但不应通过 /credits/usage 暴露供应商成本、倍率或内部单价。
+   */
+  private sanitizeUserFacingUsageRequestParams(
+    value: Prisma.JsonValue | null,
+  ): Prisma.JsonValue | null {
+    const requestParams = this.asJsonObject(value);
+    if (!requestParams) return value;
+
+    const {
+      pricingSnapshot: _pricingSnapshot,
+      internalPricingSnapshot: _internalPricingSnapshot,
+      ...safeRequestParams
+    } = requestParams;
+    return safeRequestParams as Prisma.JsonObject;
+  }
+
   private normalizeChannel(raw: string | null | undefined): string | null {
     if (!raw) return null;
     const value = raw.trim().toLowerCase();
@@ -6294,7 +6313,12 @@ export class CreditsService {
     ]);
 
     return {
-      records,
+      records: records.map((record) => ({
+        ...record,
+        requestParams: this.sanitizeUserFacingUsageRequestParams(
+          record.requestParams,
+        ),
+      })),
       pagination: {
         page,
         pageSize,

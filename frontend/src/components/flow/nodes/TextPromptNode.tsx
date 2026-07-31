@@ -28,7 +28,10 @@ import {
 } from '../types';
 import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
 import SmartImage from '@/components/ui/SmartImage';
-import StoryboardPromptTableView from './StoryboardPromptTableView';
+import StoryboardPromptTableView, {
+  type StoryboardCellInputContext,
+  type StoryboardPromptTableViewHandle,
+} from './StoryboardPromptTableView';
 import {
   normalizeStoryboardPromptTable,
   parseStoryboardAnalysis,
@@ -72,6 +75,21 @@ type MentionPreviewItem = {
   label: string;
   previewUrl: string;
   isVideo: boolean;
+};
+
+type AtMentionTarget =
+  | { kind: 'text' }
+  | {
+      kind: 'storyboard-cell';
+      rowIndex: number;
+      columnKey: string;
+    };
+
+type AtMentionState = {
+  startIndex: number;
+  query: string;
+  selectedIdx: number;
+  target: AtMentionTarget;
 };
 
 const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
@@ -335,16 +353,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const storyboardTableViewRef =
+    React.useRef<StoryboardPromptTableViewHandle>(null);
+  const storyboardMentionTextareaRef =
+    React.useRef<HTMLTextAreaElement | null>(null);
   const mentionOverlayInnerRef = React.useRef<HTMLDivElement>(null);
   const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const [isComposing, setIsComposing] = React.useState(false);
-  const [atMention, setAtMention] = React.useState<{
-    startIndex: number;
-    query: string;
-    selectedIdx: number;
-  } | null>(null);
+  const [atMention, setAtMention] = React.useState<AtMentionState | null>(null);
   const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('project-library');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
   const [mentions, setMentions] = React.useState<PromptImageMention[]>(
@@ -930,10 +948,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const commitStoryboardTable = React.useCallback((
     nextTable: TextPromptData['storyboardTable'],
+    baseMentions: PromptImageMention[] = mentionsRef.current,
   ) => {
     if (!nextTable) return;
     const nextText = serializeStoryboardPromptTable(nextTable);
-    const nextMentions = syncTypedCandidateMentions(nextText, mentionsRef.current);
+    const nextMentions = syncTypedCandidateMentions(nextText, baseMentions);
     mentionsRef.current = nextMentions;
     setMentions(nextMentions);
     setValue(nextText);
@@ -1040,6 +1059,39 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return [...list, mention];
   }, []);
 
+  const updateStoryboardTableCellValue = React.useCallback((
+    rowIndex: number,
+    columnKey: string,
+    nextCellValue: string,
+  ): TextPromptData['storyboardTable'] => {
+    const column = storyboardTable.columns.find(
+      (candidate) => candidate.key === columnKey,
+    );
+    const sourceRow = storyboardTable.rows[rowIndex];
+    if (!column || !sourceRow) return storyboardTable;
+    return {
+      ...storyboardTable,
+      rows: storyboardTable.rows.map((row, index) => {
+        const shouldUpdate =
+          index === rowIndex ||
+          (
+            column.scope === 'shot' &&
+            Boolean(sourceRow.shotId) &&
+            row.shotId === sourceRow.shotId
+          );
+        return shouldUpdate
+          ? {
+              ...row,
+              values: {
+                ...row.values,
+                [columnKey]: nextCellValue,
+              },
+            }
+          : row;
+      }),
+    };
+  }, [storyboardTable]);
+
   const insertMentionCandidate = React.useCallback((
     candidate: MentionCandidate,
     range?: { start: number; end: number }
@@ -1069,17 +1121,78 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     });
   }, [commitValue, createMentionFromCandidate, syncTypedCandidateMentions, upsertMention, value]);
 
+  const insertStoryboardMentionCandidate = React.useCallback((
+    candidate: MentionCandidate,
+  ) => {
+    if (!atMention || atMention.target.kind !== 'storyboard-cell') return;
+    const { rowIndex, columnKey } = atMention.target;
+    const row = storyboardTable.rows[rowIndex];
+    if (!row) return;
+    const cellValue = String(row.values[columnKey] || '');
+    const textarea = storyboardMentionTextareaRef.current;
+    const selectionEnd = Math.max(
+      atMention.startIndex,
+      Math.min(
+        textarea?.selectionStart ?? cellValue.length,
+        cellValue.length,
+      ),
+    );
+    const mention = createMentionFromCandidate(candidate, value);
+    const nextCellValue =
+      cellValue.slice(0, atMention.startIndex) +
+      mention.token +
+      cellValue.slice(selectionEnd);
+    const nextTable = updateStoryboardTableCellValue(
+      rowIndex,
+      columnKey,
+      nextCellValue,
+    );
+    if (!nextTable) return;
+    const nextMentions = upsertMention(mentionsRef.current, mention);
+    commitStoryboardTable(nextTable, nextMentions);
+    setAtMention(null);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      const nextCursor = atMention.startIndex + mention.token.length;
+      textarea?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [
+    atMention,
+    commitStoryboardTable,
+    createMentionFromCandidate,
+    storyboardTable.rows,
+    updateStoryboardTableCellValue,
+    upsertMention,
+    value,
+  ]);
+
   const handleMentionSelect = React.useCallback((candidate: MentionCandidate) => {
+    if (atMention?.target.kind === 'storyboard-cell') {
+      insertStoryboardMentionCandidate(candidate);
+      return;
+    }
     const el = textareaRef.current;
-    if (!el || !atMention) return;
+    if (!el || !atMention || atMention.target.kind !== 'text') return;
     const cursorPos = el.selectionStart ?? value.length;
     insertMentionCandidate(candidate, {
       start: atMention.startIndex,
       end: cursorPos,
     });
-  }, [atMention, insertMentionCandidate, value.length]);
+  }, [
+    atMention,
+    insertMentionCandidate,
+    insertStoryboardMentionCandidate,
+    value.length,
+  ]);
 
   const handleMentionPreviewSelect = React.useCallback((item: MentionPreviewItem) => {
+    if (
+      isStoryboardTable &&
+      storyboardViewMode === 'table' &&
+      storyboardTableViewRef.current?.focusToken(item.token)
+    ) {
+      return;
+    }
     const el = textareaRef.current;
     if (!el) return;
     const index = value.indexOf(item.token);
@@ -1088,7 +1201,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       el.focus();
       el.setSelectionRange(index, index + item.token.length);
     });
-  }, [value]);
+  }, [isStoryboardTable, storyboardViewMode, value]);
 
   const deleteTextRange = React.useCallback((start: number, end: number) => {
     const el = textareaRef.current;
@@ -1127,7 +1240,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const handleMentionKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (handleAtomicMentionDelete(event)) return;
-    if (!atMention) return;
+    if (!atMention || atMention.target.kind !== 'text') return;
     if (event.key === 'Escape') {
       event.preventDefault();
       setAtMention(null);
@@ -1169,7 +1282,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     if (mention) {
       setAtMention(prev => ({
         ...mention,
-        selectedIdx: prev?.startIndex === mention.startIndex ? prev.selectedIdx : 0,
+        selectedIdx:
+          prev?.target.kind === 'text' &&
+          prev.startIndex === mention.startIndex
+            ? prev.selectedIdx
+            : 0,
+        target: { kind: 'text' },
       }));
     } else {
       setAtMention(null);
@@ -1210,6 +1328,136 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     if (!mention) setAtMention(null);
   }, [detectAtMention]);
 
+  const updateStoryboardAtMention = React.useCallback((
+    context: StoryboardCellInputContext,
+  ) => {
+    storyboardMentionTextareaRef.current = context.element;
+    const mention = detectAtMention(
+      context.value,
+      context.selectionStart,
+      mentionsRef.current,
+    );
+    if (!mention) {
+      setAtMention(null);
+      return;
+    }
+    setAtMention((previous) => ({
+      ...mention,
+      selectedIdx:
+        previous?.target.kind === 'storyboard-cell' &&
+        previous.target.rowIndex === context.rowIndex &&
+        previous.target.columnKey === context.columnKey &&
+        previous.startIndex === mention.startIndex
+          ? previous.selectedIdx
+          : 0,
+      target: {
+        kind: 'storyboard-cell',
+        rowIndex: context.rowIndex,
+        columnKey: context.columnKey,
+      },
+    }));
+  }, [detectAtMention]);
+
+  const handleStoryboardCellSelect = React.useCallback((
+    context: StoryboardCellInputContext,
+  ) => {
+    storyboardMentionTextareaRef.current = context.element;
+    if (context.selectionStart === context.selectionEnd) {
+      const range = getMentionRangeContainingCursor(
+        context.value,
+        mentionsRef.current,
+        context.selectionStart,
+      );
+      if (range) {
+        setAtMention(null);
+        requestAnimationFrame(() => {
+          context.element.setSelectionRange(range.end, range.end);
+        });
+        return;
+      }
+    }
+    updateStoryboardAtMention(context);
+  }, [updateStoryboardAtMention]);
+
+  const handleStoryboardCellKeyDown = React.useCallback((
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    context: StoryboardCellInputContext,
+  ) => {
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      const deletionRange = getMentionDeletionRange(
+        context.value,
+        mentionsRef.current,
+        context.selectionStart,
+        context.selectionEnd,
+        event.key,
+      );
+      if (deletionRange) {
+        event.preventDefault();
+        const nextCellValue =
+          context.value.slice(0, deletionRange.start) +
+          context.value.slice(deletionRange.end);
+        const nextTable = updateStoryboardTableCellValue(
+          context.rowIndex,
+          context.columnKey,
+          nextCellValue,
+        );
+        commitStoryboardTable(nextTable);
+        setAtMention(null);
+        requestAnimationFrame(() => {
+          context.element.focus();
+          context.element.setSelectionRange(
+            deletionRange.start,
+            deletionRange.start,
+          );
+        });
+        return;
+      }
+    }
+
+    const isActiveStoryboardMention =
+      atMention?.target.kind === 'storyboard-cell' &&
+      atMention.target.rowIndex === context.rowIndex &&
+      atMention.target.columnKey === context.columnKey;
+    if (!isActiveStoryboardMention || !atMention) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setAtMention(null);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setAtMention((previous) => previous
+        ? {
+            ...previous,
+            selectedIdx: Math.min(
+              previous.selectedIdx + 1,
+              Math.max(0, activeMentionCandidates.length - 1),
+            ),
+          }
+        : null);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setAtMention((previous) => previous
+        ? { ...previous, selectedIdx: Math.max(previous.selectedIdx - 1, 0) }
+        : null);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const candidate = activeMentionCandidates[atMention.selectedIdx];
+      if (!candidate) return;
+      event.preventDefault();
+      handleMentionSelect(candidate);
+    }
+  }, [
+    activeMentionCandidates,
+    atMention,
+    commitStoryboardTable,
+    handleMentionSelect,
+    updateStoryboardTableCellValue,
+  ]);
+
   const handleTextareaScroll = React.useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
     const inner = mentionOverlayInnerRef.current;
     if (!inner) return;
@@ -1218,18 +1466,36 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   }, []);
 
   React.useEffect(() => {
-    if (atMention && textareaRef.current) {
-      const rect = textareaRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    const activeTextarea =
+      atMention?.target.kind === 'storyboard-cell'
+        ? storyboardMentionTextareaRef.current
+        : textareaRef.current;
+    if (atMention && activeTextarea) {
+      const rect = activeTextarea.getBoundingClientRect();
+      const dropdownWidth = Math.max(Math.min(rect.width, 320), 260);
+      const estimatedHeight = 300;
+      const top =
+        rect.bottom + 4 + estimatedHeight <= window.innerHeight
+          ? rect.bottom + 4
+          : Math.max(8, rect.top - estimatedHeight - 4);
+      const left = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - dropdownWidth - 8),
+      );
+      setDropdownPos({ top, left, width: dropdownWidth });
     } else if (!atMention) {
       setDropdownPos(null);
     }
-  }, [atMention !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [atMention]);
 
   React.useEffect(() => {
     if (!atMention) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (textareaRef.current && !textareaRef.current.contains(e.target as Node)) {
+      const activeTextarea =
+        atMention.target.kind === 'storyboard-cell'
+          ? storyboardMentionTextareaRef.current
+          : textareaRef.current;
+      if (activeTextarea && !activeTextarea.contains(e.target as Node)) {
         setAtMention(null);
       }
     };
@@ -1511,10 +1777,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       >
         {isStoryboardTable && storyboardViewMode === 'table' ? (
           <StoryboardPromptTableView
+            ref={storyboardTableViewRef}
             table={storyboardTable}
             editable={isPromptEditable}
             dark={isFlowDark}
             onChange={commitStoryboardTable}
+            onCellInput={updateStoryboardAtMention}
+            onCellSelect={handleStoryboardCellSelect}
+            onCellKeyDown={handleStoryboardCellKeyDown}
             onWheelCapture={(event) => {
               if (!isPromptEditable) return;
               if (shouldPassWheelToCanvas(event)) return;
@@ -1665,7 +1935,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           ))}
         </div>
       )}
-      {shouldRenderTextEditor && atMention && dropdownPos && createPortal(
+      {atMention && dropdownPos && createPortal(
         <div
           className="nodrag nopan"
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}

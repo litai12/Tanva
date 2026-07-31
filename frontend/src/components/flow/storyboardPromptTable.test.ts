@@ -4,6 +4,10 @@ import {
   parseStoryboardAnalysis,
   serializeStoryboardPromptTable,
 } from './storyboardPromptTable.ts';
+import {
+  buildStoryboardPromptWorkbook,
+  parseStoryboardPromptWorkbook,
+} from './storyboardPromptExcel.ts';
 
 const SAMPLE = `【镜头总览】
 总镜数：1
@@ -147,5 +151,36 @@ test('rejoins non-adjacent timeline rows by internal shot id', () => {
   assert.deepEqual(
     reparsed.rows.map((row) => row.values['镜号']),
     ['M001', 'M001', 'M002'],
+  );
+});
+
+test('round-trips dynamic storyboard rows and column scopes through xlsx', () => {
+  const table = parseStoryboardAnalysis(SAMPLE);
+  const workbook = buildStoryboardPromptWorkbook(table);
+
+  assert.equal(String.fromCharCode(workbook[0]!, workbook[1]!), 'PK');
+
+  const imported = parseStoryboardPromptWorkbook(workbook);
+  const importedColumns = new Map(
+    imported.columns.map((column) => [column.label, column]),
+  );
+  const timelineColumn = importedColumns.get('时间段');
+  const customShotColumn = importedColumns.get('自定义镜头字段');
+
+  assert.equal(imported.rows.length, 2);
+  assert.equal(imported.overview['总镜数'], '1');
+  assert.equal(timelineColumn?.scope, 'timeline');
+  assert.equal(customShotColumn?.scope, 'shot');
+  assert.equal(
+    timelineColumn
+      ? imported.rows[1]?.values[timelineColumn.key]
+      : undefined,
+    '0.4s - 0.8s',
+  );
+  assert.equal(
+    customShotColumn
+      ? imported.rows[0]?.values[customShotColumn.key]
+      : undefined,
+    '保留为动态列',
   );
 });

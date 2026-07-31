@@ -61,8 +61,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
-- Flow/豆包视频分析计费与启用：补齐 Seed 2.0 Mini/Lite/Pro 在 `ark-doubao` 的模型目录、channel models 与 abilities，修复只有价格配置却无法路由的问题；基础倍率由旧 `×1.2` 更正为官方价 `×1.5`。Tanva 现按 Responses 真实输入、缓存、音频与输出 token 套用官方三档常规在线推理价格，再按 `100 积分 = 1 元` 精确后扣并向上取整；节点改显“按量”和上次实扣，不再展示或扣除豆包旧固定 `60/90/120`。
-- Flow/视频分镜分析：视频分析节点新增独立模型选择，默认豆包 Seed 2.0 Lite，并支持豆包 Mini/Pro 与 Gemini 三档；豆包通过 new-api Responses `input_video` 直接读取远程视频 URL。分析结果自动生成标准 Prompt 的“分镜表”变体，按时间展开行、按返回字段动态生成列，支持表格/原文二次编辑、行增删复制、列增删重命名和镜头/时序作用域切换，同时保留所有连线和 `@` 引用能力。
+- Flow/豆包视频分析计费与启用：补齐 Seed 2.0 Mini/Lite/Pro 在 `ark-doubao` 的模型目录、channel models 与 abilities，修复只有价格配置却无法路由的问题；基础倍率由旧 `×1.2` 更正为官方价 `×1.5`。Tanva 现按 Responses 真实输入、缓存、音频与输出 token 套用官方三档常规在线推理价格，再按 `100 积分 = 1 元` 精确后扣并向上取整；用户侧节点和公开接口仅返回“按量计费”与最终实扣，`pricingSnapshot` 只保留在服务端/管理员审计记录中。
+- Flow/视频分镜分析：视频分析节点新增独立模型选择，默认豆包 Seed 2.0 Lite，并支持豆包 Mini/Pro 与 Gemini 三档；豆包通过 new-api Responses `input_video` 直接读取远程视频 URL。分析结果自动生成标准 Prompt 的“分镜表”变体，按时间展开行、按返回字段动态生成列，支持表格/原文二次编辑、行列动态调整、镜头/时序作用域、表格单元内 `@` 三类资产及引用定位/原子删除、常驻横向滚动控制和 `.xlsx` 导入导出，同时保留标准 Prompt 连线与下游解析能力。
 - Frontend/Vite：强制 React 与 ReactDOM 在 pnpm 软链接依赖中去重，并将 `@xyflow/react` 纳入同一预构建图；修复从旧 `reactflow` 缓存迁移后 ReactFlowProvider 使用第二份 React dispatcher 导致的 Invalid hook call 与全页白屏。
 - Flow canvas engine upgraded from legacy `reactflow@11.11.4` to `@xyflow/react@12.11.2`, including the v12 named export, integrated node-resizer components, public node store selectors, and `nodeLookup` migration.
 - Flow/3D Director Console：开始按 LibTV 线上导演台进行替代式重写，不再保留 Tanva 导演台额外能力。顶部采用导演/机位视角，底部采用场景编辑/动画时间轴；新建场景默认包含机位1、角色A和 LibTV 同款 3D 场景参数；节点句柄改为 `target/source`。后续继续移除旧灰模样片与镜头片段时间线，改为截图输出和属性关键帧轨道。

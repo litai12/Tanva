@@ -7222,7 +7222,7 @@ export class AiController {
           );
           if (usage.inputTokens + usage.outputTokens <= 0) {
             throw new BadGatewayException(
-              '豆包视频分析未返回 token usage，无法按官方价格结算',
+              '豆包视频分析未返回 token usage，无法完成按量计费',
             );
           }
           const billing = calculateDoubaoSeedVideoAnalysisBilling(model, usage);
@@ -7242,7 +7242,10 @@ export class AiController {
               processingTime,
               analysisMode: 'remote_input_video',
               usage,
-              billing,
+              billing: {
+                billingMode: billing.billingMode,
+                creditsCharged: billing.creditsCharged,
+              },
             },
             consumedCredits: billing.creditsCharged,
             billingMetadata: {
