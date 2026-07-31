@@ -35,20 +35,29 @@ type AliVideoRequest struct {
 
 // AliVideoInput 视频输入参数
 type AliVideoInput struct {
-	Prompt         string `json:"prompt,omitempty"`          // 文本提示词
-	ImgURL         string `json:"img_url,omitempty"`         // 首帧图像URL或Base64（图生视频）
-	FirstFrameURL  string `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
-	LastFrameURL   string `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
-	AudioURL       string `json:"audio_url,omitempty"`       // 音频URL（wan2.5支持）
-	NegativePrompt string `json:"negative_prompt,omitempty"` // 反向提示词
-	Template       string `json:"template,omitempty"`        // 视频特效模板
+	Prompt             string          `json:"prompt,omitempty"`               // 文本提示词
+	ImgURL             string          `json:"img_url,omitempty"`              // 首帧图像URL或Base64（图生视频）
+	FirstFrameURL      string          `json:"first_frame_url,omitempty"`      // 首帧图片URL（首尾帧生视频）
+	LastFrameURL       string          `json:"last_frame_url,omitempty"`       // 尾帧图片URL（首尾帧生视频）
+	AudioURL           string          `json:"audio_url,omitempty"`            // 音频URL（wan2.5/wan2.6）
+	NegativePrompt     string          `json:"negative_prompt,omitempty"`      // 反向提示词
+	Template           string          `json:"template,omitempty"`             // 视频特效模板
+	ReferenceVideoURLs []string        `json:"reference_video_urls,omitempty"` // wan2.6-r2v 参考视频
+	Media              []AliVideoMedia `json:"media,omitempty"`                // wan2.7 / HappyHorse 多模态输入
+}
+
+type AliVideoMedia struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 // AliVideoParameters 视频参数
 type AliVideoParameters struct {
 	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
+	Ratio        string `json:"ratio,omitempty"`         // 画幅: 16:9/9:16/1:1/4:3/3:4
 	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
+	ShotType     string `json:"shot_type,omitempty"`     // 单镜头/多镜头
 	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
 	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
 	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5）

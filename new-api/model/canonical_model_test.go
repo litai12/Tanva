@@ -25,6 +25,8 @@ func TestCanonicalModelKey(t *testing.T) {
 		{input: "sora-2-8s", want: "sora2"},
 		{input: "sora-2-12s", want: "sora2"},
 		{input: "sora-2-oai", want: "sora2"},
+		{input: "wan2.6-r2v", want: "wan2.6-r2v"},
+		{input: "wan-2.6-r2v", want: "wan2.6-r2v"},
 	}
 
 	for _, tt := range tests {

@@ -245,19 +245,25 @@ export const CREDIT_PRICING_CONFIG = {
   // Wan2.6 视频服务
   'wan26-video': {
     serviceName: 'Wan2.6 生成视频',
-    provider: 'dashscope',
+    provider: 'new-api',
     creditsPerCall: 600,
     description: '使用 Wan2.6 生成视频（T2V/I2V）',
   },
   'wan26-r2v': {
     serviceName: 'Wan2.6 参考视频',
-    provider: 'dashscope',
+    provider: 'new-api',
     creditsPerCall: 600,
     description: '使用 Wan2.6 参考视频生成视频',
   },
+  'wan27-video': {
+    serviceName: 'Wan2.7 生成视频',
+    provider: 'new-api',
+    creditsPerCall: 600,
+    description: '通过 new-api 使用 Wan2.7 I2V 生成视频',
+  },
   'happyhorse-r2v-video': {
     serviceName: '快乐马多图参考',
-    provider: 'dashscope',
+    provider: 'new-api',
     creditsPerCall: 600, // fallback：5s × 120 credits/s（720P，节点默认）
     description: '使用 HappyHorse 1.0 R2V 多图参考生成视频',
     dynamicPricing: {

@@ -212,6 +212,16 @@ export interface VideoGenerationResult {
 
 @Injectable()
 export class VideoProviderService {
+  private static readonly DASHSCOPE_VIDEO_MODELS = new Set([
+    "wan2.6-t2v",
+    "wan2.6-i2v",
+    "wan2.6-r2v",
+    "wan2.7-i2v",
+    "happyhorse-1.0-t2v",
+    "happyhorse-1.0-i2v",
+    "happyhorse-1.0-r2v",
+    "happyhorse-1.0-video-edit",
+  ]);
   private readonly logger = new Logger(VideoProviderService.name);
   private readonly doubaoVideoCache = new Map<string, { url: string; touchedAt: number }>();
   private readonly doubaoVideoCacheTtlMs = 60 * 60 * 1000;
@@ -826,6 +836,98 @@ export class VideoProviderService {
       }
     }
     throw previousError || new ServiceUnavailableException("Seedance 视频任务创建失败");
+  }
+
+  /**
+   * Submit the legacy-compatible Wan/HappyHorse payload through new-api.
+   * Tanva keeps only NEW_API_KEY; the real DashScope credential is owned by
+   * the type=17 channel configured in new-api.
+   */
+  async createDashscopeVideoTask(body: Record<string, any>): Promise<VideoGenerationResult> {
+    if (!this.newApiKey) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    }
+
+    const model = typeof body?.model === "string" ? body.model.trim() : "";
+    if (!VideoProviderService.DASHSCOPE_VIDEO_MODELS.has(model)) {
+      throw new BadRequestException(`不支持的 DashScope 视频模型: ${model || "(empty)"}`);
+    }
+
+    const input =
+      body?.input && typeof body.input === "object" && !Array.isArray(body.input)
+        ? { ...body.input }
+        : {};
+    const parameters =
+      body?.parameters && typeof body.parameters === "object" && !Array.isArray(body.parameters)
+        ? { ...body.parameters }
+        : {};
+    const durationValue = Number(parameters.duration);
+    const duration =
+      Number.isFinite(durationValue) && durationValue > 0
+        ? Math.round(durationValue)
+        : undefined;
+
+    const payload = this.stripUndefined({
+      model,
+      prompt: typeof input.prompt === "string" ? input.prompt : "",
+      duration,
+      size: typeof parameters.size === "string" ? parameters.size : undefined,
+      resolution:
+        typeof parameters.resolution === "string" ? parameters.resolution : undefined,
+      aspect_ratio: typeof parameters.ratio === "string" ? parameters.ratio : undefined,
+      metadata: {
+        input,
+        parameters,
+      },
+      provider_options: {
+        sourceProvider: "dashscope",
+        managedBy: "new-api",
+      },
+    });
+
+    this.logger.log(`new-api DashScope 视频任务创建: model=${model}`);
+    const result = await this.requestNewApiJson("/v1/videos", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const createStatus = this.normalizeNewApiStatus(result);
+    if (createStatus === "failed") {
+      const createData = this.firstNewApiDataEntry(result);
+      const nestedError = createData?.error || result?.error;
+      const createError =
+        nestedError?.message ||
+        nestedError?.code ||
+        result?.fail_reason ||
+        createData?.fail_reason ||
+        result?.message ||
+        createData?.message ||
+        "new-api 视频任务创建失败";
+      throw new BadRequestException(String(createError));
+    }
+
+    const rawTaskId = this.extractTaskId(result);
+    const videoUrl = this.extractVideoUrl(result);
+    if (!rawTaskId && !videoUrl) {
+      throw new ServiceUnavailableException(
+        `new-api 未返回视频任务 ID 或视频地址: ${JSON.stringify(result)}`,
+      );
+    }
+
+    return {
+      taskId: rawTaskId ? `${this.newApiTaskPrefix}${rawTaskId}` : "",
+      status: videoUrl ? "succeeded" : "queued",
+      videoUrl,
+      thumbnailUrl: this.extractThumbnailUrl(result),
+      execution: {
+        modelKey: model,
+        vendorKey: "new_api",
+        platformKey: "new_api",
+        route: "new-api",
+        providerChannel: "new_api",
+        routedProvider: "dashscope",
+        fallbackUsed: false,
+      },
+    };
   }
 
   private async generateVideoAttempt(
@@ -1552,7 +1654,7 @@ export class VideoProviderService {
         data?.reason ||
         result?.message ||
         data?.message ||
-        "Seedance 视频任务失败";
+        "new-api 视频任务失败";
       return { status, thumbnailUrl, error };
     }
 

@@ -53,6 +53,13 @@
 - 视频分析仍由 `resolveGeminiVideoModel` 选择 Gemini 视频理解模型；小T走独立三档 facade：Fast GPT-5.4、Pro GPT-5.5、Ultra GPT-5.6 Luna。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
 
+## 2026-07-30 Wan / HappyHorse new-api Routing
+
+- 旧客户端继续调用 `/api/ai/dashscope/*` 兼容 URL，但 Wan2.6 T2V/I2V/R2V、Wan2.7 I2V 与 HappyHorse 全部由后端提交到 new-api `/v1/videos`；新任务统一使用 `newapi:` 前缀并通过网关查询。
+- Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`，不再读取或部署 `DASHSCOPE_API_KEY`。真实 DashScope 凭据只允许保存在 new-api 的 type `17` 阿里渠道中，渠道需为 `default` 分组启用对应模型 abilities。
+- 为兼容现有前端，Wan2.6 T2V 与 R2V 仍在后端等待任务终态并返回同步 `videoUrl`；Wan2.6 I2V、Wan2.7 I2V 与 HappyHorse 继续异步返回任务 ID，积分保持 pending，最终由现有成功/退款回写接口结算。
+- 无付费验证：`npm run verify:dashscope-new-api-routing` mock new-api，检查 HappyHorse `media[]`、Wan R2V `reference_video_urls`、原生参数透传、`newapi:` 任务前缀，并阻止 Controller 恢复 DashScope 直连地址或环境变量。
+
 ## 2026-06-17 Omni Flash Ext APIMart
 - `managedModelKey=omni-flash-ext` resolves to the APIMart new-api video model via the default `model_provider_mapping_v2` `new_api` vendor and keeps credit routing on the same managed model instead of falling through to Kling 2.6 defaults.
 - The new-api APIMart payload builder has an `omni-flash-ext` branch: prompt is required; `image_urls` are collected from standard image fields and metadata content; up to 3 images are accepted, and 2+ image requests require `generation_type=reference`; `video_urls` are collected from reference video fields/metadata, limited to one URL, and cause `duration` to be omitted.
@@ -122,7 +129,7 @@
 
 ## 配置项（以代码与环境为准�?
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` �?
-- 视频/供应商：`DASHSCOPE_API_KEY`、`SORA2_API_ENDPOINT`、`BANANA_API_KEY` �?
+- 视频/供应商：`NEW_API_BASE_URL`、`NEW_API_KEY`、`SORA2_API_ENDPOINT`、`BANANA_API_KEY` �?
 - Banana/Apimart 文本与图像：`BANANA_API_KEY`�?47）、`NANO2_API_KEY`（Apimart�?
 
 ## 2026-04-24 Update

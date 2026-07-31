@@ -2244,7 +2244,7 @@ export async function querySora2VideoTaskViaAPI(
 }
 
 /**
- * 调用后端代理的 DashScope Wan2.6-t2v 文生视频接口
+ * 调用后端保留的 new-api 兼容入口生成 Wan2.6-t2v 视频
  */
 export async function generateWan26T2VViaAPI(request: {
   prompt: string;
@@ -2311,7 +2311,7 @@ export async function generateWan26T2VViaAPI(request: {
 }
 
 /**
- * 调用后端代理的 DashScope Wan2.6-i2v 图生视频接口
+ * 调用后端保留的 new-api 兼容入口生成 Wan2.6-i2v 视频
  */
 export async function generateWan26I2VViaAPI(request: {
   prompt: string;
@@ -2380,7 +2380,7 @@ export async function generateWan26I2VViaAPI(request: {
 }
 
 /**
- * 调用后端代理的 DashScope Wan2.6 统一接口
+ * 调用后端保留的 new-api 兼容入口生成 Wan2.6 视频
  * 前端根据是否有 imgUrl 自动判断调用 T2V 还是 I2V
  */
 export async function generateWan26ViaAPI(request: {
@@ -2434,7 +2434,7 @@ export async function generateWan26ViaAPI(request: {
 }
 
 /**
- * 调用后端代理的 DashScope Wan2.6-r2v 参考视频生成视频接口
+ * 调用后端保留的 new-api 兼容入口生成 Wan2.6-r2v 视频
  */
 export async function generateWan26R2VViaAPI(request: {
   prompt: string;
@@ -2512,7 +2512,7 @@ export type HappyhorseMediaItem =
   | { type: "video"; url: string };
 
 /**
- * 调用后端代理的 DashScope HappyHorse 视频生成接口（支持 t2v / i2v / r2v / video-edit）。
+ * 调用后端保留的 new-api 兼容入口生成 HappyHorse 视频（支持 t2v / i2v / r2v / video-edit）。
  * 由 body.model 决定上游模型；media 数组按所选模型自行组装：
  *   - t2v:        无 media
  *   - i2v:        media = [{type:"first_frame", url}]
@@ -2587,7 +2587,7 @@ export async function generateHappyhorseVideoViaAPI(request: {
 }
 
 /**
- * 调用后端代理的 DashScope Wan2.7-i2v 接口
+ * 调用后端保留的 new-api 兼容入口生成 Wan2.7-i2v 视频
  */
 export async function generateWan27I2VViaAPI(request: {
   prompt?: string;
@@ -2659,7 +2659,7 @@ export async function generateWan27I2VViaAPI(request: {
 }
 
 /**
- * 查询 DashScope 任务状态（用于 wan2.6 I2V 异步模式轮询）
+ * 查询 new-api 视频任务状态（兼容旧 DashScope URL）
  */
 export async function queryDashscopeTask(taskId: string): Promise<{
   success: boolean;
@@ -2686,6 +2686,9 @@ export async function queryDashscopeTask(taskId: string): Promise<{
       success: true,
       status: result.data?.status,
       videoUrl: result.data?.videoUrl || result.data?.video_url,
+      ...(result.data?.error
+        ? { error: { message: String(result.data.error) } }
+        : {}),
     };
   } catch (error) {
     return {

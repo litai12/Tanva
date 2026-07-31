@@ -3126,9 +3126,12 @@ export class AiController {
     return {
       managedModelKey: options.managedModelKey,
       modelKey: options.managedModelKey,
-      vendorKey: 'dashscope',
-      platformKey: 'dashscope',
-      aiProvider: 'dashscope',
+      vendorKey: 'new_api',
+      platformKey: 'new_api',
+      aiProvider: 'new-api',
+      route: 'new-api',
+      providerChannel: 'new_api',
+      routedProvider: 'dashscope',
       generationMode: options.generationMode,
       ...(resolution ? { resolution } : {}),
       ...(duration ? { duration, durationSec: duration } : {}),
@@ -3184,137 +3187,93 @@ export class AiController {
     return next;
   }
 
-  /**
-   * 共用：轮询 DashScope 异步视频任务，返回最终视频 URL 或失败/超时错误。
-   * 仅供新接入的 endpoint 使用；现有 wan26-* / wan27-* 各自的 inline 轮询保持不变（避免连带回归）。
-   */
-  private async pollDashScopeVideoTask(
-    dashKey: string,
-    taskId: string,
-    label: string,
-  ): Promise<
-    | { success: true; data: any }
-    | { success: false; error: { message: string; details?: any } }
-  > {
-    const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-    const intervalMs = 15000;
+  private buildDashscopeCompatVideoResponse(result: {
+    taskId?: string;
+    status?: string;
+    videoUrl?: string;
+    thumbnailUrl?: string;
+  }): any {
+    const taskId =
+      typeof result.taskId === 'string' && result.taskId.trim()
+        ? result.taskId.trim()
+        : undefined;
+    const videoUrl =
+      typeof result.videoUrl === 'string' && result.videoUrl.trim()
+        ? result.videoUrl.trim()
+        : undefined;
+
+    return {
+      success: true,
+      data: {
+        ...(taskId ? { taskId, task_id: taskId } : {}),
+        status: result.status,
+        ...(videoUrl
+          ? {
+              videoUrl,
+              video_url: videoUrl,
+              output: { video_url: videoUrl },
+            }
+          : {}),
+        ...(result.thumbnailUrl ? { thumbnail: result.thumbnailUrl } : {}),
+        raw: {
+          provider: 'new-api',
+          routedProvider: 'dashscope',
+        },
+      },
+    };
+  }
+
+  private async submitDashscopeVideoViaNewApi(
+    body: any,
+    options?: { waitForCompletion?: boolean },
+  ): Promise<any> {
+    const result = await this.videoProviderService.createDashscopeVideoTask(body);
+    const initial = this.buildDashscopeCompatVideoResponse(result);
+    if (
+      options?.waitForCompletion !== true ||
+      result.videoUrl ||
+      !result.taskId
+    ) {
+      return initial;
+    }
+
+    const intervalMs = 15_000;
     const maxAttempts = 40;
-
-    const extractVideoUrl = (obj: any) =>
-      obj?.output?.video_url ||
-      obj?.video_url ||
-      obj?.videoUrl ||
-      (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
-      undefined;
-
-    this.logger.log(
-      `🔁 Start polling DashScope ${label} task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`,
-    );
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise((r) => setTimeout(r, intervalMs));
-      try {
-        const statusResp = await fetch(statusUrl, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${dashKey}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (!statusResp.ok) {
-          const errBody = await statusResp.text().catch(() => '');
-          this.logger.warn(`DashScope ${label} status check non-OK`, {
-            status: statusResp.status,
-            body: errBody,
-          });
-          continue;
-        }
-        const statusData = await statusResp.json().catch(() => ({}));
-        this.logger.debug(
-          `🔎 DashScope ${label} status (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`,
-        );
-        const statusValue = (
-          statusData?.output?.task_status ||
-          statusData?.status ||
-          statusData?.state ||
-          statusData?.task_status ||
-          ''
-        )
-          .toString()
-          .toLowerCase();
-
-        if (statusValue === 'succeeded' || statusValue === 'success') {
-          const finalVideoUrl =
-            extractVideoUrl(statusData) ||
-            extractVideoUrl(statusData?.result) ||
-            extractVideoUrl(statusData?.output) ||
-            undefined;
-          if (!finalVideoUrl) {
-            this.logger.warn(
-              `DashScope ${label} task ${taskId} succeeded but no video URL`,
-              { dataPreview: JSON.stringify(statusData).slice(0, 400) },
-            );
-            return {
-              success: false,
-              error: {
-                message: 'DashScope 任务已完成但未返回视频地址',
-                details: statusData,
-              },
-            };
-          }
-          this.logger.log(
-            `✅ DashScope ${label} task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`,
-          );
-          return {
-            success: true,
-            data: {
-              taskId,
-              status: statusValue,
-              videoUrl: finalVideoUrl,
-              video_url: finalVideoUrl,
-              output: { video_url: finalVideoUrl },
-              raw: statusData,
-            },
-          };
-        }
-        if (statusValue === 'failed' || statusValue === 'error') {
-          const failureCode =
-            statusData?.output?.code ||
-            statusData?.code ||
-            statusData?.output?.error_code ||
-            statusData?.output?.error?.code;
-          const failureMessage =
-            statusData?.output?.message ||
-            statusData?.message ||
-            statusData?.output?.error?.message ||
-            statusData?.output?.error_message ||
-            statusData?.output?.error?.msg ||
-            statusData?.output?.reason;
-          const message =
-            typeof failureMessage === 'string' && failureMessage.trim().length > 0
-              ? failureCode
-                ? `${String(failureCode)}: ${failureMessage}`
-                : failureMessage
-              : `DashScope ${label} task failed`;
-          this.logger.error(`❌ DashScope ${label} task ${taskId} failed`, {
-            message,
-            raw: statusData,
-          });
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      await this.delay(intervalMs);
+      const queried = await this.videoProviderService.queryTask('wan2.7', result.taskId);
+      const status = String(queried.status || '').trim().toLowerCase();
+      if (status === 'succeeded' || status === 'success') {
+        if (!queried.videoUrl) {
           return {
             success: false,
-            error: { message, details: statusData },
+            error: { message: 'new-api 任务已完成但未返回视频地址' },
           };
         }
-      } catch (err: any) {
-        this.logger.warn(`DashScope ${label} polling exception, will retry`, err);
+        return this.buildDashscopeCompatVideoResponse({
+          taskId: result.taskId,
+          status: 'succeeded',
+          videoUrl: queried.videoUrl,
+          thumbnailUrl: queried.thumbnailUrl,
+        });
+      }
+      if (
+        status === 'failed' ||
+        status === 'failure' ||
+        status === 'error' ||
+        status === 'cancelled' ||
+        status === 'canceled'
+      ) {
+        return {
+          success: false,
+          error: { message: queried.error || 'new-api 视频任务失败' },
+        };
       }
     }
-    this.logger.warn(
-      `⏳ DashScope ${label} task ${taskId} polling timed out after ${maxAttempts} attempts`,
-    );
+
     return {
       success: false,
-      error: { message: `DashScope ${label} task polling timed out` },
+      error: { message: 'new-api 视频任务轮询超时' },
     };
   }
 
@@ -3415,9 +3374,12 @@ export class AiController {
     return {
       managedModelKey: model,
       modelKey: model,
-      vendorKey: 'dashscope',
-      platformKey: 'dashscope',
-      aiProvider: 'dashscope',
+      vendorKey: 'new_api',
+      platformKey: 'new_api',
+      aiProvider: 'new-api',
+      route: 'new-api',
+      providerChannel: 'new_api',
+      routedProvider: 'dashscope',
       generationMode,
       resolution,
       duration,
@@ -6930,678 +6892,167 @@ export class AiController {
   }
 
   /**
-   * DashScope Wan2.6-t2v proxy endpoint
+   * Wan2.6-t2v compatibility endpoint; new-api owns the DashScope channel.
    */
   @Post('dashscope/generate-wan26-t2v')
   async generateWan26T2VViaDashscope(@Body() body: any, @Req() req: any) {
-    return this.withCredits(req, 'wan26-video', 'wan2.6-t2v', async () => {
-      const dashKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashKey) {
-        this.logger.error('DASHSCOPE_API_KEY not configured');
-        return { success: false, error: { message: 'DASHSCOPE_API_KEY not configured on server' } };
-      }
-
-      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-
-      try {
-        const response = await fetch(dashUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${dashKey}`,
-            'X-DashScope-Async': 'enable',
-          },
-          body: JSON.stringify(body),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || this.getHttpErrorMessage(response.status), details: data } };
-        }
-
-        const extractVideoUrl = (obj: any) => obj?.output?.video_url || obj?.video_url || obj?.videoUrl || (Array.isArray(obj?.output) && obj.output[0]?.video_url) || undefined;
-        const videoUrlDirect = extractVideoUrl(data);
-        if (videoUrlDirect) return { success: true, data };
-
-        const taskId = data?.taskId || data?.task_id || data?.id || data?.output?.task_id || data?.result?.task_id || data?.output?.[0]?.task_id || data?.data?.task_id || data?.data?.output?.task_id;
-        if (!taskId) {
-          this.logger.warn('DashScope wan2.6-t2v create response contains no task id and no video url', {
-            dataPreview: JSON.stringify(data).slice(0, 400),
-          });
-          return {
-            success: false,
-            error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
-              details: data,
-            },
-          };
-        }
-
-        const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-        const intervalMs = 15000;
-        const maxAttempts = 40;
-
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          await new Promise((r) => setTimeout(r, intervalMs));
-          try {
-            const statusResp = await fetch(statusUrl, { method: 'GET', headers: { Authorization: `Bearer ${dashKey}`, 'Content-Type': 'application/json' } });
-            if (!statusResp.ok) continue;
-            const statusData = await statusResp.json().catch(() => ({}));
-            const statusValue = (statusData?.output?.task_status || statusData?.status || statusData?.state || statusData?.task_status || '').toString().toLowerCase();
-
-            if (statusValue === 'succeeded' || statusValue === 'success') {
-              const finalVideoUrl = extractVideoUrl(statusData) || extractVideoUrl(statusData?.result) || extractVideoUrl(statusData?.output) || undefined;
-              if (!finalVideoUrl) {
-                this.logger.warn('DashScope wan2.6-t2v task succeeded but no video URL in response', {
-                  taskId,
-                  dataPreview: JSON.stringify(statusData).slice(0, 400),
-                });
-                return {
-                  success: false,
-                  error: {
-                    message: 'DashScope 任务已完成但未返回视频地址',
-                    details: statusData,
-                  },
-                };
-              }
-              return { success: true, data: { taskId, status: statusValue, videoUrl: finalVideoUrl, video_url: finalVideoUrl, output: { video_url: finalVideoUrl }, raw: statusData } };
-            }
-            if (statusValue === 'failed' || statusValue === 'error') {
-              return { success: false, error: { message: 'DashScope task failed', details: statusData } };
-            }
-          } catch { continue; }
-        }
-        return { success: false, error: { message: 'DashScope task polling timed out' } };
-      } catch (error: any) {
-        this.logger.error('❌ DashScope request exception', error);
-        return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
-      }
-    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
-      managedModelKey: 'wan-2.6',
-      generationMode: 't2v',
-      requestPrompt: body?.input?.prompt,
-      requestThumbnailUrls: typeof body?.input?.audio_url === 'string' ? [body.input.audio_url] : [],
-    }), {
-      treatReturnedFailureAsError: true,
-    });
+    return this.withCredits(
+      req,
+      'wan26-video',
+      'wan2.6-t2v',
+      async () =>
+        this.submitDashscopeVideoViaNewApi(body, { waitForCompletion: true }),
+      undefined,
+      undefined,
+      undefined,
+      this.buildWanCreditRequestParams(body, {
+        managedModelKey: 'wan-2.6',
+        generationMode: 't2v',
+        requestPrompt: body?.input?.prompt,
+        requestThumbnailUrls:
+          typeof body?.input?.audio_url === 'string' ? [body.input.audio_url] : [],
+      }),
+      { treatReturnedFailureAsError: true },
+    );
   }
 
   /**
-   * DashScope Wan2.6-i2v proxy endpoint
+   * Wan2.6-i2v compatibility endpoint; new-api owns the DashScope channel.
    */
   @Post('dashscope/generate-wan2-6-i2v')
   async generateWan26I2VViaDashscope(@Body() body: any, @Req() req: any) {
-    return this.withCredits(req, 'wan26-video', 'wan2.6-i2v', async () => {
-      const dashKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashKey) {
-        this.logger.error('DASHSCOPE_API_KEY not configured');
-        return {
-          success: false,
-          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
-        };
-      }
-
-      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-      const normalizedBody = this.normalizeWanI2VBodyForUpstream(body);
-
-      try {
-        const response = await fetch(dashUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${dashKey}`,
-            'X-DashScope-Async': 'enable',
-          },
-          body: JSON.stringify(normalizedBody),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          this.logger.error('DashScope i2v create task failed', {
-            status: response.status,
-            body: data,
-          });
-          return {
-            success: false,
-            error: {
-              code: `HTTP_${response.status}`,
-              message: data?.message || this.getHttpErrorMessage(response.status),
-              details: data,
-            },
-          };
-        }
-
-        this.logger.log('✅ DashScope i2v task created', {
-          resultPreview: JSON.stringify(data).slice(0, 200),
-        });
-
-        const extractVideoUrl = (obj: any) =>
-          obj?.output?.video_url ||
-          obj?.video_url ||
-          obj?.videoUrl ||
-          (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
-          undefined;
-        const videoUrlDirect = extractVideoUrl(data);
-        if (videoUrlDirect) return { success: true, data };
-
-        const taskId =
-          data?.taskId ||
-          data?.task_id ||
-          data?.id ||
-          data?.output?.task_id ||
-          data?.result?.task_id ||
-          data?.output?.[0]?.task_id ||
-          data?.data?.task_id ||
-          data?.data?.output?.task_id;
-
-        if (!taskId) {
-          this.logger.warn('DashScope i2v create response contains no task id and no video url', {
-            dataPreview: JSON.stringify(data).slice(0, 200),
-          });
-          return {
-            success: false,
-            error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
-              details: data,
-            },
-          };
-        }
-
-        // 异步模式：立即返回 taskId，前端轮询查询状态
-        this.logger.log(`✅ DashScope i2v task created: ${taskId}`);
-        return {
-          success: true,
-          data: {
-            taskId,
-            task_id: taskId,
-            status: 'pending',
-            raw: data,
-          },
-        };
-      } catch (error: any) {
-        this.logger.error('❌ DashScope i2v request exception', error);
-        return {
-          success: false,
-          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
-        };
-      }
-    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
-      managedModelKey: 'wan-2.6',
-      generationMode: 'i2v',
-      requestPrompt: body?.input?.prompt,
-      requestThumbnailUrls: [
-        body?.input?.img_url,
-        body?.input?.audio_url,
-      ],
-      hasAudio: true,
-    }), {
-      treatReturnedFailureAsError: true,
-      skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
-    });
+    const normalizedBody = this.normalizeWanI2VBodyForUpstream(body);
+    return this.withCredits(
+      req,
+      'wan26-video',
+      'wan2.6-i2v',
+      async () => this.submitDashscopeVideoViaNewApi(normalizedBody),
+      undefined,
+      undefined,
+      undefined,
+      this.buildWanCreditRequestParams(body, {
+        managedModelKey: 'wan-2.6',
+        generationMode: 'i2v',
+        requestPrompt: body?.input?.prompt,
+        requestThumbnailUrls: [body?.input?.img_url, body?.input?.audio_url],
+        hasAudio: true,
+      }),
+      {
+        treatReturnedFailureAsError: true,
+        skipFinalizeSuccessIf: (result: any) =>
+          this.isDashscopeVideoAsyncPending(result),
+      },
+    );
   }
 
   /**
-   * DashScope Wan2.7-i2v proxy endpoint
+   * Wan2.7-i2v compatibility endpoint; new-api owns the DashScope channel.
    */
   @Post('dashscope/generate-wan2-7-i2v')
   async generateWan27I2VViaDashscope(@Body() body: any, @Req() req: any) {
-    return this.withCredits(req, 'wan27-video', 'wan2.7-i2v', async () => {
-      const dashKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashKey) {
-        this.logger.error('DASHSCOPE_API_KEY not configured');
-        return {
-          success: false,
-          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
-        };
-      }
-
-      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-      const normalizedBody = this.normalizeWan27I2VBodyForUpstream(body);
-
-      try {
-        const response = await fetch(dashUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${dashKey}`,
-            'X-DashScope-Async': 'enable',
-          },
-          body: JSON.stringify(normalizedBody),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          this.logger.error('DashScope wan2.7-i2v create task failed', {
-            status: response.status,
-            body: data,
-          });
-          return {
-            success: false,
-            error: {
-              code: `HTTP_${response.status}`,
-              message: data?.message || this.getHttpErrorMessage(response.status),
-              details: data,
-            },
-          };
-        }
-
-        const taskId =
-          data?.taskId ||
-          data?.task_id ||
-          data?.id ||
-          data?.output?.task_id ||
-          data?.result?.task_id ||
-          data?.output?.[0]?.task_id ||
-          data?.data?.task_id ||
-          data?.data?.output?.task_id;
-
-        if (!taskId) {
-          this.logger.warn('DashScope wan2.7-i2v create response contains no task id', {
-            dataPreview: JSON.stringify(data).slice(0, 300),
-          });
-          return {
-            success: false,
-            error: {
-              message: 'DashScope 未返回任务 ID',
-              details: data,
-            },
-          };
-        }
-
-        return {
-          success: true,
-          data: {
-            taskId,
-            task_id: taskId,
-            status: 'pending',
-            raw: data,
-          },
-        };
-      } catch (error: any) {
-        this.logger.error('❌ DashScope wan2.7-i2v request exception', error);
-        return {
-          success: false,
-          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
-        };
-      }
-    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
-      managedModelKey: 'wan-2.7',
-      generationMode: 'i2v',
-      requestPrompt: body?.input?.prompt,
-      requestThumbnailUrls: Array.isArray(body?.input?.media)
-        ? body.input.media.map((item: any) => item?.url).filter(Boolean)
-        : [],
-      hasAudio: true,
-    }), {
-      treatReturnedFailureAsError: true,
-      skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
-    });
+    const normalizedBody = this.normalizeWan27I2VBodyForUpstream(body);
+    return this.withCredits(
+      req,
+      'wan27-video',
+      'wan2.7-i2v',
+      async () => this.submitDashscopeVideoViaNewApi(normalizedBody),
+      undefined,
+      undefined,
+      undefined,
+      this.buildWanCreditRequestParams(body, {
+        managedModelKey: 'wan-2.7',
+        generationMode: 'i2v',
+        requestPrompt: body?.input?.prompt,
+        requestThumbnailUrls: Array.isArray(body?.input?.media)
+          ? body.input.media.map((item: any) => item?.url).filter(Boolean)
+          : [],
+        hasAudio: true,
+      }),
+      {
+        treatReturnedFailureAsError: true,
+        skipFinalizeSuccessIf: (result: any) =>
+          this.isDashscopeVideoAsyncPending(result),
+      },
+    );
   }
 
   /**
-   * DashScope 任务状态查询接口（前端轮询用）
+   * Compatibility task query. New tasks carry a newapi: prefix and are polled
+   * through the gateway; no DashScope credential is present in this service.
    */
   @Get('dashscope/task/:taskId')
   async getDashscopeTaskStatus(@Param('taskId') taskId: string) {
-    const dashKey = process.env.DASHSCOPE_API_KEY;
-    if (!dashKey) {
-      return { success: false, error: { message: 'DASHSCOPE_API_KEY not configured' } };
-    }
-
-    const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
     try {
-      const resp = await fetch(statusUrl, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${dashKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        return { success: false, error: { code: `HTTP_${resp.status}`, details: data } };
-      }
-
-      const statusValue = (
-        data?.output?.task_status || data?.status || data?.state || ''
-      ).toString().toLowerCase();
-
-      const extractVideoUrl = (obj: any) =>
-        obj?.output?.video_url || obj?.video_url || obj?.videoUrl ||
-        (Array.isArray(obj?.output) && obj.output[0]?.video_url) || undefined;
-
-      const videoUrl = extractVideoUrl(data) || extractVideoUrl(data?.output);
-
+      const result = await this.videoProviderService.queryTask('wan2.7', taskId);
       return {
         success: true,
-        data: { taskId, status: statusValue, videoUrl, video_url: videoUrl, raw: data },
+        data: {
+          taskId,
+          status: result.status,
+          videoUrl: result.videoUrl,
+          video_url: result.videoUrl,
+          thumbnail: result.thumbnailUrl,
+          ...(result.error ? { error: result.error } : {}),
+          raw: { provider: 'new-api', routedProvider: 'dashscope' },
+        },
       };
-    } catch (err: any) {
-      return { success: false, error: { message: err?.message || String(err) } };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: { message: error?.message || String(error) },
+      };
     }
   }
 
   /**
-   * DashScope Wan2.6-r2v proxy endpoint
+   * Wan2.6-r2v compatibility endpoint; new-api owns the DashScope channel.
+   * This endpoint keeps the historical synchronous response contract.
    */
   @Post('dashscope/generate-wan2-6-r2v')
   async generateWan26R2VViaDashscope(@Body() body: any, @Req() req: any) {
-    return this.withCredits(req, 'wan26-r2v', 'wan2.6-r2v', async () => {
-      const dashKey = process.env.DASHSCOPE_API_KEY;
-      if (!dashKey) {
-        this.logger.error('DASHSCOPE_API_KEY not configured');
-        return {
-          success: false,
-          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
-        };
-      }
-
-      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-      const normalizedBody = this.normalizeWanR2VBodyForUpstream(body);
-
-      try {
-        const response = await fetch(dashUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${dashKey}`,
-            'X-DashScope-Async': 'enable',
-          },
-          body: JSON.stringify(normalizedBody),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          this.logger.error('DashScope r2v create task failed', {
-            status: response.status,
-            body: data,
-          });
-          return {
-            success: false,
-            error: {
-              code: `HTTP_${response.status}`,
-              message: data?.message || this.getHttpErrorMessage(response.status),
-              details: data,
-            },
-          };
-        }
-
-        this.logger.log('✅ DashScope r2v task created', {
-          resultPreview: JSON.stringify(data).slice(0, 200),
-        });
-
-        const extractVideoUrl = (obj: any) =>
-          obj?.output?.video_url ||
-          obj?.video_url ||
-          obj?.videoUrl ||
-          (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
-          undefined;
-        const videoUrlDirect = extractVideoUrl(data);
-        if (videoUrlDirect) return { success: true, data };
-
-        const taskId =
-          data?.taskId ||
-          data?.task_id ||
-          data?.id ||
-          data?.output?.task_id ||
-          data?.result?.task_id ||
-          data?.output?.[0]?.task_id ||
-          data?.data?.task_id ||
-          data?.data?.output?.task_id;
-        if (!taskId) {
-          this.logger.warn('DashScope r2v create response contains no task id and no video url', {
-            dataPreview: JSON.stringify(data).slice(0, 200),
-          });
-          return {
-            success: false,
-            error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
-              details: data,
-            },
-          };
-        }
-
-        const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-        const intervalMs = 15000;
-        const maxAttempts = 40;
-        this.logger.log(
-          `🔁 Start polling DashScope r2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
-        );
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          await new Promise((r) => setTimeout(r, intervalMs));
-          try {
-            const statusResp = await fetch(statusUrl, {
-              method: 'GET',
-              headers: {
-                Authorization: `Bearer ${dashKey}`,
-                'Content-Type': 'application/json',
-              },
-            });
-            if (!statusResp.ok) {
-              const errBody = await statusResp.text().catch(() => '');
-              this.logger.warn('DashScope r2v status check non-OK', {
-                status: statusResp.status,
-                body: errBody,
-              });
-              continue;
-            }
-            const statusData = await statusResp.json().catch(() => ({}));
-            this.logger.debug(
-              `🔎 DashScope r2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
-            );
-            const statusValue = (
-              statusData?.output?.task_status ||
-              statusData?.status ||
-              statusData?.state ||
-              statusData?.task_status ||
-              ''
-            )
-              .toString()
-              .toLowerCase();
-
-            if (statusValue === 'succeeded' || statusValue === 'success') {
-              const finalVideoUrl =
-                extractVideoUrl(statusData) ||
-                extractVideoUrl(statusData?.result) ||
-                extractVideoUrl(statusData?.output) ||
-                undefined;
-              if (!finalVideoUrl) {
-                this.logger.warn(`DashScope r2v task ${taskId} succeeded but no video URL in response`, {
-                  dataPreview: JSON.stringify(statusData).slice(0, 400),
-                });
-                return {
-                  success: false,
-                  error: {
-                    message: 'DashScope 任务已完成但未返回视频地址',
-                    details: statusData,
-                  },
-                };
-              }
-              this.logger.log(
-                `✅ DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
-              );
-              return {
-                success: true,
-                data: {
-                  taskId,
-                  status: statusValue,
-                  videoUrl: finalVideoUrl,
-                  video_url: finalVideoUrl,
-                  output: { video_url: finalVideoUrl },
-                  raw: statusData,
-                },
-              };
-            }
-            if (statusValue === 'failed' || statusValue === 'error') {
-              const failureCode =
-                statusData?.output?.code ||
-                statusData?.code ||
-                statusData?.output?.error_code ||
-                statusData?.output?.error?.code;
-              const failureMessage =
-                statusData?.output?.message ||
-                statusData?.message ||
-                statusData?.output?.error?.message ||
-                statusData?.output?.error_message ||
-                statusData?.output?.error?.msg ||
-                statusData?.output?.reason;
-              const message =
-                typeof failureMessage === 'string' && failureMessage.trim().length > 0
-                  ? (failureCode ? `${String(failureCode)}: ${failureMessage}` : failureMessage)
-                  : 'DashScope r2v task failed';
-
-              this.logger.error(`❌ DashScope r2v task ${taskId} failed`, {
-                message,
-                raw: statusData,
-              });
-              return {
-                success: false,
-                error: { message, details: statusData },
-              };
-            }
-          } catch (err: any) {
-            this.logger.warn('DashScope r2v polling exception, will retry', err);
-          }
-        }
-        this.logger.warn(
-          `⏳ DashScope r2v task ${taskId} polling timed out after ${maxAttempts} attempts`
-        );
-        return {
-          success: false,
-          error: { message: 'DashScope r2v task polling timed out' },
-        };
-      } catch (error: any) {
-        this.logger.error('❌ DashScope r2v request exception', error);
-        return {
-          success: false,
-          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
-        };
-      }
-    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
-      managedModelKey: 'wan-2.6-r2v',
-      generationMode: 'r2v',
-      requestPrompt: body?.input?.prompt,
-      requestThumbnailUrls: Array.isArray(body?.input?.reference_video_urls)
-        ? body.input.reference_video_urls
-        : [],
-      hasAudio: true,
-    }), {
-      treatReturnedFailureAsError: true,
-    });
+    const normalizedBody = this.normalizeWanR2VBodyForUpstream(body);
+    return this.withCredits(
+      req,
+      'wan26-r2v',
+      'wan2.6-r2v',
+      async () =>
+        this.submitDashscopeVideoViaNewApi(normalizedBody, {
+          waitForCompletion: true,
+        }),
+      undefined,
+      undefined,
+      undefined,
+      this.buildWanCreditRequestParams(body, {
+        managedModelKey: 'wan-2.6-r2v',
+        generationMode: 'r2v',
+        requestPrompt: body?.input?.prompt,
+        requestThumbnailUrls: Array.isArray(body?.input?.reference_video_urls)
+          ? body.input.reference_video_urls
+          : [],
+        hasAudio: true,
+      }),
+      { treatReturnedFailureAsError: true },
+    );
   }
 
   @Post('dashscope/generate-happyhorse-video')
   async generateHappyhorseVideoViaDashscope(@Body() body: any, @Req() req: any) {
     const model = this.resolveHappyhorseModelOrThrow(body);
-    const taskLabel = model.replace(/^happyhorse-1\.0-/, 'happyhorse-');
     await this.assertHappyhorseEntitlement(this.getUserId(req), this.getTeamId(req));
+    const normalizedBody = this.normalizeHappyhorseBodyForUpstream(body);
     return this.withCredits(
       req,
       'happyhorse-r2v-video',
       model,
-      async () => {
-        const dashKey = process.env.DASHSCOPE_API_KEY;
-        if (!dashKey) {
-          this.logger.error('DASHSCOPE_API_KEY not configured');
-          return {
-            success: false,
-            error: { message: 'DASHSCOPE_API_KEY not configured on server' },
-          };
-        }
-
-        const dashUrl =
-          'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-        const normalizedBody = this.normalizeHappyhorseBodyForUpstream(body);
-
-        try {
-          const response = await fetch(dashUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${dashKey}`,
-              'X-DashScope-Async': 'enable',
-            },
-            body: JSON.stringify(normalizedBody),
-          });
-
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            this.logger.error(`DashScope ${taskLabel} create task failed`, {
-              status: response.status,
-              body: data,
-            });
-            return {
-              success: false,
-              error: {
-                code: `HTTP_${response.status}`,
-                message: data?.message || this.getHttpErrorMessage(response.status),
-                details: data,
-              },
-            };
-          }
-
-          this.logger.log(`✅ DashScope ${taskLabel} task created`, {
-            resultPreview: JSON.stringify(data).slice(0, 200),
-          });
-
-          // 极少数情况下上游可能直接返回视频地址（兜底）
-          const directVideoUrl =
-            data?.output?.video_url ||
-            data?.video_url ||
-            data?.videoUrl ||
-            (Array.isArray(data?.output) && data.output[0]?.video_url) ||
-            undefined;
-          if (directVideoUrl) return { success: true, data };
-
-          const taskId =
-            data?.taskId ||
-            data?.task_id ||
-            data?.id ||
-            data?.output?.task_id ||
-            data?.result?.task_id ||
-            data?.output?.[0]?.task_id ||
-            data?.data?.task_id ||
-            data?.data?.output?.task_id;
-          if (!taskId) {
-            this.logger.warn(
-              `DashScope ${taskLabel} create response contains no task id and no video url`,
-              { dataPreview: JSON.stringify(data).slice(0, 200) },
-            );
-            return {
-              success: false,
-              error: {
-                message: 'DashScope 未返回任务 ID 或视频地址',
-                details: data,
-              },
-            };
-          }
-
-          this.logger.log(`✅ DashScope ${taskLabel} task created: ${taskId}`);
-          return {
-            success: true,
-            data: {
-              taskId,
-              task_id: taskId,
-              status: 'pending',
-              raw: data,
-            },
-          };
-        } catch (error: any) {
-          this.logger.error(`❌ DashScope ${taskLabel} request exception`, error);
-          return {
-            success: false,
-            error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
-          };
-        }
-      },
+      async () => this.submitDashscopeVideoViaNewApi(normalizedBody),
       undefined,
       undefined,
       undefined,
       this.buildHappyhorseCreditRequestParams(body, model),
       {
         treatReturnedFailureAsError: true,
-        skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
+        skipFinalizeSuccessIf: (result: any) =>
+          this.isDashscopeVideoAsyncPending(result),
       },
     );
   }

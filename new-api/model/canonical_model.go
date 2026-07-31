@@ -52,10 +52,10 @@ var canonicalModelAliasMap = map[string]string{
 	"kling-motion-control-apimart":          "kling-v2-6-motion-control",
 	"wan2.7-videoedit-apimart":              "wan2.7-videoedit",
 	"wan-2.6":                               "wan2.7-videoedit",
-	"wan-2.6-r2v":                           "wan2.7-videoedit",
+	"wan-2.6-r2v":                           "wan2.6-r2v",
 	"wan-2.7":                               "wan2.7-videoedit",
 	"wan2.6":                                "wan2.7-videoedit",
-	"wan2.6-r2v":                            "wan2.7-videoedit",
+	"wan2.6-r2v":                            "wan2.6-r2v",
 	"wan2.7":                                "wan2.7-videoedit",
 	"vidu-q3-pro":                           "vidu-q3",
 	"viduq3-pro":                            "vidu-q3",
@@ -72,8 +72,8 @@ var canonicalModelAliasMap = map[string]string{
 	"doubao-seedance-2-0-260128":      "doubao-seedance-2.0",
 	"doubao-seedance-2-0-fast-260128": "doubao-seedance-2.0-fast",
 	// Seedance 1.5-pro (ark-doubao-video direct, VolcEngine snapshot id).
-	"doubao-seedance-1-5-pro":     "doubao-seedance-1-5-pro-251215",
-	"doubao-seedance-1.5-pro":     "doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-1-5-pro": "doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-1.5-pro": "doubao-seedance-1-5-pro-251215",
 	// Doubao Seedream 5.0 (image) — ARK date-suffixed names → canonical
 	"doubao-seedream-5-0-260128":      "doubao-seedream-5-0",
 	"doubao-seedream-5-0-lite-260128": "doubao-seedream-5-0-lite",

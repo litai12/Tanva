@@ -641,9 +641,11 @@ export class NodeConfigService {
         ...buildVodNodeMetadata(
           {
             type: 'wan27Video',
-            provider: 'dashscope',
+            provider: 'new-api',
             supportedModels: ['wan2.7-i2v'],
             defaultData: {
+              vendorKey: 'new_api',
+              platformKey: 'new_api',
               resolution: '1080P',
               duration: 5,
               promptExtend: true,
@@ -651,7 +653,7 @@ export class NodeConfigService {
             },
           },
           {
-            label: 'DashScope Wan 2.7 I2V',
+            label: 'New API · DashScope Wan 2.7 I2V',
             modelName: 'Wan',
             modelVersion: '2.7-i2v',
             outputConfig: {
@@ -661,11 +663,11 @@ export class NodeConfigService {
             inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
             notes: [
               '支持首帧/尾帧/首片段/驱动音频组合输入',
-              '当前复用 DASHSCOPE_API_KEY 作为鉴权',
+              '由 new-api 阿里渠道统一鉴权，Tanva 后端不持有 DashScope Key',
             ],
           },
           {
-            nodeKind: 'dashscope_video_generation',
+            nodeKind: 'new_api_video_generation',
             upstreamDomain: 'dashscope.aliyuncs.com',
           },
         ),
@@ -673,7 +675,7 @@ export class NodeConfigService {
 
       return {
         ...config,
-        description: '阿里百炼 Wan2.7 I2V 视频生成，走 DashScope 异步任务接口',
+        description: '阿里百炼 Wan2.7 I2V 视频生成，经 new-api 异步任务接口路由',
         metadata,
       };
     }
@@ -1604,9 +1606,11 @@ export class NodeConfigService {
           ...buildVodNodeMetadata(
             {
               type: 'wan27Video',
-              provider: 'dashscope',
+              provider: 'new-api',
               supportedModels: ['wan2.7-i2v'],
               defaultData: {
+                vendorKey: 'new_api',
+                platformKey: 'new_api',
                 resolution: '1080P',
                 duration: 5,
                 promptExtend: true,
@@ -1614,7 +1618,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope Wan 2.7 I2V',
+              label: 'New API · DashScope Wan 2.7 I2V',
               modelName: 'Wan',
               modelVersion: '2.7-i2v',
               outputConfig: {
@@ -1625,7 +1629,7 @@ export class NodeConfigService {
               notes: ['支持图像、视频片段、音频混合输入'],
             },
             {
-              nodeKind: 'dashscope_video_generation',
+              nodeKind: 'new_api_video_generation',
               upstreamDomain: 'dashscope.aliyuncs.com',
             },
           ),
@@ -1645,7 +1649,7 @@ export class NodeConfigService {
           ...buildVodNodeMetadata(
             {
               type: 'happyhorseR2V',
-              provider: 'dashscope',
+              provider: 'new-api',
               supportedModels: [
                 'happyhorse-1.0-t2v',
                 'happyhorse-1.0-i2v',
@@ -1653,6 +1657,8 @@ export class NodeConfigService {
                 'happyhorse-1.0-video-edit',
               ],
               defaultData: {
+                vendorKey: 'new_api',
+                platformKey: 'new_api',
                 resolution: '720P',
                 ratio: '16:9',
                 duration: 5,
@@ -1661,7 +1667,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope HappyHorse',
+              label: 'New API · DashScope HappyHorse',
               modelName: 'HappyHorse',
               modelVersion: '1.0-r2v',
               outputConfig: {
@@ -1672,7 +1678,7 @@ export class NodeConfigService {
               notes: ['1~9 张参考图，prompt 用 character1/character2... 占位指代'],
             },
             {
-              nodeKind: 'dashscope_video_generation',
+              nodeKind: 'new_api_video_generation',
               upstreamDomain: 'dashscope.aliyuncs.com',
             },
           ),
@@ -2304,9 +2310,11 @@ export class NodeConfigService {
           ...buildVodNodeMetadata(
             {
               type: 'wan27Video',
-              provider: 'dashscope',
+              provider: 'new-api',
               supportedModels: ['wan2.7-i2v'],
               defaultData: {
+                vendorKey: 'new_api',
+                platformKey: 'new_api',
                 resolution: '1080P',
                 duration: 5,
                 promptExtend: true,
@@ -2314,7 +2322,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope Wan 2.7 I2V',
+              label: 'New API · DashScope Wan 2.7 I2V',
               modelName: 'Wan',
               modelVersion: '2.7-i2v',
               outputConfig: {
@@ -2325,7 +2333,7 @@ export class NodeConfigService {
               notes: ['支持图像、视频片段、音频混合输入'],
             },
             {
-              nodeKind: 'dashscope_video_generation',
+              nodeKind: 'new_api_video_generation',
               upstreamDomain: 'dashscope.aliyuncs.com',
             },
           ),
@@ -2345,7 +2353,7 @@ export class NodeConfigService {
           ...buildVodNodeMetadata(
             {
               type: 'happyhorseR2V',
-              provider: 'dashscope',
+              provider: 'new-api',
               supportedModels: [
                 'happyhorse-1.0-t2v',
                 'happyhorse-1.0-i2v',
@@ -2353,6 +2361,8 @@ export class NodeConfigService {
                 'happyhorse-1.0-video-edit',
               ],
               defaultData: {
+                vendorKey: 'new_api',
+                platformKey: 'new_api',
                 resolution: '720P',
                 ratio: '16:9',
                 duration: 5,
@@ -2361,7 +2371,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope HappyHorse',
+              label: 'New API · DashScope HappyHorse',
               modelName: 'HappyHorse',
               modelVersion: '1.0-r2v',
               outputConfig: {
@@ -2372,7 +2382,7 @@ export class NodeConfigService {
               notes: ['1~9 张参考图，prompt 用 character1/character2... 占位指代'],
             },
             {
-              nodeKind: 'dashscope_video_generation',
+              nodeKind: 'new_api_video_generation',
               upstreamDomain: 'dashscope.aliyuncs.com',
             },
           ),

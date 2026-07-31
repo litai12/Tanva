@@ -158,6 +158,22 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "720p", cnyPerSecond: 0.8000},
 		{resolution: "1080p", cnyPerSecond: 1.2000},
 	},
+	"wan2.6-t2v": {
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
+	},
+	"wan2.6-i2v": {
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
+	},
+	"wan2.6-r2v": {
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
+	},
+	"wan2.7-i2v": {
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
+	},
 	"happyhorse-1.0-r2v": {
 		{resolution: "720p", cnyPerSecond: 1.2000},
 		{resolution: "1080p", cnyPerSecond: 2.0000},
