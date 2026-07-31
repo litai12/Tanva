@@ -5,7 +5,7 @@ import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
 import { useLocaleText } from '@/utils/localeText';
-import { useCanvasStore } from '@/stores';
+import { useAIChatStore, useCanvasStore } from '@/stores';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import {
   globalImageHistoryApi,
@@ -37,6 +37,7 @@ import {
   parseStoryboardAnalysis,
   serializeStoryboardPromptTable,
 } from '../storyboardPromptTable';
+import StoryboardScriptToShotsDialog from './StoryboardScriptToShotsDialog';
 
 type Props = {
   id: string;
@@ -362,6 +363,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const [isComposing, setIsComposing] = React.useState(false);
+  const [scriptToStoryboardOpen, setScriptToStoryboardOpen] =
+    React.useState(false);
   const [atMention, setAtMention] = React.useState<AtMentionState | null>(null);
   const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('project-library');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
@@ -370,6 +373,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   );
   const mentionsRef = React.useRef<PromptImageMention[]>(mentions);
   const projectId = useProjectContentStore((state) => state.projectId);
+  const xiaotModel = useAIChatStore((state) => state.xiaotModel);
   const personalAssets = usePersonalLibraryStore((state) => state.assets);
   const mergePersonalAssets = usePersonalLibraryStore((state) => state.mergeAssets);
   const [projectLibraryItems, setProjectLibraryItems] = React.useState<GlobalImageHistoryItem[]>([]);
@@ -980,6 +984,20 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       detail: { id, patch },
     }));
   }, [id, value]);
+
+  const applyGeneratedStoryboard = React.useCallback((rawStoryboard: string) => {
+    const nextTable = parseStoryboardAnalysis(rawStoryboard);
+    commitStoryboardTable(nextTable);
+    setAtMention(null);
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: {
+        id,
+        patch: {
+          storyboardViewMode: 'table',
+        },
+      },
+    }));
+  }, [commitStoryboardTable, id]);
 
   const getReusableMention = React.useCallback((candidate: MentionCandidate): PromptImageMention | null => {
     const candidateKeys = new Set(getMentionCandidateLookupKeys(candidate));
@@ -1708,6 +1726,35 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               background: isFlowDark ? '#151515' : '#f1f5f9',
             }}
           >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setScriptToStoryboardOpen(true);
+              }}
+              style={{
+                border: '1px solid #2563eb',
+                borderRadius: 4,
+                padding: '2px 8px',
+                background: '#2563eb',
+                color: '#fff',
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {lt('剧本转分镜', 'Script to storyboard')}
+            </button>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 1,
+                height: 14,
+                margin: '0 2px',
+                background: inputBorderColor,
+              }}
+            />
             {(['table', 'text'] as const).map((mode) => {
               const active = storyboardViewMode === mode;
               return (
@@ -2055,6 +2102,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           )}
         </div>,
         document.body
+      )}
+      {isStoryboardTable && (
+        <StoryboardScriptToShotsDialog
+          open={scriptToStoryboardOpen}
+          dark={isFlowDark}
+          table={storyboardTable}
+          model={xiaotModel}
+          projectId={projectId}
+          onClose={() => setScriptToStoryboardOpen(false)}
+          onApply={applyGeneratedStoryboard}
+        />
       )}
       <Handle
         type="target"

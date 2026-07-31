@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createEmptyStoryboardPromptTable,
   parseStoryboardAnalysis,
   serializeStoryboardPromptTable,
 } from './storyboardPromptTable.ts';
@@ -40,6 +41,23 @@ const SAMPLE = `【镜头总览】
 
 额外输出附加字段（用于影视特效开发）：
 画面主色调：冷蓝`;
+
+test('creates a ready-to-edit empty storyboard table for the text-node palette', () => {
+  const table = createEmptyStoryboardPromptTable();
+  const scopes = new Map(
+    table.columns.map((column) => [column.label, column.scope]),
+  );
+
+  assert.equal(table.overview['总镜数'], '1');
+  assert.equal(table.rows.length, 1);
+  assert.equal(table.rows[0]?.values['镜号'], 'M001');
+  assert.equal(scopes.get('画面整体内容'), 'shot');
+  assert.equal(scopes.get('时间段'), 'timeline');
+
+  const serialized = serializeStoryboardPromptTable(table);
+  assert.match(serialized, /镜号：M001/);
+  assert.match(serialized, /---镜头内时序细分/);
+});
 
 test('parses shot and timeline fields into dynamic storyboard columns', () => {
   const table = parseStoryboardAnalysis(SAMPLE);

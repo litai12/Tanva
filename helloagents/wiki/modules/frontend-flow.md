@@ -75,6 +75,9 @@
 - 分镜表同时保存 `data.text` 与 `data.storyboardTable`。解析器按镜头和镜头内时间段展开行，以时间为首列，把镜号、景别、运镜、构图、画面、台词、特效、人物、面部肌肉、肢体动作及模型新增字段动态合并为列；表格单元修改、行增删/复制、列增删/重命名及列作用域切换都会重新序列化为层级 Prompt 文本。`StoryboardPromptRow.shotId` 维护不展示的镜头分组，因此删除或重命名“镜号”列后，同镜头的多条时序行仍能稳定归组；镜头列编辑会同步同组行，时序列仅修改当前行。
 - 表格态提供常驻横向浏览滑块、左右翻页和 `Shift + 滚轮` 横移，继续固定表头与首列；单元格内输入 `@` 直接复用标准 Prompt 的工作流/项目库/个人库资产候选、结构化 `data.mentions`、原子删除、引用预览和下游解析，点击引用预览会定位到所在单元格。切换到“原文”后仍可整段二次编辑，返回表格时按最新文本重建动态列。
 - 表格工具栏支持 `.xlsx` 导入/导出，不新增第三方 Excel 运行时；工作簿由“分镜表”“镜头总览”“列设置”三个 Sheet 组成，导入时恢复动态表头、镜头分组及镜头列/时序列作用域，并同步回标准 Prompt 文本。
+- 添加节点面板在“文字类节点”中提供独立“分镜表节点”卡片。该卡片通过 palette variant 创建 `textPrompt`，初始化完整默认列、一条 M001 空镜头和 `900×520` 尺寸；palette variant 使用独立去重键，但不会注册新的运行时节点类型或覆盖 Quick Connect 中普通 Prompt 的名称。
+- 分镜表标题栏的“剧本转分镜”打开双栏弹窗：左侧 Skill、右侧剧本，均复用 `documentTextExtract` 在浏览器本地读取 `.txt/.md/.markdown/.docx`。生成 prompt 会读取当前表格的 overview、镜头列和时序列，因此用户改列后仍按最新结构输出；结果经既有 parser/serializer 回填当前节点并切回表格。
+- 转换请求调用小T `canvasAgent` 流式接口并直接读取 `useAIChatStore.xiaotModel`，所以 Fast/Pro/Ultra 与小T对话设置同步，不存在节点私有模型选择。每次转换使用独立 session id，避免把剧本任务串入当前聊天上下文。
 
 ## 2026-06-03 Image Input Target Preference
 - `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.

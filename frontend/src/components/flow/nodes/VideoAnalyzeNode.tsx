@@ -45,7 +45,6 @@ type Props = {
     storyboardRowCount?: number;
     storyboardColumnCount?: number;
     analysisMode?: string;
-    lastCreditsUsed?: number;
   };
   selected?: boolean;
 };
@@ -173,16 +172,19 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     const legacyData = data as typeof data & {
       lastBillingPriceYuan?: unknown;
       lastBillingTier?: unknown;
+      lastCreditsUsed?: unknown;
     };
     if (
       legacyData.lastBillingPriceYuan === undefined &&
-      legacyData.lastBillingTier === undefined
+      legacyData.lastBillingTier === undefined &&
+      legacyData.lastCreditsUsed === undefined
     ) {
       return;
     }
     updateNodeData({
       lastBillingPriceYuan: undefined,
       lastBillingTier: undefined,
+      lastCreditsUsed: undefined,
     });
   }, [data, updateNodeData]);
 
@@ -397,8 +399,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           'The model returned no parseable analysis result',
         ));
       }
-      const chargedCredits = Number(result.billing?.creditsCharged);
-
       updateNodeData({
         status: 'succeeded',
         error: undefined,
@@ -406,10 +406,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         text: analysisText,
         analysisModel: selectedModel,
         analysisMode: result.analysisMode,
-        lastCreditsUsed:
-          Number.isFinite(chargedCredits) && chargedCredits > 0
-            ? chargedCredits
-            : undefined,
       });
       const output = upsertStoryboardPromptNode(analysisText);
       updateNodeData({
@@ -514,30 +510,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           ) : (
             <>
               <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
-              {usesMeteredDoubaoPricing ? (
-                <span
-                  title={lt(
-                    '按实际用量扣除积分',
-                    'Credits are charged by actual usage',
-                  )}
-                  className="run-credit-badge"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '2px 5px',
-                    borderRadius: 4,
-                    background: 'rgba(255,255,255,0.15)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                    color: '#fef3c7',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    lineHeight: 1,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {lt('按量', 'Metered')}
-                </span>
-              ) : hasRunCredits ? (
+              {hasRunCredits ? (
                 <RunCreditBadge credits={data.creditsPerCall} runButton />
               ) : null}
             </>
@@ -625,29 +598,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             selectedModelOption.descriptionEn,
           )}
         </span>
-        {usesMeteredDoubaoPricing ? (
-          <span
-            style={{
-              display: 'block',
-              marginTop: 3,
-              fontSize: 10,
-              color: isFlowDark ? '#facc15' : '#a16207',
-            }}
-          >
-            {lt(
-              `按量计费${
-                typeof data.lastCreditsUsed === 'number'
-                  ? `；上次消耗 ${data.lastCreditsUsed} 积分`
-                  : ''
-              }`,
-              `Usage-based billing${
-                typeof data.lastCreditsUsed === 'number'
-                  ? `; last run used ${data.lastCreditsUsed} credits`
-                  : ''
-              }`,
-            )}
-          </span>
-        ) : null}
       </label>
 
       <div>

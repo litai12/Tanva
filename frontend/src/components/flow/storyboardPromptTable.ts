@@ -95,6 +95,30 @@ const CANONICAL_COLUMN_ORDER = [
   ...TIMELINE_LABEL_ORDER.filter((label) => label !== '时间段'),
 ];
 
+export const createEmptyStoryboardPromptTable = (): StoryboardPromptTableData => {
+  const columns = CANONICAL_COLUMN_ORDER.map((label) => ({
+    key: label,
+    label,
+    scope: SHOT_LABELS.has(label) ? 'shot' as const : 'timeline' as const,
+  }));
+  const values = Object.fromEntries(
+    columns.map((column) => [column.key, column.label === '镜号' ? 'M001' : '']),
+  );
+  return {
+    version: 1,
+    overview: {
+      总镜数: '1',
+      素材总时长: '',
+    },
+    columns,
+    rows: [{
+      id: 'shot-1-segment-1',
+      shotId: 'shot-1',
+      values,
+    }],
+  };
+};
+
 type ParsedFields = {
   values: Record<string, string>;
   order: string[];

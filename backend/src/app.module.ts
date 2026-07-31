@@ -29,6 +29,7 @@ import { AgentModule } from './agent/agent.module';
 import { DirectorCaptureModule } from './director-capture/director-capture.module';
 import { MaterialLibraryModule } from './material-library/material-library.module';
 import { AsrModule } from './asr/asr.module';
+import { StoryboardSkillsModule } from './storyboard-skills/storyboard-skills.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { AsrModule } from './asr/asr.module';
     DirectorCaptureModule,
     MaterialLibraryModule,
     AsrModule,
+    StoryboardSkillsModule,
   ],
 })
 export class AppModule {}

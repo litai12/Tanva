@@ -50,6 +50,10 @@ import {
 } from "@/services/templateStore";
 
 import TextPromptNode from "./nodes/TextPromptNode";
+import {
+  createEmptyStoryboardPromptTable,
+  serializeStoryboardPromptTable,
+} from "./storyboardPromptTable";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
@@ -1813,10 +1817,42 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   generatePro4: 160, // 四图专业生成节点 - 4次 × 40积分
 };
 
+type NodePaletteItem = {
+  key: string;
+  zh: string;
+  en: string;
+  category: "input" | "image" | "video" | "audio" | "other";
+  badge?: string;
+  flowNodeType?: string;
+  defaultData?: Record<string, unknown>;
+};
+
+const EMPTY_STORYBOARD_PALETTE_TABLE = createEmptyStoryboardPromptTable();
+const EMPTY_STORYBOARD_PALETTE_TEXT = serializeStoryboardPromptTable(
+  EMPTY_STORYBOARD_PALETTE_TABLE,
+);
+
 // 普通节点列表（按分类整理）
-const NODE_PALETTE_ITEMS = [
+const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
   // 输入节点
   { key: "textPrompt", zh: "提示词节点", en: "Prompt Node", category: "input" },
+  {
+    key: "storyboardPromptTable",
+    zh: "分镜表节点",
+    en: "Storyboard Table",
+    category: "input",
+    flowNodeType: "textPrompt",
+    defaultData: {
+      title: "分镜表",
+      text: EMPTY_STORYBOARD_PALETTE_TEXT,
+      variant: "storyboard-table",
+      storyboardTable: EMPTY_STORYBOARD_PALETTE_TABLE,
+      storyboardSourceText: EMPTY_STORYBOARD_PALETTE_TEXT,
+      storyboardViewMode: "table",
+      boxW: 900,
+      boxH: 520,
+    },
+  },
   { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" },
   { key: "htmlPpt", zh: "HTML PPT节点", en: "HTML PPT Node", category: "input" },
   { key: "textNote", zh: "纯文本节点", en: "Note Node", category: "input" },
@@ -4786,6 +4822,16 @@ function FlowInner() {
         | "disabled",
       creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
       sortOrder: 0,
+      metadata:
+        item.flowNodeType || item.defaultData
+          ? {
+              paletteVariantKey: item.key,
+              nodeConfig: {
+                flowNodeType: item.flowNodeType || item.key,
+              },
+              defaultData: item.defaultData,
+            }
+          : undefined,
     }));
 
     const hasBackendConfigs = Boolean(sortedNodeConfigs && sortedNodeConfigs.length > 0);
@@ -4843,10 +4889,19 @@ function FlowInner() {
     prepared.forEach((config, index) => {
       const resolvedType = resolveFlowNodeTypeFromConfig(config);
       const normalizedType = normalizeFlowNodeType(resolvedType);
-      const dedupeKey = normalizedType || resolvedType || config.nodeKey || `unknown-${index}`;
+      const paletteVariantKey =
+        typeof (config.metadata as Record<string, unknown> | undefined)
+          ?.paletteVariantKey === "string"
+          ? String(
+              (config.metadata as Record<string, unknown>).paletteVariantKey
+            )
+          : "";
+      const dedupeKey = paletteVariantKey
+        ? `palette-variant:${paletteVariantKey}`
+        : normalizedType || resolvedType || config.nodeKey || `unknown-${index}`;
       const unifiedTitle = normalizedType ? UNIFIED_VIDEO_NODE_TITLES[normalizedType] : undefined;
       const normalizedConfig: NodeConfig =
-        normalizedType || unifiedTitle
+        (normalizedType || unifiedTitle) && !paletteVariantKey
           ? {
               ...config,
               nodeKey: normalizedType || config.nodeKey,
@@ -10783,11 +10838,31 @@ function FlowInner() {
         return null;
       }
       const size = FLOW_NODE_DEFAULT_SIZE[type];
+      const requestedWidth = Number(paletteDefaultData?.boxW);
+      const requestedHeight = Number(paletteDefaultData?.boxH);
+      const nodeSize = {
+        w:
+          Number.isFinite(requestedWidth) && requestedWidth > 0
+            ? requestedWidth
+            : size.w,
+        h:
+          Number.isFinite(requestedHeight) && requestedHeight > 0
+            ? requestedHeight
+            : size.h,
+      };
       const id = `${type}_${Date.now()}`;
-      const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
+      const pos = {
+        x: world.x - nodeSize.w / 2,
+        y: world.y - nodeSize.h / 2,
+      };
       const baseData =
         type === "textPrompt"
-          ? { text: "", boxW: size.w, boxH: size.h, title: "Prompt" }
+          ? {
+              text: "",
+              boxW: nodeSize.w,
+              boxH: nodeSize.h,
+              title: "Prompt",
+            }
           : type === "textPromptPro"
           ? {
               prompts: [""],
@@ -11420,8 +11495,8 @@ function FlowInner() {
                   : undefined,
             }
           : {}),
-        boxW: size.w,
-        boxH: size.h,
+        boxW: nodeSize.w,
+        boxH: nodeSize.h,
       };
       setNodes((ns) => ns.concat([{ id, type, position: pos, data } as any]));
       try {
@@ -11477,6 +11552,12 @@ function FlowInner() {
     nodePaletteConfigs.forEach((config) => {
       const type = resolveFlowNodeTypeFromConfig(config);
       if (!type) return;
+      if (
+        typeof (config.metadata as Record<string, unknown> | undefined)
+          ?.paletteVariantKey === "string"
+      ) {
+        return;
+      }
       map.set(type, {
         label: lt(config.nameZh || type, config.nameEn || type),
         status: config.status,
@@ -11484,6 +11565,7 @@ function FlowInner() {
     });
 
     NODE_PALETTE_ITEMS.forEach((item) => {
+      if (item.flowNodeType) return;
       if (map.has(item.key)) return;
       map.set(item.key, { label: lt(item.zh, item.en), status: "normal" });
     });
