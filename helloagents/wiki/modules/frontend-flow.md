@@ -72,7 +72,7 @@
 
 - `videoAnalyze` 节点拥有独立的 `analysisModel` 下拉框，默认豆包 Seed 2.0 Lite，可切换豆包 Mini/Pro 与 Gemini 三档；它不再读取工作区全局 `aiProvider` 或 Banana 图片路线来隐式决定视频模型。
 - 分析成功后节点按稳定的 `storyboardPromptNodeId` 创建或更新一个标准 `textPrompt` 输出节点，并自动建立 `videoAnalyze:text → textPrompt:text` 连线。输出节点的 `data.variant="storyboard-table"` 只改变展示形态，不改变 Prompt 的 `text`、`mentions`、输入/输出 handle、resize、标题或下游文本解析能力，因此可以继续连接图片生成、视频生成等所有接受 Prompt 的节点。
-- 分镜表同时保存 `data.text` 与 `data.storyboardTable`。解析器按镜头和镜头内时间段展开行，以时间为首列，把镜号、景别、运镜、构图、画面、台词、特效、人物、面部肌肉、肢体动作及模型新增字段动态合并为列；表格单元修改会重新序列化为层级 Prompt 文本。切换到“原文”视图后仍可使用标准 Prompt 的 `@` 图片引用与文本编辑能力，返回“表格”时按最新文本重建动态列。
+- 分镜表同时保存 `data.text` 与 `data.storyboardTable`。解析器按镜头和镜头内时间段展开行，以时间为首列，把镜号、景别、运镜、构图、画面、台词、特效、人物、面部肌肉、肢体动作及模型新增字段动态合并为列；表格单元修改、行增删/复制、列增删/重命名及列作用域切换都会重新序列化为层级 Prompt 文本。`StoryboardPromptRow.shotId` 维护不展示的镜头分组，因此删除或重命名“镜号”列后，同镜头的多条时序行仍能稳定归组；镜头列编辑会同步同组行，时序列仅修改当前行。切换到“原文”视图后仍可使用标准 Prompt 的 `@` 图片引用与整段文本二次编辑能力，返回“表格”时按最新文本重建动态列。
 
 ## 2026-06-03 Image Input Target Preference
 - `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.

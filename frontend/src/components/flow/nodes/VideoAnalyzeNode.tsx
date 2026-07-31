@@ -25,7 +25,7 @@ import {
 type VideoAnalyzeModel =
   | 'doubao-seed-2-0-mini-260428'
   | 'doubao-seed-2-0-lite-260428'
-  | 'doubao-seed-2-0-pro-260428'
+  | 'doubao-seed-2-0-pro-260215'
   | 'gemini-2.5-flash'
   | 'gemini-3.5-flash'
   | 'gemini-3.1-pro';
@@ -65,7 +65,7 @@ const VIDEO_ANALYZE_MODELS: Array<{
     descriptionEn: 'Recommended · balanced speed and detail',
   },
   {
-    value: 'doubao-seed-2-0-pro-260428',
+    value: 'doubao-seed-2-0-pro-260215',
     label: '豆包 Seed 2.0 Pro',
     descriptionZh: '高精度复杂镜头分析',
     descriptionEn: 'High-precision complex shot analysis',
@@ -202,7 +202,31 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       data.storyboardPromptNodeId.trim()
         ? data.storyboardPromptNodeId.trim()
         : '';
-    const outputNodeId = storedOutputId || `storyboard-prompt-${id}`;
+    const deterministicOutputId = `storyboard-prompt-${id}`;
+    const currentEdges = rf.getEdges();
+    const linkedOutputId = currentEdges.find((edge) => (
+      edge.source === id &&
+      edge.sourceHandle === 'text' &&
+      edge.targetHandle === 'text' &&
+      rf.getNode(edge.target)?.data?.variant === 'storyboard-table'
+    ))?.target;
+    const storedNode = storedOutputId ? rf.getNode(storedOutputId) : undefined;
+    const storedNodeBelongsToThisAnalyzer = currentEdges.some((edge) => (
+      edge.source === id &&
+      edge.sourceHandle === 'text' &&
+      edge.target === storedOutputId &&
+      edge.targetHandle === 'text'
+    ));
+    const canReuseStoredOutputId =
+      Boolean(storedOutputId) &&
+      (
+        !storedNode ||
+        storedNodeBelongsToThisAnalyzer ||
+        storedOutputId === deterministicOutputId
+      );
+    const outputNodeId =
+      linkedOutputId ||
+      (canReuseStoredOutputId ? storedOutputId : deterministicOutputId);
     const sourceNode = rf.getNode(id);
     const existingNode = rf.getNode(outputNodeId);
     const sourceWidth =

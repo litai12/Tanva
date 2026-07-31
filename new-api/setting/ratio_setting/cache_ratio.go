@@ -75,7 +75,7 @@ var defaultCacheRatio = map[string]float64{
 	"claude-opus-4-7-medium":              0.1,
 	"claude-opus-4-7-low":                 0.1,
 	// Doubao Seed 2.0: cache_input/input = 0.2
-	"doubao-seed-2-0-pro-260428":  0.2,
+	"doubao-seed-2-0-pro-260215":  0.2,
 	"doubao-seed-2.0-pro":         0.2,
 	"doubao-seed-2-0-lite-260428": 0.2,
 	"doubao-seed-2-0-lite-260215": 0.2,

@@ -2278,7 +2278,7 @@ export class AiController {
     const aliases: Record<string, string> = {
       'doubao-seed-2-0-mini': 'doubao-seed-2-0-mini-260428',
       'doubao-seed-2-0-lite': 'doubao-seed-2-0-lite-260428',
-      'doubao-seed-2-0-pro': 'doubao-seed-2-0-pro-260428',
+      'doubao-seed-2-0-pro': 'doubao-seed-2-0-pro-260215',
       'gemini-3-flash-preview': 'gemini-3.5-flash',
       'gemini-3-flash': 'gemini-3.5-flash',
       'gemini-3.1-pro-preview': 'gemini-3.1-pro',
@@ -2288,7 +2288,7 @@ export class AiController {
       'doubao-seed-2-0-mini-260428',
       'doubao-seed-2-0-lite-260215',
       'doubao-seed-2-0-lite-260428',
-      'doubao-seed-2-0-pro-260428',
+      'doubao-seed-2-0-pro-260215',
       'gemini-2.5-flash',
       'gemini-3.5-flash',
       'gemini-3.1-pro',

@@ -18,7 +18,7 @@ var ModelList = []string{
 	"doubao-seed-1-6-thinking-250715",
 	"seed-1-6-thinking-250715",
 	// doubao-seed-2.0 系列（视频理解）
-	"doubao-seed-2-0-pro-260428",
+	"doubao-seed-2-0-pro-260215",
 	"doubao-seed-2-0-lite-260428",
 	"doubao-seed-2-0-lite-260215",
 	"doubao-seed-2-0-mini-260428",

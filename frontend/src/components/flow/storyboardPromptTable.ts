@@ -289,7 +289,10 @@ export const parseStoryboardAnalysis = (
   rawText: string,
 ): StoryboardPromptTableData => {
   const text = cleanOutputText(rawText);
-  const overview: Record<string, string> = {};
+  const overview: Record<string, string> = {
+    总镜数: '',
+    素材总时长: '',
+  };
   const columnsByLabel = new Map<string, StoryboardPromptColumn>();
   const rows: StoryboardPromptRow[] = [];
 
@@ -343,6 +346,7 @@ export const parseStoryboardAnalysis = (
       }
       rows.push({
         id: `shot-${shotIndex + 1}-segment-${timelineIndex + 1}`,
+        shotId: `shot-${shotIndex + 1}`,
         values,
       });
     });
@@ -358,6 +362,7 @@ export const parseStoryboardAnalysis = (
       ));
       rows.push({
         id: `segment-${index + 1}`,
+        shotId: 'shot-1',
         values: { ...genericFields.values, ...timelineFields.values },
       });
     });
@@ -367,8 +372,27 @@ export const parseStoryboardAnalysis = (
     addColumn(columnsByLabel, '分析结果', 'timeline');
     rows.push({
       id: 'analysis-1',
+      shotId: 'shot-1',
       values: { 分析结果: text },
     });
+  }
+
+  if (!overview['总镜数'] && shotBlocks.length > 0) {
+    overview['总镜数'] = String(shotBlocks.length);
+  }
+  if (!overview['素材总时长']) {
+    const seconds = rows.flatMap((row) => {
+      const timeline = [
+        row.values['时间区间（镜头完整区间）'],
+        row.values['时间段'],
+      ].filter(Boolean).join(' ');
+      return Array.from(timeline.matchAll(/(\d+(?:\.\d+)?)\s*s/gi))
+        .map((match) => Number(match[1]))
+        .filter(Number.isFinite);
+    });
+    if (seconds.length > 0) {
+      overview['素材总时长'] = `${Math.max(...seconds).toFixed(1)}s`;
+    }
   }
 
   return {
@@ -418,8 +442,25 @@ export const normalizeStoryboardPromptTable = (
         const raw = row.values[column.key];
         values[column.key] = typeof raw === 'string' ? raw : String(raw ?? '');
       });
+      const rowId =
+        typeof row.id === 'string' && row.id.trim()
+          ? row.id
+          : `row-${index + 1}`;
+      const shotNumberColumn =
+        columns.find((column) => column.label === '镜号') ||
+        columns.find((column) => column.key === '镜号');
+      const shotNumber = shotNumberColumn
+        ? String(values[shotNumberColumn.key] || '').trim()
+        : '';
+      const parsedShotId = /^(shot-\d+)-segment-\d+$/i.exec(rowId)?.[1];
+      const persistedShotId =
+        typeof row.shotId === 'string' ? row.shotId.trim() : '';
       return {
-        id: typeof row.id === 'string' && row.id.trim() ? row.id : `row-${index + 1}`,
+        id: rowId,
+        shotId:
+          persistedShotId ||
+          parsedShotId ||
+          (shotNumber ? `shot-number:${shotNumber}` : `shot-row:${index + 1}`),
         values,
       };
     })
@@ -466,22 +507,21 @@ export const serializeStoryboardPromptTable = (
   const shotColumns = table.columns.filter((column) => column.scope === 'shot');
   const timelineColumns = table.columns.filter((column) => column.scope === 'timeline');
   const groups: Array<{ key: string; rows: StoryboardPromptRow[] }> = [];
+  const groupsByKey = new Map<string, { key: string; rows: StoryboardPromptRow[] }>();
   table.rows.forEach((row, index) => {
-    const shotNumber = String(row.values['镜号'] || '').trim();
-    const key = shotNumber || `__row_${index}`;
-    const previous = groups.at(-1);
-    if (previous?.key === key) {
-      previous.rows.push(row);
-    } else {
-      groups.push({ key, rows: [row] });
+    const key = row.shotId || `__row_${index}`;
+    const existing = groupsByKey.get(key);
+    if (existing) {
+      existing.rows.push(row);
+      return;
     }
+    const group = { key, rows: [row] };
+    groupsByKey.set(key, group);
+    groups.push(group);
   });
 
-  groups.forEach((group, groupIndex) => {
+  groups.forEach((group) => {
     lines.push('', '=========单镜头开始=========');
-    if (!shotColumns.some((column) => column.label === '镜号')) {
-      lines.push(`镜号：M${String(groupIndex + 1).padStart(3, '0')}`);
-    }
     shotColumns.forEach((column) => {
       const value = group.rows
         .map((row) => row.values[column.key])

@@ -80,7 +80,7 @@ async function main(): Promise<void> {
 
   const missingDoubaoUrl = await provider.analyzeVideo({
     prompt: '分析视频',
-    model: 'doubao-seed-2-0-pro-260428',
+    model: 'doubao-seed-2-0-pro-260215',
   });
   assert.equal(missingDoubaoUrl.success, false);
   assert.equal(missingDoubaoUrl.error?.code, 'VIDEO_ANALYSIS_FAILED');

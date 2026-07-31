@@ -57,6 +57,7 @@ test('serializes edited table values back to hierarchical prompt text', () => {
   const table = parseStoryboardAnalysis(SAMPLE);
   table.rows[1]!.values['肢体动作变化'] = '左肩外展';
 
+  assert.equal(table.rows[0]?.shotId, table.rows[1]?.shotId);
   const serialized = serializeStoryboardPromptTable(table);
   assert.match(serialized, /镜号：M001/);
   assert.match(serialized, /时间段：0.4s - 0.8s/);
@@ -88,4 +89,63 @@ test('keeps adjacent shot markers as separate table groups', () => {
   assert.equal(table.rows.length, 2);
   assert.equal(table.rows[0]?.values['镜号'], 'M001');
   assert.equal(table.rows[1]?.values['镜号'], 'M002');
+});
+
+test('keeps shot grouping after columns are renamed, added, or deleted', () => {
+  const table = parseStoryboardAnalysis(SAMPLE);
+  const shotNumberColumn = table.columns.find((column) => column.label === '镜号');
+  assert.ok(shotNumberColumn);
+
+  shotNumberColumn.label = '镜头编号';
+  table.columns.push({
+    key: 'director-note',
+    label: '导演备注',
+    scope: 'timeline',
+  });
+  table.rows[0]!.values['director-note'] = '保留呼吸停顿';
+  table.rows[1]!.values['director-note'] = '动作完成后停住';
+
+  const renamed = serializeStoryboardPromptTable(table);
+  assert.equal((renamed.match(/单镜头开始/g) || []).length, 1);
+  assert.match(renamed, /镜头编号：M001/);
+  assert.match(renamed, /导演备注：动作完成后停住/);
+
+  table.columns = table.columns.filter(
+    (column) => column.key !== shotNumberColumn.key,
+  );
+  table.rows.forEach((row) => {
+    delete row.values[shotNumberColumn.key];
+  });
+
+  const withoutShotNumber = serializeStoryboardPromptTable(table);
+  assert.equal((withoutShotNumber.match(/单镜头开始/g) || []).length, 1);
+  assert.doesNotMatch(withoutShotNumber, /镜号：/);
+
+  const reparsed = parseStoryboardAnalysis(withoutShotNumber);
+  assert.equal(reparsed.rows.length, 2);
+  assert.equal(reparsed.rows[0]?.shotId, reparsed.rows[1]?.shotId);
+});
+
+test('rejoins non-adjacent timeline rows by internal shot id', () => {
+  const table = parseStoryboardAnalysis(SAMPLE);
+  const insertedShot = {
+    id: 'manual-shot-2-segment-1',
+    shotId: 'manual-shot-2',
+    values: {
+      ...table.rows[0]!.values,
+      镜号: 'M002',
+      时间段: '0.8s - 1.2s',
+      目标人物: '人物B',
+    },
+  };
+  table.rows.splice(1, 0, insertedShot);
+
+  const serialized = serializeStoryboardPromptTable(table);
+  const reparsed = parseStoryboardAnalysis(serialized);
+
+  assert.equal((serialized.match(/单镜头开始/g) || []).length, 2);
+  assert.deepEqual(
+    reparsed.rows.map((row) => row.values['镜号']),
+    ['M001', 'M001', 'M002'],
+  );
 });

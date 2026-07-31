@@ -22,6 +22,7 @@ export type StoryboardPromptColumn = {
 
 export type StoryboardPromptRow = {
   id: string;
+  shotId: string;
   values: Record<string, string>;
 };
 

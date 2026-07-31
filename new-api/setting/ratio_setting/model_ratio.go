@@ -276,7 +276,7 @@ var defaultModelRatio = map[string]float64{
 	// pro:  输入 3.2 元/M，输出 16 元/M，completion=5
 	// lite: 输入 0.6 元/M，输出 3.6 元/M，completion=6
 	// mini: 输入 0.2 元/M，输出 2.0 元/M，completion=10
-	"doubao-seed-2-0-pro-260428":  3.2 / 1000 * USD * 1.2,
+	"doubao-seed-2-0-pro-260215":  3.2 / 1000 * USD * 1.2,
 	"doubao-seed-2.0-pro":         3.2 / 1000 * USD * 1.2,
 	"doubao-seed-2-0-lite-260428": 0.6 / 1000 * USD * 1.2,
 	"doubao-seed-2-0-lite-260215": 0.6 / 1000 * USD * 1.2,
@@ -427,7 +427,7 @@ var defaultCompletionRatio = map[string]float64{
 	"deepseek-v4-flash-260425": 2,
 	"deepseek-v4-pro-260425":   2,
 	// Doubao Seed 2.0 completion ratio = output/input
-	"doubao-seed-2-0-pro-260428":  5,
+	"doubao-seed-2-0-pro-260215":  5,
 	"doubao-seed-2.0-pro":         5,
 	"doubao-seed-2-0-lite-260428": 6,
 	"doubao-seed-2-0-lite-260215": 6,

@@ -61,7 +61,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
-- Flow/视频分镜分析：视频分析节点新增独立模型选择，默认豆包 Seed 2.0 Lite，并支持豆包 Mini/Pro 与 Gemini 三档；豆包通过 new-api Responses `input_video` 直接读取远程视频 URL。分析结果自动生成标准 Prompt 的“分镜表”变体，按时间展开行、按返回字段动态生成列，表格编辑与 Prompt 原文双向同步并保留所有连线和 `@` 引用能力。
+- Flow/视频分镜分析：视频分析节点新增独立模型选择，默认豆包 Seed 2.0 Lite，并支持豆包 Mini/Pro 与 Gemini 三档；豆包通过 new-api Responses `input_video` 直接读取远程视频 URL。分析结果自动生成标准 Prompt 的“分镜表”变体，按时间展开行、按返回字段动态生成列，支持表格/原文二次编辑、行增删复制、列增删重命名和镜头/时序作用域切换，同时保留所有连线和 `@` 引用能力。
 - Frontend/Vite：强制 React 与 ReactDOM 在 pnpm 软链接依赖中去重，并将 `@xyflow/react` 纳入同一预构建图；修复从旧 `reactflow` 缓存迁移后 ReactFlowProvider 使用第二份 React dispatcher 导致的 Invalid hook call 与全页白屏。
 - Flow canvas engine upgraded from legacy `reactflow@11.11.4` to `@xyflow/react@12.11.2`, including the v12 named export, integrated node-resizer components, public node store selectors, and `nodeLookup` migration.
 - Flow/3D Director Console：开始按 LibTV 线上导演台进行替代式重写，不再保留 Tanva 导演台额外能力。顶部采用导演/机位视角，底部采用场景编辑/动画时间轴；新建场景默认包含机位1、角色A和 LibTV 同款 3D 场景参数；节点句柄改为 `target/source`。后续继续移除旧灰模样片与镜头片段时间线，改为截图输出和属性关键帧轨道。

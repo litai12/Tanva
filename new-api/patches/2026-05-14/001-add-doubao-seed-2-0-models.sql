@@ -26,7 +26,7 @@ INSERT INTO options (key, value)
 VALUES (
   'ModelRatio',
   '{
-    "doubao-seed-2-0-pro-260428":  1.92,
+    "doubao-seed-2-0-pro-260215":  1.92,
     "doubao-seed-2.0-pro":         1.92,
     "doubao-seed-2-0-lite-260428": 0.36,
     "doubao-seed-2-0-lite-260215": 0.36,
@@ -44,7 +44,7 @@ INSERT INTO options (key, value)
 VALUES (
   'CompletionRatio',
   '{
-    "doubao-seed-2-0-pro-260428":  5,
+    "doubao-seed-2-0-pro-260215":  5,
     "doubao-seed-2.0-pro":         5,
     "doubao-seed-2-0-lite-260428": 6,
     "doubao-seed-2-0-lite-260215": 6,
@@ -62,7 +62,7 @@ INSERT INTO options (key, value)
 VALUES (
   'CacheRatio',
   '{
-    "doubao-seed-2-0-pro-260428":  0.2,
+    "doubao-seed-2-0-pro-260215":  0.2,
     "doubao-seed-2.0-pro":         0.2,
     "doubao-seed-2-0-lite-260428": 0.2,
     "doubao-seed-2-0-lite-260215": 0.2,
