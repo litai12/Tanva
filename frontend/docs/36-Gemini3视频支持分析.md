@@ -1,5 +1,7 @@
 # Gemini 3 视频支持分析
 
+> 历史说明：本文记录早期 Gemini-only 方案。当前实现（2026-07-31）以 Flow 视频分析节点内的独立模型选择为准，默认豆包 Seed 2.0 Lite，可切换豆包 Mini/Pro 与 Gemini 三档；豆包使用 new-api Responses 远程 `input_video`，分析结果会生成标准 Prompt 的分镜表变体。最新使用方式见《03-节点模式指南》。
+
 ## 概述
 
 Gemini 3 是 Google 推出的多模态 AI 模型，**支持视频输入和处理**。本文档分析 Gemini 3 的视频支持能力、所需格式和实现方式。
@@ -324,4 +326,3 @@ try {
 
 *文档创建日期：2025-01-27*  
 *基于：Google Gemini API 官方文档和项目代码分析*
-

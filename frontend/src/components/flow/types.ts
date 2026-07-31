@@ -8,6 +8,28 @@ export type TextPromptData = {
   boxW?: number;
   boxH?: number;
   title?: string;
+  variant?: 'storyboard-table';
+  storyboardTable?: StoryboardPromptTableData;
+  storyboardSourceText?: string;
+  storyboardViewMode?: 'table' | 'text';
+};
+
+export type StoryboardPromptColumn = {
+  key: string;
+  label: string;
+  scope: 'shot' | 'timeline';
+};
+
+export type StoryboardPromptRow = {
+  id: string;
+  values: Record<string, string>;
+};
+
+export type StoryboardPromptTableData = {
+  version: 1;
+  overview: Record<string, string>;
+  columns: StoryboardPromptColumn[];
+  rows: StoryboardPromptRow[];
 };
 
 export type PromptMentionSource = 'flow' | 'project-library' | 'personal-library';

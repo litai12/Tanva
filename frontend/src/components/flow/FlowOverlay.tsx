@@ -2042,7 +2042,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   videoCompose: { w: 320, h: 360 },
   directorConsole: { w: 320, h: 220 },
   audioUpload: { w: 320, h: 128 },
-  videoAnalyze: { w: 280, h: 360 },
+  videoAnalyze: { w: 320, h: 560 },
   videoFrameExtract: { w: 300, h: 420 },
   videoToGif: { w: 320, h: 420 },
   volcEnhanceVideo: { w: 360, h: 620 },
@@ -2771,6 +2771,9 @@ const resolveBananaPricingTierByModel = (
 ): BananaPricingTier | null => {
   const normalized = typeof modelName === "string" ? modelName.trim().toLowerCase() : "";
   if (!normalized) return null;
+  if (normalized.includes("doubao-seed-2-0-mini")) return "fast";
+  if (normalized.includes("doubao-seed-2-0-lite")) return "pro";
+  if (normalized.includes("doubao-seed-2-0-pro")) return "ultra";
   if (normalized.includes("gemini-2.5")) return "fast";
   if (normalized.includes("gemini-3.1")) return "ultra";
   if (normalized.includes("gemini-3") || normalized.includes("imagen-3")) return "pro";
@@ -3384,14 +3387,22 @@ const resolveStableRouteCredits = (params: {
   }
 
   if (normalizedType === "videoAnalyze") {
+    const explicitAnalysisModel =
+      typeof nodeData?.analysisModel === "string" && nodeData.analysisModel.trim()
+        ? nodeData.analysisModel.trim()
+        : null;
     const providerKey = String(providerForPricing || "").trim().toLowerCase();
     const tier: BananaPricingTier =
-      providerKey === "banana-2.5"
+      resolveBananaPricingTierByModel(explicitAnalysisModel) ||
+      (providerKey === "banana-2.5"
         ? "fast"
         : providerKey === "banana-3.1" || providerKey === "nano2"
         ? "ultra"
-        : resolveBananaPricingTierByModel(globalImageModel) || "pro";
-    const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
+        : resolveBananaPricingTierByModel(globalImageModel) || "pro");
+    const routeKey =
+      !explicitAnalysisModel && bananaImageRoute === "stable"
+        ? "stable"
+        : "normal";
     const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
     if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
       resolvedCredits = configuredCredits;
@@ -11063,6 +11074,7 @@ function FlowInner() {
               videoUrl: undefined,
               prompt: "",
               analysisPrompt: undefined,
+              analysisModel: "doubao-seed-2-0-lite-260428",
               text: "",
               boxW: size.w,
               boxH: size.h,

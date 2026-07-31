@@ -68,6 +68,12 @@
 - Prompt 节点会把选择结果保存到结构化 `data.mentions`，文本里仍插入可读 token（如 `@图1` / `@项目图1` / `@资产1`）。已选引用在输入区渲染为带图片图标的 chip；Backspace/Delete 命中 chip 时按整个 token 删除，并同步清理对应 mention，避免隐藏引用残留。
 - `FlowOverlay` 在运行 `generate` / `generate4` / `generatePro` / `generatePro4` 时，会从连接的 Prompt 节点读取仍存在于文本中的 image mentions，并与图片输入边合并、去重、按模型参考图上限截断；项目库/个人库只保存并传递远程 URL/路径引用，不把 inline 图片写入设计 JSON。
 
+## 2026-07-31 Video Storyboard Prompt Table
+
+- `videoAnalyze` 节点拥有独立的 `analysisModel` 下拉框，默认豆包 Seed 2.0 Lite，可切换豆包 Mini/Pro 与 Gemini 三档；它不再读取工作区全局 `aiProvider` 或 Banana 图片路线来隐式决定视频模型。
+- 分析成功后节点按稳定的 `storyboardPromptNodeId` 创建或更新一个标准 `textPrompt` 输出节点，并自动建立 `videoAnalyze:text → textPrompt:text` 连线。输出节点的 `data.variant="storyboard-table"` 只改变展示形态，不改变 Prompt 的 `text`、`mentions`、输入/输出 handle、resize、标题或下游文本解析能力，因此可以继续连接图片生成、视频生成等所有接受 Prompt 的节点。
+- 分镜表同时保存 `data.text` 与 `data.storyboardTable`。解析器按镜头和镜头内时间段展开行，以时间为首列，把镜号、景别、运镜、构图、画面、台词、特效、人物、面部肌肉、肢体动作及模型新增字段动态合并为列；表格单元修改会重新序列化为层级 Prompt 文本。切换到“原文”视图后仍可使用标准 Prompt 的 `@` 图片引用与文本编辑能力，返回“表格”时按最新文本重建动态列。
+
 ## 2026-06-03 Image Input Target Preference
 - `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.
 - Workspace AI settings can route external image paste, drag/drop, and picker upload into Flow Image nodes (`imageInputTarget = "node"`). Canvas-first remains the default and keeps direct canvas insertion.

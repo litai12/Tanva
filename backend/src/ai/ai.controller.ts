@@ -2270,17 +2270,35 @@ export class AiController {
     return this.providerDefaultTextModels.gemini;
   }
 
-  private resolveGeminiVideoModel(requestedModel?: string): string {
-    const trimmed = requestedModel?.trim();
-    if (trimmed && /^gemini-/i.test(trimmed)) {
-      const legacyAliases: Record<string, string> = {
-        'gemini-3-flash-preview': 'gemini-3.5-flash',
-        'gemini-3-flash': 'gemini-3.5-flash',
-        'gemini-3.1-pro-preview': 'gemini-3.1-pro',
-      };
-      return legacyAliases[trimmed.toLowerCase()] || trimmed;
-    }
-    return 'gemini-3.5-flash';
+  private resolveVideoAnalysisModel(requestedModel?: string): string {
+    const defaultModel = 'doubao-seed-2-0-lite-260428';
+    const trimmed = requestedModel?.trim().toLowerCase();
+    if (!trimmed) return defaultModel;
+
+    const aliases: Record<string, string> = {
+      'doubao-seed-2-0-mini': 'doubao-seed-2-0-mini-260428',
+      'doubao-seed-2-0-lite': 'doubao-seed-2-0-lite-260428',
+      'doubao-seed-2-0-pro': 'doubao-seed-2-0-pro-260428',
+      'gemini-3-flash-preview': 'gemini-3.5-flash',
+      'gemini-3-flash': 'gemini-3.5-flash',
+      'gemini-3.1-pro-preview': 'gemini-3.1-pro',
+    };
+    const normalized = aliases[trimmed] || trimmed;
+    const allowedModels = new Set([
+      'doubao-seed-2-0-mini-260428',
+      'doubao-seed-2-0-lite-260215',
+      'doubao-seed-2-0-lite-260428',
+      'doubao-seed-2-0-pro-260428',
+      'gemini-2.5-flash',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro',
+    ]);
+    if (allowedModels.has(normalized)) return normalized;
+    throw new BadRequestException(`不支持的视频分析模型：${requestedModel}`);
+  }
+
+  private isDoubaoVideoAnalysisModel(model: string): boolean {
+    return /^doubao-seed-2-0-(?:mini|lite|pro)-\d{6}$/i.test(model);
   }
 
   private summarizeError(error: any): string {
@@ -7100,14 +7118,14 @@ export class AiController {
   }
 
   /**
-   * 视频分析 - 使用 Gemini File API 分析视频内容
+   * 视频分析 - 豆包 Seed 2.0 Responses input_video / Gemini 完整视频与抽帧兜底
    */
   @Post('analyze-video')
   async analyzeVideo(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
     this.logger.log(`🎥 Video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
 
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveGeminiVideoModel(dto.model);
+    const providerName = 'new-api';
+    const model = this.resolveVideoAnalysisModel(dto.model);
     const customApiKey = null;
     const videoProviderOptions = {
       ...(dto.providerOptions || {}),
@@ -7133,11 +7151,40 @@ export class AiController {
       let stage = 'download_video';
 
       try {
-        // 147(Banana) direct video understanding is only used on legacy 147 text route.
-        // For normal/stable routes, always use the unified frame-based pipeline so routing
-        // follows providerOptions + backend supplier settings consistently.
-        // 单轨模式下不再直连 147/Banana 视频理解；统一抽帧后交给 new-api
-        // provider 做帧分析与总结。
+        if (this.isDoubaoVideoAnalysisModel(model)) {
+          stage = 'analyze_remote_video';
+          const provider = this.factory.getProvider(model, providerName);
+          if (!provider.analyzeVideo) {
+            throw new ServiceUnavailableException('当前 AI Provider 不支持视频分析');
+          }
+          const result = await provider.analyzeVideo({
+            prompt:
+              dto.prompt ||
+              '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
+            videoUrl: parsedUrl.toString(),
+            model,
+            providerOptions: videoProviderOptions,
+          });
+          if (!result.success || !result.data) {
+            throw new ServiceUnavailableException(
+              result.error?.message || 'Failed to analyze remote video',
+            );
+          }
+
+          const analysisText = result.data.text || '';
+          const processingTime = Date.now() - startTime;
+          this.logger.log(
+            `✅ Video analysis (Doubao remote input_video) completed in ${processingTime}ms`,
+          );
+          return {
+            analysis: analysisText,
+            text: analysisText,
+            model,
+            provider: providerName,
+            processingTime,
+            analysisMode: 'remote_input_video',
+          };
+        }
 
         // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
         stage = 'download_video';
@@ -7223,7 +7270,7 @@ export class AiController {
         // new-api/Gemini 小视频优先发送完整视频：设计数据仍只保存远程 URL，
         // base64 只存在于这一跳的请求内存中，不进入 DB/OSS/Redis/任务数据。
         if (!customApiKey) {
-          const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+          const provider = this.factory.getProvider(model, providerName);
           if (received <= MAX_INLINE_VIDEO_BYTES && provider.analyzeVideo) {
             stage = 'analyze_inline_video';
             const fsp = await import('fs/promises');
@@ -7253,7 +7300,7 @@ export class AiController {
               analysis: analysisText,
               text: analysisText,
               model,
-              provider: providerName || 'new-api',
+              provider: providerName,
               processingTime,
               analysisMode: 'inline_file_data',
               videoBytes: received,
@@ -7282,7 +7329,7 @@ export class AiController {
           uploadedFrameKeys = uploadedFrames.map(({ key }) => key);
 
           stage = 'analyze_frames';
-          const visionModel = this.resolveImageModel(providerName, dto.model);
+          const visionModel = this.resolveImageModel(null, model);
           const framePrompt =
             '请描述这一帧画面（场景、人物、动作、字幕/界面元素），尽量客观，不要编造。';
           const frameAnalyses: string[] = [];
@@ -7330,7 +7377,7 @@ export class AiController {
             analysis: analysisText,
             text: analysisText,
             model,
-            provider: providerName || 'new-api',
+              provider: providerName,
             processingTime,
             frameCount: uploadedFrames.length,
           };

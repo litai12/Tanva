@@ -56,8 +56,15 @@
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
 - new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6-luna` abilities；小T专属 Fast/Pro/Ultra facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
 - `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
-- 视频分析仍由 `resolveGeminiVideoModel` 选择 Gemini 视频理解模型；小T走独立三档 facade：Fast GPT-5.4、Pro GPT-5.5、Ultra GPT-5.6 Luna。
+- 视频分析由 `resolveVideoAnalysisModel` 校验节点显式模型；默认豆包 Seed 2.0 Lite，也支持豆包 Mini/Pro 与 Gemini 三档。小T仍走独立三档 facade：Fast GPT-5.4、Pro GPT-5.5、Ultra GPT-5.6 Luna。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
+
+## 2026-07-31 Video Analysis Model Selection
+
+- `POST /api/ai/analyze-video` 的默认模型为 `doubao-seed-2-0-lite-260428`。豆包 Mini/Lite/Pro 统一调用 `NewApiProvider.analyzeVideo`，以 new-api `/v1/responses` 的 `input_video.video_url` 传入经过白名单校验的远程视频 URL，`max_output_tokens=16384`，不会先下载、转 base64 或抽帧。
+- new-api 的 `default` 分组必须启用所选豆包 Seed 2.0 视频理解模型 ability，并配置可处理 Responses API 的火山渠道；Tanva 不保存或直连火山凭据。
+- Gemini 2.5 Flash/3.5 Flash/3.1 Pro 继续走既有兼容路径：不超过 15MB 时最后一跳使用 Chat Completions `file.file_data` 完整视频，超限时抽帧、上传临时远程 URL、逐帧理解后总结；临时文件和帧在结束时清理。
+- 视频分析模型白名单由 Controller 统一校验，旧 Gemini Preview 别名仍映射到当前模型。`npm run verify:new-api-video-analysis` 以 mock `fetch` 同时验证豆包 Responses 远程视频负载、Gemini inline file_data 负载及非法输入拦截。
 
 ## 2026-07-30 Wan / HappyHorse new-api Routing
 

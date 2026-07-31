@@ -125,8 +125,9 @@ export interface ImageAnalysisRequest {
 
 export interface VideoAnalysisRequest {
   prompt?: string;
-  videoData: string; // runtime-only raw base64; never persist in project/task data
-  mimeType: string;
+  videoUrl?: string; // persisted input remains a remote URL; used by Responses input_video
+  videoData?: string; // runtime-only raw base64; never persist in project/task data
+  mimeType?: string;
   fileName?: string;
   model?: string;
   providerOptions?: ProviderOptionsPayload;

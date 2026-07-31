@@ -239,6 +239,64 @@ export class NewApiProvider implements IAIProvider {
   async analyzeVideo(
     request: VideoAnalysisRequest,
   ): Promise<AIProviderResponse<VideoAnalysisResult>> {
+    const model = request.model || 'gemini-3.5-flash';
+    if (this.isDoubaoVideoUnderstandingModel(model)) {
+      let videoUrl: string;
+      try {
+        videoUrl = this.requireRemoteVideoReference(request.videoUrl);
+      } catch (error) {
+        return this.errorResponse('VIDEO_ANALYSIS_FAILED', error);
+      }
+
+      const result = await this.responses(
+        {
+          model,
+          max_tokens: 16384,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_video',
+                  video_url: videoUrl,
+                },
+                {
+                  type: 'text',
+                  text:
+                    request.prompt ||
+                    '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
+                },
+              ],
+            },
+          ],
+        },
+        request.providerOptions,
+      );
+
+      if (!result.success) {
+        return {
+          success: false,
+          error: {
+            code: 'VIDEO_ANALYSIS_FAILED',
+            message: result.error?.message || 'Video analysis failed',
+            details: result.error?.details,
+          },
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          text: result.data?.text || '',
+          metadata: {
+            ...(result.data?.metadata || {}),
+            inputMode: 'remote_input_video',
+            videoUrl,
+          },
+        },
+      };
+    }
+
     let inlineVideo: { dataUrl: string; mimeType: string; fileName: string };
     try {
       inlineVideo = this.normalizeInlineVideo(request);
@@ -248,8 +306,8 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.chat(
       {
-        model: request.model || 'gemini-3.5-flash',
-        max_tokens: 4096,
+        model,
+        max_tokens: 16384,
         messages: [
           {
             role: 'user',
@@ -719,6 +777,12 @@ export class NewApiProvider implements IAIProvider {
     );
   }
 
+  private isDoubaoVideoUnderstandingModel(model: unknown): boolean {
+    return /^doubao-seed-2-0-(?:mini|lite|pro)(?:-\d{6})?$/i.test(
+      String(model || '').trim(),
+    );
+  }
+
   private toResponsesPayload(payload: Record<string, unknown>): Record<string, unknown> {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
     return {
@@ -1004,6 +1068,16 @@ export class NewApiProvider implements IAIProvider {
       mimeType,
       fileName,
     };
+  }
+
+  private requireRemoteVideoReference(value: unknown): string {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!/^https?:\/\//i.test(trimmed)) {
+      throw new Error(
+        'videoUrl must be an uploaded remote http(s) URL for Doubao video analysis',
+      );
+    }
+    return trimmed;
   }
 
   private toPdfFileReference(value: string): string {

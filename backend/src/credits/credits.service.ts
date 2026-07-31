@@ -2017,9 +2017,24 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    const routeKey = this.resolveBananaRouteFromRequestParams(requestParams) || 'normal';
+    const normalizedModel = String(model || requestParams?.model || '')
+      .trim()
+      .toLowerCase();
+    const doubaoTier: BananaTextPricingTier | null =
+      normalizedModel.includes('doubao-seed-2-0-mini')
+        ? 'fast'
+        : normalizedModel.includes('doubao-seed-2-0-lite')
+          ? 'pro'
+          : normalizedModel.includes('doubao-seed-2-0-pro')
+            ? 'ultra'
+            : null;
+    const routeKey = doubaoTier
+      ? 'normal'
+      : this.resolveBananaRouteFromRequestParams(requestParams) || 'normal';
     const tier =
-      this.resolveBananaTextPricingTier(requestParams, model, true) || 'fast';
+      doubaoTier ||
+      this.resolveBananaTextPricingTier(requestParams, model, true) ||
+      'fast';
     const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
     return Number.isFinite(configuredCredits) && configuredCredits > 0
       ? configuredCredits

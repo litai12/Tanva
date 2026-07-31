@@ -15,7 +15,7 @@ export class AnalyzeVideoDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'new-api' | 'doubao' | 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsString()

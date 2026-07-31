@@ -1544,16 +1544,6 @@ export const getPdfAnalyzeModelForProvider = (
   return STANDARD_TEXT_MODEL;
 };
 
-export const getVideoAnalyzeModelForProvider = (
-  provider: AIProviderType
-): string => {
-  if (provider === "banana-2.5") return "gemini-2.5-flash";
-  if (provider === "banana-3.1" || provider === "nano2") {
-    return "gemini-3.1-pro";
-  }
-  return "gemini-3.5-flash";
-};
-
 type RunningHubStageUpdater = (stage: string, progress?: number) => void;
 
 type ProcessMetrics = {

@@ -6,14 +6,19 @@ const captured: Array<{ url: string; authorization: string | null; body: any }> 
 const originalFetch = globalThis.fetch;
 
 globalThis.fetch = async (input, init) => {
+  const url = String(input);
   const headers = new Headers(init?.headers);
   captured.push({
-    url: String(input),
+    url,
     authorization: headers.get('authorization'),
     body: JSON.parse(String(init?.body || '{}')),
   });
   return new Response(
-    JSON.stringify({ choices: [{ message: { content: 'video verified' } }] }),
+    JSON.stringify(
+      url.endsWith('/v1/responses')
+        ? { output_text: 'doubao video verified' }
+        : { choices: [{ message: { content: 'video verified' } }] },
+    ),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 };
@@ -51,6 +56,37 @@ async function main(): Promise<void> {
     `data:video/mp4;base64,${Buffer.from('tiny-video').toString('base64')}`,
   );
 
+  const doubaoResult = await provider.analyzeVideo({
+    prompt: '输出分镜表',
+    videoUrl: 'https://cdn.example.com/storyboard.mp4',
+    model: 'doubao-seed-2-0-lite-260428',
+  });
+  assert.equal(doubaoResult.success, true);
+  assert.equal(doubaoResult.data?.text, 'doubao video verified');
+  assert.equal(captured.length, 2);
+  assert.equal(captured[1]?.url, 'https://new-api.test/v1/responses');
+  assert.equal(captured[1]?.body.model, 'doubao-seed-2-0-lite-260428');
+  assert.equal(captured[1]?.body.max_output_tokens, 16384);
+  assert.deepEqual(captured[1]?.body.input?.[0]?.content, [
+    {
+      type: 'input_video',
+      video_url: 'https://cdn.example.com/storyboard.mp4',
+    },
+    {
+      type: 'input_text',
+      text: '输出分镜表',
+    },
+  ]);
+
+  const missingDoubaoUrl = await provider.analyzeVideo({
+    prompt: '分析视频',
+    model: 'doubao-seed-2-0-pro-260428',
+  });
+  assert.equal(missingDoubaoUrl.success, false);
+  assert.equal(missingDoubaoUrl.error?.code, 'VIDEO_ANALYSIS_FAILED');
+  assert.match(missingDoubaoUrl.error?.message || '', /videoUrl/);
+  assert.equal(captured.length, 2);
+
   const invalid = await provider.analyzeVideo({
     videoData: Buffer.from('not-a-video').toString('base64'),
     mimeType: 'image/png',
@@ -58,7 +94,7 @@ async function main(): Promise<void> {
   assert.equal(invalid.success, false);
   assert.equal(invalid.error?.code, 'VIDEO_ANALYSIS_FAILED');
   assert.match(invalid.error?.message || '', /MIME type/);
-  assert.equal(captured.length, 1);
+  assert.equal(captured.length, 2);
 
   console.log('new-api video analysis verification passed');
 }

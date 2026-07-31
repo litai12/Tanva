@@ -22,21 +22,22 @@ import {
   hasPromptMentionTokenInText,
   isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
+  type TextPromptData,
   type PromptImageMention,
   type PromptMentionSource,
 } from '../types';
 import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
 import SmartImage from '@/components/ui/SmartImage';
+import StoryboardPromptTableView from './StoryboardPromptTableView';
+import {
+  normalizeStoryboardPromptTable,
+  parseStoryboardAnalysis,
+  serializeStoryboardPromptTable,
+} from '../storyboardPromptTable';
 
 type Props = {
   id: string;
-  data: {
-    text?: string;
-    mentions?: PromptImageMention[];
-    boxW?: number;
-    boxH?: number;
-    title?: string;
-  };
+  data: TextPromptData;
   selected?: boolean;
 };
 
@@ -296,6 +297,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const edges = useStore((state: ReactFlowState) => state.edges);
   const isFlowDark = useFlowNodeDarkTheme();
   const [value, setValue] = React.useState<string>(data.text || '');
+  const isStoryboardTable = data.variant === 'storyboard-table';
+  const storyboardViewMode = data.storyboardViewMode === 'text' ? 'text' : 'table';
+  const shouldRenderTextEditor = !isStoryboardTable || storyboardViewMode === 'text';
+  const storyboardTable = React.useMemo(() => {
+    const persisted = normalizeStoryboardPromptTable(data.storyboardTable);
+    if (persisted && data.storyboardSourceText === value) return persisted;
+    return parseStoryboardAnalysis(value);
+  }, [data.storyboardSourceText, data.storyboardTable, value]);
   const [hover, setHover] = React.useState<string | null>(null);
   const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -356,7 +365,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const personalLibraryFailedAtRef = React.useRef(0);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
-  const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
+  const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLElement>) => {
     const store = useCanvasStore.getState();
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
@@ -554,7 +563,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       ),
     [mentionTokenRanges]
   );
-  const shouldRenderMentionOverlay = mentionTokenRanges.length > 0 && !isComposing;
+  const shouldRenderMentionOverlay =
+    shouldRenderTextEditor && mentionTokenRanges.length > 0 && !isComposing;
   const mentionOverlayNodes = React.useMemo(() => {
     if (mentionTokenRanges.length === 0) return [value];
     const nodes: React.ReactNode[] = [];
@@ -835,10 +845,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     edgesRef.current = edges;
     const texts = collectIncomingTexts(edges);
     setIncomingTexts(texts);
-    if (texts.length) {
+    // 分镜表 Prompt 允许在保留分析来源连线的同时继续人工校正。
+    // 上游真正产出新分析时仍由 flow:updateNodeData 监听器同步；
+    // 本节点自身编辑引起的 rerender 不应再次从上游覆盖表格。
+    if (!isStoryboardTable && texts.length) {
       applyIncomingText(texts.join('\n\n'));
     }
-  }, [edges, collectIncomingTexts, applyIncomingText]);
+  }, [edges, collectIncomingTexts, applyIncomingText, isStoryboardTable]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -899,11 +912,55 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       next,
       nextMentions ?? mentionsRef.current
     );
+    const storyboardPatch = isStoryboardTable
+      ? { storyboardTable: undefined, storyboardSourceText: undefined }
+      : {};
     const ev = new CustomEvent('flow:updateNodeData', {
-      detail: { id, patch: { text: next, mentions: sanitizedMentions } }
+      detail: {
+        id,
+        patch: {
+          text: next,
+          mentions: sanitizedMentions,
+          ...storyboardPatch,
+        },
+      }
     });
     window.dispatchEvent(ev);
+  }, [id, isStoryboardTable, syncTypedCandidateMentions]);
+
+  const commitStoryboardTable = React.useCallback((
+    nextTable: TextPromptData['storyboardTable'],
+  ) => {
+    if (!nextTable) return;
+    const nextText = serializeStoryboardPromptTable(nextTable);
+    const nextMentions = syncTypedCandidateMentions(nextText, mentionsRef.current);
+    mentionsRef.current = nextMentions;
+    setMentions(nextMentions);
+    setValue(nextText);
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: {
+        id,
+        patch: {
+          text: nextText,
+          mentions: nextMentions,
+          storyboardTable: nextTable,
+          storyboardSourceText: nextText,
+        },
+      },
+    }));
   }, [id, syncTypedCandidateMentions]);
+
+  const setStoryboardViewMode = React.useCallback((mode: 'table' | 'text') => {
+    setAtMention(null);
+    const patch: Partial<TextPromptData> = { storyboardViewMode: mode };
+    if (mode === 'table') {
+      patch.storyboardTable = parseStoryboardAnalysis(value);
+      patch.storyboardSourceText = value;
+    }
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch },
+    }));
+  }, [id, value]);
 
   const getReusableMention = React.useCallback((candidate: MentionCandidate): PromptImageMention | null => {
     const candidateKeys = new Set(getMentionCandidateLookupKeys(candidate));
@@ -1273,11 +1330,22 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   useNodeInternalsSync(
     id,
     nodeRootRef,
-    [data.boxW, data.boxH, isEditingTitle, isPromptEditable]
+    [
+      data.boxW,
+      data.boxH,
+      isEditingTitle,
+      isPromptEditable,
+      isStoryboardTable,
+      storyboardViewMode,
+    ]
   );
 
-  const renderedBoxW = isResizing && resizePreview ? resizePreview.width : (data.boxW || 240);
-  const renderedBoxH = isResizing && resizePreview ? resizePreview.height : (data.boxH || 180);
+  const renderedBoxW = isResizing && resizePreview
+    ? resizePreview.width
+    : (data.boxW || (isStoryboardTable ? 900 : 240));
+  const renderedBoxH = isResizing && resizePreview
+    ? resizePreview.height
+    : (data.boxH || (isStoryboardTable ? 520 : 180));
   const activeMentionLoading =
     activeMentionTab === 'project-library'
       ? projectLibraryLoading
@@ -1350,10 +1418,61 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             className="tanva-flow-node-title"
             onDoubleClick={startTitleEditing}
             title={lt("双击编辑标题", "Double-click to edit title")}
-            style={{ cursor: 'text', userSelect: 'none' }}
+            style={{
+              cursor: 'text',
+              userSelect: 'none',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
           >
             {title}
           </span>
+        )}
+        {isStoryboardTable && (
+          <div
+            className="nodrag nopan"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              marginLeft: 'auto',
+              padding: 2,
+              borderRadius: 6,
+              background: isFlowDark ? '#151515' : '#f1f5f9',
+            }}
+          >
+            {(['table', 'text'] as const).map((mode) => {
+              const active = storyboardViewMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setStoryboardViewMode(mode);
+                  }}
+                  style={{
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '2px 7px',
+                    background: active
+                      ? (isFlowDark ? '#333333' : '#fff')
+                      : 'transparent',
+                    color: active ? promptTextColor : mutedTextColor,
+                    boxShadow: active && !isFlowDark
+                      ? '0 1px 2px rgba(15,23,42,0.12)'
+                      : 'none',
+                    fontSize: 10,
+                    fontWeight: active ? 600 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {mode === 'table' ? lt('表格', 'Table') : lt('原文', 'Text')}
+                </button>
+              );
+            })}
+          </div>
         )}
         {hasIncoming && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1390,115 +1509,132 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           overflow: 'hidden',
         }}
       >
-        {shouldRenderMentionOverlay && (
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              overflow: 'hidden',
-              // 与下方 textarea 保留同宽的滚动条占位，保证两者换行宽度一致，
-              // 否则文字过多触发滚动条时 textarea 比 overlay 提前换行，光标会与可见文字错位。
-              // （Windows 经典滚动条占宽，macOS overlay 滚动条不占宽，故此问题仅在 Windows 概率出现）
-              scrollbarGutter: 'stable',
-              pointerEvents: 'none',
-              zIndex: 1,
+        {isStoryboardTable && storyboardViewMode === 'table' ? (
+          <StoryboardPromptTableView
+            table={storyboardTable}
+            editable={isPromptEditable}
+            dark={isFlowDark}
+            onChange={commitStoryboardTable}
+            onWheelCapture={(event) => {
+              if (!isPromptEditable) return;
+              if (shouldPassWheelToCanvas(event)) return;
+              event.stopPropagation();
+              event.nativeEvent?.stopImmediatePropagation?.();
             }}
-          >
-            <div
-              ref={mentionOverlayInnerRef}
+          />
+        ) : (
+          <>
+            {shouldRenderMentionOverlay && (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  overflow: 'hidden',
+                  // 与下方 textarea 保留同宽的滚动条占位，保证两者换行宽度一致，
+                  // 否则文字过多触发滚动条时 textarea 比 overlay 提前换行，光标会与可见文字错位。
+                  // （Windows 经典滚动条占宽，macOS overlay 滚动条不占宽，故此问题仅在 Windows 概率出现）
+                  scrollbarGutter: 'stable',
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              >
+                <div
+                  ref={mentionOverlayInnerRef}
+                  style={{
+                    boxSizing: 'border-box',
+                    display: 'block',
+                    minHeight: '100%',
+                    width: '100%',
+                    padding: 6,
+                    fontSize: 12,
+                    lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
+                    color: promptTextColor,
+                    WebkitTextFillColor: promptTextColor,
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'break-word',
+                    wordBreak: 'break-word',
+                    fontFamily: 'inherit',
+                    letterSpacing: 0,
+                  }}
+                >
+                  {mentionOverlayNodes}
+                </div>
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              className={[
+                "tanva-flow-text-input",
+                shouldRenderMentionOverlay ? "tanva-prompt-mentions-textarea" : "",
+                isPromptEditable ? "nodrag nopan nowheel" : "",
+              ].filter(Boolean).join(" ")}
+              value={value}
+              readOnly={!isPromptEditable}
+              tabIndex={isPromptEditable ? 0 : -1}
+              onChange={handleValueChange}
+              onKeyDown={handleMentionKeyDown}
+              onSelect={handleTextareaSelect}
+              onScroll={handleTextareaScroll}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
+              onWheelCapture={(event) => {
+                if (!isPromptEditable) return;
+                if (shouldPassWheelToCanvas(event)) return;
+                event.stopPropagation();
+                if (event.nativeEvent?.stopImmediatePropagation) {
+                  event.nativeEvent.stopImmediatePropagation();
+                }
+              }}
+              onPointerDownCapture={(event) => {
+                if (!isPromptEditable) return;
+                event.stopPropagation();
+                if (event.nativeEvent?.stopImmediatePropagation) {
+                  event.nativeEvent.stopImmediatePropagation();
+                }
+              }}
+              onMouseDownCapture={(event) => {
+                if (!isPromptEditable) return;
+                event.stopPropagation();
+              }}
+              placeholder={lt("输入提示词", "Enter prompt")}
               style={{
+                position: 'absolute',
+                inset: 0,
                 boxSizing: 'border-box',
                 display: 'block',
-                minHeight: '100%',
                 width: '100%',
+                height: '100%',
+                resize: 'none',
+                maxHeight: '100%',
+                minHeight: 0,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                // 始终为竖向滚动条预留固定宽度，使文本换行宽度恒定（与 overlay 一致），
+                // 避免滚动条出现/消失导致换行变化、光标错位（Windows 经典滚动条占宽时尤为明显）。
+                scrollbarGutter: 'stable',
                 padding: 6,
                 fontSize: 12,
                 lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
-                color: promptTextColor,
-                WebkitTextFillColor: promptTextColor,
+                border: 'none',
+                borderRadius: 6,
+                outline: 'none',
+                pointerEvents: isPromptEditable ? 'auto' : 'none',
+                background: 'transparent',
+                color: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+                WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+                caretColor: promptCaretColor,
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
                 fontFamily: 'inherit',
                 letterSpacing: 0,
+                cursor: isPromptEditable ? 'text' : 'default',
+                zIndex: 2,
               }}
-            >
-              {mentionOverlayNodes}
-            </div>
-          </div>
+            />
+          </>
         )}
-        <textarea
-          ref={textareaRef}
-          className={[
-            "tanva-flow-text-input",
-            shouldRenderMentionOverlay ? "tanva-prompt-mentions-textarea" : "",
-            isPromptEditable ? "nodrag nopan nowheel" : "",
-          ].filter(Boolean).join(" ")}
-          value={value}
-          readOnly={!isPromptEditable}
-          tabIndex={isPromptEditable ? 0 : -1}
-          onChange={handleValueChange}
-          onKeyDown={handleMentionKeyDown}
-          onSelect={handleTextareaSelect}
-          onScroll={handleTextareaScroll}
-          onCompositionStart={handleCompositionStart}
-          onCompositionEnd={handleCompositionEnd}
-          onWheelCapture={(event) => {
-            if (!isPromptEditable) return;
-            if (shouldPassWheelToCanvas(event)) return;
-            event.stopPropagation();
-            if (event.nativeEvent?.stopImmediatePropagation) {
-              event.nativeEvent.stopImmediatePropagation();
-            }
-          }}
-          onPointerDownCapture={(event) => {
-            if (!isPromptEditable) return;
-            event.stopPropagation();
-            if (event.nativeEvent?.stopImmediatePropagation) {
-              event.nativeEvent.stopImmediatePropagation();
-            }
-          }}
-          onMouseDownCapture={(event) => {
-            if (!isPromptEditable) return;
-            event.stopPropagation();
-          }}
-          placeholder={lt("输入提示词", "Enter prompt")}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            boxSizing: 'border-box',
-            display: 'block',
-            width: '100%',
-            height: '100%',
-            resize: 'none',
-            maxHeight: '100%',
-            minHeight: 0,
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            // 始终为竖向滚动条预留固定宽度，使文本换行宽度恒定（与 overlay 一致），
-            // 避免滚动条出现/消失导致换行变化、光标错位（Windows 经典滚动条占宽时尤为明显）。
-            scrollbarGutter: 'stable',
-            fontSize: 12,
-            lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
-            border: 'none',
-            borderRadius: 6,
-            padding: 6,
-            outline: 'none',
-            pointerEvents: isPromptEditable ? 'auto' : 'none',
-            background: 'transparent',
-            color: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
-            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
-            caretColor: promptCaretColor,
-            fontFamily: 'inherit',
-            letterSpacing: 0,
-            whiteSpace: 'pre-wrap',
-            overflowWrap: 'break-word',
-            wordBreak: 'break-word',
-            cursor: isPromptEditable ? 'text' : 'default',
-            zIndex: 2,
-          }}
-        />
       </div>
       {mentionPreviewItems.length > 0 && (
         <div className="prompt-mentioned-strip nodrag nopan" aria-label={lt('已引用图片', 'Referenced images')}>
@@ -1529,7 +1665,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           ))}
         </div>
       )}
-      {atMention && dropdownPos && createPortal(
+      {shouldRenderTextEditor && atMention && dropdownPos && createPortal(
         <div
           className="nodrag nopan"
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
