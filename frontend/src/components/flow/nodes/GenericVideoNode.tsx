@@ -1446,10 +1446,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
-      { label: "Seedance 2.5", value: "seedance-2.5" as const },
+      {
+        label: lt("Seedance 2.5（即将推出）", "Seedance 2.5 (Coming soon)"),
+        value: "seedance-2.5" as const,
+      },
       { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
-    []
+    [lt]
   );
   const seed2ModelOptions = React.useMemo(
     () => [
@@ -2019,6 +2022,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const handleSeedanceModelChange = React.useCallback(
     (value: SeedanceModel) => {
       if (value === seedanceModel) return;
+      // Keep the option visible as a product preview, but do not allow it to
+      // become the active model until Seedance 2.5 is publicly available.
+      if (value === "seedance-2.5") return;
       if (isSeedance20LockedOption(value)) {
         window.dispatchEvent(
           new CustomEvent("toast", {
@@ -3188,12 +3194,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   const isSeedanceLocked =
                     provider === "doubao" &&
                     isSeedance20LockedOption(opt.value as SeedanceModel);
+                  const isSeedanceComingSoon =
+                    provider === "doubao" && opt.value === "seedance-2.5";
+                  const isModelOptionDisabled =
+                    isSeedanceComingSoon || isSeedanceLocked;
                   return (
                     <button
                       key={opt.value}
                       type='button'
                       title={
-                        isSeedanceLocked
+                        isSeedanceComingSoon
+                          ? lt("即将推出，暂不可选择", "Coming soon; not selectable yet")
+                          : isSeedanceLocked
                           ? lt(
                               "需开通 VIP 权益或进入水印白名单后才能选择",
                               "Requires VIP access or watermark whitelist access",
@@ -3201,7 +3213,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                           : undefined
                       }
                       onClick={() => {
-                        if (isSeedanceLocked) return;
+                        if (isModelOptionDisabled) return;
                         if (isUnifiedKlingNode) {
                           handleKlingModelChange(opt.value as "kling-v2-6" | "kling-v3-0");
                         } else if (provider === "doubao") {
@@ -3216,17 +3228,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         borderRadius: 8,
                         border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
                         background: isActive ? "#eff6ff" : "#fff",
-                        color: isSeedanceLocked
+                        color: isModelOptionDisabled
                           ? "#9ca3af"
                           : isActive
                           ? "#1d4ed8"
                           : "#111827",
                         fontSize: 12,
                         textAlign: "left",
-                        cursor: isSeedanceLocked ? "not-allowed" : "pointer",
-                        opacity: isSeedanceLocked ? 0.55 : 1,
+                        cursor: isModelOptionDisabled ? "not-allowed" : "pointer",
+                        opacity: isModelOptionDisabled ? 0.55 : 1,
                       }}
-                      disabled={isSeedanceLocked}
+                      disabled={isModelOptionDisabled}
                     >
                       {opt.label}
                     </button>

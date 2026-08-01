@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-01
+
+- Flow/Seedance: changed the Seedance 2.5 selector entry to a localized “Coming soon” label and disabled it for all users, with a second guard in the model-change handler; backend and historical-value compatibility remain intact.
+
 ## 2026-07-31
 
 - Flow/Storyboard: replaced the short built-in script-to-storyboard prompt with a naturalistic fast-cut directing contract. Plain scripts may gain camera coverage without gaining plot; existing numbered/timed storyboards enter a locked refinement mode. The default table now exposes duration, 15-second beat, lighting/position, shot, dialogue, sound, notes, delivery-rate, breathing, and micro-action fields while retaining legacy analysis-field parsing. A follow-up detail-density gate now requires starting geometry, motion chain/path/speed, camera/focus, light/occlusion, end state, and sound; visible actions over one second receive at least three genuinely changing timeline segments.

@@ -1,3 +1,6 @@
+## 2026-08-01 Seedance 2.5 即将推出状态
+- 通用 Seedance 模型选择器继续展示 `Seedance 2.5（即将推出）` 作为产品预告，但该项使用原生禁用态并在型号变更处理器中二次拦截，当前用户不能新选；后端路由与历史节点值的兼容识别保持不变。
+
 ## 2026-07-31 Seedance 2.5
 - Generic Seedance video nodes expose `Seedance 2.5` as `seedanceModel=seedance-2.5`; request assembly preserves that selector instead of collapsing it to 2.0, allowing the backend to route the exact Ark model `doubao-seedance-2-5`.
 - The 2.5 resolution list is strictly `480P/720P`. Switching from 2.0 with a stored `1080P` or `4K` value automatically falls back to `720P`, and the help copy reflects the same capability.
