@@ -660,9 +660,9 @@ const AIChatDialog: React.FC = () => {
     t("chat.labels.selectMode");
   const providerButtonLabel =
     manualAIMode === "text"
-      ? "new-api · GPT-5.4"
+      ? "new-api · 小T-5.4"
       : manualAIMode === "analyze"
-        ? "new-api · GPT-5.6 Luna"
+        ? "new-api · 小T-5.6 Luna"
         : currentProviderOption
           ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
           : t("chat.labels.domesticModel");

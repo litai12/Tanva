@@ -278,7 +278,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
           <span className='tanva-flow-node-title'>Prompt Optimizer</span>
           <span
             className='tanva-flow-provider-mode-badge'
-            title='new-api · GPT-5.4'
+            title='new-api · 小T-5.4'
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -292,7 +292,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
               border: '1px solid #e2e8f0',
             }}
           >
-            GPT-5.4
+            小T-5.4
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

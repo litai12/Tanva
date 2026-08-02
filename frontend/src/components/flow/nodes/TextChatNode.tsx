@@ -653,7 +653,7 @@ Rules:
             )}
             <span
               className='tanva-flow-provider-mode-badge'
-              title='new-api · GPT-5.4'
+              title='new-api · 小T-5.4'
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -668,7 +668,7 @@ Rules:
                 border: isDarkTheme ? '1px solid #4a4a4a' : '1px solid #e2e8f0',
               }}
             >
-              GPT-5.4
+              小T-5.4
             </span>
           </div>
           <button

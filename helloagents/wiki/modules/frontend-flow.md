@@ -7,8 +7,8 @@
 - 2.5 is currently an Ark default-route-only model. Its node hides Tencent VOD/Premium routes and ignores a stale VIP selection from an older saved node; the backend independently enforces the same route.
 - Price badges continue to use authenticated `/api/credits/preview` only. The frontend supplies the selected model, resolution, output duration, and connected reference-video durations; it does not carry a second runtime price table.
 
-## 2026-07-22 GPT Text Model Display
-- Flow Text Chat and Prompt Optimizer continue to execute with `gpt-5.4` through new-api. Their visible badges show `GPT-5.4`, and the model tooltip identifies the managed route as `new-api · GPT-5.4`; they no longer claim a direct OpenAI route.
+## 2026-08-02 XiaoT Text Model Display
+- Flow Text Chat and Prompt Optimizer continue to execute internally with `gpt-5.4` through new-api. Their user-visible badges now show `小T-5.4`, and the model tooltip identifies the managed route as `new-api · 小T-5.4`; the internal request model remains unchanged.
 
 ## 2026-07-21 Backend-only Video Credit Display
 - Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.
