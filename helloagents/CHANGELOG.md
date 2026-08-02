@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-02
+
+- AI Chat/小T：对话费改为每个完整成功回合固定 `2` 积分，上游 `usage.total_tokens` 只保留作审计、不再换算扣费；生图、视频、识图等小T宿主任务继续独立计费。新增 DeepSeek V4 Flash 小T专属门面与生产网关幂等补丁，GPT 系选项统一改用 `小T-5.4/5.5/5.6 Luna` 外显。`verify:xiaot-chat-pricing` 无付费回归门禁同时覆盖 DeepSeek 门面转发、上游返回 `4867` usage 和缺失 usage 两种情况。
+
 ## 2026-08-01
 
 - Flow/Seedance: changed the Seedance 2.5 selector entry to a localized “Coming soon” label and disabled it for all users, with a second guard in the model-change handler; backend and historical-value compatibility remain intact.

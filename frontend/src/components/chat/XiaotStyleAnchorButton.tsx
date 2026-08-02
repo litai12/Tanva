@@ -12,7 +12,10 @@ import { Button } from "@/components/ui/button";
 import SmartImage from "@/components/ui/SmartImage";
 import LibraryPanel from "@/components/panels/LibraryPanel";
 import { useAIChatStore } from "@/stores/aiChatStore";
-import type { XiaotChatModel } from "@/services/agentBackendAPI";
+import {
+  XIAOT_CHAT_MODEL_OPTIONS,
+  type XiaotChatModel,
+} from "@/services/agentBackendAPI";
 import {
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
@@ -26,9 +29,7 @@ interface Props {
 }
 
 const BRAIN_OPTIONS: Array<{ label: string; value: XiaotChatModel }> = [
-  { label: "Fast · GPT-5.4", value: "xiaot-agent-gpt-5-4" },
-  { label: "Pro · GPT-5.5", value: "xiaot-agent-gpt-5-5" },
-  { label: "Ultra · GPT-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  ...XIAOT_CHAT_MODEL_OPTIONS,
 ];
 
 const IMAGE_RATIOS = [

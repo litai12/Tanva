@@ -14,8 +14,27 @@ export const XIAOT_CHAT_MODELS = [
   "xiaot-agent-gpt-5-4",
   "xiaot-agent-gpt-5-5",
   "xiaot-agent-gpt-5-6-luna",
+  "xiaot-agent-deepseek-v4-flash",
 ] as const;
 export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
+
+// 用户侧统一以“小T”品牌外显；value 仍保留专属门面名供网关路由。
+export const XIAOT_CHAT_MODEL_OPTIONS: ReadonlyArray<{
+  label: string;
+  value: XiaotChatModel;
+}> = [
+  { label: "Fast · 小T-5.4", value: "xiaot-agent-gpt-5-4" },
+  { label: "Pro · 小T-5.5", value: "xiaot-agent-gpt-5-5" },
+  { label: "Ultra · 小T-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  {
+    label: "小T-DeepSeek V4 Flash",
+    value: "xiaot-agent-deepseek-v4-flash",
+  },
+];
+
+export const getXiaotChatModelLabel = (model: XiaotChatModel): string =>
+  XIAOT_CHAT_MODEL_OPTIONS.find((option) => option.value === model)?.label ??
+  XIAOT_CHAT_MODEL_OPTIONS[0].label;
 
 export type AgentEventType =
   | "run_started"

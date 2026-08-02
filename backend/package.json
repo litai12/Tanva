@@ -10,6 +10,7 @@
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
+    "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",
     "verify:new-api-video-analysis": "ts-node --transpile-only scripts/verify-new-api-video-analysis.ts",
     "verify:doubao-video-analysis-pricing": "ts-node --transpile-only scripts/verify-doubao-video-analysis-pricing.ts",
     "verify:dashscope-new-api-routing": "ts-node --transpile-only scripts/verify-dashscope-new-api-routing.ts",

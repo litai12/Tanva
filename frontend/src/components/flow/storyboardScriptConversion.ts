@@ -1,4 +1,7 @@
-import type { XiaotChatModel } from '@/services/agentBackendAPI';
+import {
+  getXiaotChatModelLabel,
+  type XiaotChatModel,
+} from '@/services/agentBackendAPI';
 import {
   createAgentRunViaAPI,
   streamAgentRunEvents,
@@ -6,15 +9,7 @@ import {
 import { DEFAULT_SCRIPT_TO_STORYBOARD_SKILL } from './storyboardScriptSkill';
 import type { StoryboardPromptTableData } from './types';
 
-const getModelLabel = (model: XiaotChatModel): string => {
-  if (model === 'xiaot-agent-gpt-5-5') return 'Pro · GPT-5.5';
-  if (model === 'xiaot-agent-gpt-5-6-luna') {
-    return 'Ultra · GPT-5.6 Luna';
-  }
-  return 'Fast · GPT-5.4';
-};
-
-export const getStoryboardConversionModelLabel = getModelLabel;
+export const getStoryboardConversionModelLabel = getXiaotChatModelLabel;
 
 const uniqueLabels = (labels: string[]): string[] =>
   Array.from(new Set(labels.map((label) => label.trim()).filter(Boolean)));

@@ -83,7 +83,7 @@
 - 内置 Skill 为“自然主义快节奏分镜”：普通文本采用拆镜创作，可新增拍摄覆盖但不得新增剧情事实；已有镜号/时间码采用锁镜精修，保持镜号、镜数、顺序和时长。默认约 15 秒一个节拍、每集目标 90–120 秒、拆镜模式单镜 0.4–3.0 秒，并检查中文超过 8 字换机位、英文 `<=3 words/s`、`@` token 保真、OS 闭唇、全员可见反应、场景参照物站位及跨镜光影/道具/衣物连续。
 - Skill 的单镜细节质量线包含起始几何状态、动作动力链、路径、速度曲线、机位响应、焦点/景深、光影/遮挡和结束状态/声音。仅写“起始—过渡—结束”不合格；可见动作超过 1 秒必须拆成至少 3 个连续且状态真正变化的 timeline 段，内置 3 秒手掌张开的四段示例作为颗粒度标尺，但禁止机械套用到无关镜头。手部/面部/关键道具特写还需在备注锁定数量、身份、关节/轮廓、纹理和遮挡关系，避免增指、融指、反折、漂移与无来源形变。
 - 新建空分镜表使用面向剧本生产的字段集：时间段、镜号、完整时间区间、时长、节拍单元、剧本特征、场景与光影、人物站位、景别、运镜、构图、画面内容、台词、音效、备注、字数与语速，以及目标人物/表情与呼吸/细微肢体时序字段。解析器继续识别历史 `机位运动/画面整体内容/台词文本/面部肌肉与表情变化` 等视频分析字段。
-- 转换请求调用小T `canvasAgent` 流式接口并直接读取 `useAIChatStore.xiaotModel`，所以 Fast/Pro/Ultra 与小T对话设置同步，不存在节点私有模型选择。每次转换使用独立 session id，避免把剧本任务串入当前聊天上下文。
+- 转换请求调用小T `canvasAgent` 流式接口并直接读取 `useAIChatStore.xiaotModel`，所以 Fast/Pro/Ultra/DeepSeek V4 Flash 与小T对话设置同步，不存在节点私有模型选择。每次转换使用独立 session id，避免把剧本任务串入当前聊天上下文。
 
 ## 2026-06-03 Image Input Target Preference
 - `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.

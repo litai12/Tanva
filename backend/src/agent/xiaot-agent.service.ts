@@ -1,5 +1,5 @@
 // 经 Tanva new-api 渠道流式调用小T（xiaot-agent 模型），把标准 chat.completion.chunk
-// 翻译成 AgentRunEvent 推给前端；按终帧 usage 扣积分。
+// 翻译成 AgentRunEvent 推给前端；完整成功的对话固定扣费，生成/分析宿主任务由各自链路另行计费。
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CreditsService } from '../credits/credits.service';
@@ -22,8 +22,12 @@ export const XIAOT_CHAT_MODELS = [
   'xiaot-agent-gpt-5-4',
   'xiaot-agent-gpt-5-5',
   'xiaot-agent-gpt-5-6-luna',
+  'xiaot-agent-deepseek-v4-flash',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
+
+/** 小T 自身每个成功对话回合的 Tanva 固定积分。 */
+export const XIAOT_CHAT_CREDITS_PER_RUN = 2;
 
 @Injectable()
 export class XiaotAgentService {
@@ -55,27 +59,6 @@ export class XiaotAgentService {
       (XIAOT_CHAT_MODELS as readonly string[]).includes(configured)
       ? configured
       : DEFAULT_XIAOT_CHAT_MODEL;
-  }
-
-  /**
-   * 每 1000 usage 单位折多少 Tanva 积分。
-   * 注意：xiaot-agent 的 usage.total_tokens 不是 token 数，而是**小T侧实扣的 TapCanvas 积分**
-   * （单回合封顶其预扣额，默认 20）。默认 1000 即两边积分 1:1；上线前按实际汇率调
-   * XIAOT_AGENT_CREDITS_PER_1K（例如 Tanva 积分是 TapCanvas 的 2 倍价值则设 500）。
-   */
-  private get creditsPerKUnit(): number {
-    const parsed = Number(
-      this.config.get<string>('XIAOT_AGENT_CREDITS_PER_1K') || '1000',
-    );
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
-  }
-
-  /** 上游没给 usage 时的兜底整次计费。 */
-  private get fallbackPerRun(): number {
-    const parsed = Number(
-      this.config.get<string>('XIAOT_AGENT_CREDITS_PER_RUN') || '5',
-    );
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5;
   }
 
   /** 流式总时长上限（毫秒），默认 15 分钟；超时 abort 整个请求。 */
@@ -162,7 +145,7 @@ export class XiaotAgentService {
       const requestBody = {
         model,
         stream: true,
-        // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
+        // OpenAI 流式 usage 惯例：请求终帧 usage 供运营审计，不参与固定对话计费。
         stream_options: { include_usage: true },
         user: dto.sessionId || `tanva:${userId}`,
         metadata: { host_user_id: hostScopeId },
@@ -179,7 +162,7 @@ export class XiaotAgentService {
         signal: controller.signal,
       });
 
-      // 模型目录可能暂时没有 Ultra/Luna 渠道。自动回落到默认 Fast，
+      // 所选小T模型目录可能暂时缺失。自动回落到默认 Fast，
       // 避免用户因为持久化的模型选择而整次创作失败；若 Fast 也不可用，继续返回原始错误。
       if (response.status === 503 && model !== DEFAULT_XIAOT_CHAT_MODEL) {
         const errorBody = await response.clone().text().catch(() => '');
@@ -347,19 +330,25 @@ export class XiaotAgentService {
     model: string,
     meta: Record<string, unknown>,
   ): Promise<void> {
-    const amount =
-      usageUnits > 0
-        ? Math.max(1, Math.ceil((usageUnits / 1000) * this.creditsPerKUnit))
-        : this.fallbackPerRun;
-    if (amount <= 0) return;
     try {
-      await this.creditsService.deductExact(userId, null, amount, {
-        serviceType: 'agent-chat',
-        serviceName: 'xiaot-agent',
-        provider: 'new-api',
-        model,
-        requestParams: { usageUnits, ...meta },
-      });
+      await this.creditsService.deductExact(
+        userId,
+        null,
+        XIAOT_CHAT_CREDITS_PER_RUN,
+        {
+          serviceType: 'agent-chat',
+          serviceName: 'xiaot-agent',
+          provider: 'new-api',
+          model,
+          requestParams: {
+            billingMode: 'fixed_per_completed_run',
+            chatCredits: XIAOT_CHAT_CREDITS_PER_RUN,
+            // 仅保留上游 usage 作运营审计，不再参与 Tanva 对话计费。
+            usageUnits,
+            ...meta,
+          },
+        },
+      );
     } catch (error) {
       // v1 取舍：回复已经完整送达前端，扣费失败只记日志不回滚/不中断，
       // 避免用户看到"内容成功但报错"的割裂体验；后续可加异步补扣。

@@ -9,8 +9,8 @@
 --     xiaot-agent-gpt-5-6-terra -> gpt-5.6-terra
 --     xiaot-agent-gpt-5-6-luna  -> gpt-5.6-luna
 --
--- 计费: 与既有 xiaot-agent 门面一致，ModelPrice 名义按次 0.01；真实计费仍由
--- Tanva backend 按 facade 终帧 usage 结算。
+-- 计费: 与既有 xiaot-agent 门面一致，ModelPrice 名义按次 0.01；Tanva
+-- 用户侧对话费由 backend 固定按 2 积分/成功回合结算，facade usage 只作审计。
 --
 -- 用法:
 --   docker exec -i tanva-new-api-postgres psql -U new_api -d new_api \

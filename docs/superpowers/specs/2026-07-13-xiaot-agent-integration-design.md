@@ -83,8 +83,9 @@ POST {BASE}/public/v1/chat/completions   // Authorization: Bearer tc_sk_* 或 x-
 
 ## 6. Tanva 侧接入（首个参照实现）
 
-- **new-api**：加 OpenAI 类型渠道 → `http://hono-api-api-1:8788/public`（容器网络）/ 生产填对应地址，密钥 = tc_sk key，模型 `xiaot-agent`，按 token 定价。**纯配置，零代码。**
-- **后端**（扩展 `backend/src/agent/`）：新 run 分支——收前端消息+画布快照 → 拼 system 段 → 经 new-api 调 `xiaot-agent`（stream）→ 复用 `/agent/runs/:id/events` SSE 转发（文本 delta、flow_patch 帧、done/error）。计费：按终帧 usage 映射积分挂 `withCredits`（现有 AgentController 欠计费，一并补）；断流未收到 usage 按已收帧估算。鉴权沿用 `ApiKeyOrJwtGuard`。
+- **new-api**：加 OpenAI 类型渠道 → `http://hono-api-api-1:8788/public`（容器网络）/ 生产填对应地址，密钥 = tc_sk key，模型使用 `xiaot-agent-*` 专属门面；网关 `ModelPrice` 仅作名义对账，Tanva 用户对话费按下述固定规则结算。
+- **后端**（扩展 `backend/src/agent/`）：新 run 分支——收前端消息+画布快照 → 拼 system 段 → 经 new-api 调 `xiaot-agent`（stream）→ 复用 `/agent/runs/:id/events` SSE 转发（文本 delta、flow_patch 帧、done/error）。计费策略已于 2026-08-02 调整为每个完整成功的小T对话回合固定 `2` 积分，终帧 usage 只作审计；小T驱动的生成/分析任务由宿主接口另行计费。鉴权沿用 `ApiKeyOrJwtGuard`。
+- **模型门面**（2026-08-02 补充）：小T可选 `xiaot-agent-gpt-5-4`、`xiaot-agent-gpt-5-5`、`xiaot-agent-gpt-5-6-luna` 与 `xiaot-agent-deepseek-v4-flash`。内部继续使用专属 `xiaot-agent-*` ID 防止绕过 facade；用户侧外显为 `小T-5.4`、`小T-5.5`、`小T-5.6 Luna` 和 `小T-DeepSeek V4 Flash`。
 - **前端**：
   - UI 复用 `AIChatDialog` + `aiChatStore` 现有 run→SSE→trace 链路，新增"画布操作卡片"渲染。
   - 读画布：发起对话时 `rf.getNodes()` 快照随请求上传；能力清单为前端常量文件（与 zod schema 同源）。

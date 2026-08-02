@@ -95,7 +95,10 @@ import {
 import {
   RealtimeAsrClient,
 } from "@/services/realtimeAsrClient";
-import type { XiaotChatModel } from "@/services/agentBackendAPI";
+import {
+  XIAOT_CHAT_MODEL_OPTIONS,
+  type XiaotChatModel,
+} from "@/services/agentBackendAPI";
 import {
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
@@ -130,9 +133,7 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
 
 // 小T大脑选项（值与 backend XIAOT_CHAT_MODELS 对齐，见 agentBackendAPI.ts）
 const XIAOT_BRAIN_OPTIONS: Array<{ label: string; value: XiaotChatModel }> = [
-  { label: "Fast · GPT-5.4", value: "xiaot-agent-gpt-5-4" },
-  { label: "Pro · GPT-5.5", value: "xiaot-agent-gpt-5-5" },
-  { label: "Ultra · GPT-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  ...XIAOT_CHAT_MODEL_OPTIONS,
 ];
 
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）

@@ -8,7 +8,7 @@
 --   鉴权用 TapCanvas 的 tc_sk_* API key，走类型 1（OpenAI）渠道直接透传。
 --
 -- 计费口径:
---   真实扣费在 Tanva backend 按终帧 usage（= 小T侧实扣积分）×XIAOT_AGENT_CREDITS_PER_1K
+--   Tanva 用户侧对话费由 backend 固定按 2 积分/成功回合结算；终帧 usage 只作审计。
 --   折算后 deductExact；本网关的 ModelPrice 仅作对账记录，按次名义价 0.01（=1积分/100）。
 --
 -- 用法（key/base_url 不入库，经 psql 变量传入）:
