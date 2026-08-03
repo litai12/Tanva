@@ -95,6 +95,7 @@ import KlingO1VideoNode from "./nodes/KlingO3VideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import ViduQ3ProVideoNode from "./nodes/ViduQ3ProVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
+import HailuoVideoNode from "./nodes/HailuoVideoNode";
 import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
@@ -1101,6 +1102,7 @@ const rawNodeTypes = {
   viduVideo: ViduVideoNode,
   viduQ3: ViduQ3ProVideoNode,
   doubaoVideo: DoubaoVideoNode,
+  hailuoVideo: HailuoVideoNode,
   seedance20Video: Seedance20VideoNode,
   seedVideo: SeedVideoNode,
   storyboardSplit: StoryboardSplitNode,
@@ -1336,6 +1338,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "viduVideo",
   "viduQ3",
   "doubaoVideo",
+  "hailuoVideo",
   "seedance20Video",
   "seedVideo",
   "volcEnhanceVideo",
@@ -1396,6 +1399,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "viduVideo",
   "viduQ3",
   "doubaoVideo",
+  "hailuoVideo",
   "seedance20Video",
   "seedVideo",
   "genericVideo",
@@ -1796,6 +1800,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
+  hailuoVideo: 0, // 动态价格由 new-api 模型目录提供
   seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
@@ -1890,6 +1895,7 @@ const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
     en: "Seedance 1.5 Pro",
     category: "video",
   },
+  { key: "hailuoVideo", zh: "海螺 Hailuo", en: "Hailuo", category: "video" },
   { key: "seedVideo", zh: "Seed 2.0", en: "Seed 2.0", category: "video" },
   { key: "videoCompose", zh: "视频合成", en: "Video Compose", category: "video" },
   { key: "directorConsole", zh: "导演台", en: "Director Console", category: "image" },
@@ -2006,6 +2012,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   viduVideo: "video",
   viduQ3: "video",
   doubaoVideo: "video",
+  hailuoVideo: "video",
   seedance20Video: "video",
   seedVideo: "video",
   volcEnhanceVideo: "video",
@@ -2066,6 +2073,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   viduVideo: { w: 280, h: 260 },
   viduQ3: { w: 280, h: 260 },
   doubaoVideo: { w: 280, h: 260 },
+  hailuoVideo: { w: 280, h: 300 },
   seedance20Video: { w: 280, h: 260 },
   seedVideo: { w: 280, h: 260 },
   storyboardSplit: { w: 320, h: 400 },
@@ -2414,6 +2422,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   viduVideo: ["video"],
   viduQ3: ["video"],
   doubaoVideo: ["video"],
+  hailuoVideo: ["video"],
   seedance20Video: ["video"],
   seedVideo: ["video"],
   volcEnhanceVideo: ["video"],
@@ -2467,6 +2476,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   viduVideo: ["image", "image-2", "text"],
   viduQ3: ["image", "image-2", "text"],
   doubaoVideo: ["image", "text"],
+  hailuoVideo: ["image", "text", "video", "audio"],
   seedance20Video: ["image", "image-2", "video", "audio", "text"],
   seedVideo: ["image", "image-2", "video", "audio", "text"],
   volcEnhanceVideo: ["video"],
@@ -3068,6 +3078,7 @@ const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "viduVideo",
   "viduQ3",
   "doubaoVideo",
+  "hailuoVideo",
   "seedance20Video",
   "seedVideo",
 ]);
@@ -3642,6 +3653,7 @@ const UNIFIED_VIDEO_NODE_TITLES: Partial<
   klingVideo: { nameZh: "Kling", nameEn: "Kling" },
   viduVideo: { nameZh: "Vidu", nameEn: "Vidu" },
   doubaoVideo: { nameZh: "Seedance", nameEn: "Seedance" },
+  hailuoVideo: { nameZh: "海螺 Hailuo", nameEn: "Hailuo" },
   // 统一音频节点：即便后端仍返回旧的 minimaxSpeech/tencentSpeech/minimaxMusic 配置
   // （会被 normalizeFlowNodeType 归一化为 audioStudio 去重成一张卡），也强制显示「音频工作台」。
   audioStudio: { nameZh: "音频工作台", nameEn: "Audio Studio" },
@@ -11328,6 +11340,7 @@ function FlowInner() {
             type === "viduVideo" ||
             type === "viduQ3" ||
             type === "doubaoVideo" ||
+            type === "hailuoVideo" ||
             type === "seedance20Video" ||
             type === "seedVideo"
           ? {
@@ -11344,7 +11357,9 @@ function FlowInner() {
                   : undefined,
               aspectRatio: undefined,
               provider:
-                type === "viduVideo"
+                type === "hailuoVideo"
+                  ? "hailuo"
+                  : type === "viduVideo"
                   ? "vidu"
                   : type === "viduQ3"
                   ? "viduq3-pro"
@@ -11374,6 +11389,13 @@ function FlowInner() {
                   : type === "seedance20Video" || type === "seedVideo"
                   ? ("seedance-2.0" as const)
                   : undefined,
+              hailuoModel: type === "hailuoVideo" ? ("h3" as const) : undefined,
+              hailuoMode: type === "hailuoVideo" ? ("reference" as const) : undefined,
+              managedModelKey: type === "hailuoVideo" ? "hailuo-h3" : undefined,
+              vendorKey: type === "hailuoVideo" ? "new_api" : undefined,
+              platformKey: type === "hailuoVideo" ? "new_api" : undefined,
+              channelTier: type === "hailuoVideo" ? "default" : undefined,
+              channelSelectionExplicit: type === "hailuoVideo" ? true : undefined,
               seedanceMode:
                 type === "seedance20Video" || type === "seedVideo"
                   ? ("reference_images" as const)
@@ -11928,6 +11950,21 @@ function FlowInner() {
       node.type === "seedVideo" ||
       nodeData.provider === "doubao"
     );
+  }, []);
+
+  const getHailuoModeSpec = React.useCallback((node?: Node | null) => {
+    if (!node || node.type !== "hailuoVideo") return null;
+    const data = (node.data || {}) as Record<string, any>;
+    const params = Array.isArray(data.hailuoModelSpec?.params) ? data.hailuoModelSpec.params : [];
+    const limits = (params.find((param: any) => param?.key === "inputs")?.metadata || {}) as Record<string, number>;
+    const mode = String(data.hailuoMode || "reference");
+    if (mode === "text") return { image: 0, image2: 0, video: 0, audio: 0 };
+    if (mode === "first_frame") return { image: 1, image2: 0, video: 0, audio: 0 };
+    if (mode === "start_end") return { image: 1, image2: 1, video: 0, audio: 0 };
+    return {
+      image: Number(limits.maxImages || 0), image2: 0,
+      video: Number(limits.maxVideos || 0), audio: Number(limits.maxAudios || 0),
+    };
   }, []);
 
   const resolveSeedanceProfile = React.useCallback(
@@ -12527,6 +12564,24 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "hailuoVideo") {
+        const spec = getHailuoModeSpec(targetNode);
+        if (!spec) return false;
+        const incomingCount = rf.getEdges().filter(
+          (edge) => edge.target === targetNode.id && edge.targetHandle === targetHandle
+        ).length;
+        if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "image") return spec.image > incomingCount && isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "image-2") return spec.image2 > incomingCount && isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video") {
+          return spec.video > incomingCount && (sourceHandle === "video" || sourceHandle === "video-out") && VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          return spec.audio > incomingCount && sourceHandle === "audio" && ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(sourceNode.type || "");
+        }
+        return false;
+      }
+
       if (
         ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(
           targetNode.type || ""
@@ -12827,6 +12882,7 @@ function FlowInner() {
       canKlingNodeUseAudioInput,
       canKlingNodeUseImage2Input,
       getSeedanceModeSpec,
+      getHailuoModeSpec,
       isSeedanceVideoNode,
     ]
   );
@@ -13056,6 +13112,15 @@ function FlowInner() {
           );
         }
       }
+      if (targetNode?.type === "hailuoVideo") {
+        const spec = getHailuoModeSpec(targetNode);
+        if (!spec) return false;
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "image") return incoming.length < spec.image;
+        if (params.targetHandle === "image-2") return incoming.length < spec.image2;
+        if (params.targetHandle === "video") return incoming.length < spec.video;
+        if (params.targetHandle === "audio") return incoming.length < spec.audio;
+      }
       // Doubao 视频节点
       if (targetNode?.type === "doubaoVideo") {
         if (params.targetHandle === "image") return true;
@@ -13150,6 +13215,7 @@ function FlowInner() {
       canKlingNodeUseAudioInput,
       canKlingNodeUseImage2Input,
       getSeedanceModeSpec,
+      getHailuoModeSpec,
       aiProvider,
       isSeedanceVideoNode,
     ]
@@ -13269,6 +13335,7 @@ function FlowInner() {
           "kling26Video",
           "viduVideo",
           "doubaoVideo",
+          "hailuoVideo",
           "seedance20Video",
           "seedVideo",
           "seed3d",
@@ -14417,6 +14484,112 @@ function FlowInner() {
       getVisibleHandleDescriptorsForNode,
       isValidConnection,
       rf,
+    ]
+  );
+
+  // 从节点主体释放连接时，反向拖拽需要在主体节点的输出端口中挑选一个
+  // 能与已固定的目标端口匹配的句柄。优先匹配同一种媒体类型，再用端口
+  // 优先级和鼠标释放位置作为稳定的 tie-breaker。
+  const findSourceHandleForBodyConnection = React.useCallback(
+    (
+      sourceNode: RFNode,
+      targetNode: RFNode,
+      targetHandle: string,
+      releasePoint?: { x: number; y: number }
+    ): string | null => {
+      if (!sourceNode || !targetNode || !targetHandle) return null;
+
+      const visible = getVisibleHandleDescriptorsForNode(
+        String(sourceNode.id),
+        "source"
+      );
+      const fallbackHandles = visible.length
+        ? []
+        : getFallbackSourceHandlesForFlowNode(sourceNode).map(
+            (handleId, index, handles) => ({
+              handleId,
+              center: getFallbackHandleScreenCenter(
+                sourceNode,
+                "source",
+                index,
+                handles.length
+              ),
+            })
+          );
+      const candidates = (visible.length ? visible : fallbackHandles) as Array<{
+        handleId?: string;
+        center?: { x: number; y: number };
+      }>;
+      const targetKind = inferQuickConnectTargetKind(
+        targetNode.type || "",
+        targetHandle
+      );
+
+      const distanceScore = (candidate: (typeof candidates)[number]) => {
+        if (!releasePoint || !candidate.center) return 0;
+        return Math.hypot(
+          candidate.center.x - releasePoint.x,
+          candidate.center.y - releasePoint.y
+        );
+      };
+
+      const ordered = candidates
+        .map((candidate, index) => {
+          const sourceHandle = normalizeFlowSourceHandle(candidate.handleId, {
+            sourceNodeType: sourceNode.type,
+          });
+          const sourceKind = inferQuickConnectSourceKind(
+            sourceNode.type || "",
+            sourceHandle
+          );
+          const kindScore =
+            sourceKind === targetKind
+              ? 0
+              : sourceKind === "unknown" || targetKind === "unknown"
+              ? 1
+              : 2;
+          return {
+            candidate,
+            sourceHandle,
+            order: [
+              kindScore,
+              getSourceHandlePriority(sourceNode.type, sourceHandle),
+              distanceScore(candidate),
+              index,
+            ],
+          };
+        })
+        .sort((a, b) => {
+          for (let index = 0; index < a.order.length; index += 1) {
+            if (a.order[index] !== b.order[index]) {
+              return a.order[index] - b.order[index];
+            }
+          }
+          return 0;
+        });
+
+      for (const item of ordered) {
+        const params = {
+          source: String(sourceNode.id),
+          sourceHandle: item.sourceHandle || null,
+          target: String(targetNode.id),
+          targetHandle,
+        } as Connection;
+        if (isValidConnection(params) && canAcceptConnection(params)) {
+          // 空字符串表示“唯一输出句柄没有显式 id”，调用方仍应保留这条连接。
+          return item.sourceHandle ?? "";
+        }
+      }
+      return null;
+    },
+    [
+      canAcceptConnection,
+      getFallbackHandleScreenCenter,
+      getSourceHandlePriority,
+      getVisibleHandleDescriptorsForNode,
+      inferQuickConnectSourceKind,
+      inferQuickConnectTargetKind,
+      isValidConnection,
     ]
   );
 
@@ -16343,6 +16516,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   "viduVideo",
   "viduQ3",
   "doubaoVideo",
+  "hailuoVideo",
   "seedance20Video",
   "seedVideo",
   "omniFlashExtVideo",
@@ -20007,6 +20181,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         "viduVideo",
         "viduQ3",
         "doubaoVideo",
+        "hailuoVideo",
         "seedance20Video",
         "seedVideo",
         "omniFlashExtVideo",
@@ -20015,6 +20190,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         const projectId = useProjectContentStore.getState().projectId;
         const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
         const isOmniFlashExtNode = normalizedVideoNodeType === "omniFlashExtVideo";
+        const isHailuoNode = normalizedVideoNodeType === "hailuoVideo";
+        const hailuoParams = Array.isArray(rawNodeData.hailuoModelSpec?.params) ? rawNodeData.hailuoModelSpec.params : [];
+        const hailuoInputs = (hailuoParams.find((param: any) => param?.key === "inputs")?.metadata || {}) as Record<string, number>;
         const isLegacyKling30Node = node.type === "kling30Video";
         const isLegacyKling26Node = node.type === "kling26Video";
         const inferredViduModel =
@@ -20036,6 +20214,8 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             : "kling-v2-6");
         if (normalizedVideoNodeType === "klingO1Video") {
           provider = "kling-o3";
+        } else if (normalizedVideoNodeType === "hailuoVideo") {
+          provider = "hailuo";
         } else if (
           normalizedVideoNodeType === "klingVideo" ||
           normalizedVideoNodeType === "kling26Video" ||
@@ -20083,7 +20263,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          isSeedanceNode && seedanceModeSpec
+          isHailuoNode
+            ? Number(hailuoInputs.maxImages || 0)
+            : isSeedanceNode && seedanceModeSpec
             ? seedanceModeSpec.imageHandleMax + seedanceModeSpec.image2HandleMax
             : normalizedVideoNodeType === "omniFlashExtVideo"
             ? 3
@@ -20184,7 +20366,22 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           );
         };
 
-        if (isOmniFlashExtNode) {
+        if (isHailuoNode) {
+          const hailuoMode = String(rawNodeData.hailuoMode || "reference");
+          const imagePhysicalCount = currentEdges.filter((edge) => edge.target === nodeId && (edge.targetHandle === "image" || edge.targetHandle === "image-2")).length;
+          const videoCount = currentEdges.filter((edge) => edge.target === nodeId && edge.targetHandle === "video").length;
+          const audioCount = currentEdges.filter((edge) => edge.target === nodeId && edge.targetHandle === "audio").length;
+          if (!rawNodeData.hailuoModelSpec) { failCurrentVideoNode("Hailuo 模型规格尚未加载，请稍后重试"); return; }
+          if (hailuoMode === "text" && !promptText) { failCurrentVideoNode("Hailuo 文生视频需要提示词"); return; }
+          if (hailuoMode === "first_frame" && imageCount !== 1) { failCurrentVideoNode("Hailuo 首帧模式需要且仅支持 1 张图片"); return; }
+          if (hailuoMode === "start_end" && imageCount !== 2) { failCurrentVideoNode("Hailuo 首尾帧模式需要 2 张图片"); return; }
+          if (imageCount > Number(hailuoInputs.maxImages || 0) || videoCount > Number(hailuoInputs.maxVideos || 0) || audioCount > Number(hailuoInputs.maxAudios || 0)) {
+            failCurrentVideoNode("Hailuo 参考素材数量超过当前模型规格"); return;
+          }
+          if (imagePhysicalCount + videoCount + audioCount > Number(hailuoInputs.maxMixedMedia || 0)) { failCurrentVideoNode("Hailuo 混合参考素材数量超过当前模型规格"); return; }
+          if (hailuoMode === "reference" && !promptText && imageCount === 0 && videoCount === 0 && audioCount === 0) { failCurrentVideoNode("Hailuo 全能参考至少需要提示词或参考素材"); return; }
+          if (hailuoMode === "reference" && audioCount > 0 && imageCount === 0 && videoCount === 0) { failCurrentVideoNode("Hailuo 音频不能单独作为参考素材"); return; }
+        } else if (isOmniFlashExtNode) {
           const omniVideoCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           ).length;
@@ -20453,7 +20650,27 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           nodeSupportedSeedanceModels.has("seedance-2.5") ||
           nodeSupportedSeedanceModels.has("seed-2.0-lite") ||
           nodeSupportedSeedanceModels.has("seedance-2.0-fast");
+        const hailuoConfiguredDurationOptions = (() => {
+          if (!isHailuoNode) return [] as number[];
+          const durationParam = hailuoParams.find((param: any) => param?.key === "duration");
+          const min = Number(durationParam?.min);
+          const max = Number(durationParam?.max);
+          const step = Number(durationParam?.step || 1);
+          if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(step) || step <= 0 || min > max) {
+            return [] as number[];
+          }
+          const values: number[] = [];
+          for (let value = min; value <= max; value += step) {
+            values.push(Math.round(value));
+          }
+          return values;
+        })();
         const effectiveConfiguredDurationOptions = (() => {
+          // Hailuo 的 UI 与 Run 校验必须消费同一份 new-api 模型目录，不能被后台
+          // 通用节点配置中的历史 durations 覆盖。
+          if (isHailuoNode) {
+            return hailuoConfiguredDurationOptions;
+          }
           if (!(isSeedanceNode && isSeedance20Request)) {
             return configuredDurationOptions;
           }
@@ -20660,7 +20877,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         }
         */
         let seedanceAudioUrlsForAPI: string[] | undefined = undefined;
-        if (isSeedanceNode && isSeedance20Request) {
+        if ((isSeedanceNode && isSeedance20Request) || isHailuoNode) {
           const connectedAudioEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "audio"
           );
@@ -20683,8 +20900,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             return;
           }
 
-          if (connectedAudioUrls.length > SEEDANCE20_REFERENCE_AUDIO_MAX) {
-            failCurrentVideoNode("Seedance 2.0 最多支持 3 条音频参考");
+          const audioMax = isHailuoNode ? Number(hailuoInputs.maxAudios || 0) : SEEDANCE20_REFERENCE_AUDIO_MAX;
+          if (connectedAudioUrls.length > audioMax) {
+            failCurrentVideoNode(`${isHailuoNode ? "Hailuo" : "Seedance 2.0"} 音频参考数量超限`);
             return;
           }
 
@@ -20700,13 +20918,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             }
           });
 
-          for (const audioUrl of connectedAudioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)) {
+          for (const audioUrl of connectedAudioUrls.slice(0, audioMax)) {
             const hintedDuration = connectedAudioDurationHints.get(audioUrl);
             const duration =
               typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
                 ? hintedDuration
                 : await readAudioDurationFromUrl(audioUrl);
-            if (duration < 2 || duration > 5) {
+            if (!isHailuoNode && (duration < 2 || duration > 5)) {
               failCurrentVideoNode(
                 `Seedance 2.0 音频每条需在 2–5 秒之间，当前约 ${duration.toFixed(1)} 秒`
               );
@@ -20716,7 +20934,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
           seedanceAudioUrlsForAPI =
             connectedAudioUrls.length > 0
-              ? connectedAudioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)
+              ? connectedAudioUrls.slice(0, audioMax)
               : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
               ? rawNodeData.audioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)
               : undefined;
@@ -20724,7 +20942,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         let referenceVideoUrl: string | undefined = undefined;
         let referenceVideoUrls: string[] = [];
-        if (isOmniFlashExtNode || provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
+        if (isHailuoNode || isOmniFlashExtNode || provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
           const videoEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -20769,7 +20987,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           }
 
           referenceVideoUrls = Array.from(new Set(resolvedVideoUrls));
-          if (isSeedanceNode && isSeedance20Request) {
+          if (isHailuoNode) {
+            referenceVideoUrls = referenceVideoUrls.slice(0, Number(hailuoInputs.maxVideos || 0));
+          } else if (isSeedanceNode && isSeedance20Request) {
             referenceVideoUrls = referenceVideoUrls.slice(0, SEEDANCE20_REFERENCE_VIDEO_MAX);
           } else {
             referenceVideoUrls = referenceVideoUrls.slice(0, 1);
@@ -21317,6 +21537,21 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
                   videoMode: omniVideoModeForAPI,
+                }
+              : isHailuoNode
+              ? {
+                  ...managedRoutePayload,
+                  managedModelKey: rawNodeData.hailuoModelSpec?.key || "hailuo-h3",
+                  prompt: finalPrompt || undefined,
+                  referenceImages: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos: referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
+                  audioUrls: seedanceAudioUrlsForAPI,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
+                  provider: "hailuo" as VideoProvider,
+                  hailuoModel: rawNodeData.hailuoModel || "h3",
+                  videoMode: rawNodeData.hailuoMode || "reference",
                 }
               : provider === "doubao"
               ? {
@@ -25592,7 +25827,158 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
     ]
   );
   const onConnectEnd = React.useCallback(
-    () => {
+    (event: any, connectionState: any) => {
+      // React Flow 只有在释放到句柄（或其 connectionRadius）内时才会触发
+      // onConnect。释放到节点主体时，connectionState.toHandle 为空；这里将
+      // 鼠标所在的节点主体转换为一个普通 Connection，再交给同一个 onConnect
+      // 入口，确保类型、容量、替换策略和协作广播保持一致。
+      if (!connectionState?.toHandle) {
+        const touch =
+          connectionState &&
+          (event?.changedTouches?.[0] || event?.touches?.[0]);
+        const clientX = Number(
+          Number.isFinite(Number(event?.clientX))
+            ? event.clientX
+            : touch?.clientX
+        );
+        const clientY = Number(
+          Number.isFinite(Number(event?.clientY))
+            ? event.clientY
+            : touch?.clientY
+        );
+
+        if (
+          Number.isFinite(clientX) &&
+          Number.isFinite(clientY) &&
+          typeof document !== "undefined"
+        ) {
+          const container = containerRef.current;
+          const pointHit = document.elementFromPoint(
+            clientX,
+            clientY
+          ) as HTMLElement | null;
+          const pointHitHandle = Boolean(
+            pointHit?.closest?.(".react-flow__handle")
+          );
+          const eventTarget = event?.target as Element | null;
+          const eventTargetHandle = Boolean(
+            eventTarget?.closest?.(".react-flow__handle")
+          );
+          const pointNode = pointHitHandle
+            ? null
+            : (pointHit?.closest?.(".react-flow__node") as HTMLElement | null);
+          const eventNode = eventTargetHandle
+            ? null
+            : (eventTarget?.closest?.(".react-flow__node") as HTMLElement | null);
+          const nodeEl = pointNode || eventNode;
+          const nodeId =
+            container && nodeEl && container.contains(nodeEl)
+              ? getFlowNodeIdFromElement(nodeEl)
+              : "";
+          const bodyNode = nodeId
+            ? (rf.getNode(nodeId) as RFNode | undefined)
+            : undefined;
+          const fromHandle = connectionState?.fromHandle;
+          const anchor = connectAnchorRef.current;
+
+          if (bodyNode && !isGroupNode(bodyNode as RFNode)) {
+            const fromHandleType =
+              fromHandle?.type ||
+              (anchor?.direction === "forward" ? "source" : "target");
+
+            if (fromHandleType === "source") {
+              const sourceId =
+                anchor?.direction === "forward"
+                  ? anchor.sourceId
+                  : String(connectionState?.fromNode?.id || "");
+              const sourceNode = sourceId
+                ? (rf.getNode(sourceId) as RFNode | undefined)
+                : undefined;
+              if (sourceNode && sourceId !== bodyNode.id) {
+                const sourceHandle = normalizeFlowSourceHandle(
+                  anchor?.direction === "forward"
+                    ? anchor.sourceHandle ?? fromHandle?.id
+                    : fromHandle?.id,
+                  { sourceNodeType: sourceNode.type }
+                );
+                const pendingSource: PendingOutputConnectSource = {
+                  sourceId,
+                  sourceHandle,
+                  sourceNodeType: sourceNode.type,
+                  start: { x: clientX, y: clientY },
+                };
+                const targetHandle = findTargetHandleForPendingSource(
+                  pendingSource,
+                  String(bodyNode.id)
+                );
+                if (targetHandle) {
+                  onConnect({
+                    source: sourceId,
+                    sourceHandle: sourceHandle || null,
+                    target: String(bodyNode.id),
+                    targetHandle,
+                  } as Connection);
+                }
+              }
+            } else if (fromHandleType === "target") {
+              const targetId =
+                anchor?.direction === "reverse"
+                  ? anchor.targetId
+                  : String(connectionState?.fromNode?.id || "");
+              const targetNode = targetId
+                ? (rf.getNode(targetId) as RFNode | undefined)
+                : undefined;
+              if (targetNode && targetId !== bodyNode.id) {
+                let targetHandle = normalizeFlowTargetHandle(
+                  anchor?.direction === "reverse"
+                    ? anchor.targetHandle
+                    : fromHandle?.id
+                );
+
+                // 没有显式 id 的单一 target 句柄会以 null 出现在 React Flow
+                // 的 connectionState 中；从已渲染句柄/节点兜底表恢复它。
+                if (!targetHandle) {
+                  const visibleTargetHandles =
+                    getVisibleHandleDescriptorsForNode(targetId, "target")
+                      .map((descriptor: any) => descriptor?.handleId)
+                      .filter(
+                        (handleId: unknown): handleId is string =>
+                          typeof handleId === "string" && handleId.trim().length > 0
+                      );
+                  const fallbackTargetHandles =
+                    getFallbackTargetHandlesForFlowNode(targetNode).filter(
+                      (handleId) => typeof handleId === "string" && handleId.trim()
+                    );
+                  const candidates = visibleTargetHandles.length
+                    ? visibleTargetHandles
+                    : fallbackTargetHandles;
+                  if (candidates.length === 1) {
+                    targetHandle = normalizeFlowTargetHandle(candidates[0]);
+                  }
+                }
+
+                if (targetHandle) {
+                  const sourceHandle = findSourceHandleForBodyConnection(
+                    bodyNode as RFNode,
+                    targetNode,
+                    targetHandle,
+                    { x: clientX, y: clientY }
+                  );
+                  if (sourceHandle !== null) {
+                    onConnect({
+                      source: String(bodyNode.id),
+                      sourceHandle: sourceHandle || null,
+                      target: targetId,
+                      targetHandle,
+                    } as Connection);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       clearConnectHoverTimer();
       connectHoverAnchorRef.current = null;
       if (!connectQuickMenuVisibleRef.current) {
@@ -25600,7 +25986,16 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       }
       setIsConnecting(false);
     },
-    [clearConnectHoverTimer, setIsConnecting]
+    [
+      clearConnectHoverTimer,
+      findSourceHandleForBodyConnection,
+      findTargetHandleForPendingSource,
+      getFlowNodeIdFromElement,
+      getVisibleHandleDescriptorsForNode,
+      onConnect,
+      rf,
+      setIsConnecting,
+    ]
   );
 
   const collapsedChildMapCacheRef = React.useRef<{
@@ -25863,6 +26258,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           n.type === "viduVideo" ||
           n.type === "viduQ3" ||
           n.type === "doubaoVideo" ||
+          n.type === "hailuoVideo" ||
           n.type === "seedance20Video" ||
           n.type === "seedVideo" ||
           n.type === "omniFlashExtVideo"

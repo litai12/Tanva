@@ -128,6 +128,11 @@ var defaultModelRatio = map[string]float64{
 	"seedance-2":                                46.875,
 	"seedance-2-fast":                           46.875,
 	"seedance-2-mini":                           46.875,
+	// Tencent VOD Hailuo H3: 2K retail price is RMB 1.20/s (purchase
+	// RMB 0.80/s * 1.5). The task adaptor applies a 1.25 resolution ratio for
+	// 4K, yielding RMB 1.50/s. Reference-video seconds and excess images are
+	// folded into the checked task billing estimate before pre-consume.
+	"hailuo-h3":                                 45,
 	"tts-1-1106":                                7.5, // 1k characters -> $0.015
 	"tts-1-hd":                                  15,  // 1k characters -> $0.03
 	"tts-1-hd-1106":                             15,  // 1k characters -> $0.03

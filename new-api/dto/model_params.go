@@ -23,6 +23,9 @@ type ModelParamSpec struct {
 	Step     *float64           `json:"step,omitempty"`
 	Options  []ModelParamOption `json:"options,omitempty"`
 	Scope    string             `json:"scope,omitempty"`
+	// Metadata carries provider-neutral UI/billing hints sourced from new-api.
+	// It is descriptive only; final charging still uses the task adaptor's estimator.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ModelParamsCatalogEntry is the per-model entry returned by GET /api/models/params.

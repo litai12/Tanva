@@ -12,7 +12,8 @@
 --   * key      = the shared internal token (backend env TENCENT_VOD_INTERNAL_TOKEN)
 -- Both are PLACEHOLDER — operator fills via admin console.
 --
--- Scope: Vidu + Kling only. Seedance uses asset:// (VolcEngine-native) image
+-- Scope at initial deployment: Vidu + Kling. Hailuo H3 is added separately by
+-- patches/2026-08-03/001-add-hailuo-h3-tencent-vod.sql. Seedance uses asset:// image
 -- refs that Tencent VOD cannot consume, so Seedance stays on ark-doubao-video.
 --
 -- Co-exists with apimart: the SAME model ids (vidu-q3 / kling-v2-6 / ...) get

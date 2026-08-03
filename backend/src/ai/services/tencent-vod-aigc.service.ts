@@ -27,7 +27,7 @@ export interface TencentVodAigcCreateTaskRequest {
 
 export interface TencentVodAigcVideoFileInfo {
   type?: 'File' | 'Url';
-  category?: 'Image' | 'Video';
+  category?: 'Image' | 'Video' | 'Audio';
   fileId?: string;
   url?: string;
   objectId?: string;
@@ -255,7 +255,8 @@ export class TencentVodAigcService {
           const typeRaw = String(item?.type || '').trim().toLowerCase();
           const categoryRaw = String(item?.category || '').trim().toLowerCase();
           const type = typeRaw === 'file' ? 'File' : 'Url';
-          const category = categoryRaw === 'video' ? 'Video' : 'Image';
+          const category =
+            categoryRaw === 'video' ? 'Video' : categoryRaw === 'audio' ? 'Audio' : 'Image';
           const fileId = (item?.fileId || '').trim();
           const url = (item?.url || '').trim();
           const objectId = (item?.objectId || '').trim();

@@ -17,16 +17,19 @@
 // tasks), and every request gets a full relay log chain + billing — unlike the
 // old /proxy/tencent/vod passthrough which had neither.
 //
-// Scope: Vidu + Kling models only. Seedance uses asset:// (VolcEngine-native)
+// Scope: Vidu, Kling and Hailuo H3. Seedance uses asset:// (VolcEngine-native)
 // image references that Tencent VOD cannot consume, so Seedance stays on the
 // ark-doubao-video channel.
 package tencentvod
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -49,15 +52,164 @@ const ChannelName = "tencent-vod"
 // channel-agnostic subset of the unified /v1/videos request the backend needs
 // to rebuild a VideoProviderRequestDto and drive the Tencent VOD path.
 type createPayload struct {
-	Model       string                 `json:"model"`
-	Prompt      string                 `json:"prompt,omitempty"`
-	Images      []string               `json:"images,omitempty"`
-	Duration    int                    `json:"duration,omitempty"`
-	Size        string                 `json:"size,omitempty"`
-	Resolution  string                 `json:"resolution,omitempty"`
-	AspectRatio string                 `json:"aspect_ratio,omitempty"`
-	Mode        string                 `json:"mode,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Model           string                 `json:"model"`
+	Prompt          string                 `json:"prompt,omitempty"`
+	Images          []string               `json:"images,omitempty"`
+	ReferenceVideos []string               `json:"reference_videos,omitempty"`
+	ReferenceAudios []string               `json:"audio_urls,omitempty"`
+	LastFrame       string                 `json:"lastFrame,omitempty"`
+	Duration        int                    `json:"duration,omitempty"`
+	Size            string                 `json:"size,omitempty"`
+	Resolution      string                 `json:"resolution,omitempty"`
+	AspectRatio     string                 `json:"aspect_ratio,omitempty"`
+	Mode            string                 `json:"mode,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+}
+
+const hailuoH3DurationCacheKey = "tencent_vod_hailuo_h3_duration_cache"
+
+func isHailuoH3(modelName string) bool {
+	return strings.EqualFold(strings.TrimSpace(modelName), "hailuo-h3")
+}
+
+// EstimateBillingChecked makes new-api the sole Hailuo H3 pricing source.
+// Base ModelRatio 45 represents 2K at RMB 1.20/s. 4K is 1.25x. Every unique
+// reference-video second is billable, and images beyond the first five cost
+// RMB 0.30 each (represented as 0.25 equivalent 2K seconds / 0.20 4K seconds).
+func (a *TaskAdaptor) EstimateBillingChecked(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, *dto.TaskError) {
+	modelName := info.OriginModelName
+	if !isHailuoH3(modelName) && !isHailuoH3(info.UpstreamModelName) {
+		return nil, nil
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil, service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	if req.Duration < 4 || req.Duration > 15 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 duration must be between 4 and 15 seconds"), "invalid_duration", http.StatusBadRequest)
+	}
+	resolution := strings.ToUpper(strings.TrimSpace(req.Resolution))
+	if resolution != "2K" && resolution != "4K" {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 resolution must be 2K or 4K"), "invalid_resolution", http.StatusBadRequest)
+	}
+
+	videoURLs := uniqueNonEmpty(req.ReferenceVideos)
+	if len(videoURLs) > 3 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 accepts at most 3 reference videos"), "invalid_reference_video_count", http.StatusBadRequest)
+	}
+	cache, _ := c.Get(hailuoH3DurationCacheKey)
+	durations, _ := cache.(map[string]float64)
+	if durations == nil {
+		durations = map[string]float64{}
+	}
+	inputSeconds := 0.0
+	for i, rawURL := range videoURLs {
+		duration, ok := durations[rawURL]
+		var probeErr error
+		if !ok {
+			duration, probeErr = probeHailuoReferenceVideo(c, rawURL)
+			if probeErr == nil && duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+				durations[rawURL] = duration
+			}
+		}
+		if probeErr != nil || duration < 2 || duration > 15 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 reference video %d must be readable and 2-15 seconds", i+1), "invalid_reference_video_duration", http.StatusBadRequest)
+		}
+		inputSeconds += duration
+	}
+	if inputSeconds > 15.0001 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 reference videos total duration must not exceed 15 seconds"), "invalid_reference_video_duration", http.StatusBadRequest)
+	}
+	c.Set(hailuoH3DurationCacheKey, durations)
+
+	images := append(append([]string{}, req.Images...), req.ReferenceImages...)
+	if strings.TrimSpace(req.LastFrame) != "" {
+		images = append(images, req.LastFrame)
+	}
+	imageCount := len(uniqueNonEmpty(images))
+	if imageCount > 9 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 accepts at most 9 images"), "invalid_reference_image_count", http.StatusBadRequest)
+	}
+	audioURLs := uniqueNonEmpty(req.ReferenceAudios)
+	if len(audioURLs) > 3 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 accepts at most 3 reference audios"), "invalid_reference_audio_count", http.StatusBadRequest)
+	}
+	if len(audioURLs) > 0 && imageCount == 0 && len(videoURLs) == 0 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 audio references require an image or video reference"), "invalid_reference_audio", http.StatusBadRequest)
+	}
+	if imageCount+len(videoURLs)+len(audioURLs) > 12 {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Hailuo H3 accepts at most 12 mixed reference files"), "invalid_reference_count", http.StatusBadRequest)
+	}
+
+	extraImages := imageCount - 5
+	if extraImages < 0 {
+		extraImages = 0
+	}
+	equivalentImageSeconds := float64(extraImages) * 0.25
+	ratios := map[string]float64{"seconds": float64(req.Duration) + inputSeconds + equivalentImageSeconds}
+	if resolution == "4K" {
+		// 4K base/video price is 1.25x, while each excess image remains RMB 0.30.
+		ratios["seconds"] = float64(req.Duration) + inputSeconds + float64(extraImages)*0.20
+		ratios["resolution"] = 1.25
+	}
+	creditsPerSecond := 120.0
+	if resolution == "4K" {
+		creditsPerSecond = 150.0
+	}
+	consumedCredits := int(math.Ceil((float64(req.Duration)+inputSeconds)*creditsPerSecond + float64(extraImages)*30.0))
+	c.Header("X-NewApi-Consumed-Credits", fmt.Sprintf("%d", consumedCredits))
+	return ratios, nil
+}
+
+func uniqueNonEmpty(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func probeHailuoReferenceVideo(c *gin.Context, rawURL string) (float64, error) {
+	resp, err := service.DoDownloadRequest(rawURL, "hailuo_h3_billing_duration")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("reference video download returned HTTP %d", resp.StatusCode)
+	}
+	tmp, err := os.CreateTemp("", "new-api-hailuo-h3-*.mp4")
+	if err != nil {
+		return 0, err
+	}
+	path := tmp.Name()
+	defer os.Remove(path)
+	defer tmp.Close()
+	maxBytes := int64(constant.MaxFileDownloadMB) * 1024 * 1024
+	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return 0, err
+	}
+	if written > maxBytes {
+		return 0, fmt.Errorf("reference video exceeds %dMB", constant.MaxFileDownloadMB)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	return common.GetAudioDuration(ctx, tmp, ".mp4")
 }
 
 // createResponse mirrors the backend create endpoint response.
@@ -122,15 +274,18 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	body := createPayload{
-		Model:       modelName,
-		Prompt:      req.Prompt,
-		Images:      req.Images,
-		Duration:    req.Duration,
-		Size:        req.Size,
-		Resolution:  req.Resolution,
-		AspectRatio: req.AspectRatio,
-		Mode:        req.Mode,
-		Metadata:    req.Metadata,
+		Model:           modelName,
+		Prompt:          req.Prompt,
+		Images:          uniqueNonEmpty(append(append([]string{}, req.Images...), req.ReferenceImages...)),
+		ReferenceVideos: uniqueNonEmpty(req.ReferenceVideos),
+		ReferenceAudios: uniqueNonEmpty(req.ReferenceAudios),
+		LastFrame:       req.LastFrame,
+		Duration:        req.Duration,
+		Size:            req.Size,
+		Resolution:      req.Resolution,
+		AspectRatio:     req.AspectRatio,
+		Mode:            req.Mode,
+		Metadata:        req.Metadata,
 	}
 
 	data, err := common.Marshal(body)
@@ -196,7 +351,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 }
 
 func (a *TaskAdaptor) GetModelList() []string {
-	return []string{"vidu-q2", "vidu-q3", "kling-v2-6", "kling-v3", "kling-v3-omni"}
+	return []string{"vidu-q2", "vidu-q3", "kling-v2-6", "kling-v3", "kling-v3-omni", "hailuo-h3"}
 }
 
 func (a *TaskAdaptor) GetChannelName() string {

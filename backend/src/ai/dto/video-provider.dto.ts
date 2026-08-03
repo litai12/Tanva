@@ -12,8 +12,13 @@ export type ReferenceImageItem =
 
 export class VideoProviderRequestDto {
   @ApiProperty({ description: 'Provider' })
-  @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao', 'wan2.7'])
-  provider!: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao' | 'wan2.7';
+  @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao', 'wan2.7', 'hailuo'])
+  provider!: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao' | 'wan2.7' | 'hailuo';
+
+  @ApiProperty({ description: 'Hailuo model version', required: false })
+  @IsOptional()
+  @IsString()
+  hailuoModel?: string;
 
   @ApiProperty({
     description:

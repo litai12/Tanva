@@ -330,11 +330,14 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	// tencent_vod 由 /proxy/tencent/vod 被动镜像驱动，new-api 不自行轮询，排除以免 "adaptor not found"
+	// 旧 Tencent(type=23) /proxy/tencent/vod 任务由被动镜像驱动，不自行轮询；
+	// Tencent VOD task channel(type=67) 则必须由 new-api 主动轮询 Tanva 内部端点。
+	// 不能按整个平台排除，否则 hailuo-h3 等 type=67 任务会永久停在 NOT_START。
 	err = DB.Where("progress != ?", "100%").
 		Where("status != ?", TaskStatusFailure).
 		Where("status != ?", TaskStatusSuccess).
-		Where("platform != ?", constant.TaskPlatformTencentVod).
+		Where("platform != ? OR channel_id IN (SELECT id FROM channels WHERE type = ?)",
+			constant.TaskPlatformTencentVod, constant.ChannelTypeTencentVod).
 		Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil

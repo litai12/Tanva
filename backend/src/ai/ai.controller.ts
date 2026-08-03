@@ -1678,6 +1678,9 @@ export class AiController {
     if (normalizedManagedModelKey === 'omni-flash-ext') {
       return 'kling-video';
     }
+    if (dto.provider === 'hailuo' || normalizedManagedModelKey === 'hailuo-h3') {
+      return 'hailuo-video';
+    }
 
     // kling-o3(Omni) 计费一律走 kling-o3-video，不受其路由用的 klingModel 影响。
     // Omni 节点为让 new-api 路由到 kling-v3-omni 固定带 klingModel='kling-v3-0'，
@@ -5986,6 +5989,32 @@ export class AiController {
         requestParams.runSource = 'flow-node-legacy';
       }
     }
+    if (effectiveDto.provider === 'hailuo') {
+      return this.withCreditsFromGateway(
+        req,
+        'hailuo-video' as ServiceType,
+        async () => {
+          const generated = await this.videoProviderService.generateVideo(effectiveDto);
+          const consumedCredits = Number((generated as any)?.execution?.consumedCredits);
+          const { execution: _execution, ...publicResult } = generated as any;
+          return {
+            result: { ...publicResult, apiUsageId: null },
+            consumedCredits,
+            billingMetadata: {
+              pricingSource: 'new-api',
+              modelKey: effectiveDto.managedModelKey || 'hailuo-h3',
+            },
+          };
+        },
+        requestParams,
+        {
+          provider: 'new-api',
+          model: effectiveDto.managedModelKey || 'hailuo-h3',
+          balanceGuardCredits: 4620,
+          balanceGuardLabel: 'Hailuo H3 单次最多可能消耗',
+        },
+      );
+    }
     const billingModel =
       effectiveDto.klingModel ||
       effectiveDto.viduModelVariant ||
@@ -6329,7 +6358,7 @@ export class AiController {
    */
   @Get('video-task/:provider/:taskId')
   async queryVideoTask(
-    @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
+    @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao' | 'hailuo',
     @Param('taskId') taskId: string,
     @Req() req: any,
   ) {
@@ -6955,6 +6984,12 @@ export class AiController {
   async getVeoModels(): Promise<VeoModelsResponseDto[]> {
     this.logger.log('📋 VEO models list requested');
     return this.veoVideoService.getAvailableModels();
+  }
+
+  /** Hailuo 节点能力与价格目录；new-api 是唯一数据源。 */
+  @Get('video-providers/hailuo/models')
+  async getHailuoModels(): Promise<any> {
+    return this.videoProviderService.getHailuoModelCatalog();
   }
 
   /**

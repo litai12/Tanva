@@ -213,6 +213,7 @@ export interface VideoGenerationResult {
     providerChannel?: string;
     routedProvider?: string;
     fallbackUsed?: boolean;
+    consumedCredits?: number;
   };
 }
 
@@ -786,6 +787,7 @@ export class VideoProviderService {
     "viduq3-pro": process.env.VIDU_API_KEY || "sk-vidu-xxx",
     doubao:
       process.env.DOUBAO_API_KEY || "0ac5fae84-f299-4db4-8d7e-3f7fc355c6ac",
+    hailuo: process.env.NEW_API_KEY || "new-api-managed",
   };
 
   /**
@@ -932,6 +934,7 @@ export class VideoProviderService {
         providerChannel: "new_api",
         routedProvider: "dashscope",
         fallbackUsed: false,
+        consumedCredits: Number((result as any)?.__consumedCredits) || undefined,
       },
     };
   }
@@ -1203,12 +1206,57 @@ export class VideoProviderService {
     model?: string;
     prompt?: string;
     images?: string[];
+    reference_videos?: string[];
+    audio_urls?: string[];
+    lastFrame?: string;
     duration?: number;
     size?: string;
     resolution?: string;
     aspect_ratio?: string;
     mode?: string;
   }): Promise<{ taskId: string; status: string }> {
+    if (String(input.model || "").trim().toLowerCase() === "hailuo-h3") {
+      const resolution = String(input.resolution || "").trim().toUpperCase();
+      if (resolution !== "2K" && resolution !== "4K") {
+        throw new BadRequestException("Hailuo H3 仅支持 2K/4K");
+      }
+      const duration = Number(input.duration);
+      if (!Number.isFinite(duration) || duration < 4 || duration > 15) {
+        throw new BadRequestException("Hailuo H3 时长必须为 4-15 秒");
+      }
+      const imageUrls = Array.from(
+        new Set((input.images || []).map(String).map((v) => v.trim()).filter(Boolean)),
+      );
+      const lastFrameUrl = String(input.lastFrame || "").trim();
+      const videoUrls = Array.from(new Set((input.reference_videos || []).map(String).map((v) => v.trim()).filter(Boolean)));
+      const audioUrls = Array.from(new Set((input.audio_urls || []).map(String).map((v) => v.trim()).filter(Boolean)));
+      const fileInfos = [
+        ...imageUrls.map((url, index) => ({
+          type: "Url" as const,
+          category: "Image" as const,
+          url,
+          usage: (String(input.mode || "").toLowerCase() === "reference" || imageUrls.length > 1
+            ? "Reference"
+            : index === 0
+              ? "FirstFrame"
+              : "Reference") as "FirstFrame" | "Reference",
+        })),
+        ...videoUrls.map((url) => ({ type: "Url" as const, category: "Video" as const, url, usage: "Reference" as const })),
+        ...audioUrls.map((url) => ({ type: "Url" as const, category: "Audio" as const, url, usage: "Reference" as const })),
+      ];
+      const created = await this.tencentVodAigcService.createVideoTask({
+        modelName: "Hailuo",
+        modelVersion: "H3",
+        prompt: String(input.prompt || "").trim(),
+        fileInfos,
+        lastFrameUrl: lastFrameUrl || undefined,
+        aspectRatio: String(input.aspect_ratio || "").trim() || undefined,
+        duration,
+        resolution,
+        storageMode: "Temporary",
+      });
+      return { taskId: `tencentvod-hailuo-h3-${created.taskId}`, status: "queued" };
+    }
     const dto = this.buildDtoFromUnifiedForTencent(input);
     const result = await this.generateVideoLegacy(dto);
     return { taskId: result.taskId, status: result.status };
@@ -1222,6 +1270,17 @@ export class VideoProviderService {
   async queryViaTencentVod(
     taskId: string,
   ): Promise<{ status: string; url?: string; reason?: string }> {
+    const hailuoPrefix = "tencentvod-hailuo-h3-";
+    if (taskId.startsWith(hailuoPrefix)) {
+      const result = await this.tencentVodAigcService.queryVideoTask(taskId.slice(hailuoPrefix.length));
+      const normalized = String(result.status || "").trim().toLowerCase();
+      const status = ["finish", "finished", "success", "succeeded", "completed"].includes(normalized)
+        ? "succeeded"
+        : ["failed", "fail", "error", "cancelled"].includes(normalized)
+          ? "failed"
+          : "processing";
+      return { status, url: result.videoUrl, reason: status === "failed" ? `Tencent VOD status: ${result.status}` : undefined };
+    }
     const r = await this.queryTask("kling-o3", taskId);
     return { status: r.status, url: r.videoUrl, reason: r.error };
   }
@@ -1230,7 +1289,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7",
+    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
     const result = await this.queryTaskAttempt(provider, taskId);
@@ -1250,7 +1309,7 @@ export class VideoProviderService {
   }
 
   private async queryTaskAttempt(
-    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7",
+    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
     if (taskId.startsWith(this.newApiTaskPrefix)) {
@@ -1324,7 +1383,7 @@ export class VideoProviderService {
     // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
-    const usesNativeAspectRatio = model === "omni-flash-ext" || model.startsWith("vidu-");
+    const usesNativeAspectRatio = model === "omni-flash-ext" || model.startsWith("vidu-") || model === "hailuo-h3";
     const size = usesNativeAspectRatio ? undefined : this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
@@ -1352,6 +1411,8 @@ export class VideoProviderService {
     // new-api apimart adaptor reads it from metadata, not the top-level
     // reference_videos field which TaskSubmitReq does not parse).
     const isWanVideoEdit = model === "wan2.7-videoedit";
+    const isHailuoH3 = model === "hailuo-h3";
+    const hailuoMode = String(options.videoMode || "reference").trim().toLowerCase();
 
     // Kling 首尾帧/参考视频/声音 must ride in `metadata`: new-api's TaskSubmitReq
     // drops unknown top-level fields (sound/reference_videos/…), while the apimart
@@ -1449,6 +1510,13 @@ export class VideoProviderService {
       };
     };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
+    const hailuoImageFields = isHailuoH3
+      ? hailuoMode === "start_end" && referenceImages.length >= 2
+        ? { image: referenceImages[0], images: undefined, referenceImages: undefined, lastFrame: referenceImages[1] }
+        : hailuoMode === "reference"
+        ? { image: undefined, images: undefined, referenceImages: referenceImages.length ? referenceImages : undefined, lastFrame: undefined }
+        : { image: referenceImages[0], images: referenceImages.length ? referenceImages.slice(0, 1) : undefined, referenceImages: undefined, lastFrame: undefined }
+      : seedanceImageFields;
 
     const omniEffectiveVideoMode =
       isOmniFlashExt && referenceVideos.length > 0
@@ -1495,26 +1563,26 @@ export class VideoProviderService {
         ? referenceImages[0]
         : kling
         ? kling.image
-        : seedanceImageFields.image,
+        : hailuoImageFields.image,
       images: isOmniFlashExt
         ? referenceImages.length > 0
           ? referenceImages
           : undefined
         : kling
         ? kling.images
-        : seedanceImageFields.images,
+        : hailuoImageFields.images,
       // Seedance 2.0 r2v：参考图经此字段下发，new-api 全部标 reference_image。
       referenceImages: isOmniFlashExt
         ? undefined
         : kling
         ? undefined
-        : seedanceImageFields.referenceImages,
+        : hailuoImageFields.referenceImages,
       // Seedance 2.0 首尾帧：尾帧经此字段下发，new-api 标 last_frame（与 first_frame 成对）。
       lastFrame: isOmniFlashExt
         ? undefined
         : kling
         ? undefined
-        : seedanceImageFields.lastFrame,
+        : hailuoImageFields.lastFrame,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
       reference_videos: isOmniFlashExt
@@ -1528,7 +1596,7 @@ export class VideoProviderService {
         : undefined,
       metadata: hasMetadata ? metadata : undefined,
       audio_urls: options.audioUrls?.length ? options.audioUrls : undefined,
-      mode: options.mode,
+      mode: isHailuoH3 ? options.videoMode : options.mode,
       // Kling audio is carried as metadata.audio (boolean) by buildKlingApimartParams.
       sound: kling ? undefined : options.sound,
       aspect_ratio: options.aspectRatio,
@@ -1541,6 +1609,7 @@ export class VideoProviderService {
         viduModel: options.viduModel,
         viduModelVariant: options.viduModelVariant,
         seedanceModel: options.seedanceModel,
+        hailuoModel: options.hailuoModel,
         managedModelKey: options.managedModelKey,
         // Fallback raw URLs for new-api to perform its own asset upload if AK/SK is configured.
         referenceImageRawUrls,
@@ -1623,6 +1692,7 @@ export class VideoProviderService {
         providerChannel: "new-api",
         routedProvider: options.provider,
         fallbackUsed: false,
+        consumedCredits: Number((result as any)?.__consumedCredits) || undefined,
       },
     };
   }
@@ -1691,6 +1761,9 @@ export class VideoProviderService {
     )
       .trim()
       .toLowerCase();
+    if (options.provider === "hailuo" || explicit === "hailuo-h3") {
+      return "hailuo-h3";
+    }
     // ALL Seedance models route through the ark-doubao channel (direct official
     // VolcEngine) using snapshot ids — NOT the apimart reseller.
     // Fast/lite/mini share the doubao-seedance-2-0-fast upstream.
@@ -2174,7 +2247,25 @@ export class VideoProviderService {
           : String(data || `HTTP ${response.status}`);
       throw new ServiceUnavailableException(`new-api 视频接口失败: ${message}`);
     }
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const consumed = Number(response.headers.get('x-newapi-consumed-credits'));
+      if (Number.isFinite(consumed) && consumed > 0) (data as any).__consumedCredits = Math.round(consumed);
+    }
     return data;
+  }
+
+  async getHailuoModelCatalog(): Promise<any> {
+    const result = await this.requestNewApiJson('/api/models/params', { method: 'GET' });
+    const catalog = result?.data ?? result;
+    const h3 = catalog?.['hailuo-h3'];
+    if (!h3 || h3.kind !== 'video' || !Array.isArray(h3.params)) {
+      throw new ServiceUnavailableException('new-api 未返回 hailuo-h3 能力规格，请先执行模型目录补丁');
+    }
+    return {
+      family: 'hailuo',
+      models: [{ key: 'hailuo-h3', value: 'h3', label: 'MiniMax H3', ...h3 }],
+      source: 'new-api',
+    };
   }
 
   // APIMart (e.g. Vidu) wraps the task in a `data` array:

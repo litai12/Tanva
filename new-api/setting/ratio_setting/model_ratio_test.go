@@ -13,6 +13,14 @@ func TestDefaultSeedance2ModelRatiosUseOnePointFiveMarkup(t *testing.T) {
 	}
 }
 
+func TestDefaultHailuoH3RatioUsesTwoKRetailPrice(t *testing.T) {
+	// RMB 1.20/s maps to ModelRatio 45. The Tencent VOD adaptor applies 1.25x
+	// for 4K, producing ModelRatio 56.25 / RMB 1.50 per processed second.
+	if got := GetDefaultModelRatioMap()["hailuo-h3"]; got != 45 {
+		t.Fatalf("hailuo-h3 ModelRatio = %v, want 45", got)
+	}
+}
+
 func TestDefaultDoubaoSeed20RatiosUseSupportedVersions(t *testing.T) {
 	expectedRatios := map[string]float64{
 		"doubao-seed-2-0-mini-260428": 0.2 / 1000 * USD * 1.5,

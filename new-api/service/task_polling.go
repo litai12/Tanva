@@ -349,9 +349,18 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 }
 
 func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, taskId string, taskM map[string]*model.Task) error {
-	baseURL := constant.ChannelBaseURLs[ch.Type]
+	// Custom task channels may be added after the static base-URL slice. Their
+	// configured channel base_url is authoritative; never index the slice before
+	// checking bounds (Tencent VOD is channel type 67).
+	baseURL := ""
+	if ch.Type >= 0 && ch.Type < len(constant.ChannelBaseURLs) {
+		baseURL = constant.ChannelBaseURLs[ch.Type]
+	}
 	if ch.GetBaseURL() != "" {
 		baseURL = ch.GetBaseURL()
+	}
+	if baseURL == "" {
+		return fmt.Errorf("channel %d (type %d) has no base URL", ch.Id, ch.Type)
 	}
 	proxy := ch.GetSetting().Proxy
 

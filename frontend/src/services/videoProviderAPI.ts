@@ -6,7 +6,7 @@ import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 import { validateVideoGenerationResponse } from "./videoProviderResponse";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo";
 
 const buildIdempotencyKey = (scope: string): string => {
   try {
@@ -84,6 +84,7 @@ export interface VideoGenerationRequest {
     | "seed-2.0-mini"
     | "seedance-2.0-fast";
   seed2InputTier?: "le32k" | "gt32k_le128k" | "gt128k_le256k";
+  hailuoModel?: "h3";
   // Kling O1 瑙嗛缂栬緫涓撶敤鍙傛暟
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";
@@ -115,6 +116,38 @@ export interface VideoTaskQueryResult {
   error?: string;
   inputTokens?: number;
   outputTokens?: number;
+}
+
+export interface VideoModelParamSpec {
+  key: string;
+  type: string;
+  label?: string;
+  required?: boolean;
+  default?: unknown;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: Array<{ value: string | number; label: string }>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface HailuoModelCatalog {
+  family: "hailuo";
+  source: "new-api";
+  models: Array<{
+    key: string;
+    value: string;
+    label: string;
+    kind: "video";
+    capabilities?: string[];
+    params: VideoModelParamSpec[];
+  }>;
+}
+
+export async function getHailuoModelCatalog(): Promise<HailuoModelCatalog> {
+  const response = await fetchWithAuth(`${getApiBaseUrl()}/api/ai/video-providers/hailuo/models`);
+  if (!response.ok) throw new Error(`获取 Hailuo 模型规格失败 (${response.status})`);
+  return response.json();
 }
 
 /**

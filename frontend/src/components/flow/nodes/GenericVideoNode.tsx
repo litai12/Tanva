@@ -31,6 +31,7 @@ import {
   normalizeViduModelValue,
   type ViduModelValue,
 } from "@/services/videoProviderParams";
+import { getHailuoModelCatalog, type HailuoModelCatalog } from "@/services/videoProviderAPI";
 import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
@@ -38,7 +39,7 @@ import {
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "hailuo";
 type ViduModel = ViduModelValue;
 type SeedanceModel =
   | "seedance-1.5-pro"
@@ -90,6 +91,9 @@ type Props = {
     klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
     viduModel?: ViduModel;
     seedanceModel?: SeedanceModel;
+    hailuoModel?: "h3";
+    hailuoMode?: HailuoMode;
+    hailuoModelSpec?: HailuoModelCatalog["models"][number];
     seedFamily?: SeedFamily;
     seedanceMode?: SeedanceMode;
     mode?: "std" | "pro";
@@ -210,6 +214,7 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   vidu: { name: "Vidu", zh: "Vidu" },
   "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
+  hailuo: { name: "Hailuo", zh: "海螺 Hailuo" },
 };
 
 const resolveVideoServiceType = (
@@ -240,6 +245,7 @@ const resolvePreviewVideoBillingModel = (
   if (provider === "doubao") {
     return data.seedanceModel || provider;
   }
+  if (provider === "hailuo") return data.hailuoModel || "h3";
   return data.klingModel || provider;
 };
 
@@ -401,6 +407,21 @@ type SeedanceModeSpec = {
   audioHandleMax: number;
 };
 
+type HailuoMode = "text" | "first_frame" | "start_end" | "reference";
+
+const getHailuoModeSpec = (mode: HailuoMode, limits?: Record<string, unknown>): SeedanceModeSpec => {
+  if (mode === "text") return { visibleHandles: ["text"], imageHandleMax: 0, image2HandleMax: 0, videoHandleMax: 0, audioHandleMax: 0 };
+  if (mode === "first_frame") return { visibleHandles: ["text", "image"], imageHandleMax: 1, image2HandleMax: 0, videoHandleMax: 0, audioHandleMax: 0 };
+  if (mode === "start_end") return { visibleHandles: ["text", "image", "image-2"], imageHandleMax: 1, image2HandleMax: 1, videoHandleMax: 0, audioHandleMax: 0 };
+  return {
+    visibleHandles: ["text", "image", "video", "audio"],
+    imageHandleMax: Number(limits?.maxImages) || 0,
+    image2HandleMax: 0,
+    videoHandleMax: Number(limits?.maxVideos) || 0,
+    audioHandleMax: Number(limits?.maxAudios) || 0,
+  };
+};
+
 const getSeedance20ModeSpec = (mode: Seedance20Mode): SeedanceModeSpec => {
   switch (mode) {
     case "first_frame":
@@ -525,8 +546,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [showHistory, setShowHistory] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
   const shouldProbeConnectedVideoDuration =
-    (data.provider || "kling") === "doubao" &&
-    isSeedance20ModelValue(data.seedanceModel);
+    (data.provider || "kling") === "hailuo" ||
+    ((data.provider || "kling") === "doubao" && isSeedance20ModelValue(data.seedanceModel));
 
   const {
     hasImageInput,
@@ -675,6 +696,35 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? probedVideoDuration.totalDurationSec
       : inputVideoDurationHintSec;
   const provider = data.provider || "kling";
+  const [hailuoCatalog, setHailuoCatalog] = React.useState<HailuoModelCatalog | null>(null);
+  const [hailuoCatalogError, setHailuoCatalogError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (provider !== "hailuo") return;
+    let active = true;
+    getHailuoModelCatalog()
+      .then((catalog) => { if (active) { setHailuoCatalog(catalog); setHailuoCatalogError(null); } })
+      .catch((error) => { if (active) setHailuoCatalogError(error instanceof Error ? error.message : "Hailuo 规格加载失败"); });
+    return () => { active = false; };
+  }, [provider]);
+  const hailuoCatalogModel = hailuoCatalog?.models.find((model) => model.value === (data.hailuoModel || "h3")) || hailuoCatalog?.models[0];
+  const hailuoParam = React.useCallback((key: string) => hailuoCatalogModel?.params.find((param) => param.key === key), [hailuoCatalogModel]);
+  const hailuoInputLimits = (hailuoParam("inputs")?.metadata || {}) as Record<string, unknown>;
+  React.useEffect(() => {
+    if (provider !== "hailuo" || !hailuoCatalogModel) return;
+    const duration = hailuoParam("duration")?.default;
+    const resolution = hailuoParam("resolution")?.default;
+    const aspectRatio = hailuoParam("size")?.default;
+    const mode = hailuoParam("mode")?.default;
+    const patch: Record<string, unknown> = {};
+    if (JSON.stringify(data.hailuoModelSpec || null) !== JSON.stringify(hailuoCatalogModel)) patch.hailuoModelSpec = hailuoCatalogModel;
+    if (typeof data.clipDuration !== "number" && typeof duration === "number") patch.clipDuration = duration;
+    if (!data.resolution && typeof resolution === "string") patch.resolution = resolution;
+    if (!data.aspectRatio && typeof aspectRatio === "string") patch.aspectRatio = aspectRatio;
+    if (!data.hailuoMode && typeof mode === "string") patch.hailuoMode = mode;
+    if (Object.keys(patch).length > 0) {
+      window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
+    }
+  }, [data.aspectRatio, data.clipDuration, data.hailuoMode, data.hailuoModelSpec, data.resolution, hailuoCatalogModel, hailuoParam, id, provider]);
   const seedanceModel: SeedanceModel = normalizeSeedanceModelValue(data.seedanceModel);
   const rawNodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
@@ -734,6 +784,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
   );
   const isSeedanceModel = provider === "doubao";
+  const isHailuoModel = provider === "hailuo";
+  const hailuoMode: HailuoMode =
+    data.hailuoMode === "text" || data.hailuoMode === "first_frame" ||
+    data.hailuoMode === "start_end" || data.hailuoMode === "reference"
+      ? data.hailuoMode
+      : "reference";
   const seedFamily: SeedFamily =
     (typeof data.seedFamily === "string" && data.seedFamily.trim().toLowerCase() === "seed2") ||
     data.nodeConfigKey === "seedVideo"
@@ -807,9 +863,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         : getSeedance15ModeSpec(seedanceMode as Seedance15Mode),
     [isSeedance20Model, isSeedanceModel, seedanceMode]
   );
+  const capabilityModeSpec = React.useMemo(
+    () => isHailuoModel ? getHailuoModeSpec(hailuoMode, hailuoInputLimits) : seedanceModeSpec,
+    [hailuoMode, hailuoInputLimits, isHailuoModel, seedanceModeSpec]
+  );
   const seedanceHandleTopMap = React.useMemo(
-    () => (seedanceModeSpec ? getSeedanceHandleTopMap(seedanceModeSpec.visibleHandles) : {}),
-    [seedanceModeSpec]
+    () => (capabilityModeSpec ? getSeedanceHandleTopMap(capabilityModeSpec.visibleHandles) : {}),
+    [capabilityModeSpec]
   );
   const klingModel =
     data.klingModel ||
@@ -858,7 +918,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       [
         canUseKlingImage2Input ? "k2" : "",
         isViduNode ? "vidu" : "",
-        isSeedanceModel ? (seedanceModeSpec?.visibleHandles || []).join(",") : "",
+        (isSeedanceModel || isHailuoModel) ? (capabilityModeSpec?.visibleHandles || []).join(",") : "",
         isUnifiedKlingNode &&
         klingModel !== "kling-v2-6" &&
         klingModel !== "kling-v3-0"
@@ -869,7 +929,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       canUseKlingImage2Input,
       isViduNode,
       isSeedanceModel,
-      seedanceModeSpec,
+      isHailuoModel,
+      capabilityModeSpec,
       isUnifiedKlingNode,
       klingModel,
     ]
@@ -881,6 +942,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     ? viduRequestSemantics?.videoMode
     : isSeedanceModel
     ? seedanceMode
+    : isHailuoModel
+    ? hailuoMode
     : undefined;
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
@@ -1071,7 +1134,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       watermark: data.watermark,
       offPeak: data.offPeak,
       referenceImageCount: imageInputCount,
-      referenceVideoCount: isSeedance20Model ? videoInputCount : hasVideoInput ? 1 : 0,
+      referenceVideoCount: isSeedance20Model || isHailuoModel ? videoInputCount : hasVideoInput ? 1 : 0,
       audioInputCount,
       referenceVideoType: (data as any).referenceVideoType,
     }),
@@ -1107,11 +1170,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     serviceType: resolveVideoServiceType(data.provider, data),
     model: resolvePreviewVideoBillingModel(provider, data, normalizedViduModelVariant),
     requestParams: previewRequestParams,
-    enabled: true,
+    enabled: !isHailuoModel,
   });
+  const hailuoCatalogCredits = React.useMemo(() => {
+    if (!isHailuoModel) return undefined;
+    const billing = (hailuoParam("billing")?.metadata || {}) as any;
+    const resolution = String(data.resolution || "").toUpperCase();
+    const rate = Number(billing.outputAndInputVideoPerSecond?.[resolution]);
+    const outputDuration = Number(data.clipDuration);
+    if (!Number.isFinite(rate) || !Number.isFinite(outputDuration)) return undefined;
+    const freeImages = Number(billing.imageFreeCount || 0);
+    const extraImageCredits = Number(billing.extraImageCredits || 0);
+    return Math.ceil((outputDuration + inputVideoDurationSec) * rate + Math.max(0, imageInputCount - freeImages) * extraImageCredits);
+  }, [data.clipDuration, data.resolution, hailuoParam, imageInputCount, inputVideoDurationSec, isHailuoModel]);
   // The backend preview uses the same quote resolver as the actual deduction.
   // Keep the badge empty on preview failure instead of showing stale node/config prices.
-  const selectedCredits = backendCredits;
+  const selectedCredits = isHailuoModel ? hailuoCatalogCredits : backendCredits;
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const showRunCredits = hasRunCredits;
   const vodAspectOptions = React.useMemo(() => {
@@ -1350,6 +1424,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const getDurationOptions = () => {
+    if (provider === "hailuo") {
+      const duration = hailuoParam("duration");
+      const min = Number(duration?.min);
+      const max = Number(duration?.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
+      return Array.from({ length: max - min + 1 }, (_, index) => {
+        const value = min + index;
+        return { label: lt(`${value}秒`, `${value}s`), value };
+      });
+    }
     if (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") {
       // Kling 3.0 (kling-v3-0)：APIMart 全场景 3–15s；Kling 2.6 仍为 5/10。
       if (klingModel === "kling-v3-0") {
@@ -1405,6 +1489,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const aspectOptions = React.useMemo(() => {
+    if (provider === "hailuo") {
+      return (hailuoParam("size")?.options || []).map((option) => ({ label: option.label, value: String(option.value) }));
+    }
     if (provider === "doubao" && isSeedance20Model) {
       return [...SEEDANCE20_DOC_ASPECT_RATIOS].map((value) => ({ label: value, value }));
     }
@@ -1427,7 +1514,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       return ratios.map((value) => ({ label: value, value }));
     }
     return getAspectOptions();
-  }, [getAspectOptions, isSeedance20Model, lt, provider, vodAspectOptions]);
+  }, [getAspectOptions, hailuoParam, isSeedance20Model, lt, provider, vodAspectOptions]);
   const klingModelOptions = React.useMemo(
     () => [
       { label: "Kling 2.6", value: "kling-v2-6" as const },
@@ -1453,6 +1540,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
     [lt]
+  );
+  const hailuoModelOptions = React.useMemo(
+    () => (hailuoCatalog?.models || []).map((model) => ({ label: model.label, value: model.value })),
+    [hailuoCatalog]
   );
   const seed2ModelOptions = React.useMemo(
     () => [
@@ -1565,6 +1656,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     );
   }, [clipDuration, id, isSeedance20Model, seedance20RestrictedForCurrentUser]);
   const durationOptions = React.useMemo(() => {
+    if (provider === "hailuo") return getDurationOptions();
     if (provider === "doubao" && isSeedance20Model) {
       const durationList =
         seedanceModel === "seed-2.0-mini"
@@ -1589,7 +1681,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       return getDurationOptions();
     }
     return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
-  }, [getDurationOptions, isSeedance20Model, isViduNode, lt, provider, seedanceModel, vodDurationOptions]);
+  }, [getDurationOptions, hailuoParam, isSeedance20Model, isViduNode, lt, provider, seedanceModel, vodDurationOptions]);
   const durationOptionValues = React.useMemo(
     () => durationOptions.map((option) => option.value),
     [durationOptions]
@@ -1610,7 +1702,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return isContiguous ? { min, max } : null;
   }, [durationOptionValues]);
   const shouldShowAspectSelector =
-    isSeedanceModel
+    isHailuoModel
+      ? true
+      : isSeedanceModel
       ? true
       : provider === "viduq3-pro"
       ? !hasImageInput
@@ -1631,6 +1725,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
+      if (provider === "hailuo") return (hailuoParam("resolution")?.options || []).map((option) => String(option.value));
       if (provider === "doubao" && isSeedance20Model) {
         if (vodResolutionOptions.length === 0) return seedance20ResolutionList;
         const allowed = new Set(seedance20ResolutionList);
@@ -1649,6 +1744,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [
       isSeedance20Model,
       isSeedanceModel,
+      hailuoParam,
       legacySeedanceResolutionOptions,
       provider,
       seedance20ResolutionList,
@@ -2170,6 +2266,31 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [id, isSeedance20Model, isSeedanceModel, seedanceMode, setEdges]
   );
 
+  const handleHailuoModeChange = React.useCallback((value: HailuoMode) => {
+    if (!isHailuoModel || value === hailuoMode) return;
+    const spec = getHailuoModeSpec(value, hailuoInputLimits);
+    setEdges((edges) => {
+      const counts: Record<string, number> = { image: 0, "image-2": 0, video: 0, audio: 0 };
+      return edges.filter((edge) => {
+        if (edge.target !== id) return true;
+        const handle = String(edge.targetHandle || "");
+        if (handle === "text") return true;
+        if (!spec.visibleHandles.includes(handle as any)) return false;
+        const limits: Record<string, number> = {
+          image: spec.imageHandleMax,
+          "image-2": spec.image2HandleMax,
+          video: spec.videoHandleMax,
+          audio: spec.audioHandleMax,
+        };
+        counts[handle] = (counts[handle] || 0) + 1;
+        return counts[handle] <= (limits[handle] || 0);
+      });
+    });
+    window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
+      detail: { id, patch: { hailuoMode: value } },
+    }));
+  }, [hailuoInputLimits, hailuoMode, id, isHailuoModel, setEdges]);
+
   const handleManagedRouteChange = React.useCallback(
     (vendorKey: string) => {
       const target = getManagedRouteOption(nodeConfigMetadata, vendorKey);
@@ -2684,36 +2805,36 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         type='target'
         position={Position.Left}
         id='text'
-        style={{ top: isSeedanceModel ? seedanceHandleTopMap.text || "32%" : "32%" }}
+        style={{ top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.text || "32%" : "32%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
-      {(isSeedanceModel
-        ? seedanceModeSpec?.visibleHandles.includes("image")
+      {((isSeedanceModel || isHailuoModel)
+        ? capabilityModeSpec?.visibleHandles.includes("image")
         : true) && (
         <Handle
           type='target'
           position={Position.Left}
           id='image'
-          style={{ top: isSeedanceModel ? seedanceHandleTopMap.image || "60%" : "60%" }}
+          style={{ top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.image || "60%" : "60%" }}
           onMouseEnter={() => setHover("image-in")}
           onMouseLeave={() => setHover(null)}
         />
       )}
       {/* image-2 句柄: Seedance/Vidu 与 Kling(2.6或Pro模式)可见 */}
-      {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
+      {(((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("image-2")) ||
         canUseKlingImage2Input ||
         isViduNode) && (
         <Handle
           type='target'
           position={Position.Left}
           id='image-2'
-          style={{ top: isSeedanceModel ? seedanceHandleTopMap["image-2"] || "78%" : "78%" }}
+          style={{ top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap["image-2"] || "78%" : "78%" }}
           onMouseEnter={() => setHover("image-2-in")}
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {(isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("video")) && (
+      {((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("video")) && (
         <Handle
           type='target'
           position={Position.Left}
@@ -2723,13 +2844,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("audio")) ||
+      {(((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("audio")) ||
         (isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0")) && (
         <Handle
           type='target'
           position={Position.Left}
           id='audio'
-          style={{ top: isSeedanceModel ? seedanceHandleTopMap.audio || "78%" : "78%" }}
+          style={{ top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.audio || "78%" : "78%" }}
           onMouseEnter={() => setHover("audio-in")}
           onMouseLeave={() => setHover(null)}
         />
@@ -3121,7 +3242,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       )}
 
       {/* 妯″瀷閫夋嫨 */}
-      {(isUnifiedKlingNode || provider === "vidu" || provider === "viduq3-pro" || provider === "doubao") && (
+      {(isUnifiedKlingNode || provider === "vidu" || provider === "viduq3-pro" || provider === "doubao" || provider === "hailuo") && (
         <div
           className='video-dropdown'
           style={{ marginBottom: 8, position: "relative" }}
@@ -3153,6 +3274,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             <span>
               {isUnifiedKlingNode
                 ? klingModelLabel
+                : provider === "hailuo"
+                ? hailuoModelOptions.find((opt) => opt.value === (data.hailuoModel || "h3"))?.label || lt("加载模型规格…", "Loading model spec…")
                 : provider === "doubao"
                 ? filteredSeedanceModelOptions.find((opt) => opt.value === seedanceModel)?.label || "Seedance 1.5-Pro"
                 : filteredViduModelOptions.find((opt) => opt.value === viduModelSelectionValue)?.label ||
@@ -3182,11 +3305,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {(isUnifiedKlingNode
                   ? filteredKlingModelOptions
+                  : provider === "hailuo"
+                  ? hailuoModelOptions
                   : provider === "doubao"
                   ? filteredSeedanceModelOptions
                   : filteredViduModelOptions).map((opt) => {
                   const selectedValue = isUnifiedKlingNode
                     ? klingModel
+                    : provider === "hailuo"
+                    ? data.hailuoModel || "h3"
                     : provider === "doubao"
                     ? seedanceModel
                     : viduModelSelectionValue;
@@ -3216,6 +3343,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         if (isModelOptionDisabled) return;
                         if (isUnifiedKlingNode) {
                           handleKlingModelChange(opt.value as "kling-v2-6" | "kling-v3-0");
+                        } else if (provider === "hailuo") {
+                          const selectedModel = hailuoCatalog?.models.find((model) => model.value === opt.value);
+                          window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
+                            detail: { id, patch: { hailuoModel: opt.value, managedModelKey: selectedModel?.key } },
+                          }));
                         } else if (provider === "doubao") {
                           handleSeedanceModelChange(opt.value as SeedanceModel);
                         } else {
@@ -3264,6 +3396,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               ) : null}
             </div>
           )}
+        </div>
+      )}
+
+      {isHailuoModel && (
+        <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
+          <NodeSelect
+            value={hailuoMode}
+            options={(hailuoParam("mode")?.options || []).map((option) => ({
+              value: String(option.value),
+              label: option.label,
+            }))}
+            onChange={(value) => handleHailuoModeChange(value as HailuoMode)}
+            title={lt("选择 Hailuo 模式", "Select Hailuo mode")}
+          />
+          {hailuoCatalogError && <div style={{ marginTop: 5, color: "#dc2626", fontSize: 11 }}>{hailuoCatalogError}</div>}
         </div>
       )}
 
