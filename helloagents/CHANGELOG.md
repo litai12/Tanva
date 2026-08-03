@@ -1031,5 +1031,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Image Chat 从 GPT-5.6 Luna 恢复为 Gemini 多模态三档（2.5 Flash / 3.5 Flash / 3.1 Pro），ToAPIs 补齐真实模型 ID、abilities 与后端一致的 0.1 元固定价；小T新增 `analyze_image` 宿主工具并复用相同图片分析接口。
 # 2026-08-03
 
+- Flow/视频资产持久化：通用视频节点的同步成功、正常轮询成功和刷新恢复成功统一先将上游视频复制到 OSS，只有 OSS URL 才能写入节点与历史；上传失败时不再把供应商临时 URL 或 HTTP URL 当作最终设计资产。
 - 新增 MiniMax Hailuo H3 腾讯 VOD 接入：真实验证 `Hailuo/H3` 的 2K、4 秒任务可成功提交并完成；新增 Flow「海螺 Hailuo」模型族节点，由 Tanva 后端动态代理 new-api 模型目录，根据所选模型/模式渲染输入端口、规格和价格，并将该节点纳入视频 Run 注入与重复提交保护名单。Hailuo 的 UI 与 Run 时长校验统一消费模型目录的 `min/max/step`，避免历史节点配置拒绝合法的 4 秒；new-api 任务扫描只排除旧 type=23 被动镜像任务，type=67 保持主动轮询，修复任务永久停在 `NOT_START/50%`。new-api type=67 task adaptor 统一校验 2K/4K、4–15 秒和多模态素材限制，在提交前将输出时长、唯一参考视频真实时长及超过 5 张后的图片附加费纳入唯一计价，并以 `X-NewApi-Consumed-Credits` 回传精确积分供 Tanva 后扣。2K 为 120 积分/处理秒，4K 为 150 积分/处理秒，超额图片 30 积分/张，音频免费；Tanva 内部腾讯 VOD endpoint 增加 H3 请求构建与独立任务查询前缀。
 - Flow/连线：连接线释放到节点主体时，会按拖拽方向和媒体类型自动选择兼容的输入/输出端口，并继续复用现有连线校验、容量限制、替换策略和协作广播；释放到真实端点时保持 React Flow 原有行为。

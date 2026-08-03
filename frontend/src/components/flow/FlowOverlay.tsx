@@ -16359,6 +16359,13 @@ function FlowInner() {
             consecutiveErrors = 0;
             const status = String(result.status || "").toLowerCase();
             if (status === "succeeded" || status === "success") {
+              const projectId = useProjectContentStore.getState().projectId;
+              const persistedVideoUrl = result.videoUrl
+                ? await uploadVideoToOSS(result.videoUrl, projectId)
+                : null;
+              if (!persistedVideoUrl) {
+                throw new Error("视频已生成，但上传 OSS 失败；将保留任务并自动重试");
+              }
               if (apiUsageId) {
                 void markVideoTaskSuccess(
                   apiUsageId,
@@ -16373,7 +16380,7 @@ function FlowInner() {
               }
               const historyEntry = {
                 id: `video-history-${Date.now()}`,
-                videoUrl: result.videoUrl,
+                videoUrl: persistedVideoUrl,
                 thumbnail: result.thumbnailUrl,
                 prompt:
                   typeof latestData.pendingVideoPrompt === "string"
@@ -16396,7 +16403,7 @@ function FlowInner() {
                     data: {
                       ...previousData,
                       status: "succeeded",
-                      videoUrl: result.videoUrl,
+                      videoUrl: persistedVideoUrl,
                       thumbnail: result.thumbnailUrl,
                       error: undefined,
                       videoVersion: Number(previousData.videoVersion || 0) + 1,
@@ -21703,9 +21710,14 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             runSource: "flow-node",
           });
           if (!createResult.taskId && createResult.videoUrl) {
+            const persistedVideoUrl = await uploadVideoToOSS(createResult.videoUrl, projectId);
+            if (!persistedVideoUrl) {
+              failCurrentVideoNode("视频已生成，但上传 OSS 失败，请稍后重试");
+              return;
+            }
             const historyEntry = {
               id: `video-history-${Date.now()}`,
-              videoUrl: createResult.videoUrl,
+              videoUrl: persistedVideoUrl,
               thumbnail: createResult.thumbnailUrl,
               prompt: promptText,
               createdAt: new Date().toISOString(),
@@ -21728,7 +21740,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                       data: {
                         ...item.data,
                         status: "succeeded",
-                        videoUrl: createResult.videoUrl,
+                        videoUrl: persistedVideoUrl,
                         thumbnail: createResult.thumbnailUrl,
                         error: undefined,
                         taskId: undefined,
@@ -21833,6 +21845,12 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               consecutiveQueryErrors = 0;
 
               if (queryResult.status === "succeeded") {
+                const persistedVideoUrl = queryResult.videoUrl
+                  ? await uploadVideoToOSS(queryResult.videoUrl, projectId)
+                  : null;
+                if (!persistedVideoUrl) {
+                  throw new Error("视频已生成，但上传 OSS 失败；将保留任务并自动重试");
+                }
                 stopPolling();
                 if (createResult.apiUsageId) {
                   const processingTime = Math.max(0, Date.now() - generationStartMs);
@@ -21859,7 +21877,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 );
                 const historyEntry = {
                   id: `video-history-${Date.now()}`,
-                  videoUrl: queryResult.videoUrl,
+                  videoUrl: persistedVideoUrl,
                   thumbnail: queryResult.thumbnailUrl,
                   prompt: promptText,
                   createdAt: new Date().toISOString(),
@@ -21884,7 +21902,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                       data: {
                         ...previousData,
                         status: "succeeded",
-                        videoUrl: queryResult.videoUrl,
+                        videoUrl: persistedVideoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
                         taskId: undefined,
