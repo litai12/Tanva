@@ -641,6 +641,25 @@ export class VideoProviderService {
     }
   }
 
+  /**
+   * Tencent VOD and the Hailuo new-api adaptor only accept remotely reachable
+   * image URLs. Flow nodes can still carry a runtime data URL, so normalize
+   * every H3 image at the backend boundary before it is sent to new-api.
+   */
+  private async prepareRemoteImageUrls(
+    referenceImages?: ReferenceImageItem[],
+  ): Promise<string[]> {
+    const rawUrls = this.extractReferenceImageUrls(referenceImages);
+    if (rawUrls.length === 0) return [];
+
+    const uploadedUrls = await Promise.all(
+      rawUrls.map((url) => this.uploadBase64ImageToOSS(url)),
+    );
+    return Array.from(
+      new Set(uploadedUrls.filter((url): url is string => Boolean(url && url.trim()))),
+    );
+  }
+
   private async prepareViduReferenceImages(referenceImages?: ReferenceImageItem[]): Promise<string[]> {
     if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
       return [];
@@ -1224,10 +1243,17 @@ export class VideoProviderService {
       if (!Number.isFinite(duration) || duration < 4 || duration > 15) {
         throw new BadRequestException("Hailuo H3 时长必须为 4-15 秒");
       }
-      const imageUrls = Array.from(
+      const rawImageUrls = Array.from(
         new Set((input.images || []).map(String).map((v) => v.trim()).filter(Boolean)),
       );
-      const lastFrameUrl = String(input.lastFrame || "").trim();
+      // FileInfos[].Url / LastFrameUrl are URL fields, not inline data. Keep
+      // this final guard because this endpoint is also callable independently
+      // of the normal /v1/videos -> new-api path.
+      const imageUrls = await this.prepareRemoteImageUrls(rawImageUrls);
+      const rawLastFrameUrl = String(input.lastFrame || "").trim();
+      const lastFrameUrl = rawLastFrameUrl
+        ? await this.uploadBase64ImageToOSS(rawLastFrameUrl)
+        : "";
       const videoUrls = Array.from(new Set((input.reference_videos || []).map(String).map((v) => v.trim()).filter(Boolean)));
       const audioUrls = Array.from(new Set((input.audio_urls || []).map(String).map((v) => v.trim()).filter(Boolean)));
       const fileInfos = [
@@ -1380,6 +1406,7 @@ export class VideoProviderService {
         throw new BadRequestException("Seedance 2.0 提示词最多支持 5000 个字符，请缩短后重试");
       }
     }
+    const isHailuoH3 = model === "hailuo-h3";
     // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
@@ -1390,10 +1417,12 @@ export class VideoProviderService {
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
     // on assets that already passed the upload-time check (volcAssetStatus === "active").
     // Other models fall back to raw HTTPS URLs.
-    const referenceImages = (isSeedance2
-      ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
-      : this.extractReferenceImageUrls(options.referenceImages)
-    ).map((url) => this.normalizeFirstPartyAssetUrl(url));
+    const referenceImages = isHailuoH3
+      ? await this.prepareRemoteImageUrls(options.referenceImages)
+      : (isSeedance2
+        ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
+        : this.extractReferenceImageUrls(options.referenceImages)
+      ).map((url) => this.normalizeFirstPartyAssetUrl(url));
     // Raw URLs for new-api's own asset re-upload path (only needed when not using asset://).
     const referenceImageRawUrls: string[] | undefined = isSeedance2
       ? this.extractReferenceImageUrls(options.referenceImages).map((url) =>
@@ -1411,7 +1440,6 @@ export class VideoProviderService {
     // new-api apimart adaptor reads it from metadata, not the top-level
     // reference_videos field which TaskSubmitReq does not parse).
     const isWanVideoEdit = model === "wan2.7-videoedit";
-    const isHailuoH3 = model === "hailuo-h3";
     const hailuoMode = String(options.videoMode || "reference").trim().toLowerCase();
 
     // Kling 首尾帧/参考视频/声音 must ride in `metadata`: new-api's TaskSubmitReq

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-03
+
+- Backend/Hailuo H3：修复 Flow 参考图以 `data:image/*;base64,...` 运行时值进入 new-api `/v1/videos`、再被 Tencent VOD 当作 `FileInfos[].Url` 导致 URL 超过 8182 字符的问题。H3 提交前统一上传参考图/首尾帧到 OSS 并只下发 HTTPS URL，内部 Tencent VOD endpoint 同时保留最终兜底；设计数据和任务持久化仍不保存内联图片。
+
 ## 2026-08-02
 
 - AI Chat/小T：对话费改为每个完整成功回合固定 `2` 积分，上游 `usage.total_tokens` 只保留作审计、不再换算扣费；生图、视频、识图等小T宿主任务继续独立计费。新增 DeepSeek V4 Flash 小T专属门面与生产网关幂等补丁；小T大脑选择器、普通文本/分析模式以及 Flow Text Chat/Prompt Optimizer 的 GPT 系型号统一改用 `小T-5.4/5.5/5.6 Luna` 外显。`verify:xiaot-chat-pricing` 无付费回归门禁同时覆盖 DeepSeek 门面转发、上游返回 `4867` usage 和缺失 usage 两种情况。

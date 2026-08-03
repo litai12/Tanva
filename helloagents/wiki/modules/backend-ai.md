@@ -17,6 +17,7 @@
 ## Seedance 一次性审核素材
 - 带普通参考图、参考视频或参考音频的 Seedance 2.0 请求不再复用画布持久化的 `volcAssetId`。`VideoProviderService.generateVideo` 会先去掉所有旧图片句柄，再由 `VolcAssetService.createTaskAssetGroup` 为本次运行创建隔离组，将当前远程渲染资源按 `Image` / `Video` / `Audio` 上传并等待全部素材可用；提交 SD2 时三类输入分别替换为对应的 `asset://` URI。显式 `bio-auth` 图片句柄保留，因为它承载用户活体授权；若其 ID 丢失则要求重新认证，不能以普通素材替代。
 - `generate-video-provider` 在积分预扣和 Ark 上传前会服务端校验 SD2 参考媒体：视频、音频各最多 3 条；单条参考视频需在 2–15 秒，单条参考音频需在 2–5 秒。超限时返回包含当前条目序号和实际秒数的 HTTP 400；Ark 仍返回的参数/审核错误统一称为“素材”，不再误导为仅图片尺寸问题。
+- Hailuo H3 的参考图允许在运行时暂存为 `data:image/*;base64,...`，但 `VideoProviderService` 会在发送 `/v1/videos` 前上传到 OSS 并替换为 HTTPS URL；Tencent VOD 内部 endpoint 仍保留同样的最终兜底，禁止把内联 base64 放进 `FileInfos[].Url` 或 `LastFrameUrl`。
 - 创建任务成功后以实际返回的、包含路由前缀的 `taskId` 绑定 `VolcTaskAssetGroup`；`queryTask` 观察到成功、失败、取消等终态后触发删组。同步创建失败立即删组，删除失败保留 `cleanup_failed`，每小时清理所有超过 `VOLC_TASK_ASSET_GROUP_TTL_HOURS`（默认 24）的遗留记录。
 - 上游若对本次刚创建的句柄返回 `InvalidParameter` / `content[n].image_url.url` / `specified asset ... is not found`，后端删除该组并重新审核一次；重试仍失败才结束原请求。重审发生在同一次计费与幂等请求内。
 - 前端不再在图片连线或点击 Run 前调用 `/api/volc-asset/upload`，也不显示“审核后可用于 sd2”的缓存状态；参考图继续先上传 Tanva OSS，确保裁剪/变换后的当前渲染资源才是审核与生成输入。
