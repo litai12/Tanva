@@ -71,6 +71,7 @@ export interface TencentVodAigcVideoTaskStatus {
   videoUrl?: string;
   fileId?: string;
   requestId?: string;
+  error?: string;
   raw?: Record<string, any>;
 }
 
@@ -406,6 +407,7 @@ export class TencentVodAigcService {
     const videoUrl = this.extractBestVideoUrl(response);
     const fileId = this.findFirstStringByKeys(response, ['FileId']);
     const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
+    const error = this.extractTaskError(response);
     this.logger.debug(
       `Tencent VOD DescribeTaskDetail video response: ${JSON.stringify(
         this.sanitizeForLog({
@@ -414,6 +416,7 @@ export class TencentVodAigcService {
           videoUrl,
           fileId,
           response,
+          error,
         }),
       )}`,
     );
@@ -424,6 +427,7 @@ export class TencentVodAigcService {
       videoUrl,
       fileId,
       requestId,
+      error,
       raw: response,
     };
   }
@@ -546,6 +550,10 @@ export class TencentVodAigcService {
   }
 
   private extractStatus(response: Record<string, any>): string | undefined {
+    if (this.extractTaskError(response)) {
+      return 'FAILED';
+    }
+
     const direct = this.pickFirstString(
       response?.Status,
       response?.TaskStatus,
@@ -561,6 +569,51 @@ export class TencentVodAigcService {
     if (direct) return direct;
 
     return this.findFirstStringByKeys(response, ['Status', 'TaskStatus', 'State']);
+  }
+
+  /**
+   * Tencent can return Response.Status=FINISH while the nested Aigc task has
+   * actually failed. Treat a non-zero ErrCode or an explicit failure message
+   * as terminal failure so callers never expose a false successful task with
+   * no video URL.
+   */
+  private extractTaskError(response: Record<string, any>): string | undefined {
+    const candidates = [
+      response?.AigcVideoTask,
+      response?.AIGCVideoTask,
+      response?.AigcImageTask,
+      response?.AIGCImageTask,
+      response?.TaskDetail,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') continue;
+
+      const rawCode =
+        candidate.ErrCode ?? candidate.errCode ?? candidate.ErrorCode ?? candidate.errorCode;
+      const rawCodeExt = candidate.ErrCodeExt ?? candidate.errCodeExt ?? candidate.ErrorCodeExt;
+      const message = this.pickFirstString(
+        candidate.Message,
+        candidate.message,
+        candidate.ErrMsg,
+        candidate.errMsg,
+        candidate.ErrorMessage,
+        candidate.errorMessage,
+      );
+      const numericCode = rawCode === undefined || rawCode === null ? 0 : Number(rawCode);
+      const hasNonZeroCode = Number.isFinite(numericCode) && numericCode !== 0;
+      const code = this.pickFirstString(rawCode) || (hasNonZeroCode ? String(rawCode) : undefined);
+      const codeExt = this.pickFirstString(rawCodeExt);
+      const hasFailureMessage = Boolean(
+        message && /\b(?:fail(?:ed|ure)?|error|exception)\b|system\s+error/i.test(message),
+      );
+
+      if (hasNonZeroCode || hasFailureMessage) {
+        return [code, codeExt, message].filter(Boolean).join(': ') || 'Tencent VOD task failed';
+      }
+    }
+
+    return undefined;
   }
 
   private extractBestImageUrl(response: Record<string, any>): string | undefined {

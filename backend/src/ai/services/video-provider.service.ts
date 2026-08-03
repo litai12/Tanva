@@ -611,26 +611,30 @@ export class VideoProviderService {
 
         const result = await this.oss.putStream(
           key,
-          Readable.from(imageBuffer)
+          Readable.from(imageBuffer),
+          { headers: { "Content-Type": contentType } },
         );
 
         this.logger.log(`📤 Downloaded and uploaded image to OSS: ${result.url}`);
         return result.url;
       }
 
-      const cleanBase64 = input.includes("base64,")
-        ? input.split("base64,")[1]
-        : input;
+      const dataUrlMatch = input.match(/^data:(image\/[\w.+-]+);base64,([\s\S]*)$/i);
+      const detectedMimeType = dataUrlMatch?.[1]?.toLowerCase() || mimeType;
+      const cleanBase64 = (dataUrlMatch?.[2] || input)
+        .replace(/^data:[^,]+,/i, "")
+        .replace(/\s+/g, "");
 
       const imageBuffer = Buffer.from(cleanBase64, "base64");
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(2, 8);
-      const extension = mimeType.split("/")[1] || "png";
+      const extension = detectedMimeType.split("/")[1] || "png";
       const key = `ai/images/kling-inputs/${timestamp}-${randomId}.${extension}`;
 
       const result = await this.oss.putStream(
         key,
-        Readable.from(imageBuffer)
+        Readable.from(imageBuffer),
+        { headers: { "Content-Type": detectedMimeType } },
       );
 
       this.logger.log(`📤 Uploaded image to OSS: ${result.url}`);
@@ -1300,12 +1304,21 @@ export class VideoProviderService {
     if (taskId.startsWith(hailuoPrefix)) {
       const result = await this.tencentVodAigcService.queryVideoTask(taskId.slice(hailuoPrefix.length));
       const normalized = String(result.status || "").trim().toLowerCase();
-      const status = ["finish", "finished", "success", "succeeded", "completed"].includes(normalized)
-        ? "succeeded"
-        : ["failed", "fail", "error", "cancelled"].includes(normalized)
-          ? "failed"
+      const hasVideoUrl = Boolean(String(result.videoUrl || "").trim());
+      const status = result.error || ["failed", "fail", "error", "cancelled"].includes(normalized)
+        ? "failed"
+        : ["finish", "finished", "success", "succeeded", "completed"].includes(normalized)
+          ? hasVideoUrl
+            ? "succeeded"
+            : "processing"
           : "processing";
-      return { status, url: result.videoUrl, reason: status === "failed" ? `Tencent VOD status: ${result.status}` : undefined };
+      return {
+        status,
+        url: result.videoUrl,
+        reason: status === "failed"
+          ? result.error || `Tencent VOD status: ${result.status}`
+          : undefined,
+      };
     }
     const r = await this.queryTask("kling-o3", taskId);
     return { status: r.status, url: r.videoUrl, reason: r.error };
@@ -1741,9 +1754,22 @@ export class VideoProviderService {
     const thumbnailUrl = this.extractThumbnailUrl(result);
 
     if (status === "succeeded" && !upstreamVideoUrl) {
+      const data = this.firstNewApiDataEntry(result);
+      const nestedError = data?.error || result?.error;
+      const error =
+        nestedError?.message ||
+        nestedError?.code ||
+        result?.fail_reason ||
+        data?.fail_reason ||
+        result?.reason ||
+        data?.reason ||
+        result?.message ||
+        data?.message ||
+        "new-api 视频任务已完成但未返回视频地址";
       this.logger.warn(
-        `new-api task ${rawTaskId} succeeded but no video URL found. raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
+        `new-api task ${rawTaskId} reported success but no video URL found; treating it as failed. reason=${error}; raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
       );
+      return { status: "failed", thumbnailUrl, error: String(error) };
     }
 
     if (status === "failed") {
