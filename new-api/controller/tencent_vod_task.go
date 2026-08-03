@@ -162,7 +162,9 @@ func mirrorTencentVodPoll(c *gin.Context, reqBody, respBytes []byte) {
 		task.Status = model.TaskStatusFailure
 		task.Progress = "100%"
 		task.FinishTime = time.Now().Unix()
-		if rawStatus != "" {
+		if taskError := extractTencentVodTaskError(respBytes); taskError != "" {
+			task.FailReason = taskError
+		} else if rawStatus != "" {
 			task.FailReason = rawStatus
 		} else {
 			task.FailReason = "task failed"

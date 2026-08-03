@@ -3,6 +3,7 @@
 ## 2026-08-03
 
 - Backend/Hailuo H3：修复 Flow 参考图以 `data:image/*;base64,...` 运行时值进入 new-api `/v1/videos`、再被 Tencent VOD 当作 `FileInfos[].Url` 导致 URL 超过 8182 字符的问题。H3 提交前统一上传参考图/首尾帧到 OSS 并只下发 HTTPS URL，内部 Tencent VOD endpoint 同时保留最终兜底；设计数据和任务持久化仍不保存内联图片。
+- Backend/new-api/Hailuo H3：修复腾讯外层 `FINISH` 但嵌套 `AigcVideoTask.ErrCode=70000` 的误报成功；只有实际视频 URL 才能返回成功，失败原因完整保留 `70000/InternalError`。H3 会按图片文件内容识别并修正历史 TOS 对象的 MIME 后再提交；type=67 内层借用旧 Tencent VOD 签名代理时跳过 legacy task/log 镜像，避免一次生成出现两个渠道任务和重复记账。
 
 ## 2026-08-02
 

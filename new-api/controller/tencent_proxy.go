@@ -112,9 +112,18 @@ func proxyTencent(c *gin.Context, channelName, host, svcName string) {
 	respBytes, readErr := io.ReadAll(resp.Body)
 	_, _ = c.Writer.Write(respBytes)
 	// 响应体读取失败时跳过，避免基于截断内容误扣费/误镜像。
-	if readErr == nil {
+	// Hailuo H3 type=67 已经由外层 /v1/videos 任务统一计费和轮询；
+	// 内层请求只借用旧 Tencent VOD 签名代理，不能再次生成 legacy task/log。
+	if readErr == nil && !shouldSkipTencentVodObservation(c) {
 		observeTencentVodTask(c, ch, action, body, resp.StatusCode, respBytes)
 	}
+}
+
+func shouldSkipTencentVodObservation(c *gin.Context) bool {
+	return strings.EqualFold(
+		strings.TrimSpace(c.GetHeader("X-Tanva-Managed-Tencent-VOD")),
+		"hailuo-h3-type-67",
+	)
 }
 
 // parseTencentKey splits a channel key formatted as either:

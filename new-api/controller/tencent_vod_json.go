@@ -20,7 +20,121 @@ func extractTencentVodReqTaskId(reqBytes []byte) string {
 
 // extractTencentVodStatus 从轮询响应里取状态（递归找首个 Status/TaskStatus/State）。
 func extractTencentVodStatus(respBytes []byte) string {
+	if extractTencentVodTaskError(respBytes) != "" {
+		return "FAILED"
+	}
 	return findFirstByKeys(respBytes, []string{"Status", "TaskStatus", "State"})
+}
+
+// extractTencentVodTaskError handles Tencent's H3 response shape where the
+// outer Response.Status can be FINISH even though AigcVideoTask failed. A
+// non-zero ErrCode or an explicit failure message is terminal failure.
+func extractTencentVodTaskError(respBytes []byte) string {
+	var root any
+	if err := common.Unmarshal(respBytes, &root); err != nil {
+		return ""
+	}
+
+	var walk func(any) string
+	walk = func(value any) string {
+		switch item := value.(type) {
+		case map[string]any:
+			for _, key := range []string{
+				"AigcVideoTask",
+				"AIGCVideoTask",
+				"AigcImageTask",
+				"AIGCImageTask",
+				"TaskDetail",
+			} {
+				candidate, ok := item[key].(map[string]any)
+				if !ok {
+					continue
+				}
+				if message := extractTencentVodCandidateError(candidate); message != "" {
+					return message
+				}
+			}
+			for _, child := range item {
+				if message := walk(child); message != "" {
+					return message
+				}
+			}
+		case []any:
+			for _, child := range item {
+				if message := walk(child); message != "" {
+					return message
+				}
+			}
+		}
+		return ""
+	}
+
+	return walk(root)
+}
+
+func extractTencentVodCandidateError(candidate map[string]any) string {
+	rawCode := candidate["ErrCode"]
+	if rawCode == nil {
+		rawCode = candidate["errCode"]
+	}
+	if rawCode == nil {
+		rawCode = candidate["ErrorCode"]
+	}
+	if rawCode == nil {
+		rawCode = candidate["errorCode"]
+	}
+	code, nonZero := normalizeTencentVodErrorCode(rawCode)
+	extCode := firstTencentVodString(candidate, "ErrCodeExt", "errCodeExt", "ErrorCodeExt")
+	message := firstTencentVodString(candidate, "Message", "message", "ErrMsg", "errMsg", "ErrorMessage", "errorMessage")
+	lowerMessage := strings.ToLower(message)
+	hasFailureMessage := strings.Contains(lowerMessage, "fail") ||
+		strings.Contains(lowerMessage, "error") ||
+		strings.Contains(lowerMessage, "exception") ||
+		strings.Contains(lowerMessage, "system error")
+	if !nonZero && !hasFailureMessage {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if code != "" {
+		parts = append(parts, code)
+	}
+	if extCode != "" {
+		parts = append(parts, extCode)
+	}
+	if message != "" {
+		parts = append(parts, message)
+	}
+	if len(parts) == 0 {
+		return "Tencent VOD task failed"
+	}
+	return strings.Join(parts, ": ")
+}
+
+func normalizeTencentVodErrorCode(value any) (string, bool) {
+	switch code := value.(type) {
+	case float64:
+		return strconv.FormatInt(int64(code), 10), code != 0
+	case string:
+		trimmed := strings.TrimSpace(code)
+		if trimmed == "" {
+			return "", false
+		}
+		if numeric, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return trimmed, numeric != 0
+		}
+		return trimmed, true
+	default:
+		return "", false
+	}
+}
+
+func firstTencentVodString(candidate map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := candidate[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // extractTencentVodVideoURL 尽力从响应里找一个视频结果 URL（腾讯临时地址即可）。

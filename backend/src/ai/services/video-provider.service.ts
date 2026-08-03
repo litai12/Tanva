@@ -10,6 +10,7 @@ import type { ReferenceImageItem } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
 import { bufferResponseWithLimit } from "../../common/http-buffer.util";
 import { Readable } from "node:stream";
+import sharp from "sharp";
 import { TencentVodAigcService } from "./tencent-vod-aigc.service";
 import {
   ModelRoutingService,
@@ -533,24 +534,31 @@ export class VideoProviderService {
 
   private async uploadBase64ImageToOSS(
     base64Data: string,
-    mimeType: string = "image/png"
+    mimeType: string = "image/png",
+    forceRemoteReupload = false,
   ): Promise<string> {
     try {
-      const input = typeof base64Data === "string" ? base64Data.trim() : "";
+      let input = typeof base64Data === "string" ? base64Data.trim() : "";
       if (!input) {
         throw new Error("Empty image input");
       }
 
       const managedKey = this.extractManagedImageKey(input);
       if (managedKey) {
-        return this.normalizeManagedAssetUrlForUpstream(input);
+        const normalized = this.normalizeManagedAssetUrlForUpstream(input);
+        if (!forceRemoteReupload) {
+          return normalized;
+        }
+        input = normalized;
       }
 
       if (input.startsWith("http://") || input.startsWith("https://")) {
         this.logger.log(`📎 Image is a URL, downloading: ${input.substring(0, 100)}...`);
 
-        // 如果已经是 OSS URL，直接返回
-        if (this.isOssPublicUrl(input)) {
+        // Hailuo H3 还要校正历史 OSS 对象的 MIME；旧对象可能实际是 PNG，
+        // 但 TOS 元数据为 application/octet-stream，直接交给 MiniMax 会在
+        // task-control 阶段报无上下文的 70000 InternalError。
+        if (this.isOssPublicUrl(input) && !forceRemoteReupload) {
           return input;
         }
 
@@ -574,17 +582,21 @@ export class VideoProviderService {
               errors.push(`${candidate} -> HTTP ${response.status}`);
               continue;
             }
-            const nextContentType = response.headers.get("content-type") || "image/jpeg";
-            if (!nextContentType.toLowerCase().startsWith("image/")) {
-              errors.push(`${candidate} -> invalid content-type ${nextContentType}`);
-              continue;
-            }
             imageBuffer = await bufferResponseWithLimit(response, IMAGE_DOWNLOAD_MAX_BYTES);
             if (!imageBuffer.length) {
               errors.push(`${candidate} -> empty body`);
               continue;
             }
-            contentType = nextContentType;
+            const detectedContentType = await this.detectImageContentType(
+              imageBuffer,
+              response.headers.get("content-type") || "",
+            );
+            if (!detectedContentType) {
+              errors.push(`${candidate} -> response is not a supported image`);
+              imageBuffer = null;
+              continue;
+            }
+            contentType = detectedContentType;
             break;
           } catch (error) {
             errors.push(
@@ -645,6 +657,29 @@ export class VideoProviderService {
     }
   }
 
+  private async detectImageContentType(
+    imageBuffer: Buffer,
+    declaredContentType: string,
+  ): Promise<string | null> {
+    const declared = declaredContentType.split(";", 1)[0].trim().toLowerCase();
+    const metadata = await sharp(imageBuffer).metadata().catch(() => null);
+    const format = String(metadata?.format || "").toLowerCase();
+    const detected: Record<string, string> = {
+      jpeg: "image/jpeg",
+      jpg: "image/jpeg",
+      png: "image/png",
+      webp: "image/webp",
+      gif: "image/gif",
+    };
+    if (detected[format]) {
+      return detected[format];
+    }
+    if (declared.startsWith("image/")) {
+      return declared === "image/jpg" ? "image/jpeg" : declared;
+    }
+    return null;
+  }
+
   /**
    * Tencent VOD and the Hailuo new-api adaptor only accept remotely reachable
    * image URLs. Flow nodes can still carry a runtime data URL, so normalize
@@ -657,7 +692,7 @@ export class VideoProviderService {
     if (rawUrls.length === 0) return [];
 
     const uploadedUrls = await Promise.all(
-      rawUrls.map((url) => this.uploadBase64ImageToOSS(url)),
+      rawUrls.map((url) => this.uploadBase64ImageToOSS(url, "image/png", true)),
     );
     return Array.from(
       new Set(uploadedUrls.filter((url): url is string => Boolean(url && url.trim()))),
@@ -1256,7 +1291,7 @@ export class VideoProviderService {
       const imageUrls = await this.prepareRemoteImageUrls(rawImageUrls);
       const rawLastFrameUrl = String(input.lastFrame || "").trim();
       const lastFrameUrl = rawLastFrameUrl
-        ? await this.uploadBase64ImageToOSS(rawLastFrameUrl)
+        ? await this.uploadBase64ImageToOSS(rawLastFrameUrl, "image/png", true)
         : "";
       const videoUrls = Array.from(new Set((input.reference_videos || []).map(String).map((v) => v.trim()).filter(Boolean)));
       const audioUrls = Array.from(new Set((input.audio_urls || []).map(String).map((v) => v.trim()).filter(Boolean)));
@@ -1284,7 +1319,7 @@ export class VideoProviderService {
         duration,
         resolution,
         storageMode: "Temporary",
-      });
+      }, { skipLegacyTaskObserver: true });
       return { taskId: `tencentvod-hailuo-h3-${created.taskId}`, status: "queued" };
     }
     const dto = this.buildDtoFromUnifiedForTencent(input);
@@ -1302,7 +1337,10 @@ export class VideoProviderService {
   ): Promise<{ status: string; url?: string; reason?: string }> {
     const hailuoPrefix = "tencentvod-hailuo-h3-";
     if (taskId.startsWith(hailuoPrefix)) {
-      const result = await this.tencentVodAigcService.queryVideoTask(taskId.slice(hailuoPrefix.length));
+      const result = await this.tencentVodAigcService.queryVideoTask(
+        taskId.slice(hailuoPrefix.length),
+        { skipLegacyTaskObserver: true },
+      );
       const normalized = String(result.status || "").trim().toLowerCase();
       const hasVideoUrl = Boolean(String(result.videoUrl || "").trim());
       const status = result.error || ["failed", "fail", "error", "cancelled"].includes(normalized)

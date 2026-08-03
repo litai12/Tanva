@@ -241,6 +241,7 @@ export class TencentVodAigcService {
 
   async createVideoTask(
     request: TencentVodAigcCreateVideoTaskRequest,
+    options?: { skipLegacyTaskObserver?: boolean },
   ): Promise<{ taskId: string; requestId?: string }> {
     this.ensureCredentialReady();
     if (typeof this.subAppId !== 'number') {
@@ -347,7 +348,7 @@ export class TencentVodAigcService {
     this.logger.debug(
       `Tencent VOD CreateAigcVideoTask payload: ${JSON.stringify(this.sanitizeForLog(payload))}`,
     );
-    const response = await this.callTencentApi('CreateAigcVideoTask', payload);
+    const response = await this.callTencentApi('CreateAigcVideoTask', payload, options);
     this.logger.debug(
       `Tencent VOD CreateAigcVideoTask response: ${JSON.stringify(this.sanitizeForLog(response))}`,
     );
@@ -389,7 +390,10 @@ export class TencentVodAigcService {
     };
   }
 
-  async queryVideoTask(taskId: string): Promise<TencentVodAigcVideoTaskStatus> {
+  async queryVideoTask(
+    taskId: string,
+    options?: { skipLegacyTaskObserver?: boolean },
+  ): Promise<TencentVodAigcVideoTaskStatus> {
     this.ensureCredentialReady();
 
     const normalizedTaskId = (taskId || '').trim();
@@ -402,7 +406,7 @@ export class TencentVodAigcService {
       body.SubAppId = this.subAppId;
     }
 
-    const response = await this.callTencentApi('DescribeTaskDetail', body);
+    const response = await this.callTencentApi('DescribeTaskDetail', body, options);
     const status = this.extractStatus(response);
     const videoUrl = this.extractBestVideoUrl(response);
     const fileId = this.findFirstStringByKeys(response, ['FileId']);
@@ -712,7 +716,11 @@ export class TencentVodAigcService {
     return results;
   }
 
-  private async callTencentApi(action: string, body: Record<string, any>): Promise<Record<string, any>> {
+  private async callTencentApi(
+    action: string,
+    body: Record<string, any>,
+    options?: { skipLegacyTaskObserver?: boolean },
+  ): Promise<Record<string, any>> {
     this.ensureCredentialReady();
 
     const payload = JSON.stringify(body || {});
@@ -726,6 +734,9 @@ export class TencentVodAigcService {
         'X-TC-Action': action,
         'X-TC-Version': this.version,
       };
+      if (options?.skipLegacyTaskObserver) {
+        headers['X-Tanva-Managed-Tencent-VOD'] = 'hailuo-h3-type-67';
+      }
       if (this.region) {
         headers['X-TC-Region'] = this.region;
       }

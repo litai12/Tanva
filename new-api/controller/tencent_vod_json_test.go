@@ -25,6 +25,13 @@ func TestExtractTencentVodStatus(t *testing.T) {
 	if got := extractTencentVodStatus(resp); got != "FINISH" {
 		t.Fatalf("got %q", got)
 	}
+	failedResp := []byte(`{"Response":{"Status":"FINISH","AigcVideoTask":{"Status":"FAIL","ErrCode":70000,"ErrCodeExt":"InternalError","Message":"task failed with status: FAIL, message: system error, MiniMax-H3 task-control"}}}`)
+	if got := extractTencentVodStatus(failedResp); got != "FAILED" {
+		t.Fatalf("nested task error should override outer FINISH, got %q", got)
+	}
+	if got := extractTencentVodTaskError(failedResp); got != "70000: InternalError: task failed with status: FAIL, message: system error, MiniMax-H3 task-control" {
+		t.Fatalf("unexpected task error %q", got)
+	}
 	resp2 := []byte(`{"Response":{"TaskDetail":{"Status":"PROCESSING"}}}`)
 	if got := extractTencentVodStatus(resp2); got != "PROCESSING" {
 		t.Fatalf("got %q", got)
