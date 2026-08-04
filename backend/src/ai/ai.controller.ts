@@ -87,6 +87,7 @@ import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.serv
 import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
 import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
+import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
 import {
   calculateDoubaoSeedLiteVideoAnalysisDurationBilling,
@@ -540,6 +541,7 @@ export class AiController {
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
+    private readonly newApiVideoTaskReconciliation: NewApiVideoTaskReconciliationService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
@@ -6444,9 +6446,28 @@ export class AiController {
       taskId = usage.taskId;
     }
 
+    if (requestUserId && provider === 'doubao' && taskId.startsWith('newapi:')) {
+      const storedResult = await this.newApiVideoTaskReconciliation.getStoredResultForTask(
+        requestUserId,
+        taskId,
+      );
+      if (storedResult) {
+        return storedResult;
+      }
+    }
+
     const result = this.normalizeVideoTaskResponse(
       await this.videoProviderService.queryTask(provider, taskId),
     );
+
+    if (requestUserId && provider === 'doubao' && taskId.startsWith('newapi:')) {
+      await this.newApiVideoTaskReconciliation.settleFromQuery({
+        userId: requestUserId,
+        apiUsageId: taskUsageApiId,
+        taskId,
+        result,
+      });
+    }
 
     // Hailuo 是异步精确计费：终态结算不能依赖某一个浏览器回调。
     // 查询接口本身也承担一次幂等的恢复/结算职责，覆盖刷新、后台重试和

@@ -45,6 +45,7 @@ import { MinimaxSpeechProvider } from './audio/providers/minimax-speech.provider
 import { MinimaxMusicProvider } from './audio/providers/minimax-music.provider';
 import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
+import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 
 @Module({
   imports: [
@@ -93,6 +94,7 @@ import { ReferenceVideoDurationService } from './services/reference-video-durati
     ImageTaskWorkerService,
     GenerationTaskService,
     ReferenceVideoDurationService,
+    NewApiVideoTaskReconciliationService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController, InternalTencentVodController],
