@@ -103,13 +103,13 @@
   - DashScope 直连接口必须携带 `managedModelKey + vendorKey + generationMode + resolution + durationSec`，否则会回退到静态服务价。
 
 ## pending 收敛与自动退款
-- 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。
+- 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`；Hailuo 查询到供应商终态时，后端也会按当前用户与持久化 taskId 自动幂等确认，前端不再是唯一结算触发方。
 - 异步任务失败可调用 `POST /api/ai/video-task-refund`：先标记 `failed` 再退款；退款交易按 `apiUsageId` 幂等。
 - 状态机保护：`updateApiUsageStatus` 禁止 `failed -> success` 与 `success -> failed` 的反向回写，避免“已退款后又标记成功”或“已成功后又标记失败”的状态/账务不一致。
 - 定时任务每 5 分钟扫描超时 `pending` 并自动退款：
   - 图像类：`CREDITS_PENDING_TIMEOUT_MINUTES`（默认 15 分钟）
   - 视频类：`CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES`（默认 30 分钟）
-- Hailuo H3 使用 new-api 实际回报积分，但异步创建阶段保持 `pending`；创建响应必须带回 `apiUsageId` 并持久化上游 `taskId`，否则失败轮询无法退款。`hailuo-video` 已纳入视频超时自动退款范围。
+- Hailuo H3 使用 new-api 实际回报积分，但异步创建阶段保持 `pending`；创建响应必须带回 `apiUsageId` 并持久化上游 `taskId`，查询终态可按 taskId 找回同一 pending 记录并自动确认/退款，前端回写仅作快速路径。`hailuo-video` 已纳入视频超时自动退款范围。
 - 视频类自动退款默认带分界线：仅处理 `createdAt >= 2026-03-28T00:00:00.000Z` 的记录，避免历史 `pending` 上线后集中退款。
   - 可通过 `CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT` 覆盖时间点；
   - 设置为 `off/none/0` 可关闭分界线过滤。

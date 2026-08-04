@@ -847,6 +847,9 @@ export class OssService {
       'volces.com',
       'tencentcos.cn',
       'myqcloud.com',
+      // Tencent VOD AIGC 返回的临时视频地址（如 store.vod-qcloud.com）。
+      // 任务查询必须由后端转存到 Tanva OSS，避免浏览器从 HTTPS 页面直连 HTTP CDN。
+      'vod-qcloud.com',
       'tgtai.com',
     ];
 

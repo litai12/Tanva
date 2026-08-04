@@ -16359,24 +16359,30 @@ function FlowInner() {
             consecutiveErrors = 0;
             const status = String(result.status || "").toLowerCase();
             if (status === "succeeded" || status === "success") {
+              // 供应商已经进入成功终态，先确认额度，再尝试把临时视频转存到 OSS。
+              // 资源转存失败只能影响画布回填，不能让已成功的异步计费一直停在 pending。
+              if (apiUsageId) {
+                try {
+                  await markVideoTaskSuccess(
+                    apiUsageId,
+                    Math.max(0, Date.now() - startedAt),
+                    {
+                      inputTokens: result.inputTokens,
+                      outputTokens: result.outputTokens,
+                    },
+                  );
+                } catch (error) {
+                  console.warn("[Flow] Failed to settle recovered video task", error);
+                  throw new Error("视频已生成，但成功结算失败；将保留任务并自动重试");
+                }
+              }
+
               const projectId = useProjectContentStore.getState().projectId;
               const persistedVideoUrl = result.videoUrl
                 ? await uploadVideoToOSS(result.videoUrl, projectId)
                 : null;
               if (!persistedVideoUrl) {
                 throw new Error("视频已生成，但上传 OSS 失败；将保留任务并自动重试");
-              }
-              if (apiUsageId) {
-                void markVideoTaskSuccess(
-                  apiUsageId,
-                  Math.max(0, Date.now() - startedAt),
-                  {
-                    inputTokens: result.inputTokens,
-                    outputTokens: result.outputTokens,
-                  },
-                ).catch((error) => {
-                  console.warn("[Flow] Failed to settle recovered video task", error);
-                });
               }
               const historyEntry = {
                 id: `video-history-${Date.now()}`,
@@ -21845,6 +21851,29 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               consecutiveQueryErrors = 0;
 
               if (queryResult.status === "succeeded") {
+                // 成功结算独立于浏览器侧 OSS 转存，避免 HTTP 临时地址/CORS
+                // 或对象存储短暂故障把已经完成的 Hailuo 任务卡成 running。
+                if (createResult.apiUsageId) {
+                  try {
+                    const processingTime = Math.max(0, Date.now() - generationStartMs);
+                    await markVideoTaskSuccess(createResult.apiUsageId, processingTime, {
+                      inputTokens: queryResult.inputTokens,
+                      outputTokens: queryResult.outputTokens,
+                    });
+                  } catch (markError) {
+                    console.warn("❌ [Flow] Failed to mark video task success", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                      error:
+                        markError instanceof Error
+                          ? markError.message
+                          : String(markError),
+                    });
+                    throw new Error("视频已生成，但成功结算失败；将保留任务并自动重试");
+                  }
+                }
+
                 const persistedVideoUrl = queryResult.videoUrl
                   ? await uploadVideoToOSS(queryResult.videoUrl, projectId)
                   : null;
@@ -21852,25 +21881,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   throw new Error("视频已生成，但上传 OSS 失败；将保留任务并自动重试");
                 }
                 stopPolling();
-                if (createResult.apiUsageId) {
-                  const processingTime = Math.max(0, Date.now() - generationStartMs);
-                  void markVideoTaskSuccess(createResult.apiUsageId, processingTime, {
-                    inputTokens: queryResult.inputTokens,
-                    outputTokens: queryResult.outputTokens,
-                  }).catch(
-                    (markError) => {
-                      console.warn("❌ [Flow] Failed to mark video task success", {
-                        nodeId,
-                        provider,
-                        apiUsageId: createResult.apiUsageId,
-                        error:
-                          markError instanceof Error
-                            ? markError.message
-                            : String(markError),
-                      });
-                    }
-                  );
-                }
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)

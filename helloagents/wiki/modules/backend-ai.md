@@ -18,7 +18,7 @@
 - 带普通参考图、参考视频或参考音频的 Seedance 2.0 请求不再复用画布持久化的 `volcAssetId`。`VideoProviderService.generateVideo` 会先去掉所有旧图片句柄，再由 `VolcAssetService.createTaskAssetGroup` 为本次运行创建隔离组，将当前远程渲染资源按 `Image` / `Video` / `Audio` 上传并等待全部素材可用；提交 SD2 时三类输入分别替换为对应的 `asset://` URI。显式 `bio-auth` 图片句柄保留，因为它承载用户活体授权；若其 ID 丢失则要求重新认证，不能以普通素材替代。
 - `generate-video-provider` 在积分预扣和 Ark 上传前会服务端校验 SD2 参考媒体：视频、音频各最多 3 条；单条参考视频需在 2–15 秒，单条参考音频需在 2–5 秒。超限时返回包含当前条目序号和实际秒数的 HTTP 400；Ark 仍返回的参数/审核错误统一称为“素材”，不再误导为仅图片尺寸问题。
 - Hailuo H3 的参考图允许在运行时暂存为 `data:image/*;base64,...`，但 `VideoProviderService` 会在发送 `/v1/videos` 前上传到 OSS 并替换为 HTTPS URL，同时保留正确的图片 MIME；历史 OSS/TOS 对象若元数据是 `application/octet-stream`，也要按图片文件头识别后重新托管。Tencent VOD 内部 endpoint 仍保留同样的最终兜底，禁止把内联 base64 放进 `FileInfos[].Url` 或 `LastFrameUrl`。查询时不能仅依据外层 `Response.Status=FINISH` 判定成功，嵌套 H3 任务的非零 `ErrCode`/失败消息必须判为失败，只有拿到实际视频 URL 才能返回成功。type=67 H3 内层借用旧 `/proxy/tencent/vod` 只做签名，不得触发 legacy task/log 镜像和重复扣费。
-- Hailuo H3 的 Tencent VOD 提交使用第一方 TOS/OSS HTTPS URL：图片、视频、音频直接写入 `FileInfos[].Type=Url` / `FileInfos[].Url`，尾帧使用 `LastFrameUrl`，不再调用 `PullUpload` 或等待输入 `FileId`；内联图片仍必须在边界处先转换为远程 URL。
+- Hailuo H3 的 Tencent VOD 提交使用第一方 TOS/OSS HTTPS URL：图片、视频、音频直接写入 `FileInfos[].Type=Url` / `FileInfos[].Url`，尾帧使用 `LastFrameUrl`，不再调用 `PullUpload` 或等待输入 `FileId`；内联图片仍必须在边界处先转换为远程 URL。Tencent VOD 返回的 `vod-qcloud.com` 临时视频结果由后端转存 Tanva OSS，避免浏览器从 HTTPS 页面直连 HTTP CDN。
 - 创建任务成功后以实际返回的、包含路由前缀的 `taskId` 绑定 `VolcTaskAssetGroup`；`queryTask` 观察到成功、失败、取消等终态后触发删组。同步创建失败立即删组，删除失败保留 `cleanup_failed`，每小时清理所有超过 `VOLC_TASK_ASSET_GROUP_TTL_HOURS`（默认 24）的遗留记录。
 - 上游若对本次刚创建的句柄返回 `InvalidParameter` / `content[n].image_url.url` / `specified asset ... is not found`，后端删除该组并重新审核一次；重试仍失败才结束原请求。重审发生在同一次计费与幂等请求内。
 - 前端不再在图片连线或点击 Run 前调用 `/api/volc-asset/upload`，也不显示“审核后可用于 sd2”的缓存状态；参考图继续先上传 Tanva OSS，确保裁剪/变换后的当前渲染资源才是审核与生成输入。
@@ -40,7 +40,7 @@
 - `POST remove-background`（含 public 变体�? `GET background-removal-info`
 - `POST convert-2d-to-3d`（兼容同步接口）/ `POST convert-2d-to-3d-async` / `GET convert-2d-to-3d/task/:taskId` / `expand-image`
 - `POST generate-video` / `generate-video-provider` / `GET video-task/:provider/:taskId`
-- `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成�?失败回写�?
+- `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成功/失败回写；Hailuo 查询终态也会按 taskId 自动幂等结算）
 - `POST generate-paperjs` / `img2vector`
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
@@ -129,7 +129,7 @@
 - Seedance 2.0 全能参考 (`reference_images`) 运行时要求所有图片使用 `reference_image` 角色；当 new-api `/v1/videos` 兼容层把图片误解释为首帧并返回 `first/last frame content cannot be mixed with reference media content` 时，后端会自动改走 managed V2/Ark `content` 直连兜底。
 - Seedance 2.0 权益识别补齐 `seed-2.0-pro / seed-2.0-mini`（含别名），避免 2.0 家族模型在后端分支判断中被误判为 1.5。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
-- Hailuo H3 同样必须走这条异步收敛链路：精确积分从 new-api `X-NewApi-Consumed-Credits` 读取，但任务创建只落 `pending`，并将 `taskId` 写入同一 `ApiUsageRecord.requestParams`；返回的 `apiUsageId` 是成功确认与失败退款的唯一账务关联，`hailuo-video` 必须纳入 pending 超时自动退款。
+- Hailuo H3 同样必须走这条异步收敛链路：精确积分从 new-api `X-NewApi-Consumed-Credits` 读取，但任务创建只落 `pending`，并将 `taskId` 写入同一 `ApiUsageRecord.requestParams`；返回的 `apiUsageId` 是成功确认与失败退款的账务关联，查询接口也可按当前用户与 taskId 找回 pending 记录并自动幂等结算，`hailuo-video` 必须纳入 pending 超时自动退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
 - Banana `tool-selection` 在 stable/尊享路线走腾讯文本通道时会带上前端上下文；本地兜底识别 `改文字` / `改成` / `替换文字` 等缓存图编辑意图，避免工具选择失败时落到纯文本聊天。

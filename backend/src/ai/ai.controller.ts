@@ -6416,16 +6416,21 @@ export class AiController {
     @Param('taskId') taskId: string,
     @Req() req: any,
   ) {
+    const requestUserId = this.getUserId(req);
+    let taskUsageApiId: string | undefined;
+    let shouldSettleHailuo = provider === 'hailuo';
+
     if (taskId.startsWith('usage:')) {
-      const userId = this.getUserId(req);
-      if (!userId) {
+      if (!requestUserId) {
         throw new BadRequestException('需要用户认证');
       }
       const apiUsageId = taskId.slice('usage:'.length).trim();
-      const usage = await this.creditsService.getVideoTaskUsageForUser(userId, apiUsageId);
+      const usage = await this.creditsService.getVideoTaskUsageForUser(requestUserId, apiUsageId);
       if (!usage) {
         throw new BadRequestException('视频任务不存在或无权访问');
       }
+      taskUsageApiId = usage.apiUsageId;
+      shouldSettleHailuo = shouldSettleHailuo || usage.provider === 'hailuo';
       if (usage.responseStatus === ApiResponseStatus.FAILED) {
         return { status: 'failed', error: usage.errorMessage || '视频生成任务失败' };
       }
@@ -6438,9 +6443,93 @@ export class AiController {
       provider = (usage.provider || provider) as typeof provider;
       taskId = usage.taskId;
     }
-    return this.normalizeVideoTaskResponse(
+
+    const result = this.normalizeVideoTaskResponse(
       await this.videoProviderService.queryTask(provider, taskId),
     );
+
+    // Hailuo 是异步精确计费：终态结算不能依赖某一个浏览器回调。
+    // 查询接口本身也承担一次幂等的恢复/结算职责，覆盖刷新、后台重试和
+    // “上游已成功但前端上传资源失败”的场景。
+    if (requestUserId && shouldSettleHailuo) {
+      await this.settleHailuoVideoTaskFromQuery({
+        userId: requestUserId,
+        taskId,
+        apiUsageId: taskUsageApiId,
+        result,
+      });
+    }
+
+    return result;
+  }
+
+  private async settleHailuoVideoTaskFromQuery(params: {
+    userId: string;
+    taskId: string;
+    apiUsageId?: string;
+    result: { status: 'queued' | 'processing' | 'succeeded' | 'failed'; error?: string };
+  }): Promise<void> {
+    if (params.result.status !== 'succeeded' && params.result.status !== 'failed') {
+      return;
+    }
+
+    const usage = params.apiUsageId
+      ? await this.creditsService.getVideoTaskUsageForUser(params.userId, params.apiUsageId)
+      : await this.creditsService.getPendingHailuoVideoTaskUsageForUser(
+          params.userId,
+          params.taskId,
+        );
+    if (!usage || usage.responseStatus !== ApiResponseStatus.PENDING) return;
+
+    const processingTime = 0;
+    try {
+      if (params.result.status === 'succeeded') {
+        const teamHandle = this.creditCharge
+          ? await this.creditCharge.resolveHandle(usage.apiUsageId)
+          : null;
+        if (teamHandle) {
+          await this.creditCharge!.commit(teamHandle, { processingTime });
+        } else {
+          await this.creditsService.markApiUsageSuccessForUser(
+            params.userId,
+            usage.apiUsageId,
+            processingTime,
+          );
+        }
+        this.logger.log(
+          `✅ Hailuo 查询终态自动确认成功: apiUsageId=${usage.apiUsageId}, taskId=${params.taskId}`,
+        );
+        return;
+      }
+
+      const errorMessage = params.result.error || '视频生成任务失败';
+      await this.creditsService.markApiUsageFailedForUser(
+        params.userId,
+        usage.apiUsageId,
+        errorMessage,
+        processingTime,
+      );
+
+      const teamHandle = this.creditCharge
+        ? await this.creditCharge.resolveHandle(usage.apiUsageId)
+        : null;
+      if (teamHandle) {
+        await this.creditCharge!.rollback(teamHandle, {
+          errorMessage,
+          processingTime,
+        });
+      } else {
+        await this.creditsService.refundCredits(params.userId, usage.apiUsageId);
+      }
+      this.logger.log(
+        `✅ Hailuo 查询终态自动退款: apiUsageId=${usage.apiUsageId}, taskId=${params.taskId}`,
+      );
+    } catch (error) {
+      // 不让结算异常污染上游查询结果；下一次查询仍会看到 PENDING 并重试。
+      this.logger.error(
+        `❌ Hailuo 查询终态自动结算失败: apiUsageId=${usage.apiUsageId}, taskId=${params.taskId}, error=${this.summarizeError(error)}`,
+      );
+    }
   }
 
   @Post('volc-enhance-video')

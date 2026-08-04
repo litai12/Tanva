@@ -4979,6 +4979,66 @@ export class CreditsService {
     };
   }
 
+  /**
+   * 按已持久化的异步 taskId 找回 Hailuo 的待结算用量记录。
+   *
+   * Hailuo 的结果查询只携带供应商 taskId，不能要求前端一定还持有
+   * apiUsageId 才能完成终态结算；这里只查当前用户自己的 PENDING 记录，
+   * 由调用方继续做成功确认或失败退款。
+   */
+  async getPendingHailuoVideoTaskUsageForUser(
+    userId: string,
+    taskId: string,
+  ): Promise<{
+    apiUsageId: string;
+    responseStatus: string;
+    taskId?: string;
+    provider?: string;
+    errorMessage?: string;
+  } | null> {
+    const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    if (!normalizedTaskId) return null;
+
+    const usage = await this.prisma.apiUsageRecord.findFirst({
+      where: {
+        userId,
+        serviceType: 'hailuo-video',
+        responseStatus: ApiResponseStatus.PENDING,
+        requestParams: {
+          path: ['taskId'],
+          equals: normalizedTaskId,
+        },
+      },
+      select: {
+        id: true,
+        provider: true,
+        responseStatus: true,
+        errorMessage: true,
+        requestParams: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!usage) return null;
+
+    const requestParams = this.asJsonObject(usage.requestParams) || {};
+    const persistedTaskId =
+      typeof requestParams.taskId === 'string' && requestParams.taskId.trim().length > 0
+        ? requestParams.taskId.trim()
+        : undefined;
+    const requestedProvider =
+      typeof requestParams.aiProvider === 'string' && requestParams.aiProvider.trim().length > 0
+        ? requestParams.aiProvider.trim()
+        : undefined;
+
+    return {
+      apiUsageId: usage.id,
+      responseStatus: usage.responseStatus,
+      taskId: persistedTaskId,
+      provider: requestedProvider || usage.provider || undefined,
+      errorMessage: usage.errorMessage || undefined,
+    };
+  }
+
   async settleSeed2TokenCreditsForUser(
     userId: string,
     apiUsageId: string,
