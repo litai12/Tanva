@@ -3439,7 +3439,8 @@ const resolveStableRouteCredits = (params: {
         ? nodeData.analysisModel.trim()
         : null;
     if (explicitAnalysisModel?.startsWith("doubao-seed-2-0-")) {
-      // 豆包视频理解按实际 Responses token usage 后扣，固定积分预览会误导。
+      // 豆包视频理解按后端确认的视频真实时长后扣，固定积分预览会误导；
+      // VideoAnalyzeNode 会根据当前媒体时长调用后端报价接口。
       resolvedCredits = 0;
     } else {
       const providerKey = String(providerForPricing || "").trim().toLowerCase();

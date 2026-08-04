@@ -49,8 +49,8 @@ import {
 } from '../ai/services/model-pricing-resolver';
 import { normalizeSeedance20DiscountPricing } from '../ai/services/seedance20-pricing';
 import {
-  calculateDoubaoSeedLiteVideoAnalysisDurationBilling,
-  isDoubaoSeedLiteDurationPricedModel,
+  calculateDoubaoSeedVideoAnalysisDurationBilling,
+  isDoubaoSeedDurationPricedModel,
 } from '../ai/services/doubao-seed-video-analysis-pricing';
 
 let IORedis: any;
@@ -2044,22 +2044,22 @@ export class CreditsService {
     const normalizedModel = String(model || requestParams?.model || '')
       .trim()
       .toLowerCase();
-    // Lite 按视频真实时长实扣；前端已读取到的媒体时长只用于试算，
-    // analyze-video 仍会安全下载并用 ffprobe 复核。没有时长时保持未知(0)。
-    if (isDoubaoSeedLiteDurationPricedModel(normalizedModel)) {
+    // 豆包 Seed 2.0 Pro/Lite/Mini 均按视频真实时长计价；前端已读取到的
+    // 媒体时长只用于试算，analyze-video 仍会安全下载并用 ffprobe 复核。
+    if (isDoubaoSeedDurationPricedModel(normalizedModel)) {
       const durationSec = Number(
         requestParams?.billingDurationSec ??
           requestParams?.durationSec ??
           requestParams?.duration,
       );
       return Number.isFinite(durationSec) && durationSec > 0
-        ? calculateDoubaoSeedLiteVideoAnalysisDurationBilling(durationSec)
+        ? calculateDoubaoSeedVideoAnalysisDurationBilling(normalizedModel, durationSec)
             .creditsCharged
         : 0;
     }
 
-    // 其他豆包 Seed 2.0 模型仍在 analyze-video 拿到 Responses usage 后
-    // 精确后扣；preview 只能返回 0，不能伪装成旧 60/90/120 固定价。
+    // 未纳入当前时长价格表的豆包模型仍需在 analyze-video 拿到 Responses
+    // usage 后精确后扣；preview 返回 0，不能伪装成旧 60/90/120 固定价。
     if (normalizedModel.includes('doubao-seed-2-0-')) {
       return 0;
     }

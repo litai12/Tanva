@@ -418,7 +418,7 @@ Flow 鑺傜偣鎷栨嫿鏀寔涓庡叾浠栬妭鐐硅繘琛岃竟锟?涓�
 - `StoryboardSplitNode` can split by a custom sample format (`splitFormat`) and auto-derives output handle count from parsed segments, clearing stale `promptN` outputs after re-split.
 - Image generation reference previews use shared model-tier limits from `flowModelProvider`: Fast 3, Pro 11, Ultra 14.
 - `VideoAnalyzeNode` localizes its default prompt and sends Banana route/channel hints with analysis requests.
-- `VideoAnalyzeNode` uses the connected video's metadata duration to request a backend credit preview for `doubao-seed-2-0-lite-260428`. The preview and Run badge use the shared `Seedance 2.0 480P × 1/3` pricing helper; the server independently probes the media duration for final billing. Mini/Pro remain token-metered after completion, so the client does not invent a static preview for them.
+- `VideoAnalyzeNode` uses the connected video's metadata duration to request a backend credit preview for `doubao-seed-2-0-pro-260215`, `doubao-seed-2-0-lite-260428`, or `doubao-seed-2-0-mini-260428`. The preview and Run badge use the shared Seedance 2.0 480P duration pricing ratios: Pro `1/3`, Lite `1/10`, Mini `1/20`; the server independently probes the media duration for final billing. The client does not invent a static preview for these models.
 - `Generate4Node` uses the shared Image Split handle helper for `imageN/imgN` reference inputs.
 - `Seedream5Node` can use `thumbnails[]` as its lightweight first-image preview while full-image preview still uses `imageUrls/images`.
 - AI Chat text responses preserve backend `metadata` on messages/context; context prompts are constrained to answer the current input directly instead of surfacing internal analysis.

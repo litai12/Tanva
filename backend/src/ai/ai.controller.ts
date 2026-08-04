@@ -90,11 +90,11 @@ import { ReferenceVideoDurationService } from './services/reference-video-durati
 import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
 import {
-  calculateDoubaoSeedLiteVideoAnalysisDurationBilling,
+  calculateDoubaoSeedVideoAnalysisDurationBilling,
   calculateDoubaoSeedVideoAnalysisBilling,
   extractNewApiTokenUsage,
   getDoubaoSeedVideoAnalysisPreflightCredits,
-  isDoubaoSeedLiteDurationPricedModel,
+  isDoubaoSeedDurationPricedModel,
   isDoubaoSeedVideoAnalysisModel,
 } from './services/doubao-seed-video-analysis-pricing';
 
@@ -2092,8 +2092,8 @@ export class AiController {
    * 按量计费包装器。
    *
    * 与 withCredits 的固定预扣不同：调用前只做余额护栏，成功后按服务端确认的
-   * 动态价格执行 deductExact。seed-audio 使用网关响应头；豆包视频分析 Lite
-   * 使用真实视频时长，Mini/Pro 使用 Responses usage 与火山官方分档价格。
+   * 动态价格执行 deductExact。seed-audio 使用网关响应头；豆包视频分析的
+   * Seed 2.0 Pro/Lite/Mini 使用后端确认的真实视频时长与产品比例。
    */
   private async withCreditsFromGateway<T>(
     req: any,
@@ -7387,7 +7387,7 @@ export class AiController {
 
     if (isDoubaoSeedVideoAnalysisModel(model)) {
       const parsedVideoUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
-      const durationBilling = isDoubaoSeedLiteDurationPricedModel(model)
+      const durationBilling = isDoubaoSeedDurationPricedModel(model)
         ? await (async () => {
             if (!this.referenceVideoDuration) {
               throw new ServiceUnavailableException(
@@ -7398,9 +7398,7 @@ export class AiController {
               parsedVideoUrl.toString(),
               '待分析视频',
             );
-            return calculateDoubaoSeedLiteVideoAnalysisDurationBilling(
-              durationSec,
-            );
+            return calculateDoubaoSeedVideoAnalysisDurationBilling(model, durationSec);
           })()
         : null;
 
@@ -7452,7 +7450,7 @@ export class AiController {
           this.logger.log(
             `✅ Video analysis (Doubao remote input_video) completed in ${processingTime}ms; ` +
               (durationBilling
-                ? `duration=${durationBilling.durationSec}s, pricing=seedance20_480p/3, `
+                ? `duration=${durationBilling.durationSec}s, pricing=seedance20_480p_ratio=${durationBilling.priceRatio.numerator}/${durationBilling.priceRatio.denominator}, `
                 : `usage=${usage.inputTokens}/${usage.outputTokens}, tier=${tokenBilling!.tier}, `) +
               `credits=${billing.creditsCharged}`,
           );

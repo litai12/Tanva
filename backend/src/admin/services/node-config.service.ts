@@ -634,7 +634,7 @@ export class NodeConfigService {
     if (config.nodeKey === 'videoAnalyze') {
       return {
         ...config,
-        description: '视频分析动态计费（Lite 按时长，Mini/Pro 按用量）',
+        description: '视频分析动态计费（Seed 2.0 Pro/Lite/Mini 按真实时长）',
       };
     }
 
@@ -1714,7 +1714,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析动态计费（Lite 按时长，Mini/Pro 按用量）' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析动态计费（Seed 2.0 Pro/Lite/Mini 按真实时长）' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },
@@ -1787,7 +1787,7 @@ export class NodeConfigService {
       },
     });
 
-    // 豆包视频分析现为动态计费：Lite 按真实时长，Mini/Pro 按 token usage。
+    // 豆包视频分析现为动态计费：Seed 2.0 Pro/Lite/Mini 均按真实时长。
     // 旧数据库里的 60 积分静态配置会让 palette / 历史节点继续显示固定价，
     // 因此启动时幂等清零；Gemini 固定档位由模型感知 resolver 单独给出。
     await this.prisma.nodeConfig.updateMany({
@@ -1795,7 +1795,7 @@ export class NodeConfigService {
       data: {
         creditsPerCall: 0,
         priceYuan: new Prisma.Decimal(0),
-        description: '视频分析动态计费（Lite 按时长，Mini/Pro 按用量）',
+        description: '视频分析动态计费（Seed 2.0 Pro/Lite/Mini 按真实时长）',
       },
     });
 
@@ -2446,7 +2446,7 @@ export class NodeConfigService {
       },
 
       // 其他节点
-      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析动态计费（Lite 按时长，Mini/Pro 按用量）' },
+      { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 0, serviceType: 'gemini-video-analyze', priceYuan: 0, description: '视频分析动态计费（Seed 2.0 Pro/Lite/Mini 按真实时长）' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },

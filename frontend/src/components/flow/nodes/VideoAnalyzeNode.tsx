@@ -53,6 +53,12 @@ type Props = {
 const DEFAULT_VIDEO_ANALYZE_MODEL: VideoAnalyzeModel =
   'doubao-seed-2-0-lite-260428';
 
+const DURATION_PRICED_VIDEO_ANALYZE_MODELS = new Set<VideoAnalyzeModel>([
+  'doubao-seed-2-0-pro-260215',
+  'doubao-seed-2-0-lite-260428',
+  'doubao-seed-2-0-mini-260428',
+]);
+
 const VIDEO_ANALYZE_MODELS: Array<{
   value: VideoAnalyzeModel;
   label: string;
@@ -62,20 +68,20 @@ const VIDEO_ANALYZE_MODELS: Array<{
   {
     value: 'doubao-seed-2-0-lite-260428',
     label: '豆包 Seed 2.0 Lite',
-    descriptionZh: '推荐 · 按视频时长计费（Seedance 2.0 480P 的 1/3）',
-    descriptionEn: 'Recommended · duration-priced at 1/3 of Seedance 2.0 480P',
+    descriptionZh: '推荐 · 按视频时长计费（Seedance 2.0 480P 的 1/10）',
+    descriptionEn: 'Recommended · duration-priced at 1/10 of Seedance 2.0 480P',
   },
   {
     value: 'doubao-seed-2-0-pro-260215',
     label: '豆包 Seed 2.0 Pro',
-    descriptionZh: '高精度复杂镜头分析',
-    descriptionEn: 'High-precision complex shot analysis',
+    descriptionZh: '高精度 · 按视频时长计费（Seedance 2.0 480P 的 1/3）',
+    descriptionEn: 'High-precision · duration-priced at 1/3 of Seedance 2.0 480P',
   },
   {
     value: 'doubao-seed-2-0-mini-260428',
     label: '豆包 Seed 2.0 Mini',
-    descriptionZh: '快速分析',
-    descriptionEn: 'Fast analysis',
+    descriptionZh: '快速 · 按视频时长计费（Seedance 2.0 480P 的 1/20）',
+    descriptionEn: 'Fast · duration-priced at 1/20 of Seedance 2.0 480P',
   },
   {
     value: 'gemini-3.5-flash',
@@ -189,19 +195,18 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const selectedModelOption =
     VIDEO_ANALYZE_MODELS.find((option) => option.value === selectedModel) ||
     VIDEO_ANALYZE_MODELS[0];
-  const usesLiteDurationPricing =
-    selectedModel === 'doubao-seed-2-0-lite-260428';
+  const usesDurationPricing = DURATION_PRICED_VIDEO_ANALYZE_MODELS.has(selectedModel);
   const effectiveVideoDuration =
     connectedVideoDuration ?? loadedVideoDuration;
   const durationPreviewParams = React.useMemo(
     () =>
-      usesLiteDurationPricing && effectiveVideoDuration
+      usesDurationPricing && effectiveVideoDuration
         ? {
             durationSec: effectiveVideoDuration,
             billingDurationSec: effectiveVideoDuration,
           }
         : null,
-    [effectiveVideoDuration, usesLiteDurationPricing],
+    [effectiveVideoDuration, usesDurationPricing],
   );
   const durationCreditPreview = useBackendCreditsPreview({
     serviceType: 'gemini-video-analyze',
@@ -209,7 +214,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     requestParams: durationPreviewParams,
     enabled: Boolean(durationPreviewParams),
   });
-  const runCredits = usesLiteDurationPricing
+  const runCredits = usesDurationPricing
     ? durationCreditPreview.credits
     : data.creditsPerCall;
   const hasRunCredits =
@@ -655,7 +660,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             selectedModelOption.descriptionEn,
           )}
         </span>
-        {usesLiteDurationPricing &&
+        {usesDurationPricing &&
         effectiveVideoDuration &&
         durationCreditPreview.hasCredits ? (
           <span
