@@ -2,6 +2,9 @@
 
 ## 2026-08-04
 
+- Frontend/Hailuo H3：端点悬浮提示改为复用 Seedance 的动态端点布局，并从 new-api 模型目录展示图片、视频、音频输入上限；当前 H3 的图片/视频上限为 9/3，前端连线与运行校验继续按该规格拦截，已保存模型规格可在目录请求失败时回退使用。
+- Frontend/Hailuo H3：修复物理图片连线与 Prompt `@` 图片引用重复计数的问题；同一张图只计一次，8 张图片不再因重复计数被误判为超过 9 张上限。
+- Frontend/Referral Check-In：签到成功后直接使用接口返回结果更新状态并刷新余额，移除点击后的整块面板加载态、“签到中”文案和成功确认弹窗；失败信息改为面板内提示。
 - Backend/Hailuo H3：修复上游已返回 `succeeded` 但腾讯 VOD 临时 HTTP 地址未被转存、导致浏览器 CORS/混合内容失败后额度长期停在 `PENDING` 的问题。`vod-qcloud.com` 现由后端转存到 Tanva OSS，视频任务查询在 Hailuo 终态按用户与持久化 taskId 幂等确认/退款，Flow 也先结算再上传资源；资源转存失败不再阻塞额度终态。
 - Backend/Hailuo H3：修复异步任务创建后立即记为 `SUCCESS` 且丢失 `apiUsageId` 导致失败任务无法退款的问题。现在按 new-api 实际积分先记 `PENDING`，持久化 `taskId` 并返回 `apiUsageId`，成功确认、失败退款和 30 分钟超时兜底统一收敛；团队任务先冻结、终态成功才扣除。
 - Backend/Hailuo H3：腾讯 VOD 任务不再把参考图片、视频、音频和尾帧逐个 `PullUpload` 成 VOD `FileId`；已托管的 TOS/OSS HTTPS URL 直接以 `FileInfos[].Type=Url` / `LastFrameUrl` 提交，去掉额外上传任务与轮询等待。

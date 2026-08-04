@@ -408,6 +408,28 @@ type SeedanceModeSpec = {
 };
 
 type HailuoMode = "text" | "first_frame" | "start_end" | "reference";
+type HailuoInputHandle = "image" | "image-2" | "video" | "audio";
+
+const toPositiveInteger = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+};
+
+const getHailuoHandleLabel = (
+  handle: HailuoInputHandle,
+  mode: HailuoMode,
+  limits: Record<string, unknown>,
+): string => {
+  if (handle === "image-2") return "image-2 (图2)";
+  if (handle === "image" && (mode === "first_frame" || mode === "start_end")) {
+    return "image (1)";
+  }
+
+  const limitKey =
+    handle === "image" ? "maxImages" : handle === "video" ? "maxVideos" : "maxAudios";
+  const max = toPositiveInteger(limits[limitKey]);
+  return Number.isFinite(max) && max > 0 ? `${handle} (1-${max})` : handle;
+};
 
 const getHailuoModeSpec = (mode: HailuoMode, limits?: Record<string, unknown>): SeedanceModeSpec => {
   if (mode === "text") return { visibleHandles: ["text"], imageHandleMax: 0, image2HandleMax: 0, videoHandleMax: 0, audioHandleMax: 0 };
@@ -415,10 +437,10 @@ const getHailuoModeSpec = (mode: HailuoMode, limits?: Record<string, unknown>): 
   if (mode === "start_end") return { visibleHandles: ["text", "image", "image-2"], imageHandleMax: 1, image2HandleMax: 1, videoHandleMax: 0, audioHandleMax: 0 };
   return {
     visibleHandles: ["text", "image", "video", "audio"],
-    imageHandleMax: Number(limits?.maxImages) || 0,
+    imageHandleMax: toPositiveInteger(limits?.maxImages),
     image2HandleMax: 0,
-    videoHandleMax: Number(limits?.maxVideos) || 0,
-    audioHandleMax: Number(limits?.maxAudios) || 0,
+    videoHandleMax: toPositiveInteger(limits?.maxVideos),
+    audioHandleMax: toPositiveInteger(limits?.maxAudios),
   };
 };
 
@@ -706,9 +728,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       .catch((error) => { if (active) setHailuoCatalogError(error instanceof Error ? error.message : "Hailuo 规格加载失败"); });
     return () => { active = false; };
   }, [provider]);
-  const hailuoCatalogModel = hailuoCatalog?.models.find((model) => model.value === (data.hailuoModel || "h3")) || hailuoCatalog?.models[0];
+  const hailuoCatalogModel =
+    hailuoCatalog?.models.find((model) => model.value === (data.hailuoModel || "h3")) ||
+    hailuoCatalog?.models[0] ||
+    data.hailuoModelSpec;
   const hailuoParam = React.useCallback((key: string) => hailuoCatalogModel?.params.find((param) => param.key === key), [hailuoCatalogModel]);
-  const hailuoInputLimits = (hailuoParam("inputs")?.metadata || {}) as Record<string, unknown>;
+  const hailuoInputLimits = React.useMemo(
+    () => (hailuoParam("inputs")?.metadata || {}) as Record<string, unknown>,
+    [hailuoParam]
+  );
   React.useEffect(() => {
     if (provider !== "hailuo" || !hailuoCatalogModel) return;
     const duration = hailuoParam("duration")?.default;
@@ -2868,7 +2896,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: isSeedanceModel ? seedanceHandleTopMap.text || "32%" : "32%",
+            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.text || "32%" : "32%",
             transform: "translate(-100%, -50%)",
           }}
         >
@@ -2880,7 +2908,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: isSeedanceModel ? seedanceHandleTopMap.image || "60%" : "60%",
+            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.image || "60%" : "60%",
             transform: "translate(-100%, -50%)",
           }}
         >
@@ -2896,6 +2924,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               : seedanceMode === "start_end"
               ? "image (1-2)"
               : "image"
+            : isHailuoModel
+            ? getHailuoHandleLabel("image", hailuoMode, hailuoInputLimits)
             : isKling26Model
             ? "image (图1)"
             : "image"}
@@ -2906,7 +2936,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: isSeedanceModel ? seedanceHandleTopMap["image-2"] || "78%" : "78%",
+            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap["image-2"] || "78%" : "78%",
             transform: "translate(-100%, -50%)",
           }}
         >
@@ -2918,11 +2948,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: seedanceHandleTopMap.video || "78%",
+            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.video || "78%" : "78%",
             transform: "translate(-100%, -50%)",
           }}
         >
-          {isSeedanceModel ? "video (1-3)" : "video"}
+          {isSeedanceModel
+            ? "video (1-3)"
+            : isHailuoModel
+            ? getHailuoHandleLabel("video", hailuoMode, hailuoInputLimits)
+            : "video"}
         </div>
       )}
       {hover === "audio-in" && (
@@ -2930,11 +2964,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: isSeedanceModel ? seedanceHandleTopMap.audio || "78%" : "78%",
+            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.audio || "78%" : "78%",
             transform: "translate(-100%, -50%)",
           }}
         >
-          {isSeedanceModel ? "audio (1-3, 2-5s)" : "audio"}
+          {isSeedanceModel
+            ? "audio (1-3, 2-5s)"
+            : isHailuoModel
+            ? getHailuoHandleLabel("audio", hailuoMode, hailuoInputLimits)
+            : "audio"}
         </div>
       )}
       {hover === "video-out" && (

@@ -20344,7 +20344,21 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           nodeId,
           maxImages
         );
-        const imageCount = imageEdges.length + promptMentionImages.length;
+        // 物理图片连线和 Prompt 里的 @图片引用可能指向同一张图，不能直接相加。
+        // 之前按 edge 数 + mention 数计数，8 张已连线图片如果同时被 Prompt 引用，
+        // 会被误算成 16 张，从而错误触发 Hailuo 的 9 张上限。
+        const resolvedEdgePairs: Array<{
+          edge: (typeof imageEdges)[number];
+          dataUrl: string;
+        }> = [];
+        for (const edge of imageEdges) {
+          const [dataUrl] = await resolveEdgesAsDataUrls([edge]);
+          if (dataUrl) resolvedEdgePairs.push({ edge, dataUrl });
+        }
+        const imageCount = dedupeImageRefs([
+          ...resolvedEdgePairs.map((item) => item.dataUrl),
+          ...promptMentionImages.map((item) => item.image),
+        ]).length;
         const hasPhysicalPrimaryImage = imageEdges.some(
           (edge) => edge.targetHandle === "image"
         );
@@ -20381,7 +20395,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         if (isHailuoNode) {
           const hailuoMode = String(rawNodeData.hailuoMode || "reference");
-          const imagePhysicalCount = currentEdges.filter((edge) => edge.target === nodeId && (edge.targetHandle === "image" || edge.targetHandle === "image-2")).length;
           const videoCount = currentEdges.filter((edge) => edge.target === nodeId && edge.targetHandle === "video").length;
           const audioCount = currentEdges.filter((edge) => edge.target === nodeId && edge.targetHandle === "audio").length;
           if (!rawNodeData.hailuoModelSpec) { failCurrentVideoNode("Hailuo 模型规格尚未加载，请稍后重试"); return; }
@@ -20391,7 +20404,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           if (imageCount > Number(hailuoInputs.maxImages || 0) || videoCount > Number(hailuoInputs.maxVideos || 0) || audioCount > Number(hailuoInputs.maxAudios || 0)) {
             failCurrentVideoNode("Hailuo 参考素材数量超过当前模型规格"); return;
           }
-          if (imagePhysicalCount + videoCount + audioCount > Number(hailuoInputs.maxMixedMedia || 0)) { failCurrentVideoNode("Hailuo 混合参考素材数量超过当前模型规格"); return; }
+          if (imageCount + videoCount + audioCount > Number(hailuoInputs.maxMixedMedia || 0)) { failCurrentVideoNode("Hailuo 混合参考素材数量超过当前模型规格"); return; }
           if (hailuoMode === "reference" && !promptText && imageCount === 0 && videoCount === 0 && audioCount === 0) { failCurrentVideoNode("Hailuo 全能参考至少需要提示词或参考素材"); return; }
           if (hailuoMode === "reference" && audioCount > 0 && imageCount === 0 && videoCount === 0) { failCurrentVideoNode("Hailuo 音频不能单独作为参考素材"); return; }
         } else if (isOmniFlashExtNode) {
@@ -21022,14 +21035,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           }
         }
 
-        const resolvedEdgePairs: Array<{
-          edge: (typeof imageEdges)[number];
-          dataUrl: string;
-        }> = [];
-        for (const edge of imageEdges) {
-          const [dataUrl] = await resolveEdgesAsDataUrls([edge]);
-          if (dataUrl) resolvedEdgePairs.push({ edge, dataUrl });
-        }
         const promptMentionImageInputs = promptMentionImages.map((mention) => ({
           mention,
           dataUrl: mention.image,

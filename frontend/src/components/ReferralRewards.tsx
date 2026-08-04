@@ -18,6 +18,7 @@ export default function ReferralRewards() {
   const [checkInStatus, setCheckInStatus] = useState<CheckInStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [invitePage, setInvitePage] = useState(1);
 
@@ -46,27 +47,27 @@ export default function ReferralRewards() {
 
   const handleCheckIn = async () => {
     if (!checkInStatus?.canCheckIn || checkingIn) return;
+    setCheckInError(null);
     setCheckingIn(true);
     try {
       const result = await checkIn();
       if (result.success) {
-        // 重新加载数据
-        await loadData();
-        // 触发全局积分刷新事件
-        window.dispatchEvent(new CustomEvent("refresh-credits"));
-        const bonusText = result.isWeeklyBonus
-          ? t("workspace.settings.referralTab.alerts.checkInWeeklyBonus")
-          : "";
-        alert(
-          t("workspace.settings.referralTab.alerts.checkInSuccess", {
-            reward: result.reward,
-            bonus: bonusText,
-          })
+        // 签到接口已完成入账，直接更新当前面板状态，避免整块面板进入加载态。
+        setCheckInStatus((current) =>
+          current
+            ? {
+                ...current,
+                consecutiveDays: result.consecutiveDays,
+                canCheckIn: false,
+              }
+            : current,
         );
+        // 触发全局积分刷新事件，让顶部余额同步更新。
+        window.dispatchEvent(new CustomEvent("refresh-credits"));
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";
-      alert(message || t("workspace.settings.referralTab.alerts.checkInFailed"));
+      setCheckInError(message || t("workspace.settings.referralTab.alerts.checkInFailed"));
     } finally {
       setCheckingIn(false);
     }
@@ -178,14 +179,18 @@ export default function ReferralRewards() {
           disabled={!checkInStatus?.canCheckIn || checkingIn}
           onClick={handleCheckIn}
         >
-          {checkingIn
-            ? t("workspace.settings.referralTab.checkIn.checkingIn")
-            : checkInStatus?.canCheckIn
+          {checkInStatus?.canCheckIn
             ? t("workspace.settings.referralTab.checkIn.checkInNow", {
                 reward: todayReward,
               })
             : t("workspace.settings.referralTab.checkIn.checkedToday")}
         </Button>
+
+        {checkInError && (
+          <p className="mt-2 text-center text-xs text-red-500" role="alert">
+            {checkInError}
+          </p>
+        )}
 
         <p className="text-xs text-gray-400 mt-2 text-center">
           {t("workspace.settings.referralTab.checkIn.weeklyBonusHint", {
