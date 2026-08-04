@@ -135,6 +135,31 @@ export class CreditChargeService {
     handle: ChargeHandle,
     opts: { processingTime?: number; markSuccess?: boolean } = {},
   ): Promise<void> {
+    if (handle.teamFunded && handle.teamId) {
+      const result = await this.ledger!
+        .deduct({
+          teamId: handle.teamId,
+          amount: handle.amount,
+          taskId: handle.apiUsageId,
+          taskKind: handle.serviceType,
+          actorUserId: handle.userId,
+        })
+        .catch((e) => {
+          this.logger.warn(`团队积分确认扣除失败: ${this.msg(e)}`);
+          return { deducted: false };
+        });
+      if (!result.deducted) {
+        await this.credits
+          .updateApiUsageStatus(
+            handle.apiUsageId,
+            ApiResponseStatus.FAILED,
+            '团队积分预留已失效，任务未完成结算',
+            opts.processingTime ?? 0,
+          )
+          .catch((e) => this.logger.warn(`关闭失效团队任务状态出错: ${this.msg(e)}`));
+        throw new BadRequestException('团队积分预留已失效，请重新提交任务');
+      }
+    }
     if (opts.markSuccess !== false) {
       await this.credits
         .updateApiUsageStatus(
@@ -144,17 +169,6 @@ export class CreditChargeService {
           opts.processingTime ?? 0,
         )
         .catch((e) => this.logger.warn(`标记成功状态出错: ${this.msg(e)}`));
-    }
-    if (handle.teamFunded && handle.teamId) {
-      await this.ledger!
-        .deduct({
-          teamId: handle.teamId,
-          amount: handle.amount,
-          taskId: handle.apiUsageId,
-          taskKind: handle.serviceType,
-          actorUserId: handle.userId,
-        })
-        .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${this.msg(e)}`));
     }
   }
 

@@ -134,15 +134,36 @@ export class TeamCreditLedgerService {
   }): Promise<{ deducted: boolean }> {
     const { teamId, amount, taskId, taskKind, actorUserId } = params;
     try {
-      await this.prisma.$transaction(async (tx) => {
-        const acc = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
+      const deducted = await this.prisma.$transaction(async (tx) => {
+        const accounts = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id
+          FROM "TeamCreditAccount"
+          WHERE "teamId" = ${teamId}
+          FOR UPDATE
+        `;
+        if (!accounts.length) throw new BadRequestException('团队积分账户不存在');
+        const acc = accounts[0];
         // 幂等：deduct 流水已存在说明本任务已结算，跳过账户变更，避免重复扣减
         // （团队结算由前端轮询触发的 video-task-success 调用，可能重复打到）。
         const existing = await tx.teamCreditLedger.findUnique({
           where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'deduct', taskId } },
           select: { id: true },
         });
-        if (existing) return;
+        if (existing) return true;
+
+        // 不能在 reserve 已释放后继续扣款，否则 frozenBalance 会被减成负数，
+        // 任务也会绕过团队额度。release/deduct 两边都做状态校验，配合唯一流水
+        // 约束让重复/竞态回写保持账本幂等。
+        const reserve = await tx.teamCreditLedger.findUnique({
+          where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'reserve', taskId } },
+          select: { id: true },
+        });
+        const released = await tx.teamCreditLedger.findUnique({
+          where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'release', taskId } },
+          select: { id: true },
+        });
+        if (!reserve || released) return false;
+
         await tx.teamCreditLedger.create({
           data: { teamAccId: acc.id, entryType: 'deduct', amount, taskId, taskKind, actorUserId },
         });
@@ -154,7 +175,9 @@ export class TeamCreditLedgerService {
             totalSpent: { increment: amount },
           },
         });
+        return true;
       });
+      if (!deducted) return { deducted: false };
       void this.publisher?.publish({
         teamId,
         reason: 'deduct',
@@ -175,7 +198,14 @@ export class TeamCreditLedgerService {
   async release(params: { teamId: string; amount: number; taskId: string }): Promise<void> {
     const { teamId, amount, taskId } = params;
     const released = await this.prisma.$transaction(async (tx) => {
-      const acc = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
+      const accounts = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id
+        FROM "TeamCreditAccount"
+        WHERE "teamId" = ${teamId}
+        FOR UPDATE
+      `;
+      if (!accounts.length) throw new BadRequestException('团队积分账户不存在');
+      const acc = accounts[0];
       // 幂等：release 流水已存在说明本任务预留已释放，跳过账户/配额回退，避免重复释放
       // （video-task-refund + 过期 reserve cron 可能对同一 taskId 并发触发）。
       const existing = await tx.teamCreditLedger.findUnique({
@@ -183,6 +213,16 @@ export class TeamCreditLedgerService {
         select: { id: true },
       });
       if (existing) return false;
+      const deducted = await tx.teamCreditLedger.findUnique({
+        where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'deduct', taskId } },
+        select: { id: true },
+      });
+      if (deducted) return false;
+      const reserve = await tx.teamCreditLedger.findUnique({
+        where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'reserve', taskId } },
+        select: { id: true },
+      });
+      if (!reserve) return false;
       await tx.teamCreditLedger.create({
         data: { teamAccId: acc.id, entryType: 'release', amount, taskId },
       });
