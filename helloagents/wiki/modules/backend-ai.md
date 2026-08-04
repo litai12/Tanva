@@ -129,6 +129,7 @@
 - Seedance 2.0 全能参考 (`reference_images`) 运行时要求所有图片使用 `reference_image` 角色；当 new-api `/v1/videos` 兼容层把图片误解释为首帧并返回 `first/last frame content cannot be mixed with reference media content` 时，后端会自动改走 managed V2/Ark `content` 直连兜底。
 - Seedance 2.0 权益识别补齐 `seed-2.0-pro / seed-2.0-mini`（含别名），避免 2.0 家族模型在后端分支判断中被误判为 1.5。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
+- Hailuo H3 同样必须走这条异步收敛链路：精确积分从 new-api `X-NewApi-Consumed-Credits` 读取，但任务创建只落 `pending`，并将 `taskId` 写入同一 `ApiUsageRecord.requestParams`；返回的 `apiUsageId` 是成功确认与失败退款的唯一账务关联，`hailuo-video` 必须纳入 pending 超时自动退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
 - Banana `tool-selection` 在 stable/尊享路线走腾讯文本通道时会带上前端上下文；本地兜底识别 `改文字` / `改成` / `替换文字` 等缓存图编辑意图，避免工具选择失败时落到纯文本聊天。

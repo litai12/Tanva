@@ -2,6 +2,7 @@
 
 ## 2026-08-04
 
+- Backend/Hailuo H3：修复异步任务创建后立即记为 `SUCCESS` 且丢失 `apiUsageId` 导致失败任务无法退款的问题。现在按 new-api 实际积分先记 `PENDING`，持久化 `taskId` 并返回 `apiUsageId`，成功确认、失败退款和 30 分钟超时兜底统一收敛；团队任务先冻结、终态成功才扣除。
 - Backend/Hailuo H3：腾讯 VOD 任务不再把参考图片、视频、音频和尾帧逐个 `PullUpload` 成 VOD `FileId`；已托管的 TOS/OSS HTTPS URL 直接以 `FileInfos[].Type=Url` / `LastFrameUrl` 提交，去掉额外上传任务与轮询等待。
 
 ## 2026-08-03

@@ -143,6 +143,11 @@ type MeteredCreditOptions = {
   balanceGuardLabel?: string;
   provider?: string;
   model?: string;
+  /**
+   * 上游返回异步任务时先保留 pending，等视频任务终态再确认或退款。
+   * 仅用于已经拥有独立任务成功/失败回写链路的服务。
+   */
+  deferSettlement?: boolean;
 };
 
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
@@ -2148,6 +2153,18 @@ export class AiController {
     // (b) 执行上游操作（抛错则向上传播，不扣费）。
     const { result, consumedCredits, billingMetadata } = await op();
 
+    const resultObject =
+      result && typeof result === 'object' && !Array.isArray(result)
+        ? (result as Record<string, any>)
+        : null;
+    const taskId =
+      typeof resultObject?.taskId === 'string' && resultObject.taskId.trim().length > 0
+        ? resultObject.taskId.trim()
+        : null;
+    const hasVideoUrl =
+      typeof resultObject?.videoUrl === 'string' && resultObject.videoUrl.trim().length > 0;
+    const deferSettlement = Boolean(options?.deferSettlement && taskId && !hasVideoUrl);
+
     const amount =
       Number.isFinite(consumedCredits) && (consumedCredits as number) > 0
         ? Math.round(consumedCredits as number)
@@ -2198,8 +2215,27 @@ export class AiController {
         requestParams: sanitizedRequestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
+        responseStatus: deferSettlement
+          ? ApiResponseStatus.PENDING
+          : ApiResponseStatus.SUCCESS,
       },
     );
+
+    if (deferSettlement && taskId) {
+      // The upstream task id is the recovery anchor. If the browser disappears
+      // before the first poll, the scheduler can still close/refund the pending
+      // usage, and a later usage:<apiUsageId> query can resume the task.
+      try {
+        await this.creditsService.updateApiUsageRequestParams(deducted.apiUsageId, {
+          taskId,
+        });
+      } catch (error) {
+        this.logger.error(
+          `[${serviceType}] Failed to persist async task id; usage remains pending: ` +
+            `apiUsageId=${deducted.apiUsageId}, taskId=${taskId}, error=${this.summarizeError(error)}`,
+        );
+      }
+    }
 
     // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
     if (isTeamProject && teamId) {
@@ -2210,7 +2246,25 @@ export class AiController {
         taskKind: serviceType,
         actorUserId: userId,
       });
-      if (reserved.reserved) {
+      if (!reserved.reserved) {
+        try {
+          await this.creditsService.updateApiUsageStatus(
+            deducted.apiUsageId,
+            ApiResponseStatus.FAILED,
+            `团队积分预留失败：${reserved.reason}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `[${serviceType}] Failed to close usage after team reserve rejection: ` +
+              `apiUsageId=${deducted.apiUsageId}, error=${this.summarizeError(error)}`,
+          );
+        }
+        throw new BadRequestException(
+          `团队积分预留失败，请稍后重试${reserved.reason ? `：${reserved.reason}` : ''}`,
+        );
+      }
+
+      if (!deferSettlement) {
         await this.teamCreditLedger!
           .deduct({
             teamId,
@@ -2220,16 +2274,15 @@ export class AiController {
             actorUserId: userId,
           })
           .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
-      } else {
-        this.logger.warn(
-          `[${serviceType}] 团队积分预留失败（已产出但未能记账）: ${reserved.reason}`,
-        );
       }
     }
 
     this.logger.debug(
       `[${serviceType}] gateway billed exactly ${amount} credits (userId=${userId}, team=${isTeamProject})`,
     );
+    if (options?.deferSettlement && resultObject) {
+      return { ...resultObject, apiUsageId: deducted.apiUsageId } as T;
+    }
     return result;
   }
 
@@ -6006,12 +6059,13 @@ export class AiController {
             },
           };
         },
-        requestParams,
+        idempotencyKey ? { ...requestParams, idempotencyKey } : requestParams,
         {
           provider: 'new-api',
           model: effectiveDto.managedModelKey || 'hailuo-h3',
           balanceGuardCredits: 4620,
           balanceGuardLabel: 'Hailuo H3 单次最多可能消耗',
+          deferSettlement: true,
         },
       );
     }

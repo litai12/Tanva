@@ -150,6 +150,7 @@ const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
   'viduq3-pro-video',
   'doubao-video',
   'happyhorse-r2v-video',
+  'hailuo-video',
 ];
 const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
   ...STALE_PENDING_IMAGE_SERVICE_TYPES,
@@ -4551,11 +4552,11 @@ export class CreditsService {
    *
    * 与 preDeductCredits 不同点：不做 credits.config 价格查询/动态计价——金额由
    * 调用方根据网关响应头或上游 token usage 给定。复用 preDeductCredits 的扣费
-   * 原语（lot 扣减计划 + 账户余额更新 + SPEND 流水），并直接落 SUCCESS 的用量
-   * 记录（先扣后记，扣的就是本次实际消耗，无需后续 finalize）。
+   * 原语（lot 扣减计划 + 账户余额更新 + SPEND 流水）。异步任务可以通过
+   * responseStatus=PENDING 先记录待结算状态，等任务终态再由成功/退款接口收敛。
    *
-   * teamId 非空（团队项目）时：只建 SUCCESS 用量记录、不动个人积分；团队积分由
-   * 控制器侧 TeamCreditLedger 处理。
+   * teamId 非空（团队项目）时：只建用量记录、不动个人积分；团队积分由控制器侧
+   * TeamCreditLedger 处理。
    */
   async deductExact(
     userId: string,
@@ -4569,6 +4570,7 @@ export class CreditsService {
       requestParams?: Record<string, any>;
       ipAddress?: string;
       userAgent?: string;
+      responseStatus?: ApiResponseStatus;
     },
   ): Promise<{
     success: boolean;
@@ -4583,6 +4585,7 @@ export class CreditsService {
     const provider = meta.provider || 'volcengine';
     const serviceName = meta.serviceName || serviceType;
     const model = meta.model;
+    const responseStatus = meta.responseStatus ?? ApiResponseStatus.SUCCESS;
     const requestParams = meta.requestParams
       ? (Object.fromEntries(
           Object.entries(meta.requestParams).filter(([, value]) => value !== undefined),
@@ -4611,7 +4614,7 @@ export class CreditsService {
       // 团队项目：不动个人积分，仅落用量记录（团队积分由 TeamCreditLedger 处理）。
       if (teamId) {
         const apiUsage = await tx.apiUsageRecord.create({
-          data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+          data: buildUsageData(normalizedAmount, responseStatus),
         });
         return {
           success: true,
@@ -4625,7 +4628,7 @@ export class CreditsService {
       // 金额为 0：只记录，不扣费、不建流水。
       if (normalizedAmount === 0) {
         const apiUsage = await tx.apiUsageRecord.create({
-          data: buildUsageData(0, ApiResponseStatus.SUCCESS),
+          data: buildUsageData(0, responseStatus),
         });
         return {
           success: true,
@@ -4714,7 +4717,7 @@ export class CreditsService {
       });
 
       const apiUsage = await tx.apiUsageRecord.create({
-        data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+        data: buildUsageData(normalizedAmount, responseStatus),
       });
 
       const transaction = await tx.creditTransaction.create({
@@ -5977,6 +5980,7 @@ export class CreditsService {
         serviceType: true,
         serviceName: true,
         createdAt: true,
+        requestParams: true,
       },
     });
 
@@ -6015,6 +6019,21 @@ export class CreditsService {
         errors += 1;
         this.logger.error(
           `自动退款标记失败 apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
+        );
+        continue;
+      }
+
+      const requestParams = this.asJsonObject(record.requestParams) || {};
+      const teamId =
+        typeof requestParams.teamId === 'string' && requestParams.teamId.trim().length > 0
+          ? requestParams.teamId.trim()
+          : null;
+      if (teamId) {
+        // Team usage has no personal SPEND transaction. The team ledger's
+        // reserve-expiry job releases the frozen amount; never credit it back
+        // to the member's personal account from this generic refund worker.
+        this.logger.warn(
+          `跳过团队任务的个人超时退款 apiUsageId=${record.id}, teamId=${teamId}, serviceType=${record.serviceType}`,
         );
         continue;
       }

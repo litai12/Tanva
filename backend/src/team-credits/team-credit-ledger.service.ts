@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
+import { ApiResponseStatus } from '../credits/dto/credits.dto';
 
 // 预留超时：须 ≥ 异步任务最大时长（视频/图像异步任务最长 ~15min，见 IMAGE_TASK_MAX_DURATION_MS），
 // 否则慢任务的 reserve 会被 releaseExpiredReserves 提前释放，成功结算 deduct 时 frozenBalance 变负、可用余额虚高。
@@ -205,6 +206,20 @@ export class TeamCreditLedgerService {
     });
     // 幂等跳过时不广播，避免误报可用余额回升
     if (!released) return;
+    if (taskId) {
+      await this.prisma.apiUsageRecord
+        .updateMany({
+          where: {
+            id: taskId,
+            responseStatus: ApiResponseStatus.PENDING,
+          },
+          data: {
+            responseStatus: ApiResponseStatus.FAILED,
+            errorMessage: '团队积分预留超时，任务已自动关闭',
+          },
+        })
+        .catch((e) => this.logger.warn(`团队任务状态关闭失败 taskId=${taskId}: ${e}`));
+    }
     void this.publisher?.publish({
       teamId,
       reason: 'release',
