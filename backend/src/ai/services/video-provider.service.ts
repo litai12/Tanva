@@ -1296,42 +1296,27 @@ export class VideoProviderService {
       const videoUrls = Array.from(new Set((input.reference_videos || []).map(String).map((v) => v.trim()).filter(Boolean)));
       const audioUrls = Array.from(new Set((input.audio_urls || []).map(String).map((v) => v.trim()).filter(Boolean)));
 
-      // The H3 worker may be unable to fetch a perfectly valid third-party
-      // URL even though Tencent VOD itself can reach it. Pull every H3 input
-      // into the same VOD SubApp first, then submit stable FileIds to H3.
-      const imageFiles = await Promise.all(
-        imageUrls.map((url) => this.tencentVodAigcService.uploadRemoteMediaToFileId(url)),
-      );
-      const lastFrameFile = lastFrameUrl
-        ? await this.tencentVodAigcService.uploadRemoteMediaToFileId(lastFrameUrl)
-        : undefined;
-      const videoFiles = await Promise.all(
-        videoUrls.map((url) => this.tencentVodAigcService.uploadRemoteMediaToFileId(url)),
-      );
-      const audioFiles = await Promise.all(
-        audioUrls.map((url) => this.tencentVodAigcService.uploadRemoteMediaToFileId(url)),
-      );
       const fileInfos = [
-        ...imageFiles.map((file, index) => ({
-          type: "File" as const,
+        ...imageUrls.map((url, index) => ({
+          type: "Url" as const,
           category: "Image" as const,
-          fileId: file.fileId,
+          url,
           usage: (String(input.mode || "").toLowerCase() === "reference" || imageUrls.length > 1
             ? "Reference"
             : index === 0
               ? "FirstFrame"
               : "Reference") as "FirstFrame" | "Reference",
         })),
-        ...videoFiles.map((file) => ({
-          type: "File" as const,
+        ...videoUrls.map((url) => ({
+          type: "Url" as const,
           category: "Video" as const,
-          fileId: file.fileId,
+          url,
           usage: "Reference" as const,
         })),
-        ...audioFiles.map((file) => ({
-          type: "File" as const,
+        ...audioUrls.map((url) => ({
+          type: "Url" as const,
           category: "Audio" as const,
-          fileId: file.fileId,
+          url,
           usage: "Reference" as const,
         })),
       ];
@@ -1340,7 +1325,7 @@ export class VideoProviderService {
         modelVersion: "H3",
         prompt: String(input.prompt || "").trim(),
         fileInfos,
-        lastFrameFileId: lastFrameFile?.fileId,
+        lastFrameUrl: lastFrameUrl || undefined,
         aspectRatio: String(input.aspect_ratio || "").trim() || undefined,
         duration,
         resolution,

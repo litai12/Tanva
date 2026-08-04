@@ -75,14 +75,6 @@ export interface TencentVodAigcVideoTaskStatus {
   raw?: Record<string, any>;
 }
 
-export interface TencentVodPullUploadResult {
-  taskId: string;
-  fileId: string;
-  requestId?: string;
-  mediaUrl?: string;
-  raw?: Record<string, any>;
-}
-
 @Injectable()
 export class TencentVodAigcService {
   private readonly logger = new Logger(TencentVodAigcService.name);
@@ -99,8 +91,6 @@ export class TencentVodAigcService {
   private readonly initialDelayMs: number;
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
-  private readonly inputFileExpireHours: number;
-  private readonly inputFileUploadTimeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     // 腾讯 VOD 链路只服务尊享线路 → 优先用 vip 分组令牌(NEW_API_KEY_VIP)调 new-api
@@ -139,14 +129,6 @@ export class TencentVodAigcService {
     this.maxPollAttempts = this.parsePositiveInt(
       this.configService.get<string>('TENCENT_VOD_AIGC_MAX_POLL_ATTEMPTS'),
       300,
-    );
-    this.inputFileExpireHours = this.parsePositiveInt(
-      this.configService.get<string>('TENCENT_VOD_INPUT_FILE_EXPIRE_HOURS'),
-      72,
-    );
-    this.inputFileUploadTimeoutMs = this.parsePositiveInt(
-      this.configService.get<string>('TENCENT_VOD_INPUT_FILE_UPLOAD_TIMEOUT_MS'),
-      120_000,
     );
   }
 
@@ -376,156 +358,6 @@ export class TencentVodAigcService {
     }
     const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
     return { taskId, requestId };
-  }
-
-  /**
-   * Pull a remote media URL into Tencent VOD and wait for its FileId.
-   *
-   * Hailuo H3 can consume a VOD FileId directly. This is more reliable than
-   * asking the MiniMax worker to fetch a third-party URL, and it also keeps the
-   * whole Tencent request chain behind the existing new-api VOD channel.
-   */
-  async uploadRemoteMediaToFileId(
-    mediaUrl: string,
-    options?: {
-      mediaType?: string;
-      mediaName?: string;
-    },
-  ): Promise<TencentVodPullUploadResult> {
-    this.ensureCredentialReady();
-    if (typeof this.subAppId !== 'number') {
-      throw new ServiceUnavailableException(
-        'Tencent VOD SubAppId is required for remote media upload. Please set TENCENT_VOD_SUB_APP_ID in backend/.env.',
-      );
-    }
-
-    const normalizedMediaUrl = this.normalizeHttpUrl(mediaUrl);
-    if (!normalizedMediaUrl) {
-      throw new BadRequestException('Tencent VOD remote media URL must be a valid HTTP(S) URL');
-    }
-
-    const mediaType = this.normalizeMediaType(options?.mediaType || this.inferMediaTypeFromUrl(normalizedMediaUrl));
-    const mediaName = this.normalizeMediaName(
-      options?.mediaName,
-      mediaType,
-      `tanva-hailuo-h3-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    const payload: Record<string, any> = {
-      MediaUrl: normalizedMediaUrl,
-      SubAppId: this.subAppId,
-      MediaName: mediaName,
-    };
-    if (mediaType) {
-      payload.MediaType = mediaType;
-    }
-    if (this.inputFileExpireHours > 0) {
-      payload.ExpireTime = new Date(
-        Date.now() + this.inputFileExpireHours * 60 * 60 * 1000,
-      ).toISOString();
-    }
-
-    const observerOptions = { skipLegacyTaskObserver: true };
-    this.logger.debug(
-      `Tencent VOD PullUpload payload: ${JSON.stringify(
-        this.sanitizeForLog({
-          ...payload,
-          MediaUrl: normalizedMediaUrl,
-        }),
-      )}`,
-    );
-    const submitted = await this.callTencentApi('PullUpload', payload, observerOptions);
-    const taskId = this.pickFirstString(submitted?.TaskId, submitted?.taskId);
-    if (!taskId) {
-      throw new BadGatewayException('Tencent VOD PullUpload succeeded but TaskId is missing');
-    }
-
-    const submitRequestId = this.pickFirstString(submitted?.RequestId, submitted?.requestId);
-    this.logger.debug(
-      `Tencent VOD PullUpload submitted: ${JSON.stringify(
-        this.sanitizeForLog({
-          mediaUrl: normalizedMediaUrl,
-          mediaType,
-          taskId,
-          requestId: submitRequestId,
-        }),
-      )}`,
-    );
-
-    const completed = await this.waitForPullUploadFileId(taskId, observerOptions);
-    return {
-      taskId,
-      fileId: completed.fileId,
-      requestId: completed.requestId || submitRequestId,
-      mediaUrl: completed.mediaUrl,
-      raw: completed.raw,
-    };
-  }
-
-  private async waitForPullUploadFileId(
-    taskId: string,
-    options: { skipLegacyTaskObserver?: boolean },
-  ): Promise<{
-    fileId: string;
-    requestId?: string;
-    mediaUrl?: string;
-    raw?: Record<string, any>;
-  }> {
-    const startedAt = Date.now();
-    let lastStatus = '';
-
-    for (let attempt = 1; attempt <= this.maxPollAttempts; attempt++) {
-      const response = await this.callTencentApi(
-        'DescribeTaskDetail',
-        {
-          TaskId: taskId,
-          SubAppId: this.subAppId,
-        },
-        options,
-      );
-      const uploadTask = this.getPullUploadTask(response);
-      const status = this.pickFirstString(uploadTask?.Status, uploadTask?.TaskStatus) || '';
-      lastStatus = status || lastStatus;
-      const error = this.extractPullUploadTaskError(uploadTask, status);
-      if (error) {
-        throw new BadGatewayException(
-          `Tencent VOD PullUpload task ${taskId} failed: ${error}`,
-        );
-      }
-
-      const fileId = this.pickFirstString(uploadTask?.FileId, uploadTask?.fileId);
-      if (fileId && this.normalizeStatus(status) === 'success') {
-        const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
-        const mediaUrl = this.pickFirstString(
-          uploadTask?.FileUrl,
-          uploadTask?.MediaBasicInfo?.MediaUrl,
-          uploadTask?.MediaBasicInfo?.BasicInfo?.MediaUrl,
-        );
-        this.logger.debug(
-          `Tencent VOD PullUpload completed: ${JSON.stringify(
-            this.sanitizeForLog({ taskId, fileId, requestId, mediaUrl, attempt }),
-          )}`,
-        );
-        return { fileId, requestId, mediaUrl, raw: response };
-      }
-
-      if (this.normalizeStatus(status) === 'failed') {
-        throw new BadGatewayException(
-          `Tencent VOD PullUpload task ${taskId} failed with status: ${status || 'FAILED'}`,
-        );
-      }
-
-      if (Date.now() - startedAt >= this.inputFileUploadTimeoutMs) {
-        throw new ServiceUnavailableException(
-          `Tencent VOD PullUpload task ${taskId} polling timeout after ${this.inputFileUploadTimeoutMs}ms. Last status: ${lastStatus || 'UNKNOWN'}`,
-        );
-      }
-
-      await this.sleep(Math.min(this.pollIntervalMs, 2_000));
-    }
-
-    throw new ServiceUnavailableException(
-      `Tencent VOD PullUpload task ${taskId} polling timeout after ${this.maxPollAttempts} attempts. Last status: ${lastStatus || 'UNKNOWN'}`,
-    );
   }
 
   async queryTask(taskId: string): Promise<TencentVodAigcTaskStatus> {
@@ -786,81 +618,6 @@ export class TencentVodAigcService {
     }
 
     return undefined;
-  }
-
-  private getPullUploadTask(response: Record<string, any>): Record<string, any> | undefined {
-    const task = response?.PullUploadTask;
-    return task && typeof task === 'object' && !Array.isArray(task)
-      ? (task as Record<string, any>)
-      : undefined;
-  }
-
-  private extractPullUploadTaskError(
-    task: Record<string, any> | undefined,
-    status: string,
-  ): string | undefined {
-    if (!task) return undefined;
-
-    const rawCode = task.ErrCode ?? task.errCode ?? task.ErrorCode ?? task.errorCode;
-    const codeExt = this.pickFirstString(
-      task.ErrCodeExt,
-      task.errCodeExt,
-      task.ErrorCodeExt,
-      task.errorCodeExt,
-    );
-    const message = this.pickFirstString(
-      task.Message,
-      task.message,
-      task.ErrMsg,
-      task.errMsg,
-      task.ErrorMessage,
-      task.errorMessage,
-    );
-    const numericCode =
-      rawCode === undefined || rawCode === null || rawCode === '' ? 0 : Number(rawCode);
-    const hasNonZeroCode = Number.isFinite(numericCode) && numericCode !== 0;
-    const code = this.pickFirstString(rawCode) || (hasNonZeroCode ? String(rawCode) : undefined);
-    const isFailedStatus = ['failed', 'fail', 'error', 'cancel', 'cancelled', 'exception'].includes(
-      status.trim().toLowerCase(),
-    );
-
-    if (hasNonZeroCode || isFailedStatus) {
-      return [code, codeExt, message].filter(Boolean).join(': ') || 'Tencent VOD PullUpload failed';
-    }
-    return undefined;
-  }
-
-  private inferMediaTypeFromUrl(mediaUrl: string): string | undefined {
-    try {
-      const pathname = new URL(mediaUrl).pathname;
-      const extension = pathname.match(/\.([a-z0-9]{2,10})$/i)?.[1];
-      return extension ? extension.toLowerCase() : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private normalizeMediaType(mediaType?: string): string | undefined {
-    const normalized = String(mediaType || '').trim().replace(/^\./, '').toLowerCase();
-    return /^[a-z0-9]{2,10}$/.test(normalized) ? normalized : undefined;
-  }
-
-  private normalizeMediaName(
-    mediaName: string | undefined,
-    mediaType: string | undefined,
-    fallback: string,
-  ): string {
-    const base = String(mediaName || fallback)
-      .trim()
-      .replace(/[^a-zA-Z0-9._-]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 96);
-    const normalizedBase = base || fallback;
-    if (!mediaType || normalizedBase.toLowerCase().endsWith(`.${mediaType}`)) {
-      return normalizedBase;
-    }
-    return `${normalizedBase}.${mediaType}`.slice(0, 100);
   }
 
   private extractBestImageUrl(response: Record<string, any>): string | undefined {
