@@ -6935,8 +6935,18 @@ export class AiController {
 
     const videoUrl = resolveVideoUrl();
     const thumbnailUrl = resolveThumbnailUrl();
+    const errorValue = payload?.error;
     const error =
-      typeof payload?.error === 'string' && payload.error ? payload.error : undefined;
+      typeof errorValue === 'string' && errorValue.trim()
+        ? errorValue.trim()
+        : errorValue && typeof errorValue === 'object'
+          ? [
+              (errorValue as any).message,
+              (errorValue as any).detail,
+              (errorValue as any).reason,
+              (errorValue as any).code,
+            ].find((value) => typeof value === 'string' && value.trim())
+          : undefined;
     const taskId =
       typeof payload?.taskId === 'string' && payload.taskId ? payload.taskId : undefined;
     const execution =

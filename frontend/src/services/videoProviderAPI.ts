@@ -4,7 +4,10 @@
  */
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
-import { validateVideoGenerationResponse } from "./videoProviderResponse";
+import {
+  extractVideoProviderErrorMessage,
+  validateVideoGenerationResponse,
+} from "./videoProviderResponse";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo";
 
@@ -211,7 +214,26 @@ export async function queryVideoTask(
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const payload = await response.json().catch(() => ({}));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { status: "failed", error: "视频任务状态响应无效" };
+  }
+
+  const result = payload as Record<string, unknown>;
+  const status = typeof result.status === "string" ? result.status.trim().toLowerCase() : "";
+  const terminalFailure = ["failed", "failure", "error", "cancelled", "canceled"].includes(status);
+  return {
+    ...(result as unknown as VideoTaskQueryResult),
+    status: status || "processing",
+    ...(terminalFailure
+      ? {
+          error: extractVideoProviderErrorMessage(
+            result.error ?? result,
+            "视频生成任务失败"
+          ),
+        }
+      : {}),
+  };
 }
 
 /**
