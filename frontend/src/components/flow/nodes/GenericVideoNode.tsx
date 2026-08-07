@@ -2923,7 +2923,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           {isSeedanceModel
             ? isSeedance20Model
               ? seedanceMode === "reference_images"
-                ? "image (1-9)"
+                ? seedanceModel === "seedance-2.5"
+                  ? "image (1-30)"
+                  : "image (1-9)"
                 : seedanceMode === "first_frame"
                 ? "image (1)"
                 : seedanceMode === "smart_frames"
@@ -2961,7 +2963,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           {isSeedanceModel
-            ? "video (1-3)"
+            ? seedanceModel === "seedance-2.5"
+              ? "video (1-10, 2-30s total ≤30s)"
+              : "video (1-3, 2-15s total ≤15s)"
             : isHailuoModel
             ? getHailuoHandleLabel("video", hailuoMode, hailuoInputLimits)
             : "video"}
@@ -2977,7 +2981,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           {isSeedanceModel
-            ? "audio (1-3, 2-5s)"
+            ? seedanceModel === "seedance-2.5"
+              ? "audio (1-10, 2-30s total ≤30s)"
+              : "audio (1-3, 2-15s total ≤15s)"
             : isHailuoModel
             ? getHailuoHandleLabel("audio", hailuoMode, hailuoInputLimits)
             : "audio"}

@@ -129,7 +129,8 @@
 - Seedance 2.0 全能参考 (`reference_images`) 运行时要求所有图片使用 `reference_image` 角色；当 new-api `/v1/videos` 兼容层把图片误解释为首帧并返回 `first/last frame content cannot be mixed with reference media content` 时，后端会自动改走 managed V2/Ark `content` 直连兜底。
 - Seedance 2.0 权益识别补齐 `seed-2.0-pro / seed-2.0-mini`（含别名），避免 2.0 家族模型在后端分支判断中被误判为 1.5。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
-- Seedance/new-api 的 `doubao-video` 异步任务不再只依赖浏览器轮询：`NewApiVideoTaskReconciliationService` 每分钟按已持久化 `newapi:` taskId 查询上游，终态幂等确认或退款，并把成功后转存的 Tanva OSS 视频地址写回用量参数；项目重载时优先复用该地址，避免 new-api 临时 URL 过期导致画布无法回填。
+- Seedance/new-api 的 `doubao-video` 异步任务不再只依赖浏览器轮询：`NewApiVideoTaskReconciliationService` 每分钟按已持久化 `newapi:` taskId 查询上游，终态幂等确认或退款，并把成功后转存的 Tanva OSS 视频地址写回用量参数；项目重载时优先复用该地址，避免 new-api 临时 URL 过期导致画布无法回填。确认成功时还会以 `taskId` 为幂等键写入用户全局历史（`mediaType=video`），因此浏览器关闭、刷新或前端进程丢失后，完成视频仍可在“全局历史”查找。
+- 所有由 `GenerationTaskService` 持久化的后端视频任务，在写入 `succeeded + result.videoUrl` 时也会自动写入同一份全局历史；该记录只保存视频/封面的远程 URL，不保存 `data:`、`blob:` 或 base64。
 - Hailuo H3 同样必须走这条异步收敛链路：精确积分从 new-api `X-NewApi-Consumed-Credits` 读取，但任务创建只落 `pending`，并将 `taskId` 写入同一 `ApiUsageRecord.requestParams`；返回的 `apiUsageId` 是成功确认与失败退款的账务关联，查询接口也可按当前用户与 taskId 找回 pending 记录并自动幂等结算，`hailuo-video` 必须纳入 pending 超时自动退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
