@@ -168,6 +168,9 @@
   - 新增 `backend/src/business-policy/business-policy.service.ts`，统一读取/归一化 `membership_credit_policy`。
   - 新增 `GET /api/admin/membership-credit-policy` 与 `POST /api/admin/membership-credit-policy`。
   - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
+  - 套餐覆盖式升级以用户开通时 `UserMembershipSubscription.snapshot` / `PaymentOrder.planSnapshot` 的价格快照为准，而不是当前后台套餐价格。目标档位更高（或同档月费转年费）时，旧套餐剩余时间价值抵扣新套餐；旧套餐已发放积分保留、未来未发放额度停止。
+  - 用户有生效会员时，只能购买严格更高档位的套餐；同档续费和所有低档套餐订单均由服务端拒绝。订阅到期后不再存在活跃订阅，用户可按新购逻辑选择套餐。
+  - 年费套餐必须在 `MembershipPlan.metadata` 显式配置 `creditIssuanceMode: "yearly_monthly_installments"` 才按 12 期发放；推荐同时写入 `priceVersion` 用于运营审计。未配置该模式的历史年费视为“一次性到账”版本：保留既有余额和发放行为，但升级时不计算剩余价值抵扣，避免已完整领取全年积分后重复享受折抵。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.issueFreeUserStarterQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`，其中刷新周期仅作为一次性额度有效期窗口使用，不再触发月度续发。
 - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。

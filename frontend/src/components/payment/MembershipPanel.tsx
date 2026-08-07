@@ -8,10 +8,12 @@ import {
   getDailyRewardStatus,
   getMembershipCurrent,
   getMembershipOrders,
+  getMembershipTransitionPreview,
   getPaymentMembershipPlans,
   getPaymentStatus,
   type MembershipCurrentResponse,
   type MembershipOrderRecord,
+  type MembershipTransitionPreview,
   type PaymentMembershipPlan,
   type PaymentMethod,
 } from "@/services/adminApi";
@@ -55,11 +57,8 @@ function getPlanMetadataObject(metadata?: Record<string, unknown> | null): Recor
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
 }
 
-function getPlanTierRank(plan: PaymentMembershipPlan): number | null {
-  const metadataTier = Number(getPlanMetadataObject(plan.metadata).tierRank);
-  if (Number.isFinite(metadataTier)) return metadataTier;
-  const sortOrder = Number(plan.sortOrder);
-  return Number.isFinite(sortOrder) ? sortOrder : null;
+function isYearlyMonthlyInstallmentPlan(plan: PaymentMembershipPlan): boolean {
+  return plan.billingCycle === "yearly" && getPlanMetadataObject(plan.metadata).creditIssuanceMode === "yearly_monthly_installments";
 }
 
 function splitBenefitText(value: unknown): string[] {
@@ -72,6 +71,9 @@ function splitBenefitText(value: unknown): string[] {
 
 function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+  if (isYearlyMonthlyInstallmentPlan(plan)) {
+    return `全年套餐积分 ${total}，按 12 个月发放`;
+  }
   return `立即到账积分 ${total} `;
 }
 
@@ -157,7 +159,8 @@ function getPlanPeriodCreditsBreakdown(
   rewardMultiplier: number,
   immediateCreditsOverride?: number,
 ) {
-  const immediateCredits = immediateCreditsOverride ?? (plan.monthlyQuotaCredits + plan.signupBonusCredits);
+  const configuredCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+  const immediateCredits = immediateCreditsOverride ?? configuredCredits;
   const periodDays = plan.billingCycle === "yearly" ? MEMBERSHIP_YEAR_DAYS : MEMBERSHIP_MONTH_DAYS;
   const streakCycles = plan.billingCycle === "yearly" ? YEARLY_7_DAY_STREAK_CYCLES : MONTHLY_7_DAY_STREAK_CYCLES;
   const dailyCheckInCredits = Math.max(0, Math.trunc(plan.dailyGiftCredits || 0));
@@ -178,7 +181,10 @@ function getPlanPeriodCreditsBreakdown(
     periodDailyCheckInCredits,
     weeklyStreakBonusCredits,
     periodStreakBonusCredits,
-    totalCredits: immediateCredits + periodDailyCheckInCredits + periodStreakBonusCredits,
+    totalCredits:
+      (isYearlyMonthlyInstallmentPlan(plan) ? configuredCredits : immediateCredits) +
+      periodDailyCheckInCredits +
+      periodStreakBonusCredits,
   };
 }
 
@@ -199,6 +205,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [transitionPreview, setTransitionPreview] = useState<MembershipTransitionPreview | null>(null);
   const [sevenDayRewardMultiplier, setSevenDayRewardMultiplier] = useState(DEFAULT_7_DAY_REWARD_MULTIPLIER);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -232,21 +239,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const getPeriodImmediateCredits = useCallback(
     (plan: PaymentMembershipPlan) => {
       const ownImmediateCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
-      if (plan.billingCycle !== "yearly") return ownImmediateCredits;
-
-      const yearlyTierRank = getPlanTierRank(plan);
-      const monthlyPeer =
-        yearlyTierRank !== null
-          ? monthlyPlans.find((monthlyPlan) => getPlanTierRank(monthlyPlan) === yearlyTierRank)
-          : null;
-      const monthlyPeerByIndex = yearlyPlans.findIndex((yearlyPlan) => yearlyPlan.code === plan.code);
-      const matchedMonthlyPlan = monthlyPeer ?? (monthlyPeerByIndex >= 0 ? monthlyPlans[monthlyPeerByIndex] : null);
-
-      return matchedMonthlyPlan
-        ? (matchedMonthlyPlan.monthlyQuotaCredits + matchedMonthlyPlan.signupBonusCredits) * 12
-        : ownImmediateCredits;
+      if (!isYearlyMonthlyInstallmentPlan(plan)) return ownImmediateCredits;
+      return Math.floor(Math.max(0, ownImmediateCredits) / 12);
     },
-    [monthlyPlans, yearlyPlans],
+    [],
   );
 
   const selectedPlan = useMemo(
@@ -397,6 +393,24 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       setSubmitting(false);
     }
   }, [applyOrderExpiry]);
+
+  const selectPlanForPurchase = useCallback(async (planCode: string) => {
+    setSelectedPlanCode(planCode);
+    setUserConfirmedPlan(false);
+    setTransitionPreview(null);
+    try {
+      const preview = await getMembershipTransitionPreview(planCode);
+      setTransitionPreview(preview);
+      if (preview.actionType !== "subscribe" && preview.actionType !== "upgrade") {
+        showToast("当前有生效会员套餐，仅支持购买更高档位的套餐", "info");
+        return;
+      }
+      setUserConfirmedPlan(true);
+    } catch (error) {
+      console.error("加载会员升级结算预览失败:", error);
+      showToast("无法获取套餐结算信息，请稍后重试", "error");
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedPlanCode || !userConfirmedPlan) return;
@@ -796,7 +810,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const tierTitle = plan.name;
                     const { main, accent } = vipFeatureLines(plan, sevenDayRewardMultiplier);
                     const isRecommended = isRecommendedPlan(plan);
-                    const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
+                    const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 积分充值享 8 折" : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
                         ? Math.round((plan.price / 12) * 100) / 100
@@ -891,7 +905,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             {creditsBreakdown.totalCredits} 预计{creditsBreakdown.periodLabel}合计积分
                           </div>
                           <div className={cn("mt-2 grid gap-1 text-[11px] leading-relaxed", isWhite ? "text-indigo-600/80" : "text-violet-100/80")}>
-                            <div>套餐到账：{creditsBreakdown.immediateCredits} 积分</div>
+                            {isYearlyMonthlyInstallmentPlan(plan) ? (
+                              <div>
+                                套餐积分：全年 {plan.monthlyQuotaCredits + plan.signupBonusCredits}，开通当月发 {creditsBreakdown.immediateCredits}，后续每月发 1/12
+                              </div>
+                            ) : (
+                              <div>套餐到账：{creditsBreakdown.immediateCredits} 积分</div>
+                            )}
                             <div>
                               每日签到：{creditsBreakdown.dailyCheckInCredits} × {creditsBreakdown.periodDays} = {creditsBreakdown.periodDailyCheckInCredits} 积分
                             </div>
@@ -904,8 +924,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         <button
                           type="button"
                           onClick={() => {
-                            setUserConfirmedPlan(true);
-                            setSelectedPlanCode(plan.code);
+                            void selectPlanForPurchase(plan.code);
                           }}
                           className={cn(
                             "mt-4 w-full rounded-xl py-3 text-xs font-semibold text-white shadow-lg transition-transform sm:py-3.5 sm:text-sm",
@@ -1024,9 +1043,16 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                                 isWhite ? "text-slate-900" : "text-zinc-100",
                               )}
                             >
-                              ¥{selectedPlan?.price ?? 0}
+                              ¥{transitionPreview?.payableAmount ?? selectedPlan?.price ?? 0}
                             </span>
                           </div>
+                          {transitionPreview?.actionType === "upgrade" ? (
+                            <div className={cn("mt-2 text-xs leading-relaxed", isWhite ? "text-violet-700" : "text-violet-200")}>
+                              {transitionPreview.remainingValueEligible === false
+                                ? "当前旧年费为一次性到账版本，不参与剩余价值抵扣；支付后新套餐立即覆盖并重新起算周期。"
+                                : `旧套餐剩余价值抵扣 ¥${transitionPreview.remainingValue}；支付后新套餐立即覆盖并重新起算周期。`}
+                            </div>
+                          ) : null}
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
                               {buildPlanCreditsSummary(selectedPlan)}

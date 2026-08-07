@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-07
+
+- Membership/Pricing: membership upgrades now use the price snapshot saved when the current plan was opened, calculate the remaining-time value as a deduction, and immediately replace the subscription with the target plan. Existing issued credits are retained while future unissued credits stop. Historical annual plans that issued their full annual quota upfront are explicitly excluded from the deduction. New annual plans opt into monthly 1/12 quota issuance through `metadata.creditIssuanceMode="yearly_monthly_installments"`, with `metadata.priceVersion` retained for audit; the membership checkout shows the calculated upgrade payment and deduction.
+- Membership/Pricing: active members can now only purchase a strictly higher tier. Same-tier renewals and lower-tier purchases are rejected by the order API before an order is created; the membership panel previews eligibility before requesting a payment QR code.
+
 ## 2026-08-04
 
 - Backend/Seedance：新增 `newapi:` 异步视频服务端补偿器。Seedance 任务创建后的积分仍先进入 `PENDING`，服务端每分钟按持久化 taskId 查询 new-api，成功自动确认、失败自动退款；查询接口也会幂等收敛终态，并优先复用已转存的 Tanva OSS 视频地址，降低页面关闭、项目切换或前端轮询中断造成的“视频已出但画布/积分未收敛”风险。

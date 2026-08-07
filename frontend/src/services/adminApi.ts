@@ -1360,6 +1360,10 @@ export interface MembershipTransitionPreview {
   payableAmount: number;
   immediateCreditDelta: number;
   remainingRatio: number;
+  remainingValue: number;
+  remainingValueEligible?: boolean;
+  currentPlanPaidAmount?: number | null;
+  currentPlanPriceVersion?: string | null;
   targetPlan: {
     id: string;
     code: string;

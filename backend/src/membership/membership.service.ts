@@ -584,7 +584,9 @@ export class MembershipService {
     const current = await this.withMissingMembershipTablesFallback(
       () =>
         this.prisma.userMembershipSubscription.findFirst({
-          where: { userId, status: 'active' },
+          // 到期扫描是小时级异步任务；订单判断必须以实际到期时间为准，不能因
+          // 尚未被 cron 标成 expired 而阻止已到期用户按新购逻辑选套餐。
+          where: { userId, status: 'active', currentPeriodEndAt: { gt: new Date() } },
           orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
         }),
       () => null,
@@ -595,9 +597,10 @@ export class MembershipService {
         actionType: 'subscribe',
         effectiveMode: 'immediate',
         payableAmount: Number(targetPlan.price),
-        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        immediateCreditDelta: this.resolveInitialMembershipGrant(targetPlan),
         cycleSwitch: false,
         remainingRatio: 1,
+        remainingValue: 0,
         targetPlan: {
           id: targetPlan.id,
           code: targetPlan.code,
@@ -625,9 +628,10 @@ export class MembershipService {
         actionType: 'renew',
         effectiveMode: 'immediate',
         payableAmount: Number(targetPlan.price),
-        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        immediateCreditDelta: this.resolveInitialMembershipGrant(targetPlan),
         cycleSwitch: false,
         remainingRatio: 1,
+        remainingValue: 0,
         targetPlan: {
           id: targetPlan.id,
           code: targetPlan.code,
@@ -652,8 +656,10 @@ export class MembershipService {
     );
     const currentCycle = this.normalizeBillingCycle(currentPlan.billingCycle);
     const targetCycle = this.normalizeBillingCycle(targetPlan.billingCycle);
+    const isCoverageUpgrade =
+      comparison < 0 || (comparison === 0 && currentCycle === 'monthly' && targetCycle === 'yearly');
 
-    if (comparison < 0 && currentCycle === 'yearly' && targetCycle === 'monthly') {
+    if (isCoverageUpgrade && currentCycle === 'yearly' && targetCycle === 'monthly') {
       // 年卡换月卡（即便目标档位更高）一律下周期生效：
       // 立即生效会把一年周期塌缩成 30 天，用户已付的年费时间价值直接蒸发。
       return {
@@ -663,6 +669,7 @@ export class MembershipService {
         immediateCreditDelta: 0,
         cycleSwitch: false,
         remainingRatio,
+        remainingValue: 0,
         targetPlan: {
           id: targetPlan.id,
           code: targetPlan.code,
@@ -681,17 +688,35 @@ export class MembershipService {
       };
     }
 
-    if (comparison < 0) {
-      // 升级一律不折算：展示/支付 = 目标套餐全价，积分全量到账（额度+赠送），
-      // 周期自支付时刻重开为完整目标周期（激活侧按 cycleSwitch 标记处理）。
-      // 旧套餐剩余积分不清除，激活时把旧 membership_bound 批次顺延到新周期一起用。
+    if (isCoverageUpgrade) {
+      // 覆盖式升级：旧套餐按实际支付金额和剩余时长折算现金价值，抵扣新套餐。
+      // 支付后从当前时刻重开目标套餐周期；旧套餐未来尚未发放的额度自然停止。
+      const currentOrder = current.lastOrderId
+        ? await this.prisma.paymentOrder.findFirst({
+            where: { id: current.lastOrderId, userId, status: 'paid', orderType: 'membership' },
+            select: { amount: true },
+          })
+        : null;
+      const currentSnapshot = this.asMembershipPlanSnapshot(current.snapshot);
+      // 金额口径以开通时的订单套餐快照为准，不能因后台后来改价回溯重算。
+      const versionedPlanPrice = Number(currentSnapshot?.price ?? currentOrder?.amount ?? currentPlan.price);
+      const paidAmount = Number(currentOrder?.amount ?? versionedPlanPrice);
+      // 旧版年费在开通时已一次性发完全年套餐积分，不存在“未发放权益”，不得抵扣。
+      const remainingValueEligible = !this.isLegacyUpfrontYearlyPlan(currentSnapshot);
+      const remainingValue = !remainingValueEligible
+        ? 0
+        : this.roundMoney(Math.max(0, versionedPlanPrice * remainingRatio));
       return {
         actionType: 'upgrade',
         effectiveMode: 'immediate',
-        payableAmount: this.roundMoney(Number(targetPlan.price)),
-        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        payableAmount: this.roundMoney(Math.max(0, Number(targetPlan.price) - remainingValue)),
+        immediateCreditDelta: this.resolveInitialMembershipGrant(targetPlan),
         cycleSwitch: true,
         remainingRatio,
+        remainingValue,
+        remainingValueEligible,
+        currentPlanPaidAmount: paidAmount,
+        currentPlanPriceVersion: this.getPlanPriceVersion(currentSnapshot),
         targetPlan: {
           id: targetPlan.id,
           code: targetPlan.code,
@@ -716,6 +741,7 @@ export class MembershipService {
       immediateCreditDelta: 0,
       cycleSwitch: false,
       remainingRatio,
+      remainingValue: 0,
       targetPlan: {
         id: targetPlan.id,
         code: targetPlan.code,
@@ -1387,17 +1413,135 @@ export class MembershipService {
   }
 
   async refreshYearlySubscriptionQuotaLots(now = new Date()) {
-    // 产品策略（2026-07-17 确定）：年卡额度在购买时一次性全额到账（monthlyQuotaCredits
-    // 即为全年总量），周期=年，不再按月滴灌刷新。此前配置按全年总量、代码按月度刷新，
-    // 叠加导致每 30 天重复多发一整年额度（如旗舰尊享年卡每期 +720000）。
-    // 保留函数与返回形状（cron 与管理端手动触发仍指向这里），直接空转。
-    void now;
-    return {
-      refreshedSubscriptions: 0,
-      grantedCredits: 0,
-      createdLots: 0,
-      disabled: true as const,
-    };
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const refreshDays = policy.membershipRefreshCycleDays;
+    const subscriptions = await this.prisma.userMembershipSubscription.findMany({
+      where: { status: 'active', periodType: 'yearly', currentPeriodEndAt: { gt: now } },
+      select: {
+        id: true,
+        userId: true,
+        membershipPlanId: true,
+        currentPeriodStartAt: true,
+        currentPeriodEndAt: true,
+        snapshot: true,
+      },
+    });
+
+    let refreshedSubscriptions = 0;
+    let grantedCredits = 0;
+    let createdLots = 0;
+
+    for (const subscription of subscriptions) {
+      const snapshot = this.asMembershipPlanSnapshot(subscription.snapshot);
+      if (!snapshot || !this.isYearlyMonthlyInstallmentPlan(snapshot)) continue;
+
+      const elapsedDays = Math.max(
+        0,
+        Math.floor((now.getTime() - subscription.currentPeriodStartAt.getTime()) / (24 * 60 * 60 * 1000)),
+      );
+      const dueInstallments = Math.min(12, Math.floor(elapsedDays / refreshDays) + 1);
+      if (dueInstallments <= 1) continue;
+
+      const existingTransactions = await this.prisma.creditTransaction.findMany({
+        where: { subscriptionId: subscription.id, businessType: 'membership_yearly_installment' },
+        select: { metadata: true },
+      });
+      const issuedIndexes = new Set<number>();
+      for (const transaction of existingTransactions) {
+        const metadata = this.asJsonObject(transaction.metadata);
+        if (metadata?.annualCycleStartAt !== subscription.currentPeriodStartAt.toISOString()) continue;
+        const index = this.toInt(metadata.annualInstallmentIndex, 0);
+        if (index >= 1 && index <= 12) issuedIndexes.add(index);
+      }
+
+      // 旧版本曾在购买年费时一次性发全年额度。没有按期标签的历史订阅不补发，
+      // 避免发布切换后把已完整发放的历史年费再次发放。
+      if (issuedIndexes.size === 0) {
+        const legacyGrant = await this.prisma.creditTransaction.count({
+          where: {
+            subscriptionId: subscription.id,
+            businessType: { in: ['membership_grant', 'membership_cycle_switch', 'membership_upgrade_prorated'] },
+          },
+        });
+        if (legacyGrant > 0) continue;
+      }
+
+      for (let index = 2; index <= dueInstallments; index += 1) {
+        if (issuedIndexes.has(index)) continue;
+        const amount = this.resolveYearlyInstallmentGrant(snapshot, index);
+        if (amount <= 0) continue;
+
+        await this.prisma.$transaction(async (tx) => {
+          const account = await findCreditAccountForUpdate(tx, { userId: subscription.userId });
+          if (!account) return;
+          // PostgreSQL JSON path cannot constrain both metadata keys portably through Prisma;
+          // the annual subscription has at most 12 transactions, so inspect them under the account lock.
+          const issuedInTransaction = await tx.creditTransaction.findMany({
+            where: { subscriptionId: subscription.id, businessType: 'membership_yearly_installment' },
+            select: { metadata: true },
+          });
+          const duplicate = issuedInTransaction.some((transaction) => {
+            const metadata = this.asJsonObject(transaction.metadata);
+            return (
+              metadata?.annualCycleStartAt === subscription.currentPeriodStartAt.toISOString() &&
+              this.toInt(metadata.annualInstallmentIndex, 0) === index
+            );
+          });
+          if (duplicate) return;
+
+          const lot = await tx.creditLot.create({
+            data: buildMembershipCreditLotData({
+              accountId: account.id,
+              amount,
+              grantedAt: now,
+              activeAt: now,
+              expiresAt: subscription.currentPeriodEndAt,
+              subscriptionId: subscription.id,
+              metadata: {
+                membershipPlanId: subscription.membershipPlanId,
+                membershipPlanCode: snapshot.code,
+                billingCycle: 'yearly',
+                grantedBy: 'membership_yearly_installment',
+                annualCycleStartAt: subscription.currentPeriodStartAt.toISOString(),
+                annualInstallmentIndex: index,
+                annualInstallmentCount: 12,
+              },
+            }),
+          });
+          const balanceAfter = account.balance + amount;
+          await tx.creditAccount.update({
+            where: { id: account.id },
+            data: { balance: balanceAfter, totalEarned: account.totalEarned + amount },
+          });
+          await tx.creditTransaction.create({
+            data: {
+              accountId: account.id,
+              type: TransactionType.EARN,
+              amount,
+              balanceBefore: account.balance,
+              balanceAfter,
+              description: `${snapshot.name} 年费第 ${index} 期积分发放`,
+              creditLotId: lot.id,
+              businessType: 'membership_yearly_installment',
+              subscriptionId: subscription.id,
+              membershipPlanId: subscription.membershipPlanId,
+              metadata: {
+                membershipPlanCode: snapshot.code,
+                billingCycle: 'yearly',
+                annualCycleStartAt: subscription.currentPeriodStartAt.toISOString(),
+                annualInstallmentIndex: index,
+                annualInstallmentCount: 12,
+              },
+            },
+          });
+          grantedCredits += amount;
+          createdLots += 1;
+        });
+      }
+      refreshedSubscriptions += 1;
+    }
+
+    return { refreshedSubscriptions, grantedCredits, createdLots };
   }
 
   async auditRecentPaidAnnualUpgradeInvariants(now = new Date(), lookbackHours = 48) {
@@ -1724,7 +1868,7 @@ export class MembershipService {
     const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
-    const grantAmount = snapshot.monthlyQuotaCredits + snapshot.signupBonusCredits;
+    const grantAmount = this.resolveInitialMembershipGrant(snapshot);
     const paidAt = params.paidAt;
     const activeSubscription = await params.tx.userMembershipSubscription.findFirst({
       where: {
@@ -1854,6 +1998,13 @@ export class MembershipService {
           membershipPlanCode: snapshot.code,
           billingCycle: snapshot.billingCycle,
           grantedCredits: grantAmount,
+          ...(this.isYearlyMonthlyInstallmentPlan(snapshot)
+            ? {
+                annualCycleStartAt: currentPeriodStartAt.toISOString(),
+                annualInstallmentIndex: 1,
+                annualInstallmentCount: 12,
+              }
+            : {}),
         },
       },
     });
@@ -1921,10 +2072,9 @@ export class MembershipService {
     }
 
     const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
-    const immediateCreditDelta = Math.max(
-      0,
-      this.toInt(orderMetadata?.immediateCreditDelta, 0),
-    );
+    // 订单元数据只用于审计展示；实际入账按订单快照重算，避免客户端或历史元数据
+    // 把年费全年额度错误地一次性带入升级入账。
+    const immediateCreditDelta = this.resolveInitialMembershipGrant(snapshot);
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const resolvedPeriod = resolvePaidUpgradePeriod({
       orderCycleSwitch: orderMetadata?.membershipCycleSwitch,
@@ -2011,6 +2161,13 @@ export class MembershipService {
             membershipPlanName: snapshot.name,
             billingCycle: snapshot.billingCycle,
             grantedBy: cycleSwitch ? 'membership_cycle_switch' : 'membership_upgrade_prorated',
+            ...(this.isYearlyMonthlyInstallmentPlan(snapshot)
+              ? {
+                  annualCycleStartAt: periodStartAt.toISOString(),
+                  annualInstallmentIndex: 1,
+                  annualInstallmentCount: 12,
+                }
+              : {}),
           },
         }),
       });
@@ -2044,6 +2201,13 @@ export class MembershipService {
             membershipPlanCode: snapshot.code,
             billingCycle: snapshot.billingCycle,
             grantedCredits: immediateCreditDelta,
+            ...(this.isYearlyMonthlyInstallmentPlan(snapshot)
+              ? {
+                  annualCycleStartAt: periodStartAt.toISOString(),
+                  annualInstallmentIndex: 1,
+                  annualInstallmentCount: 12,
+                }
+              : {}),
           },
         },
       });
@@ -2449,6 +2613,72 @@ export class MembershipService {
             ? (plan.metadata as Prisma.JsonObject)
             : null,
     };
+  }
+
+  private asMembershipPlanSnapshot(value: Prisma.JsonValue | null | undefined): MembershipPlanSnapshot | null {
+    const snapshot = this.asJsonObject(value);
+    if (!snapshot || typeof snapshot.code !== 'string' || typeof snapshot.name !== 'string') {
+      return null;
+    }
+    return {
+      id: typeof snapshot.id === 'string' ? snapshot.id : '',
+      code: snapshot.code,
+      name: snapshot.name,
+      billingCycle: this.normalizeBillingCycle(
+        typeof snapshot.billingCycle === 'string' ? snapshot.billingCycle : 'monthly',
+      ),
+      price: typeof snapshot.price === 'string' || typeof snapshot.price === 'number' ? String(snapshot.price) : '0',
+      monthlyQuotaCredits: this.toInt(snapshot.monthlyQuotaCredits, 0),
+      signupBonusCredits: this.toInt(snapshot.signupBonusCredits, 0),
+      dailyGiftCredits: this.toInt(snapshot.dailyGiftCredits, 0),
+      metadata: this.asJsonObject(snapshot.metadata as Prisma.JsonValue | null) as Prisma.JsonObject | null,
+    };
+  }
+
+  /**
+   * 年费套餐配置的积分总额按 12 期发放；月费仍在开通/续费时全额发当期额度。
+   * 前 11 期向下取整，最后一期补齐余数，确保全年合计严格等于套餐配置。
+   */
+  private resolveInitialMembershipGrant(plan: {
+    billingCycle: string;
+    monthlyQuotaCredits: number;
+    signupBonusCredits: number;
+    metadata?: Prisma.JsonValue | null;
+  }): number {
+    if (!this.isYearlyMonthlyInstallmentPlan(plan)) {
+      return Math.max(0, plan.monthlyQuotaCredits + plan.signupBonusCredits);
+    }
+    return this.resolveYearlyInstallmentGrant(plan, 1);
+  }
+
+  private isYearlyMonthlyInstallmentPlan(plan: {
+    billingCycle: string;
+    metadata?: Prisma.JsonValue | null;
+  }): boolean {
+    if (this.normalizeBillingCycle(plan.billingCycle) !== 'yearly') return false;
+    const metadata = this.asJsonObject(plan.metadata ?? null);
+    return metadata?.creditIssuanceMode === 'yearly_monthly_installments';
+  }
+
+  private isLegacyUpfrontYearlyPlan(snapshot: MembershipPlanSnapshot | null): boolean {
+    return Boolean(snapshot && snapshot.billingCycle === 'yearly' && !this.isYearlyMonthlyInstallmentPlan(snapshot));
+  }
+
+  private getPlanPriceVersion(snapshot: MembershipPlanSnapshot | null): string | null {
+    const metadata = snapshot ? this.asJsonObject(snapshot.metadata ?? null) : null;
+    return typeof metadata?.priceVersion === 'string' && metadata.priceVersion.trim()
+      ? metadata.priceVersion.trim()
+      : null;
+  }
+
+  private resolveYearlyInstallmentGrant(
+    plan: Pick<MembershipPlanSnapshot, 'monthlyQuotaCredits' | 'signupBonusCredits'>,
+    installmentIndex: number,
+  ): number {
+    const total = Math.max(0, plan.monthlyQuotaCredits + plan.signupBonusCredits);
+    const base = Math.floor(total / 12);
+    if (installmentIndex < 1 || installmentIndex > 12) return 0;
+    return installmentIndex === 12 ? total - base * 11 : base;
   }
 
   private normalizePlanCode(code: string | null | undefined): string {

@@ -343,8 +343,8 @@ export class PaymentService implements OnModuleInit {
       where: { code: input.planCode, isActive: true },
     });
     if (!plan) throw new NotFoundException('会员套餐不存在');
-    if (preview.actionType === 'downgrade') {
-      throw new BadRequestException('会员套餐不支持降级');
+    if (preview.actionType !== 'subscribe' && preview.actionType !== 'upgrade') {
+      throw new BadRequestException('当前有生效会员套餐，仅支持购买更高档位的套餐');
     }
 
     return this.createOrder(userId, {
@@ -360,6 +360,10 @@ export class PaymentService implements OnModuleInit {
         // 跨周期升级（月卡→年卡）：激活时重开完整目标周期
         membershipCycleSwitch: preview.cycleSwitch === true,
         remainingRatio: preview.remainingRatio,
+        remainingValue: preview.remainingValue,
+        remainingValueEligible: preview.remainingValueEligible ?? false,
+        currentPlanPaidAmount: preview.currentPlanPaidAmount ?? null,
+        currentPlanPriceVersion: preview.currentPlanPriceVersion ?? null,
         currentPlanCode: preview.currentPlan?.code ?? null,
         targetPlanCode: preview.targetPlan.code,
       },
