@@ -1,5 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+
+const isSeedance25Model = (value: unknown): boolean => {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return [
+    'seedance-2.5',
+    'seedance-2-5',
+    'doubao-seedance-2-5',
+    'doubao-seedance-2-5-260628',
+    'doubao-seedance-2.5',
+    '2.5',
+  ].includes(normalized);
+};
 
 export type ReferenceImageItem =
   | string
@@ -32,6 +44,9 @@ export class VideoProviderRequestDto {
   @ApiProperty({ description: 'Prompt', required: false })
   @IsOptional()
   @IsString()
+  // Seedance 2.5 is passed through without Tanva's legacy 5000-character cap.
+  // Other providers retain their existing defensive request constraint.
+  @ValidateIf((dto: VideoProviderRequestDto) => !isSeedance25Model(dto.seedanceModel))
   @MaxLength(5000)
   prompt?: string;
 

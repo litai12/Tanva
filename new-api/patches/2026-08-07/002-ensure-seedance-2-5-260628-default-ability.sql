@@ -16,8 +16,17 @@ SELECT
   icon, tags, vendor_id, endpoints, 'video', status, sync_official, capabilities, params_def,
   EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint, name_rule
 FROM models AS source
-WHERE source.model_name = 'doubao-seedance-2-0-260128'
-  AND source.deleted_at IS NULL
+WHERE source.id = (
+  SELECT fallback.id
+  FROM models AS fallback
+  WHERE fallback.model_name IN ('doubao-seedance-2-0-260128', 'doubao-seedance-2.0')
+    AND fallback.deleted_at IS NULL
+  ORDER BY CASE fallback.model_name
+    WHEN 'doubao-seedance-2-0-260128' THEN 0
+    ELSE 1
+  END, fallback.id
+  LIMIT 1
+)
   AND NOT EXISTS (
     SELECT 1 FROM models AS existing
     WHERE existing.model_name = 'doubao-seedance-2-5-260628' AND existing.deleted_at IS NULL

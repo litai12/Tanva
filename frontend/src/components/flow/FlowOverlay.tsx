@@ -21215,10 +21215,15 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           }
         }
 
-        // VideoProviderRequestDto and Seedance upstream both cap prompt input at
-        // 5000 characters. Check the final prompt after the @image mapping note
-        // is appended; checking only the raw user text can miss that extra text.
-        if (isSeedanceNode && isSeedance20Request && (finalPrompt || "").length > 5000) {
+        // Seedance 2.0 retains its legacy 5000-character guard. Seedance 2.5
+        // passes the complete user prompt (including the generated @image mapping)
+        // through to Ark without a Tanva-side length cap.
+        if (
+          isSeedanceNode &&
+          isSeedance20Request &&
+          normalizeSeedanceModelValue(rawNodeData.seedanceModel) !== "seedance-2.5" &&
+          (finalPrompt || "").length > 5000
+        ) {
           failCurrentVideoNode("Seedance 2.0 提示词最多支持 5000 个字符，请缩短后重试");
           return;
         }

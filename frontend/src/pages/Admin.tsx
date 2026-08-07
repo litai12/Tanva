@@ -11279,12 +11279,9 @@ function VipManagementTab() {
           <div>
             <h3 className='text-lg font-semibold'>会员套餐列表</h3>
             <p className='mt-1 text-sm text-gray-500'>
-              管理免费用户与前台可售 VIP 套餐，支持权益、排序、启停和额度配置。
+              与用户购买页共用同一份当前可售套餐目录。单个用户仅可切换至这些套餐，或调整会员时长。
             </p>
           </div>
-          <Button variant='outline' onClick={openCreatePlanModal}>
-            新建套餐
-          </Button>
         </div>
 
         <div className='overflow-x-auto'>
@@ -11376,17 +11373,8 @@ function VipManagementTab() {
                     <div className='mb-1 text-xs text-gray-500'>
                       {`无水印权益：${getPlanNoWatermarkAccess(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
                     </div>
-                    <div className='flex flex-wrap gap-2'>
-                      <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
-                        编辑
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={() => handleTogglePlanActive(plan)}
-                      >
-                        {plan.isActive ? "停用" : "启用"}
-                      </Button>
+                    <div className='text-xs text-gray-500'>
+                      套餐目录与购买页同步；请在用户会员管理中切换套餐或调整时长。
                     </div>
                   </td>
                 </tr>

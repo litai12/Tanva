@@ -11,6 +11,7 @@ import {
   Request,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
@@ -398,7 +399,9 @@ export class AdminController {
   @ApiOperation({ summary: '获取会员套餐管理列表' })
   async getAdminMembershipPlans(@Request() req: AuthenticatedRequest) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.listAllPlansForAdmin();
+    // 管理端与购买页必须读取同一份当前可售目录；历史下架套餐只用于
+    // 已有订阅/订单审计，不能再作为另一套后台可编辑套餐展示出来。
+    return this.membershipService.listActivePlans();
   }
 
   @Post('membership-plans')
@@ -420,7 +423,10 @@ export class AdminController {
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.createMembershipPlan(dto);
+    void dto;
+    throw new BadRequestException(
+      '会员套餐目录由系统版本维护，后台不可新建套餐；请在用户会员管理中切换既有套餐或调整时长',
+    );
   }
 
   @Patch('membership-plans/:id')
@@ -443,7 +449,11 @@ export class AdminController {
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.updateMembershipPlan(id, dto);
+    void id;
+    void dto;
+    throw new BadRequestException(
+      '会员套餐目录由系统版本维护，后台不可编辑或启停套餐；请在用户会员管理中调整时长',
+    );
   }
 
   @Get('users/:userId/membership')

@@ -3,9 +3,16 @@
 ## 作用
 - 提供图像生成/编辑/融合/分析、文本对话、背景移除�?D�?D、图片扩展、视频生成、Paper.js/向量化等能力�?
 
+## 2026-08 Membership catalog
+- 数据库迁移 `202608070001_replace_legacy_membership_plans_with_monthly_installments` 会下架并保留旧套餐行（不删除，避免影响既有订阅、订单和积分 lot 的历史审计），将重复旧 code 改为 `legacy_<id>`，并恢复 `MembershipPlan.code` 的唯一索引。
+- 仅保留 6 个 `priceVersion="2026-08-v2"` 可售套餐：三档月卡和三档年卡。年卡元数据强制 `creditIssuanceMode="yearly_monthly_installments"`，年费额度由 `MembershipService` 在 12 个发放期均分到账；不要将年卡改回一次性发放。
+- `MembershipService.listActivePlans()` 还会在运行时以 `metadata.priceVersion="2026-08-v2"` 过滤可售目录。支付页的月付/年付开关只按 `billingCycle` 分组此目录，因此月付固定显示三档月卡，年付固定显示三档新版按月到账年卡；旧套餐仅可作为历史订阅/订单的关联记录存在，绝不应回到购买列表。
+- 管理员的立即套餐变更也必须复用 `resolveInitialMembershipGrant(snapshot)`：新版年卡只发第 1 期，并在 `membership_admin_change` 交易和 credit lot 元数据写入 `annualCycleStartAt/annualInstallmentIndex=1/annualInstallmentCount=12`。年度刷新同时识别这种管理员首期记录；对没有期号但已有 `membership_admin_change` 的历史年卡，视为旧路径已一次性发放，跳过后续补发，防止重复赠送。
+- `/api/admin/membership-plans` 与用户支付页共用 `MembershipService.listActivePlans()`，因此两端只看到当前 `2026-08-v2` 的 6 个可售套餐。后台的套餐创建、编辑和启停接口明确拒绝，避免再次产生独立套餐目录；管理员可对单个用户使用既有的套餐变更和有效期调整接口。
+
 ## 2026-07-31 Seedance 2.5
 - `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。
-- 2.5 继续复用 Seedance 2.x 的 4–15 秒节点规格、模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。
+- 2.5 输出时长为 4–30 秒，继续复用 Seedance 2.x 的模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。Tanva 不再对 2.5 的提示词施加 5000 字符上限，原始文本与追加的 `@` 图片映射会完整透传至 Ark；上游自身的请求限制仍由其响应如实返回。
 - 2.5 只允许 `480P`、`720P`。Flow 会在型号切换时回落非法值，`AiController` 在积分预扣和上游提交之前再次校验，历史节点携带 `1080P/4K` 时返回 HTTP 400。
 - 2.5 仅走 `seedance_api/default` 普通通道；前端隐藏 Tencent VOD 尊享选项，后端会把历史节点残留的 VIP vendor/tier 强制归一为官方普通通道，避免静默执行成 2.0。Ark adapter model list 与 PostgreSQL ability 由 `new-api/patches/2026-07-31/001-add-doubao-seedance-2-5.sql` 注册；补丁只克隆已有 2.0 官渠，不创建或写入凭据。
 

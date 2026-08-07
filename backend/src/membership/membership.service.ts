@@ -72,7 +72,16 @@ export class MembershipService {
     return this.withMissingMembershipTablesFallback(
       () =>
         this.prisma.membershipPlan.findMany({
-          where: { isActive: true },
+          // 面向用户和支付入口的目录只暴露当前价格版本。数据库迁移会下架旧行，
+          // 这里仍保留版本过滤，避免某个尚未完成数据清理的环境把旧年费/重复
+          // 套餐重新展示到月付、年付切换中。
+          where: {
+            isActive: true,
+            metadata: {
+              path: ['priceVersion'],
+              equals: '2026-08-v2',
+            },
+          },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         }),
       () => [],
@@ -1443,7 +1452,12 @@ export class MembershipService {
       if (dueInstallments <= 1) continue;
 
       const existingTransactions = await this.prisma.creditTransaction.findMany({
-        where: { subscriptionId: subscription.id, businessType: 'membership_yearly_installment' },
+        // 管理员即时变更套餐的首期仍保留 membership_admin_change 审计类型；
+        // 只要带有 annualInstallmentIndex，也应与常规首期一起参与去重判断。
+        where: {
+          subscriptionId: subscription.id,
+          businessType: { in: ['membership_yearly_installment', 'membership_admin_change'] },
+        },
         select: { metadata: true },
       });
       const issuedIndexes = new Set<number>();
@@ -1460,7 +1474,14 @@ export class MembershipService {
         const legacyGrant = await this.prisma.creditTransaction.count({
           where: {
             subscriptionId: subscription.id,
-            businessType: { in: ['membership_grant', 'membership_cycle_switch', 'membership_upgrade_prorated'] },
+            businessType: {
+              in: [
+                'membership_grant',
+                'membership_cycle_switch',
+                'membership_upgrade_prorated',
+                'membership_admin_change',
+              ],
+            },
           },
         });
         if (legacyGrant > 0) continue;
@@ -1477,7 +1498,10 @@ export class MembershipService {
           // PostgreSQL JSON path cannot constrain both metadata keys portably through Prisma;
           // the annual subscription has at most 12 transactions, so inspect them under the account lock.
           const issuedInTransaction = await tx.creditTransaction.findMany({
-            where: { subscriptionId: subscription.id, businessType: 'membership_yearly_installment' },
+            where: {
+              subscriptionId: subscription.id,
+              businessType: { in: ['membership_yearly_installment', 'membership_admin_change'] },
+            },
             select: { metadata: true },
           });
           const duplicate = issuedInTransaction.some((transaction) => {
@@ -2473,7 +2497,17 @@ export class MembershipService {
       });
     }
 
-    const grantAmount = params.snapshot.monthlyQuotaCredits + params.snapshot.signupBonusCredits;
+    // 后台立即变更与用户支付开通必须使用完全一致的首期计算：新版年卡仅
+    // 发放第 1/12 期；旧年费快照没有分期标记，仍保留历史的一次性到账语义。
+    const grantAmount = this.resolveInitialMembershipGrant(params.snapshot);
+    const isYearlyInstallment = this.isYearlyMonthlyInstallmentPlan(params.snapshot);
+    const installmentMetadata = isYearlyInstallment
+      ? {
+          annualCycleStartAt: params.startAt.toISOString(),
+          annualInstallmentIndex: 1,
+          annualInstallmentCount: 12,
+        }
+      : {};
     const lot = await tx.creditLot.create({
       data: buildMembershipCreditLotData({
         accountId: account.id,
@@ -2489,6 +2523,7 @@ export class MembershipService {
           billingCycle: params.snapshot.billingCycle,
           grantedBy: 'membership_subscription_change',
           reason: params.reason,
+          ...installmentMetadata,
         },
       }),
     });
@@ -2509,7 +2544,9 @@ export class MembershipService {
         amount: grantAmount,
         balanceBefore: account.balance,
         balanceAfter,
-        description: `${params.snapshot.name} 生效发放积分`,
+        description: isYearlyInstallment
+          ? `${params.snapshot.name} 年费第 1 期积分发放（后台变更）`
+          : `${params.snapshot.name} 生效发放积分`,
         creditLotId: lot.id,
         businessType: 'membership_admin_change',
         subscriptionId: subscription.id,
@@ -2519,6 +2556,7 @@ export class MembershipService {
           billingCycle: params.snapshot.billingCycle,
           grantedCredits: grantAmount,
           reason: params.reason,
+          ...installmentMetadata,
         },
       },
     });

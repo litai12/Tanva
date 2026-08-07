@@ -1462,7 +1462,11 @@ export class VideoProviderService {
 
     const model = this.resolveNewApiVideoModel(options);
     const isOmniFlashExt = model === "omni-flash-ext";
-    if (!isOmniFlashExt && /doubao-seedance-2/i.test(model)) {
+    if (
+      !isOmniFlashExt &&
+      /doubao-seedance-2/i.test(model) &&
+      this.resolveManagedSeedanceModel(options).modelVersion !== "2.5"
+    ) {
       const promptLength = typeof options.prompt === "string" ? options.prompt.length : 0;
       if (promptLength > 5000) {
         throw new BadRequestException("Seedance 2.0 提示词最多支持 5000 个字符，请缩短后重试");
