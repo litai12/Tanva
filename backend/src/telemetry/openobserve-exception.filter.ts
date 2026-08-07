@@ -16,6 +16,10 @@ type AuthLikeUser = {
   sub?: string;
 };
 
+type StatusCodeLikeError = {
+  statusCode?: unknown;
+};
+
 type TraceableRequest = FastifyRequest & {
   user?: AuthLikeUser;
   traceId?: string;
@@ -54,9 +58,15 @@ export class OpenObserveExceptionFilter implements ExceptionFilter {
     const traceId = request.traceId || getActiveSpanContext()?.traceId || null;
 
     const isHttpException = exception instanceof HttpException;
+    // Fastify 在 Controller/Guard 之前发现请求格式错误时抛出的是自己的
+    // Error（例如空 JSON 或非法 JSON），不是 Nest HttpException。保留它提供
+    // 的 4xx 状态，不能由监控过滤器错误转换成 500。
+    const fastifyStatusCode = Number((exception as StatusCodeLikeError | null)?.statusCode);
     const statusCode = isHttpException
       ? exception.getStatus()
-      : HttpStatus.INTERNAL_SERVER_ERROR;
+      : Number.isInteger(fastifyStatusCode) && fastifyStatusCode >= 400 && fastifyStatusCode < 600
+        ? fastifyStatusCode
+        : HttpStatus.INTERNAL_SERVER_ERROR;
     const responsePayload = isHttpException
       ? normalizeResponsePayload(exception.getResponse())
       : {

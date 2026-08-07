@@ -9,6 +9,7 @@
 - `MembershipService.listActivePlans()` 还会在运行时以 `metadata.priceVersion="2026-08-v2"` 过滤可售目录。支付页的月付/年付开关只按 `billingCycle` 分组此目录，因此月付固定显示三档月卡，年付固定显示三档新版按月到账年卡；旧套餐仅可作为历史订阅/订单的关联记录存在，绝不应回到购买列表。
 - 管理员的立即套餐变更也必须复用 `resolveInitialMembershipGrant(snapshot)`：新版年卡只发第 1 期，并在 `membership_admin_change` 交易和 credit lot 元数据写入 `annualCycleStartAt/annualInstallmentIndex=1/annualInstallmentCount=12`。年度刷新同时识别这种管理员首期记录；对没有期号但已有 `membership_admin_change` 的历史年卡，视为旧路径已一次性发放，跳过后续补发，防止重复赠送。
 - `/api/admin/membership-plans` 与用户支付页共用 `MembershipService.listActivePlans()`，因此两端只看到当前 `2026-08-v2` 的 6 个可售套餐。后台的套餐创建、编辑和启停接口明确拒绝，避免再次产生独立套餐目录；管理员可对单个用户使用既有的套餐变更和有效期调整接口。
+- 年卡覆盖式升级的剩余价值抵扣必须同时满足“分期快照”和“当前周期存在 `annualInstallmentIndex` 积分流水”。抵扣比例是“当前有效期内计划发放期数中尚未实际发放的比例”，不是剩余天数比例；月卡、旧年卡和没有首期期号的异常一次性年卡一律为零。管理员手工缩短有效期时，结束日决定最多可计划多少期，结束日外的额度不会参与抵扣。
 
 ## 2026-07-31 Seedance 2.5
 - `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。

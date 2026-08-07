@@ -1449,6 +1449,13 @@ export interface AdminMembershipStateResponse {
   nextChange: MembershipNextChange | null;
   balances: MembershipMeResponse["balances"];
   benefits: MembershipMeResponse["benefits"];
+  yearlyInstallments: Array<{
+    index: number;
+    amount: number;
+    dueAt: string;
+    status: "issued" | "pending";
+    issuedAt?: string;
+  }>;
 }
 
 export async function getAdminUserMembershipState(userId: string): Promise<AdminMembershipStateResponse> {
@@ -1472,6 +1479,18 @@ export async function adminAdjustUserMembershipPeriod(userId: string, days: numb
     body: JSON.stringify({ days, reason }),
   });
   return response.json();
+}
+
+export async function adminIssueNextYearlyInstallment(userId: string) {
+  const response = await request(`/api/admin/users/${userId}/membership/issue-next-yearly-installment`, {
+    method: "POST",
+  });
+  return response.json() as Promise<{
+    installmentIndex: number;
+    installmentCount: number;
+    grantedCredits: number;
+    balanceAfter: number;
+  }>;
 }
 
 export async function adminChangeUserMembershipPlan(data: {

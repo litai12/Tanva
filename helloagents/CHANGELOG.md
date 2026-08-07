@@ -1,9 +1,16 @@
 # Changelog
 
+- Admin/API statistics: added a dedicated `MINIMAX H3 VIDEO` model-node filter for `hailuo` / `hailuo-h3` usage records, and updated the Seedance filter label to explicitly include Seedance 2.5.
 - Membership: 下架所有旧套餐（包括历史重复项与一次性到账年卡），可售目录收敛为 6 个 `2026-08-v2` 套餐。三档年卡均带 `creditIssuanceMode="yearly_monthly_installments"`，服务端按 12 期发放，已有订阅/订单仍保留原套餐行与快照以保证历史结算不变。
 - Membership: 支付页套餐接口额外按 `metadata.priceVersion="2026-08-v2"` 过滤可售记录；月付/年付切换分别只显示对应的三档新版套餐，即使个别环境尚未清除旧 active 数据也不会误展示。
 - Membership: 修复管理员“立即变更用户套餐”绕过年卡首期计算、误发全年积分的问题。新版分期年卡现在只发第 1 期并记录期号；已被旧后台路径一次性发放的年卡会被月度刷新任务识别为历史一次性发放，不再继续补发。
 - Membership: 管理端套餐列表改为复用用户购买页的当前可售目录；后台不再允许新建、编辑或启停独立套餐，管理员仅可为具体用户切换同一套套餐或调整会员时长。
+- Membership: 年卡升级抵扣改为校验当前订阅周期的实际积分流水。只有存在带 `annualInstallmentIndex` 的分期首期记录才可能按未发放期数折价；修复前被后台路径一次性发完全年额度的“新版快照”订阅不再错误获得年费剩余价值抵扣。
+- Membership: 覆盖式升级不再按“剩余天数”给套餐现金抵扣，而是只按当前有效期内尚未实际发放的年卡期数折价。月卡、旧年卡、一次性发放异常年卡以及被手工缩短后已无未来发放期的年卡均不产生抵扣。
+- Membership: 管理员用户会员抽屉将“调整天数”明确为“增减有效期（天）”，并说明正数/负数均在当前到期日基础上计算，避免将 `30` 误认为“设置总有效期为 30 天”。
+- Membership: 增加受管理员权限保护的“手动发放年费下一期”入口，按当前订阅周期和期号幂等选择未发放的下一期并记录 `issuedEarlyByAdmin`，用于人工补发与验收，不会被定时任务重复发放。
+- Membership: 用户会员操作抽屉新增年费分期清单与“手动发放下一期”按钮；立即到期会将当前订阅剩余待发期索引写入快照作废审计，并停止后续发放。
+- Membership/Admin API: 修复“手动发放下一期”这一无 body POST 在携带 `Content-Type: application/json` 时被 Fastify 的空 JSON 解析拦截、再被全局异常过滤器误报为 500 的问题。前端不再发送无意义的 JSON header；后端将空 JSON 规范为 `{}`，并保留 Fastify 原始 4xx 状态。
 
 - 异步视频任务的全局历史写入收口到后端：Seedance/new-api 后台补偿确认成功时会按 `taskId` 幂等写入用户全局历史；Sora 2 后端异步任务完成时同样写入。即使浏览器关闭、刷新或前端进程丢失，完成的视频仍可从“全局历史”找到。
 

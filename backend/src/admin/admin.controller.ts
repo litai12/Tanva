@@ -497,6 +497,16 @@ export class AdminController {
     );
   }
 
+  @Post('users/:userId/membership/issue-next-yearly-installment')
+  @ApiOperation({ summary: '手动发放用户年费套餐的下一期积分（管理员）' })
+  async issueNextUserYearlyInstallment(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req, 'users:membership:manage');
+    return this.membershipService.adminIssueNextYearlyInstallment(userId, req.user.id);
+  }
+
   @Post('users/:userId/membership/change-plan')
   @ApiOperation({ summary: '变更用户会员套餐（管理员）' })
   async changeUserMembershipPlan(

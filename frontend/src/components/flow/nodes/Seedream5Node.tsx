@@ -569,7 +569,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         imageCollection={previewCollection}
         currentImageId={previewCollection[previewIndex]?.id}
         onImageChange={(imageId: string) => {
-          const i = previewCollection.findIndex((it) => it.id === imageId);
+          const i = previewCollection.findIndex((it) => it?.id === imageId);
           if (i >= 0) setPreviewIndex(i);
         }}
       />
@@ -578,4 +578,3 @@ function Seedream5Node({ id, data, selected }: Props) {
 }
 
 export default React.memo(Seedream5Node);
-

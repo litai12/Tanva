@@ -229,6 +229,41 @@ class ModelLoadErrorBoundary extends React.Component<
   }
 }
 
+type WebGLCanvasErrorBoundaryProps = {
+  children: React.ReactNode;
+  resetKey: string;
+  onError: (error: Error) => void;
+};
+
+type WebGLCanvasErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class WebGLCanvasErrorBoundary extends React.Component<
+  WebGLCanvasErrorBoundaryProps,
+  WebGLCanvasErrorBoundaryState
+> {
+  state: WebGLCanvasErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): WebGLCanvasErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  componentDidUpdate(prevProps: WebGLCanvasErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
 // 3D模型组件
 function Model3D({
   modelPath,
@@ -884,6 +919,16 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
         </div>
       ) : (
         <>
+          <WebGLCanvasErrorBoundary
+            resetKey={`${modelPath}:${maxDpr}`}
+            onError={(webglError) => {
+              logger.warn("3D WebGL context creation failed", {
+                error: webglError?.message || String(webglError),
+              });
+              setIsLoading(false);
+              setError("当前设备无法创建 3D 预览，已保留画布其他内容。");
+            }}
+          >
           <Canvas
             className="tanva-canvas-model3d-webgl"
             onCreated={({ gl, scene, camera, invalidate }) => {
@@ -978,6 +1023,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               />
             </Suspense>
           </Canvas>
+          </WebGLCanvasErrorBoundary>
 
           {isLoading && (
             <div

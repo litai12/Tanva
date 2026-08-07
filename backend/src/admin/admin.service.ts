@@ -173,7 +173,8 @@ const API_USAGE_MODEL_NODES: ApiUsageModelNode[] = [
   { key: 'midjourney', name: 'MIDJOURNEY V7 / V8 / NIJI 7 IMAGE GENERATION' },
   { key: 'chat', name: 'GEMINI AI TEXT CHAT' },
   { key: 'prompt', name: 'GEMINI PROMPT OPTIMIZE / STORYBOARD TEXT' },
-  { key: 'seedance', name: 'SEEDANCE 1.5 / SEEDANCE 2.0 / SEED 2.0 VIDEO' },
+  { key: 'seedance', name: 'SEEDANCE 1.5 / SEEDANCE 2.0 / SEEDANCE 2.5 / SEED 2.0 VIDEO' },
+  { key: 'hailuo', name: 'MINIMAX H3 VIDEO' },
   { key: 'kling', name: 'KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO' },
   { key: 'vidu', name: 'VIDU Q2 / VIDU Q3 VIDEO' },
   { key: 'wan', name: 'WAN 2.6 / WAN 2.7 VIDEO' },
@@ -404,6 +405,13 @@ export class AdminService {
       ])
     ) {
       key = 'banana';
+    } else if (
+      serviceType.includes('hailuo') ||
+      managedModelKey === 'hailuo-h3' ||
+      modelKey === 'hailuo-h3' ||
+      this.includesAny(search, ['hailuo-h3', 'minimax-h3'])
+    ) {
+      key = 'hailuo';
     } else if (serviceType.includes('kling') || search.includes('kling')) {
       key = 'kling';
     } else if (serviceType.includes('vidu') || this.includesAny(search, ['vidu', 'q2', 'q3'])) {

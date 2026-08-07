@@ -20968,10 +20968,20 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           let totalAudioDuration = 0;
           for (const audioUrl of connectedAudioUrls.slice(0, audioMax)) {
             const hintedDuration = connectedAudioDurationHints.get(audioUrl);
-            const duration =
-              typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
-                ? hintedDuration
-                : await readAudioDurationFromUrl(audioUrl);
+            let duration: number;
+            try {
+              duration =
+                typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
+                  ? hintedDuration
+                  : await readAudioDurationFromUrl(audioUrl);
+            } catch (error) {
+              failCurrentVideoNode(
+                error instanceof Error && error.message
+                  ? error.message
+                  : "无法读取音频时长，请确认音频可访问"
+              );
+              return;
+            }
             if (!isHailuoNode && (duration < 2 || duration > seedanceMediaMaxDuration)) {
               failCurrentVideoNode(
                 `Seedance ${isSeedance25Request ? "2.5" : "2.0"} 音频每条需在 2–${seedanceMediaMaxDuration} 秒之间，当前约 ${duration.toFixed(1)} 秒`

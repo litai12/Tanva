@@ -563,10 +563,15 @@ export class MembershipService {
   }
 
   async getAdminMembershipState(userId: string) {
-    const [current, me, nextChange] = await Promise.all([
+    const [current, me, nextChange, subscription, policy] = await Promise.all([
       this.getCurrentMembership(userId),
       this.getMembershipMe(userId),
       this.getNextChange(userId),
+      this.prisma.userMembershipSubscription.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.businessPolicyService.getMembershipCreditPolicy(),
     ]);
 
     return {
@@ -575,6 +580,9 @@ export class MembershipService {
       nextChange,
       balances: me.balances,
       benefits: me.benefits,
+      yearlyInstallments: subscription
+        ? await this.getYearlyInstallmentStatuses(subscription, policy, this.prisma)
+        : [],
     };
   }
 
@@ -710,18 +718,28 @@ export class MembershipService {
       // 金额口径以开通时的订单套餐快照为准，不能因后台后来改价回溯重算。
       const versionedPlanPrice = Number(currentSnapshot?.price ?? currentOrder?.amount ?? currentPlan.price);
       const paidAmount = Number(currentOrder?.amount ?? versionedPlanPrice);
-      // 旧版年费在开通时已一次性发完全年套餐积分，不存在“未发放权益”，不得抵扣。
-      const remainingValueEligible = !this.isLegacyUpfrontYearlyPlan(currentSnapshot);
+      // 年费抵扣不只看套餐快照。修复前的后台变更曾将“新版”快照的全年额度
+      // 一次性发完，快照虽带分期标记，实际上也不存在后续未发放权益。必须以
+      // 当前订阅周期的积分流水是否带 annualInstallmentIndex 为准。
+      const unissuedEntitlement = await this.getSubscriptionUnissuedEntitlement({
+        subscriptionId: current.id,
+        currentPeriodStartAt: current.currentPeriodStartAt,
+        currentPeriodEndAt: current.currentPeriodEndAt,
+        snapshot: currentSnapshot,
+      });
+      const remainingValueEligible = unissuedEntitlement.ratio > 0;
       const remainingValue = !remainingValueEligible
         ? 0
-        : this.roundMoney(Math.max(0, versionedPlanPrice * remainingRatio));
+        : this.roundMoney(Math.max(0, versionedPlanPrice * unissuedEntitlement.ratio));
       return {
         actionType: 'upgrade',
         effectiveMode: 'immediate',
         payableAmount: this.roundMoney(Math.max(0, Number(targetPlan.price) - remainingValue)),
         immediateCreditDelta: this.resolveInitialMembershipGrant(targetPlan),
         cycleSwitch: true,
-        remainingRatio,
+        // remainingRatio 在公开响应中保留兼容字段；对覆盖式升级它表示可抵扣的
+        // 未发放权益比例，而不再表示“剩余天数比例”。
+        remainingRatio: unissuedEntitlement.ratio,
         remainingValue,
         remainingValueEligible,
         currentPlanPaidAmount: paidAmount,
@@ -777,6 +795,7 @@ export class MembershipService {
 
   async adminExpireMembershipNow(userId: string, reason: string, requestedBy: string) {
     const now = new Date();
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     return this.prisma.$transaction(async (tx) => {
       const activeSubscriptions = await tx.userMembershipSubscription.findMany({
         where: { userId, status: 'active' },
@@ -786,14 +805,30 @@ export class MembershipService {
         throw new NotFoundException('当前用户没有生效中的订阅');
       }
 
-      await tx.userMembershipSubscription.updateMany({
-        where: { userId, status: 'active' },
-        data: {
-          status: 'expired',
-          expiredAt: now,
-          currentPeriodEndAt: now,
-        },
-      });
+      for (const subscription of activeSubscriptions) {
+        const installments = await this.getYearlyInstallmentStatuses(subscription, policy, tx);
+        const voidedIndexes = installments
+          .filter((installment) => installment.status === 'pending')
+          .map((installment) => installment.index);
+        await tx.userMembershipSubscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'expired',
+            expiredAt: now,
+            currentPeriodEndAt: now,
+            snapshot: voidedIndexes.length > 0
+              ? this.mergeJsonObject(subscription.snapshot, {
+                  annualInstallmentVoid: {
+                    voidedIndexes,
+                    voidedAt: now.toISOString(),
+                    reason,
+                    requestedBy,
+                  },
+                })
+              : undefined,
+          },
+        });
+      }
 
       await tx.membershipSubscriptionChange.updateMany({
         where: { userId, status: 'scheduled' },
@@ -1566,6 +1601,67 @@ export class MembershipService {
     }
 
     return { refreshedSubscriptions, grantedCredits, createdLots };
+  }
+
+  /** 管理员显式提前发放当前年卡的下一期；用于人工补发/验收，绝不重复发放。 */
+  async adminIssueNextYearlyInstallment(userId: string, requestedBy: string) {
+    const now = new Date();
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    return this.prisma.$transaction(async (tx) => {
+      const subscription = await tx.userMembershipSubscription.findFirst({
+        where: { userId, status: 'active', periodType: 'yearly', currentPeriodEndAt: { gt: now } },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!subscription) throw new NotFoundException('当前没有生效中的年费订阅');
+
+      const snapshot = this.asMembershipPlanSnapshot(subscription.snapshot);
+      if (!snapshot || !this.isYearlyMonthlyInstallmentPlan(snapshot)) {
+        throw new BadRequestException('当前年费订阅不是按月到账套餐，不能手动发放下一期');
+      }
+
+      const durationMs = Math.max(0, subscription.currentPeriodEndAt.getTime() - subscription.currentPeriodStartAt.getTime());
+      const perInstallmentMs = Math.max(1, policy.membershipRefreshCycleDays) * 24 * 60 * 60 * 1000;
+      const installmentCount = Math.min(12, Math.ceil(durationMs / perInstallmentMs));
+      const cycleStartAt = subscription.currentPeriodStartAt.toISOString();
+      const issued = await tx.creditTransaction.findMany({
+        where: {
+          subscriptionId: subscription.id,
+          businessType: { in: ['membership_grant', 'membership_yearly_installment', 'membership_cycle_switch', 'membership_upgrade_prorated', 'membership_admin_change'] },
+        },
+        select: { metadata: true },
+      });
+      const issuedIndexes = new Set<number>();
+      for (const item of issued) {
+        const metadata = this.asJsonObject(item.metadata);
+        if (metadata?.annualCycleStartAt !== cycleStartAt) continue;
+        const index = this.toInt(metadata.annualInstallmentIndex, 0);
+        if (index >= 1 && index <= installmentCount) issuedIndexes.add(index);
+      }
+      if (!issuedIndexes.has(1)) {
+        throw new BadRequestException('当前订阅缺少可核验的首期发放记录，不能提前发放');
+      }
+      const nextIndex = Array.from({ length: installmentCount }, (_, offset) => offset + 1)
+        .find((index) => !issuedIndexes.has(index));
+      if (!nextIndex) throw new BadRequestException('当前年费的所有可发放期数均已发放');
+
+      const amount = this.resolveYearlyInstallmentGrant(snapshot, nextIndex);
+      if (amount <= 0) throw new BadRequestException('下一期积分金额无效');
+      const account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) throw new NotFoundException('用户积分账户不存在');
+      const lot = await tx.creditLot.create({
+        data: buildMembershipCreditLotData({
+          accountId: account.id, amount, grantedAt: now, activeAt: now,
+          expiresAt: subscription.currentPeriodEndAt, subscriptionId: subscription.id,
+          metadata: { membershipPlanId: subscription.membershipPlanId, membershipPlanCode: snapshot.code, billingCycle: 'yearly', grantedBy: 'membership_yearly_installment', annualCycleStartAt: cycleStartAt, annualInstallmentIndex: nextIndex, annualInstallmentCount: installmentCount, issuedEarlyByAdmin: true, requestedBy },
+        }),
+      });
+      const balanceAfter = account.balance + amount;
+      await tx.creditAccount.update({ where: { id: account.id }, data: { balance: balanceAfter, totalEarned: account.totalEarned + amount } });
+      await tx.creditTransaction.create({
+        data: { accountId: account.id, type: TransactionType.EARN, amount, balanceBefore: account.balance, balanceAfter, description: `${snapshot.name} 年费第 ${nextIndex} 期积分发放（管理员手动触发）`, creditLotId: lot.id, businessType: 'membership_yearly_installment', subscriptionId: subscription.id, membershipPlanId: subscription.membershipPlanId, metadata: { membershipPlanCode: snapshot.code, billingCycle: 'yearly', grantedCredits: amount, annualCycleStartAt: cycleStartAt, annualInstallmentIndex: nextIndex, annualInstallmentCount: installmentCount, issuedEarlyByAdmin: true, requestedBy } },
+      });
+      return { subscriptionId: subscription.id, installmentIndex: nextIndex, installmentCount, grantedCredits: amount, balanceAfter };
+    });
   }
 
   async auditRecentPaidAnnualUpgradeInvariants(now = new Date(), lookbackHours = 48) {
@@ -2700,6 +2796,113 @@ export class MembershipService {
 
   private isLegacyUpfrontYearlyPlan(snapshot: MembershipPlanSnapshot | null): boolean {
     return Boolean(snapshot && snapshot.billingCycle === 'yearly' && !this.isYearlyMonthlyInstallmentPlan(snapshot));
+  }
+
+  /**
+   * 判断当前订阅是否仍有可折算的未发放周期权益。
+   *
+   * 月卡没有跨月未发放额度，不能因剩余天数获得抵扣；旧年卡本来就是一次性
+   * 到账，也不可抵扣。新版年卡只按当前有效期内还能发放、且尚未发放的期数
+   * 折价。该额外条件可识别修复前“后台变更套餐”误将全年额度一次性发放的
+   * 异常订阅。
+   */
+  private async getSubscriptionUnissuedEntitlement(params: {
+    subscriptionId: string;
+    currentPeriodStartAt: Date;
+    currentPeriodEndAt: Date;
+    snapshot: MembershipPlanSnapshot | null;
+  }): Promise<{ ratio: number; issuedInstallments: number; scheduledInstallments: number }> {
+    const none = { ratio: 0, issuedInstallments: 0, scheduledInstallments: 0 };
+    if (this.isLegacyUpfrontYearlyPlan(params.snapshot)) return none;
+    if (!params.snapshot || params.snapshot.billingCycle !== 'yearly') return none;
+    if (!this.isYearlyMonthlyInstallmentPlan(params.snapshot)) return none;
+
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const cycleDurationMs = Math.max(
+      0,
+      params.currentPeriodEndAt.getTime() - params.currentPeriodStartAt.getTime(),
+    );
+    const installmentDurationMs = Math.max(1, policy.membershipRefreshCycleDays) * 24 * 60 * 60 * 1000;
+    // 管理员可以缩短有效期；缩短后不能把到期日以外本不会发放的期数拿来抵扣。
+    const scheduledInstallments = Math.min(12, Math.ceil(cycleDurationMs / installmentDurationMs));
+    if (scheduledInstallments <= 0) return none;
+
+    const transactions = await this.prisma.creditTransaction.findMany({
+      where: {
+        subscriptionId: params.subscriptionId,
+        businessType: {
+          in: [
+            'membership_grant',
+            'membership_yearly_installment',
+            'membership_cycle_switch',
+            'membership_upgrade_prorated',
+            'membership_admin_change',
+          ],
+        },
+      },
+      select: { metadata: true },
+    });
+    const currentCycleStartAt = params.currentPeriodStartAt.toISOString();
+    const issuedIndexes = new Set<number>();
+    for (const transaction of transactions) {
+      const metadata = this.asJsonObject(transaction.metadata);
+      if (metadata?.annualCycleStartAt !== currentCycleStartAt) continue;
+      const index = this.toInt(metadata.annualInstallmentIndex, 0);
+      if (index >= 1 && index <= scheduledInstallments) issuedIndexes.add(index);
+    }
+
+    // 没有首期期号时，宁可不给抵扣也不能把已一次性发放的全年权益再次折价。
+    if (!issuedIndexes.has(1)) return none;
+    const issuedInstallments = issuedIndexes.size;
+    const unissuedInstallments = Math.max(0, scheduledInstallments - issuedInstallments);
+    return {
+      ratio: unissuedInstallments / scheduledInstallments,
+      issuedInstallments,
+      scheduledInstallments,
+    };
+  }
+
+  private async getYearlyInstallmentStatuses(
+    subscription: {
+      id: string;
+      currentPeriodStartAt: Date;
+      currentPeriodEndAt: Date;
+      snapshot: Prisma.JsonValue | null;
+    },
+    policy: { membershipRefreshCycleDays: number },
+    client: Prisma.TransactionClient | PrismaService,
+  ): Promise<Array<{ index: number; amount: number; dueAt: Date; status: 'issued' | 'pending'; issuedAt?: Date }>> {
+    const snapshot = this.asMembershipPlanSnapshot(subscription.snapshot);
+    if (!snapshot || !this.isYearlyMonthlyInstallmentPlan(snapshot)) return [];
+    const durationMs = Math.max(0, subscription.currentPeriodEndAt.getTime() - subscription.currentPeriodStartAt.getTime());
+    const refreshDays = Math.max(1, policy.membershipRefreshCycleDays);
+    const installmentCount = Math.min(12, Math.ceil(durationMs / (refreshDays * 24 * 60 * 60 * 1000)));
+    if (installmentCount <= 0) return [];
+    const cycleStartAt = subscription.currentPeriodStartAt.toISOString();
+    const transactions = await client.creditTransaction.findMany({
+      where: { subscriptionId: subscription.id, businessType: { in: ['membership_grant', 'membership_yearly_installment', 'membership_cycle_switch', 'membership_upgrade_prorated', 'membership_admin_change'] } },
+      select: { metadata: true, createdAt: true },
+    });
+    const issuedAtByIndex = new Map<number, Date>();
+    for (const transaction of transactions) {
+      const metadata = this.asJsonObject(transaction.metadata);
+      if (metadata?.annualCycleStartAt !== cycleStartAt) continue;
+      const index = this.toInt(metadata.annualInstallmentIndex, 0);
+      if (index >= 1 && index <= installmentCount && !issuedAtByIndex.has(index)) {
+        issuedAtByIndex.set(index, transaction.createdAt);
+      }
+    }
+    return Array.from({ length: installmentCount }, (_, offset) => {
+      const index = offset + 1;
+      const issuedAt = issuedAtByIndex.get(index);
+      return {
+        index,
+        amount: this.resolveYearlyInstallmentGrant(snapshot, index),
+        dueAt: this.addDays(subscription.currentPeriodStartAt, refreshDays * offset),
+        status: issuedAt ? 'issued' : 'pending',
+        ...(issuedAt ? { issuedAt } : {}),
+      };
+    });
   }
 
   private getPlanPriceVersion(snapshot: MembershipPlanSnapshot | null): string | null {

@@ -54,6 +54,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
 
   const sortedCollection = useMemo(() => {
     return imageCollection
+      .filter((item): item is ImageItem => Boolean(item?.id && item?.src))
       .map((item, index) => ({ ...item, _originalIndex: index }))
       .sort((a, b) => {
         const timeDiff = (b.timestamp ?? 0) - (a.timestamp ?? 0);
@@ -78,7 +79,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   // 获取当前图片索引
   const getCurrentImageIndex = useCallback(() => {
     if (!currentImageId || !hasCollection) return -1;
-    return sortedCollection.findIndex(item => item.id === currentImageId);
+    return sortedCollection.findIndex(item => item?.id === currentImageId);
   }, [currentImageId, sortedCollection, hasCollection]);
 
   // 切换到下一张/上一张图片
@@ -95,7 +96,9 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
       newIndex = currentIndex === 0 ? sortedCollection.length - 1 : currentIndex - 1;
     }
     
-    onImageChange(sortedCollection[newIndex].id);
+    const nextImage = sortedCollection[newIndex];
+    if (!nextImage?.id) return;
+    onImageChange(nextImage.id);
   }, [hasCollection, onImageChange, getCurrentImageIndex, sortedCollection]);
 
   // 键盘事件处理

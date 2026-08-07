@@ -1300,7 +1300,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         currentImageId={previewOverrideSrc ? "" : previewCollection[previewIndex]?.id}
         onImageChange={(imageId: string) => {
           if (previewOverrideSrc) return;
-          const i = previewCollection.findIndex((it) => it.id === imageId);
+          const i = previewCollection.findIndex((it) => it?.id === imageId);
           if (i >= 0) setPreviewIndex(i);
         }}
       />

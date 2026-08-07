@@ -13,32 +13,56 @@ export const useNodeInternalsSync = (
 ) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const rafRef = React.useRef<number | null>(null);
+  const layoutRevisionRef = React.useRef(0);
+  const lastSyncedSignatureRef = React.useRef<string | null>(null);
   const disabled = Boolean(options.disabled);
   const disabledRef = React.useRef(disabled);
   disabledRef.current = disabled;
 
-  React.useLayoutEffect(() => {
+  const scheduleSync = React.useCallback(() => {
     if (!id || disabledRef.current) return;
-    updateNodeInternals(id);
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+    }
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (disabledRef.current || isFlowNodeDragging()) return;
+
+      const element = rootRef.current;
+      if (!element) return;
+      const { width, height } = element.getBoundingClientRect();
+      const signature = `${id}:${Math.round(width * 10)}:${Math.round(height * 10)}:${layoutRevisionRef.current}`;
+      if (signature === lastSyncedSignatureRef.current) return;
+
+      lastSyncedSignatureRef.current = signature;
+      try {
+        updateNodeInternals(id);
+      } catch {
+        // The node can unmount between the observer callback and this frame.
+      }
+    });
+  }, [id, rootRef, updateNodeInternals]);
+
+  React.useEffect(() => {
+    layoutRevisionRef.current += 1;
+    scheduleSync();
     // Caller-controlled dependency list allows syncing after logical layout changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, updateNodeInternals, disabled, ...deps]);
+  }, [disabled, scheduleSync, ...deps]);
 
   React.useEffect(() => {
     const element = rootRef.current;
     if (!element || typeof ResizeObserver !== "function") return;
 
-    const observer = new ResizeObserver(() => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        if (disabledRef.current || isFlowNodeDragging()) {
-          return;
-        }
-        updateNodeInternals(id);
-      });
+    let observedWidth = -1;
+    let observedHeight = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.round((entry?.contentRect.width ?? 0) * 10);
+      const height = Math.round((entry?.contentRect.height ?? 0) * 10);
+      if (width === observedWidth && height === observedHeight) return;
+      observedWidth = width;
+      observedHeight = height;
+      scheduleSync();
     });
     observer.observe(element);
 
@@ -49,7 +73,7 @@ export const useNodeInternalsSync = (
         rafRef.current = null;
       }
     };
-  }, [id, rootRef, updateNodeInternals]);
+  }, [rootRef, scheduleSync]);
 };
 
 export const scheduleReactFlowNodeInternalsSync = (

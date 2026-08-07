@@ -23,6 +23,7 @@ const STORAGE_SCHEMA_VERSION = (() => {
 const FRONTEND_ERROR_ENDPOINT_PATH = "/api/telemetry/frontend-error";
 const STORAGE_SCHEMA_KEY = "tanva:storage-schema-version";
 const VERSION_RELOAD_ATTEMPT_KEY = "tanva:version-reload-attempted";
+const STALE_ASSET_RELOAD_ATTEMPT_KEY = "tanva:stale-asset-reload-attempted";
 const VERSION_MISMATCH_ACK_KEY = "tanva:version-mismatch-ack";
 const MIGRATION_KEY_PREFIX = "tanva_idb_migrated_";
 const VERSION_POLL_INTERVAL_MS = 5 * 60 * 1000;
@@ -128,9 +129,52 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 const isBrowserExtensionUrl = (url: string | null | undefined): boolean => {
   if (!url) return false;
-  return /^(chrome-extension|moz-extension|safari-extension|safari-web-extension|extension):\/\//i.test(
-    url
+  return /(chrome-extension|moz-extension|safari-extension|safari-web-extension|extension):\/\//i.test(url);
+};
+
+const isNonFatalBrowserRuntimeError = (message: string, stack: string | null): boolean => {
+  const combined = `${message}\n${stack ?? ""}`;
+  return (
+    isBrowserExtensionUrl(combined) ||
+    /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/i.test(message) ||
+    /PressureObserver.*(disallowed by permissions policy|not allowed)/i.test(combined)
   );
+};
+
+// Deploys replace Vite's content-hashed chunks. A tab that has been open for a
+// while can therefore request a chunk referenced by its old entry script and
+// fail before a lazy route renders. Reload once into the current index, while
+// deliberately leaving ordinary image/API/third-party resource failures alone.
+const reloadForStaleViteAsset = (source: string | null, message = ""): boolean => {
+  if (!import.meta.env.PROD) return false;
+
+  let candidate: URL | null = null;
+  try {
+    candidate = source ? new URL(source, window.location.href) : null;
+  } catch {
+    return false;
+  }
+
+  const isHashedLocalAsset = Boolean(
+    candidate &&
+      candidate.origin === window.location.origin &&
+      /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.(?:js|css)$/i.test(candidate.pathname)
+  );
+  const isDynamicImportFailure =
+    /failed to fetch dynamically imported module|importing a module script failed/i.test(message);
+  if (!isHashedLocalAsset && !isDynamicImportFailure) return false;
+
+  const sessionStorageRef = getSessionStorage();
+  const attemptId = isHashedLocalAsset
+    ? `${APP_VERSION}:${candidate?.pathname}`
+    : `${APP_VERSION}:dynamic-import`;
+  if (safeStorageGet(sessionStorageRef, STALE_ASSET_RELOAD_ATTEMPT_KEY) === attemptId) {
+    return false;
+  }
+
+  safeStorageSet(sessionStorageRef, STALE_ASSET_RELOAD_ATTEMPT_KEY, attemptId);
+  window.location.reload();
+  return true;
 };
 
 const toErrorInfo = (reason: unknown): { message: string; stack: string | null } => {
@@ -177,7 +221,7 @@ const reportRuntimeError = (
   if (reportedErrorCount >= MAX_ERROR_REPORTS_PER_PAGE) return;
   // Browser-extension failures are never the app's bug; skip them so they
   // don't spawn perpetually-"pending" sendBeacon pings in DevTools.
-  if (isBrowserExtensionUrl(source) || isBrowserExtensionUrl(message.match(/(chrome|moz|safari(?:-web)?)-extension:\/\/\S+/i)?.[0])) return;
+  if (isBrowserExtensionUrl(source) || isNonFatalBrowserRuntimeError(message, stack)) return;
 
   const signature = `${kind}|${message}|${source ?? ""}`;
   if (seenErrorSignatures.has(signature)) return;
@@ -238,6 +282,7 @@ const installGlobalErrorHandlers = (): void => {
     "error",
     (event: Event | ErrorEvent) => {
       if (event instanceof ErrorEvent) {
+        if (reloadForStaleViteAsset(event.filename || null, event.message)) return;
         reportRuntimeError(
           "error",
           event.message || "Uncaught runtime error",
@@ -257,6 +302,8 @@ const installGlobalErrorHandlers = (): void => {
           ? target.getAttribute("src") || target.getAttribute("href")
           : null;
 
+      if (reloadForStaleViteAsset(source, "")) return;
+
       reportRuntimeError(
         "resource-error",
         `Failed to load resource: ${source || "unknown"}`,
@@ -269,6 +316,10 @@ const installGlobalErrorHandlers = (): void => {
 
   window.addEventListener("unhandledrejection", (event) => {
     const info = toErrorInfo(event.reason);
+    if (isNonFatalBrowserRuntimeError(info.message || "Unhandled promise rejection", info.stack)) {
+      event.preventDefault();
+      return;
+    }
     reportRuntimeError(
       "unhandledrejection",
       info.message || "Unhandled promise rejection",

@@ -44,6 +44,7 @@ import {
   getAdminUserMembershipTransitionPreview,
   adminExpireUserMembershipNow,
   adminAdjustUserMembershipPeriod,
+  adminIssueNextYearlyInstallment,
   adminChangeUserMembershipPlan,
   adminApplyScheduledMembershipChanges,
   adminExpireMembershipScan,
@@ -6341,6 +6342,46 @@ function UsersTab({
                 </div>
               )}
 
+              {membershipState?.yearlyInstallments?.length ? (
+                <div className='rounded-lg border border-violet-200 bg-violet-50/50 p-4'>
+                  <div className='flex items-center justify-between gap-3'>
+                    <div>
+                      <div className='text-sm font-medium text-violet-900'>年费分期发放</div>
+                      <div className='mt-1 text-xs text-violet-700'>待发期仅在会员保持有效时可发；立即到期会将全部待发期作废。</div>
+                    </div>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      disabled={membershipLoading || !membershipState.yearlyInstallments.some((item) => item.status === "pending")}
+                      onClick={() =>
+                        void runMembershipAction(
+                          async () => {
+                            await adminIssueNextYearlyInstallment(membershipDrawer.userId);
+                          },
+                          "已手动发放下一期年费积分",
+                        )
+                      }
+                    >
+                      手动发放下一期
+                    </Button>
+                  </div>
+                  <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                    {membershipState.yearlyInstallments.map((item) => (
+                      <div key={item.index} className='rounded border border-violet-100 bg-white px-3 py-2 text-xs'>
+                        <div className='flex items-center justify-between text-gray-700'>
+                          <span>第 {item.index} 期</span>
+                          <span className={item.status === "issued" ? "text-green-700" : "text-amber-700"}>
+                            {item.status === "issued" ? "已发放" : "待发放"}
+                          </span>
+                        </div>
+                        <div className='mt-1 font-medium text-gray-900'>+{item.amount} 积分</div>
+                        <div className='mt-1 text-gray-500'>{item.status === "issued" && item.issuedAt ? `发放：${new Date(item.issuedAt).toLocaleDateString()}` : `计划：${new Date(item.dueAt).toLocaleDateString()}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>目标套餐</div>
@@ -6358,12 +6399,15 @@ function UsersTab({
                   </select>
                 </div>
                 <div>
-                  <div className='mb-1 text-sm text-gray-600'>调整天数</div>
+                  <div className='mb-1 text-sm text-gray-600'>增减有效期（天）</div>
                   <Input
                     value={membershipDays}
                     onChange={(e) => setMembershipDays(e.target.value)}
-                    placeholder='30 或 -7'
+                    placeholder='+30 延长 / -7 缩短'
                   />
+                  <div className='mt-1 text-xs text-amber-700'>
+                    在当前到期日基础上增减，不是把总有效期设置为该天数。
+                  </div>
                 </div>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>生效方式</div>
@@ -6427,7 +6471,7 @@ function UsersTab({
                   }
                   disabled={membershipLoading}
                 >
-                  调整时长
+                  按天数增减有效期
                 </Button>
                 <Button
                   onClick={() =>
