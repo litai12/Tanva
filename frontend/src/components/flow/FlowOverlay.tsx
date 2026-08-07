@@ -1368,8 +1368,12 @@ const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
 const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
 const SEEDANCE20_REFERENCE_AUDIO_MAX = 3;
+const SEEDANCE25_REFERENCE_IMAGE_MAX = 30;
+const SEEDANCE25_REFERENCE_VIDEO_MAX = 10;
+const SEEDANCE25_REFERENCE_AUDIO_MAX = 10;
 const SEEDANCE15_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const SEEDANCE25_DURATIONS = Array.from({ length: 27 }, (_, index) => index + 4);
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
 type Seedance20Mode = "reference_images" | "start_end" | "first_frame" | "smart_frames";
@@ -1427,6 +1431,7 @@ const normalizeSeedanceModelValue = (
     normalized === "seedance-2.5" ||
     normalized === "seedance-2-5" ||
     normalized === "doubao-seedance-2-5" ||
+    normalized === "doubao-seedance-2-5-260628" ||
     normalized === "doubao-seedance-2.5" ||
     normalized === "2.5"
   ) {
@@ -12045,6 +12050,7 @@ function FlowInner() {
       }
       const mode = inferSeedanceMode(node);
       if (profile.isSeedance20) {
+        const isSeedance25 = profile.model === "seedance-2.5";
         if (mode === "first_frame") {
           return {
             imageHandleMax: 1,
@@ -12070,10 +12076,10 @@ function FlowInner() {
           };
         }
         return {
-          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          imageHandleMax: isSeedance25 ? SEEDANCE25_REFERENCE_IMAGE_MAX : SEEDANCE20_REFERENCE_IMAGE_MAX,
           image2HandleMax: 0,
-          videoHandleMax: SEEDANCE20_REFERENCE_VIDEO_MAX,
-          audioHandleMax: SEEDANCE20_REFERENCE_AUDIO_MAX,
+          videoHandleMax: isSeedance25 ? SEEDANCE25_REFERENCE_VIDEO_MAX : SEEDANCE20_REFERENCE_VIDEO_MAX,
+          audioHandleMax: isSeedance25 ? SEEDANCE25_REFERENCE_AUDIO_MAX : SEEDANCE20_REFERENCE_AUDIO_MAX,
         };
       }
       if (mode === "image") {
@@ -20500,16 +20506,19 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               return;
             }
 
+            const seedanceLabel = normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5"
+              ? "Seedance 2.5"
+              : "Seedance 2.0";
             if (seedanceImageCount > seedanceModeSpec.imageHandleMax) {
-              failCurrentVideoNode("Seedance 2.0 最多支持 9 张图片参考");
+              failCurrentVideoNode(`${seedanceLabel} 最多支持 ${seedanceModeSpec.imageHandleMax} 张图片参考`);
               return;
             }
             if (seedanceVideoCount > seedanceModeSpec.videoHandleMax) {
-              failCurrentVideoNode("Seedance 2.0 最多支持 3 条视频参考");
+              failCurrentVideoNode(`${seedanceLabel} 最多支持 ${seedanceModeSpec.videoHandleMax} 条视频参考`);
               return;
             }
             if (seedanceAudioCount > seedanceModeSpec.audioHandleMax) {
-              failCurrentVideoNode("Seedance 2.0 最多支持 3 条音频参考");
+              failCurrentVideoNode(`${seedanceLabel} 最多支持 ${seedanceModeSpec.audioHandleMax} 条音频参考`);
               return;
             }
           } else {
@@ -20707,13 +20716,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             return [] as number[];
           }
 
+          const maxDuration = normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5" ? 30 : 15;
           return configuredDurationOptions.filter(
-            (value) => value >= SEEDANCE20_DURATIONS[0] && value <= SEEDANCE20_DURATIONS[SEEDANCE20_DURATIONS.length - 1]
+            (value) => value >= SEEDANCE20_DURATIONS[0] && value <= maxDuration
           );
         })();
         if (isSeedanceNode && typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
-          if (isSeedance20Request && (clipDuration < 4 || clipDuration > 15)) {
-            failCurrentVideoNode("Seedance 2.0 生成时长仅支持 4-15 秒");
+          const isSeedance25Request =
+            isSeedance20Request && normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5";
+          const seedanceMaxDuration = isSeedance25Request ? 30 : 15;
+          if (isSeedance20Request && (clipDuration < 4 || clipDuration > seedanceMaxDuration)) {
+            failCurrentVideoNode(`Seedance ${isSeedance25Request ? "2.5" : "2.0"} 生成时长仅支持 4-${seedanceMaxDuration} 秒`);
             return;
           }
           if (!isSeedance20Request && (clipDuration < 3 || clipDuration > 10)) {
@@ -20927,7 +20940,14 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             return;
           }
 
-          const audioMax = isHailuoNode ? Number(hailuoInputs.maxAudios || 0) : SEEDANCE20_REFERENCE_AUDIO_MAX;
+          const isSeedance25Request =
+            isSeedanceNode &&
+            normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5";
+          const seedanceAudioMax = isSeedance25Request
+            ? SEEDANCE25_REFERENCE_AUDIO_MAX
+            : SEEDANCE20_REFERENCE_AUDIO_MAX;
+          const seedanceMediaMaxDuration = isSeedance25Request ? 30 : 15;
+          const audioMax = isHailuoNode ? Number(hailuoInputs.maxAudios || 0) : seedanceAudioMax;
           if (connectedAudioUrls.length > audioMax) {
             failCurrentVideoNode(`${isHailuoNode ? "Hailuo" : "Seedance 2.0"} 音频参考数量超限`);
             return;
@@ -20945,25 +20965,33 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             }
           });
 
+          let totalAudioDuration = 0;
           for (const audioUrl of connectedAudioUrls.slice(0, audioMax)) {
             const hintedDuration = connectedAudioDurationHints.get(audioUrl);
             const duration =
               typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
                 ? hintedDuration
                 : await readAudioDurationFromUrl(audioUrl);
-            if (!isHailuoNode && (duration < 2 || duration > 5)) {
+            if (!isHailuoNode && (duration < 2 || duration > seedanceMediaMaxDuration)) {
               failCurrentVideoNode(
-                `Seedance 2.0 音频每条需在 2–5 秒之间，当前约 ${duration.toFixed(1)} 秒`
+                `Seedance ${isSeedance25Request ? "2.5" : "2.0"} 音频每条需在 2–${seedanceMediaMaxDuration} 秒之间，当前约 ${duration.toFixed(1)} 秒`
               );
               return;
             }
+            totalAudioDuration += duration;
+          }
+          if (!isHailuoNode && totalAudioDuration > seedanceMediaMaxDuration) {
+            failCurrentVideoNode(
+              `Seedance ${isSeedance25Request ? "2.5" : "2.0"} 音频总时长不超过 ${seedanceMediaMaxDuration} 秒`
+            );
+            return;
           }
 
           seedanceAudioUrlsForAPI =
             connectedAudioUrls.length > 0
               ? connectedAudioUrls.slice(0, audioMax)
               : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
-              ? rawNodeData.audioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)
+              ? rawNodeData.audioUrls.slice(0, seedanceAudioMax)
               : undefined;
         }
 
@@ -21017,7 +21045,12 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           if (isHailuoNode) {
             referenceVideoUrls = referenceVideoUrls.slice(0, Number(hailuoInputs.maxVideos || 0));
           } else if (isSeedanceNode && isSeedance20Request) {
-            referenceVideoUrls = referenceVideoUrls.slice(0, SEEDANCE20_REFERENCE_VIDEO_MAX);
+            referenceVideoUrls = referenceVideoUrls.slice(
+              0,
+              normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5"
+                ? SEEDANCE25_REFERENCE_VIDEO_MAX
+                : SEEDANCE20_REFERENCE_VIDEO_MAX,
+            );
           } else {
             referenceVideoUrls = referenceVideoUrls.slice(0, 1);
           }
@@ -21372,7 +21405,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             isSeedanceNode &&
             isSeedance20Request &&
             clipDuration >= 4 &&
-            clipDuration <= 15
+            clipDuration <= (normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5" ? 30 : 15)
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -21389,7 +21422,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 ? [4, 6, 8, 10]
                 : isSeedanceNode
                 ? isSeedance20Request
-                  ? SEEDANCE20_DURATIONS
+                  ? normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5"
+                    ? SEEDANCE25_DURATIONS
+                    : SEEDANCE20_DURATIONS
                   : SEEDANCE15_DURATIONS
                 : configuredDurationOptions;
             const durationHintOptions =

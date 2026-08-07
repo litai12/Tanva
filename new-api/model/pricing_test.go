@@ -57,7 +57,7 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 
 func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testing.T) {
 	meta := &Model{
-		ModelName: "doubao-seedance-2-5",
+		ModelName: "doubao-seedance-2-5-260628",
 		ParamsDef: `[
 			{"key":"duration","type":"enum","label":"时长","default":4,
 			 "options":[{"value":4,"label":"4s"},{"value":6,"label":"6s"}]},
@@ -66,7 +66,7 @@ func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testin
 		]`,
 	}
 
-	pricing := buildParamPricing("doubao-seedance-2-5", meta)
+	pricing := buildParamPricing("doubao-seedance-2-5-260628", meta)
 	if pricing == nil {
 		t.Fatal("expected param pricing")
 	}

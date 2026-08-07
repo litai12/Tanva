@@ -17,11 +17,11 @@ func findRoles(items []ContentItem) [][2]string {
 
 func TestModelListIncludesExactSeedance25ArkID(t *testing.T) {
 	for _, modelName := range ModelList {
-		if modelName == "doubao-seedance-2-5" {
+		if modelName == "doubao-seedance-2-5-260628" {
 			return
 		}
 	}
-	t.Fatalf("ModelList does not contain doubao-seedance-2-5: %v", ModelList)
+	t.Fatalf("ModelList does not contain doubao-seedance-2-5-260628: %v", ModelList)
 }
 
 // Seedance 2.0 换主体：参考图 + 视频参考同时输入，必须各自带 reference_image /

@@ -95,7 +95,7 @@ type fixedImagePricingRule struct {
 var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 	// Seedance 2.5 is priced at 1.5x the matching Seedance 2.0 tier.
 	// The upstream currently exposes 480p and 720p only.
-	"doubao-seedance-2-5": {
+	"doubao-seedance-2-5-260628": {
 		{resolution: "480p", cnyPerSecond: 1.5000},
 		{resolution: "720p", cnyPerSecond: 1.8000},
 	},

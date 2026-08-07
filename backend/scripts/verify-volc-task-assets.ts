@@ -161,7 +161,7 @@ async function verifyVideoProviderLifecycle(): Promise<void> {
       managedModelKey: 'seedance-2.0',
       seedanceModel: 'seedance-2.5',
     }),
-    'doubao-seedance-2-5',
+    'doubao-seedance-2-5-260628',
   );
   assert.deepEqual(
     (provider as any).resolveManagedSeedanceModel({

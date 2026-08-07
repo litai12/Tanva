@@ -6,6 +6,7 @@ import { ApiResponseStatus } from '../../credits/dto/credits.dto';
 import { CreditsService } from '../../credits/credits.service';
 import { CreditChargeService } from '../../team-credits/credit-charge.service';
 import { VideoProviderService } from './video-provider.service';
+import { GlobalImageHistoryService } from '../../global-image-history/global-image-history.service';
 
 const SEEDANCE_VIDEO_SERVICE_TYPE = 'doubao-video';
 const NEW_API_TASK_PREFIX = 'newapi:';
@@ -45,6 +46,7 @@ export class NewApiVideoTaskReconciliationService {
     private readonly creditsService: CreditsService,
     private readonly creditCharge: CreditChargeService,
     private readonly videoProviderService: VideoProviderService,
+    private readonly globalImageHistory: GlobalImageHistoryService,
   ) {}
 
   /**
@@ -251,6 +253,7 @@ export class NewApiVideoTaskReconciliationService {
 
     if (this.isSuccessStatus(status)) {
       await this.persistSuccessfulResult(params.usage.id, params.result);
+      await this.recordSuccessfulVideoAsset(params.usage, params.taskId, params.result);
 
       const teamHandle = await this.creditCharge.resolveHandle(params.usage.id);
       if (teamHandle) {
@@ -329,6 +332,41 @@ export class NewApiVideoTaskReconciliationService {
       // 账务终态不能被结果元数据写入失败阻塞；下次项目加载仍可重新查询上游。
       this.logger.warn(
         `Seedance 成功结果地址保存失败 apiUsageId=${apiUsageId}: ${this.message(error)}`,
+      );
+    }
+  }
+
+  private async recordSuccessfulVideoAsset(
+    usage: PendingUsage,
+    taskId: string,
+    result: VideoTaskQueryResult,
+  ): Promise<void> {
+    if (!result.videoUrl) return;
+
+    const requestParams = this.asJsonObject(usage.requestParams) || {};
+    try {
+      await this.globalImageHistory.recordVideoForTask({
+        userId: usage.userId,
+        taskId,
+        videoUrl: result.videoUrl,
+        thumbnailUrl: result.thumbnailUrl,
+        prompt: this.readString(requestParams.prompt) || undefined,
+        sourceType: 'seedance20Video',
+        sourceProjectId:
+          this.readString(requestParams.clientProjectId) ||
+          this.readString(requestParams.projectId) ||
+          undefined,
+        metadata: {
+          provider: 'doubao',
+          model: this.readString(requestParams.model) || undefined,
+          apiUsageId: usage.id,
+        },
+      });
+    } catch (error) {
+      // 素材历史的可用性不能阻塞账务终态；下次对同一成功任务查询时仍会再次
+      // 触发补写，且 taskId 去重保证不会产生重复记录。
+      this.logger.warn(
+        `Seedance 成功视频写入全局历史失败 apiUsageId=${usage.id}, taskId=${taskId}: ${this.message(error)}`,
       );
     }
   }

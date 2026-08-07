@@ -46,6 +46,7 @@ import { MinimaxMusicProvider } from './audio/providers/minimax-music.provider';
 import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
+import { GlobalImageHistoryModule } from '../global-image-history/global-image-history.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { NewApiVideoTaskReconciliationService } from './services/new-api-video-t
     TeamCreditsModule,
     VolcAssetModule,
     TeamCollabModule,
+    GlobalImageHistoryModule,
   ],
   providers: [
     AiService,

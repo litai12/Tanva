@@ -10,6 +10,7 @@ import {
   CollabEnvelope,
   TaskStatusPayload,
 } from '../../team-collab/types';
+import { GlobalImageHistoryService } from '../../global-image-history/global-image-history.service';
 
 export interface CreateVideoTaskParams {
   taskId: string;
@@ -47,6 +48,7 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly globalImageHistory: GlobalImageHistoryService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
   ) {}
@@ -141,10 +143,12 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     let projectIdFromDb: string | null = null;
     let nodeIdFromDb: string | null = null;
     let taskType: string | undefined;
+    let userIdFromDb: string | undefined;
+    let promptFromDb: string | null | undefined;
     try {
       const before = await this.prisma.videoTask.findUnique({
         where: { id: taskId },
-        select: { metadata: true, nodeId: true, taskType: true },
+        select: { metadata: true, nodeId: true, taskType: true, userId: true, prompt: true },
       });
       const meta = (before?.metadata as any) ?? null;
       if (meta && typeof meta === 'object' && typeof meta.projectId === 'string') {
@@ -152,6 +156,8 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
       }
       nodeIdFromDb = before?.nodeId ?? null;
       taskType = before?.taskType ?? undefined;
+      userIdFromDb = before?.userId;
+      promptFromDb = before?.prompt;
     } catch {}
 
     await this.prisma.videoTask
@@ -170,6 +176,17 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`VideoTask update failed for ${taskId}: ${err.message}`);
       });
 
+    if (update.status === 'succeeded') {
+      await this.recordSuccessfulVideoInGlobalHistory({
+        taskId,
+        userId: userIdFromDb,
+        taskType,
+        prompt: promptFromDb,
+        projectId: projectIdFromDb,
+        result: update.result,
+      });
+    }
+
     if (projectIdFromDb && update.status) {
       const resultPreview = this.extractResultPreview(update.result);
       await this.publishTaskStatus(projectIdFromDb, {
@@ -181,6 +198,45 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
         resultPreview,
         error: update.error ?? null,
       });
+    }
+  }
+
+  private async recordSuccessfulVideoInGlobalHistory(params: {
+    taskId: string;
+    userId?: string;
+    taskType?: string;
+    prompt?: string | null;
+    projectId?: string | null;
+    result?: Record<string, any>;
+  }): Promise<void> {
+    const videoUrl =
+      typeof params.result?.videoUrl === 'string' ? params.result.videoUrl.trim() : '';
+    if (!params.userId || !videoUrl || params.userId === 'anonymous') return;
+
+    try {
+      await this.globalImageHistory.recordVideoForTask({
+        userId: params.userId,
+        taskId: params.taskId,
+        videoUrl,
+        thumbnailUrl:
+          typeof params.result?.thumbnailUrl === 'string'
+            ? params.result.thumbnailUrl
+            : undefined,
+        prompt: params.prompt || undefined,
+        sourceType:
+          params.taskType === 'sora-2' || params.taskType === 'sora-2-pro'
+            ? 'sora2Video'
+            : 'video',
+        sourceProjectId: params.projectId || undefined,
+        metadata: {
+          taskType: params.taskType,
+          model: typeof params.result?.model === 'string' ? params.result.model : undefined,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `VideoTask 成功视频写入全局历史失败 taskId=${params.taskId}: ${(error as Error).message}`,
+      );
     }
   }
 

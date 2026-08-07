@@ -4,7 +4,7 @@
 - 提供图像生成/编辑/融合/分析、文本对话、背景移除�?D�?D、图片扩展、视频生成、Paper.js/向量化等能力�?
 
 ## 2026-07-31 Seedance 2.5
-- `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5`。
+- `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。
 - 2.5 继续复用 Seedance 2.x 的 4–15 秒节点规格、模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。
 - 2.5 只允许 `480P`、`720P`。Flow 会在型号切换时回落非法值，`AiController` 在积分预扣和上游提交之前再次校验，历史节点携带 `1080P/4K` 时返回 HTTP 400。
 - 2.5 仅走 `seedance_api/default` 普通通道；前端隐藏 Tencent VOD 尊享选项，后端会把历史节点残留的 VIP vendor/tier 强制归一为官方普通通道，避免静默执行成 2.0。Ark adapter model list 与 PostgreSQL ability 由 `new-api/patches/2026-07-31/001-add-doubao-seedance-2-5.sql` 注册；补丁只克隆已有 2.0 官渠，不创建或写入凭据。

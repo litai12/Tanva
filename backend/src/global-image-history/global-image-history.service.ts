@@ -7,6 +7,61 @@ import { CreateGlobalImageHistoryDto, QueryGlobalImageHistoryDto } from './dto/g
 export class GlobalImageHistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * 将异步视频的终态结果写入用户全局历史。
+   *
+   * 不能依赖浏览器轮询来做这件事：前端关闭、刷新或进程被回收后，任务仍会
+   * 由后端补偿完成。taskId 是跨补偿轮询和查询接口共用的幂等键，避免同一视频
+   * 在两条路径同时观察到成功时重复出现在素材库中。
+   */
+  async recordVideoForTask(params: {
+    userId: string;
+    taskId: string;
+    videoUrl: string;
+    thumbnailUrl?: string;
+    prompt?: string;
+    sourceType: string;
+    sourceProjectId?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const userId = params.userId.trim();
+    const taskId = params.taskId.trim();
+    const videoUrl = params.videoUrl.trim();
+    if (!userId || !taskId || !videoUrl) return null;
+
+    const existing = await this.prisma.globalImageHistory.findFirst({
+      where: {
+        userId,
+        metadata: {
+          path: ['taskId'],
+          equals: taskId,
+        },
+      },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    return this.prisma.globalImageHistory.create({
+      data: {
+        userId,
+        imageUrl: videoUrl,
+        prompt: params.prompt?.trim() || null,
+        sourceType: params.sourceType,
+        sourceProjectId: params.sourceProjectId?.trim() || null,
+        metadata: {
+          mediaType: 'video',
+          videoUrl,
+          ...(params.thumbnailUrl?.trim()
+            ? { videoThumbnailUrl: params.thumbnailUrl.trim() }
+            : {}),
+          taskId,
+          source: 'server-task-completion',
+          ...(params.metadata ?? {}),
+        },
+      },
+    });
+  }
+
   async create(userId: string, dto: CreateGlobalImageHistoryDto) {
     return this.prisma.globalImageHistory.create({
       data: {

@@ -605,6 +605,7 @@ export class AiController {
       normalized === 'seedance-2.5' ||
       normalized === 'seedance-2-5' ||
       normalized === 'doubao-seedance-2-5' ||
+      normalized === 'doubao-seedance-2-5-260628' ||
       normalized === 'doubao-seedance-2.5' ||
       normalized === '2.5' ||
       normalized === 'seedance-2.0' ||
@@ -633,6 +634,7 @@ export class AiController {
       normalized === 'seedance-2.5' ||
       normalized === 'seedance-2-5' ||
       normalized === 'doubao-seedance-2-5' ||
+      normalized === 'doubao-seedance-2-5-260628' ||
       normalized === 'doubao-seedance-2.5' ||
       normalized === '2.5'
     );
@@ -1628,6 +1630,10 @@ export class AiController {
           `Seedance 2.5 仅支持 480P / 720P，当前为 ${resolution}`,
         );
       }
+      const duration = Number(dto.duration);
+      if (!Number.isFinite(duration) || duration < 4 || duration > 30 || !Number.isInteger(duration)) {
+        throw new BadRequestException('Seedance 2.5 生成时长仅支持 4–30 秒的整数值');
+      }
     }
 
     const uniqueUrls = (values: Array<string | undefined>): string[] =>
@@ -1644,33 +1650,54 @@ export class AiController {
       dto.referenceVideo,
     ]);
     const referenceAudios = uniqueUrls(Array.isArray(dto.audioUrls) ? dto.audioUrls : []);
+    const referenceImages = uniqueUrls(
+      (Array.isArray(dto.referenceImages) ? dto.referenceImages : []).map((item) =>
+        typeof item === 'string' ? item : item?.url,
+      ),
+    );
 
-    if (referenceVideos.length > 3) {
-      throw new BadRequestException(`Seedance 2.x 最多支持 3 条参考视频，当前为 ${referenceVideos.length} 条`);
+    const isSeedance25 = this.isSeedance25Model(dto.seedanceModel);
+    const maxReferenceMedia = isSeedance25 ? 10 : 3;
+    const maxReferenceMediaDuration = isSeedance25 ? 30 : 15;
+    if (referenceVideos.length > maxReferenceMedia) {
+      throw new BadRequestException(`Seedance ${isSeedance25 ? '2.5' : '2.0'} 最多支持 ${maxReferenceMedia} 条参考视频，当前为 ${referenceVideos.length} 条`);
     }
-    if (referenceAudios.length > 3) {
-      throw new BadRequestException(`Seedance 2.x 最多支持 3 条参考音频，当前为 ${referenceAudios.length} 条`);
+    if (referenceAudios.length > maxReferenceMedia) {
+      throw new BadRequestException(`Seedance ${isSeedance25 ? '2.5' : '2.0'} 最多支持 ${maxReferenceMedia} 条参考音频，当前为 ${referenceAudios.length} 条`);
+    }
+    if (isSeedance25 && referenceImages.length > 30) {
+      throw new BadRequestException(`Seedance 2.5 最多支持 30 张参考图片，当前为 ${referenceImages.length} 张`);
     }
     if (!referenceVideos.length && !referenceAudios.length) return;
     if (!this.referenceVideoDuration) {
       throw new ServiceUnavailableException('参考媒体时长探测服务不可用，请稍后重试');
     }
 
+    let totalVideoDuration = 0;
     for (const [index, url] of referenceVideos.entries()) {
       const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考视频`);
-      if (duration < 2 || duration > 15) {
+      if (duration < 2 || duration > maxReferenceMediaDuration) {
         throw new BadRequestException(
-          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance 2.x 单条需在 2–15 秒之间`,
+          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 单条需在 2–${maxReferenceMediaDuration} 秒之间`,
         );
       }
+      totalVideoDuration += duration;
     }
+    if (totalVideoDuration > maxReferenceMediaDuration) {
+      throw new BadRequestException(`参考视频总时长为 ${totalVideoDuration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 不超过 ${maxReferenceMediaDuration} 秒`);
+    }
+    let totalAudioDuration = 0;
     for (const [index, url] of referenceAudios.entries()) {
       const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考音频`);
-      if (duration < 2 || duration > 5) {
+      if (duration < 2 || duration > maxReferenceMediaDuration) {
         throw new BadRequestException(
-          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance 2.x 单条需在 2–5 秒之间`,
+          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 单条需在 2–${maxReferenceMediaDuration} 秒之间`,
         );
       }
+      totalAudioDuration += duration;
+    }
+    if (totalAudioDuration > maxReferenceMediaDuration) {
+      throw new BadRequestException(`参考音频总时长为 ${totalAudioDuration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 不超过 ${maxReferenceMediaDuration} 秒`);
     }
   }
 
@@ -5861,6 +5888,7 @@ export class AiController {
       },
     );
   }
+
 
   @Post('sora2/character/create')
   async createSora2Character(@Body() dto: CreateSora2CharacterDto) {

@@ -177,9 +177,9 @@ const SEEDANCE20_INPUT_MODES = [
   'image_video_audio',
 ];
 const SEEDANCE20_NOTES = [
-  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5',
+  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5-260628',
   'Seedance 2.5 仅支持 480P / 720P，按 Seedance 2.0 当前每秒单价的 1.5 倍计费',
-  '节点采用自动模式推导：最多支持 9 张参考图，视频/音频各最多 3 路，运行时按已连接输入自动确定上游 video_mode',
+  '节点采用自动模式推导：Seedance 2.5 的多模态参考最多支持 30 张图片、10 路视频、10 路音频（视频/音频单条及总时长均不超过 30 秒）；2.0 系列保持 9/3/3 限制，运行时按已连接输入自动确定上游 video_mode',
   '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
 ];
 const SEED20_NOTES = [

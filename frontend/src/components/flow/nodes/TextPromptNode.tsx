@@ -315,7 +315,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const isFlowDark = useFlowNodeDarkTheme();
-  const [value, setValue] = React.useState<string>(data.text || '');
+  // Node data is restored asynchronously and can briefly contain values from
+  // older project snapshots. Never let an unexpected value turn editor string
+  // operations (slice/indexOf/replace) into a Flow-wide render failure.
+  const persistedText = typeof data?.text === 'string' ? data.text : '';
+  const [value, setValue] = React.useState<string>(persistedText);
   const isStoryboardTable = data.variant === 'storyboard-table';
   const storyboardViewMode = data.storyboardViewMode === 'text' ? 'text' : 'table';
   const shouldRenderTextEditor = !isStoryboardTable || storyboardViewMode === 'text';
@@ -360,6 +364,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     React.useRef<HTMLTextAreaElement | null>(null);
   const mentionOverlayInnerRef = React.useRef<HTMLDivElement>(null);
   const siblingImages = usePromptSiblingImages(id);
+  const safeSiblingImages = Array.isArray(siblingImages) ? siblingImages : [];
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const [isComposing, setIsComposing] = React.useState(false);
@@ -375,6 +380,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const xiaotModel = useAIChatStore((state) => state.xiaotModel);
   const personalAssets = usePersonalLibraryStore((state) => state.assets);
+  const safePersonalAssets = Array.isArray(personalAssets) ? personalAssets : [];
   const mergePersonalAssets = usePersonalLibraryStore((state) => state.mergeAssets);
   const [projectLibraryItems, setProjectLibraryItems] = React.useState<GlobalImageHistoryItem[]>([]);
   const [projectLibraryLoading, setProjectLibraryLoading] = React.useState(false);
@@ -404,7 +410,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const flowMentionCandidates = React.useMemo<MentionCandidate[]>(
     () =>
-      siblingImages.map((img) => {
+      safeSiblingImages.map((img) => {
         const title = img.title || lt(`图${img.index}`, `Image ${img.index}`);
         return {
           id: `flow:${img.nodeId}:${img.sourceHandle || 'default'}:${img.index}`,
@@ -417,7 +423,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           ref: { nodeId: img.nodeId, handle: img.sourceHandle },
         };
       }),
-    [lt, siblingImages]
+    [lt, safeSiblingImages]
   );
 
   const projectMentionCandidates = React.useMemo<MentionCandidate[]>(
@@ -445,7 +451,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const personalMentionCandidates = React.useMemo<MentionCandidate[]>(
     () =>
-      personalAssets
+      safePersonalAssets
         .filter((asset): asset is PersonalImageAsset => asset.type === '2d' && isUsableRemoteImageRef(asset.url))
         .map((asset, index) => ({
           id: `personal-library:${asset.id}`,
@@ -459,7 +465,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             url: asset.url,
           },
         })),
-    [lt, personalAssets]
+    [lt, safePersonalAssets]
   );
 
   const candidateGroups = React.useMemo<Record<MentionTab, MentionCandidate[]>>(
@@ -528,7 +534,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     () =>
       !isPromptEditable || !atMention
         ? []
-        : filterMentionCandidates(candidateGroups[activeMentionTab], atMention.query),
+        : filterMentionCandidates(candidateGroups[activeMentionTab] ?? [], atMention.query),
     [activeMentionTab, atMention, candidateGroups, filterMentionCandidates, isPromptEditable]
   );
   const syncTypedCandidateMentions = React.useCallback((
@@ -668,14 +674,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
     setMentions([]);
-    const currentDataText = typeof data.text === 'string' ? data.text : '';
+    const currentDataText = persistedText;
     const hasMentions = normalizePromptImageMentions(data.mentions).length > 0;
     if (currentDataText !== incoming || hasMentions) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { text: incoming, mentions: [] } }
       }));
     }
-  }, [data.mentions, data.text, id]);
+  }, [data.mentions, id, persistedText]);
 
   const syncFromSource = React.useCallback((
     sourceId: string,
@@ -745,9 +751,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     // keep internal state in sync if external changes happen
     if (isComposingRef.current) return;
-    if ((data.text || '') !== value) setValue(data.text || '');
+    if (persistedText !== value) setValue(persistedText);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.text]);
+  }, [persistedText]);
 
   React.useEffect(() => {
     setTitle(normalizedTitle);

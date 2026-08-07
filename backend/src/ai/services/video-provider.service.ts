@@ -126,7 +126,7 @@ type ManagedV2ParsedTask = {
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
     case "2.5":
-      return "doubao-seedance-2-5";
+      return "doubao-seedance-2-5-260628";
     case "2.0-pro":
       return "doubao-seedance-2-0-260128";
     case "2.0-lite":
@@ -167,8 +167,8 @@ const normalizeSeedanceUpstreamModelIdAlias = (
   if (normalized === "doubao-seedance-2-0") {
     return "doubao-seedance-2-0-260128";
   }
-  if (normalized === "doubao-seedance-2.5") {
-    return "doubao-seedance-2-5";
+  if (normalized === "doubao-seedance-2.5" || normalized === "doubao-seedance-2-5") {
+    return "doubao-seedance-2-5-260628";
   }
 
   return rawModelId;
@@ -1886,10 +1886,11 @@ export class VideoProviderService {
         seedanceHint === "seedance-2.5" ||
         seedanceHint === "seedance-2-5" ||
         seedanceHint === "doubao-seedance-2-5" ||
+        seedanceHint === "doubao-seedance-2-5-260628" ||
         seedanceHint === "doubao-seedance-2.5" ||
         seedanceHint === "2.5"
       ) {
-        return "doubao-seedance-2-5";
+        return "doubao-seedance-2-5-260628";
       }
       if (
         seedanceHint.includes("2.0-fast") || seedanceHint.includes("2-0-fast") ||
@@ -3194,18 +3195,23 @@ export class VideoProviderService {
       const vendorKey = String(context?.vendor?.vendorKey || "").trim().toLowerCase();
       if (modelKey === "seedance-2.0" && vendorKey === "seedance_api") {
         const before = String((body as Record<string, any>).model || "").trim();
-        if (before) {
-          const after = normalizeSeedanceUpstreamModelIdAlias(before);
-          if (after !== before) {
-            this.logger.warn(
-              `[Seedance2] normalize v2 request model alias in-stage: ${before} -> ${after}`,
-            );
-            (body as Record<string, any>).model = after;
-          }
-          this.logger.log(
-            `[Seedance2] v2 create/query model=${String((body as Record<string, any>).model || "").trim()}`,
+        const requestedUpstreamModel = String(
+          context?.request?.seedanceUpstreamModelId || "",
+        ).trim();
+        // `seedance-2.0` is the managed route / pricing key shared by the
+        // 2.x family. It must never decide Ark's actual model. Force the
+        // sub-model selected by the node even when an old DB request profile
+        // still has a hard-coded 2.0 snapshot in its `model` template.
+        const after = requestedUpstreamModel || normalizeSeedanceUpstreamModelIdAlias(before);
+        if (after && after !== before) {
+          this.logger.warn(
+            `[Seedance2] enforce v2 upstream model in-stage: ${before || "(empty)"} -> ${after}`,
           );
+          (body as Record<string, any>).model = after;
         }
+        this.logger.log(
+          `[Seedance2] v2 create/query model=${String((body as Record<string, any>).model || "").trim()}`,
+        );
       }
     }
 
@@ -3315,10 +3321,13 @@ export class VideoProviderService {
         const renderedBody = this.renderTemplateValue(profile.create.body || {}, context) as Record<string, any>;
         if (typeof renderedBody?.model === "string" && renderedBody.model.trim().length > 0) {
           const before = renderedBody.model.trim();
-          const after = normalizeSeedanceUpstreamModelIdAlias(before);
+          const requestedUpstreamModel = String(
+            context?.request?.seedanceUpstreamModelId || "",
+          ).trim();
+          const after = requestedUpstreamModel || normalizeSeedanceUpstreamModelIdAlias(before);
           if (after !== before) {
             this.logger.warn(
-              `[Seedance2] normalize upstream model alias: ${before} -> ${after}`,
+              `[Seedance2] enforce upstream model: ${before} -> ${after}`,
             );
             renderedBody.model = after;
           }
@@ -3554,6 +3563,7 @@ export class VideoProviderService {
       normalized === "seedance-2.5" ||
       normalized === "seedance-2-5" ||
       normalized === "doubao-seedance-2-5" ||
+      normalized === "doubao-seedance-2-5-260628" ||
       normalized === "doubao-seedance-2.5" ||
       normalized === "2.5"
     ) {

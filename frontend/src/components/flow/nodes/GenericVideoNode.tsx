@@ -296,6 +296,7 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+const SEEDANCE25_DOC_DURATIONS = Array.from({ length: 27 }, (_, index) => index + 4);
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
 const SEEDANCE15_DOC_RESOLUTIONS = ["720P", "1080P"] as const;
 // Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
@@ -333,6 +334,7 @@ const normalizeSeedanceModelValue = (value: unknown): SeedanceModel => {
     normalized === "seedance-2.5" ||
     normalized === "seedance-2-5" ||
     normalized === "doubao-seedance-2-5" ||
+    normalized === "doubao-seedance-2-5-260628" ||
     normalized === "doubao-seedance-2.5" ||
     normalized === "2.5"
   ) {
@@ -444,7 +446,7 @@ const getHailuoModeSpec = (mode: HailuoMode, limits?: Record<string, unknown>): 
   };
 };
 
-const getSeedance20ModeSpec = (mode: Seedance20Mode): SeedanceModeSpec => {
+const getSeedance20ModeSpec = (mode: Seedance20Mode, model: SeedanceModel): SeedanceModeSpec => {
   switch (mode) {
     case "first_frame":
       return {
@@ -473,10 +475,10 @@ const getSeedance20ModeSpec = (mode: Seedance20Mode): SeedanceModeSpec => {
     case "reference_images":
       return {
         visibleHandles: ["text", "image", "video", "audio"],
-        imageHandleMax: 9,
+        imageHandleMax: model === "seedance-2.5" ? 30 : 9,
         image2HandleMax: 0,
-        videoHandleMax: 3,
-        audioHandleMax: 3,
+        videoHandleMax: model === "seedance-2.5" ? 10 : 3,
+        audioHandleMax: model === "seedance-2.5" ? 10 : 3,
       };
     default:
       return {
@@ -887,9 +889,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       !isSeedanceModel
         ? null
         : isSeedance20Model
-        ? getSeedance20ModeSpec(seedanceMode as Seedance20Mode)
+        ? getSeedance20ModeSpec(seedanceMode as Seedance20Mode, seedanceModel)
         : getSeedance15ModeSpec(seedanceMode as Seedance15Mode),
-    [isSeedance20Model, isSeedanceModel, seedanceMode]
+    [isSeedance20Model, isSeedanceModel, seedanceMode, seedanceModel]
   );
   const capabilityModeSpec = React.useMemo(
     () => isHailuoModel ? getHailuoModeSpec(hailuoMode, hailuoInputLimits) : seedanceModeSpec,
@@ -1562,7 +1564,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
       {
-        label: lt("Seedance 2.5（即将推出）", "Seedance 2.5 (Coming soon)"),
+        label: "Seedance 2.5",
         value: "seedance-2.5" as const,
       },
       { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
@@ -1687,7 +1689,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (provider === "hailuo") return getDurationOptions();
     if (provider === "doubao" && isSeedance20Model) {
       const durationList =
-        seedanceModel === "seed-2.0-mini"
+        seedanceModel === "seedance-2.5"
+          ? SEEDANCE25_DOC_DURATIONS
+          : seedanceModel === "seed-2.0-mini"
           ? SEEDANCE20_DOC_DURATIONS.filter((value) => value <= 10)
           : [...SEEDANCE20_DOC_DURATIONS];
       return durationList.map((value) => ({
@@ -1841,12 +1845,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         lt("图片大小：单图建议不超过 30MB", "Image size: each image should be <= 30MB"),
         seedanceModel === "seed-2.0-mini"
           ? lt("生成时长：4-10 秒", "Output duration: 4-10s")
+          : seedanceModel === "seedance-2.5"
+          ? lt("生成时长：4-30 秒", "Output duration: 4-30s")
           : lt("生成时长：4-15 秒", "Output duration: 4-15s"),
         resolutionTip,
-        lt(
-          "参考视频最多 3 条（每条 2–15 秒）；音频最多 3 条（每条 2–5 秒）",
-          "Video refs <=3 (2–15s each); audio refs <=3 (2–5s each)"
-        ),
+        ...(seedanceModel === "seedance-2.5"
+          ? [lt(
+              "参考素材：图片最多 30 张；视频/音频各最多 10 条（每条及总时长 2–30 秒；支持仅音频）",
+              "References: up to 30 images and 10 videos / 10 audios (each and total media duration 2–30s; audio-only supported)"
+            )]
+          : [lt(
+              "参考视频最多 3 条（每条 2–15 秒）；音频最多 3 条（每条 2–15 秒）",
+              "Video refs <=3 (2–15s each); audio refs <=3 (2–15s each)"
+            )]),
         ...(seedanceModel === "seed-2.0-mini"
           ? [lt("Mini 暂不支持 Smart Frames 模式", "Mini does not support Smart Frames mode yet")]
           : []),
@@ -2146,9 +2157,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const handleSeedanceModelChange = React.useCallback(
     (value: SeedanceModel) => {
       if (value === seedanceModel) return;
-      // Keep the option visible as a product preview, but do not allow it to
-      // become the active model until Seedance 2.5 is publicly available.
-      if (value === "seedance-2.5") return;
       if (isSeedance20LockedOption(value)) {
         window.dispatchEvent(
           new CustomEvent("toast", {
@@ -2175,7 +2183,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             ? 4
             : clipDuration &&
               clipDuration >= 4 &&
-              clipDuration <= (value === "seed-2.0-mini" ? 10 : 15)
+              clipDuration <= (value === "seed-2.0-mini" ? 10 : value === "seedance-2.5" ? 30 : 15)
             ? clipDuration
             : 5
           : // Seedance 1.5-pro: 4–12s.
@@ -2238,7 +2246,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (value: SeedanceMode) => {
       if (!isSeedanceModel || value === seedanceMode) return;
       const spec = isSeedance20Model
-        ? getSeedance20ModeSpec(value as Seedance20Mode)
+        ? getSeedance20ModeSpec(value as Seedance20Mode, seedanceModel)
         : getSeedance15ModeSpec(value as Seedance15Mode);
 
       setEdges((edges) => {
@@ -3359,18 +3367,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   const isSeedanceLocked =
                     provider === "doubao" &&
                     isSeedance20LockedOption(opt.value as SeedanceModel);
-                  const isSeedanceComingSoon =
-                    provider === "doubao" && opt.value === "seedance-2.5";
-                  const isModelOptionDisabled =
-                    isSeedanceComingSoon || isSeedanceLocked;
+                  const isModelOptionDisabled = isSeedanceLocked;
                   return (
                     <button
                       key={opt.value}
                       type='button'
                       title={
-                        isSeedanceComingSoon
-                          ? lt("即将推出，暂不可选择", "Coming soon; not selectable yet")
-                          : isSeedanceLocked
+                        isSeedanceLocked
                           ? lt(
                               "需开通 VIP 权益或进入水印白名单后才能选择",
                               "Requires VIP access or watermark whitelist access",
@@ -3398,9 +3401,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         borderRadius: 8,
                         border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
                         background: isActive ? "#eff6ff" : "#fff",
-                        color: isModelOptionDisabled
-                          ? "#9ca3af"
-                          : isActive
+                        color: isModelOptionDisabled ? "#9ca3af" : isActive
                           ? "#1d4ed8"
                           : "#111827",
                         fontSize: 12,

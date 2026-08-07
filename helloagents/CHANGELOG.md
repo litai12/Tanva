@@ -1,5 +1,10 @@
 # Changelog
 
+- 异步视频任务的全局历史写入收口到后端：Seedance/new-api 后台补偿确认成功时会按 `taskId` 幂等写入用户全局历史；Sora 2 后端异步任务完成时同样写入。即使浏览器关闭、刷新或前端进程丢失，完成的视频仍可从“全局历史”找到。
+
+- Flow/Prompt：编辑、删除文本或 `@` 引用时，统一规范化从持久化节点数据、工作流候选和个人库候选读出的字符串/数组；异常或旧格式数据会安全降级为空内容，避免一次 `.map()` / `.filter()` / 字符串操作异常触发画布错误边界。
+- Flow/Seedance 2.5：正式开放选择器并升级方舟上游模型至 `doubao-seedance-2-5-260628`；输出时长扩展为 4–30 秒，多模态参考能力按官方规格扩展为 30 张图片、10 条视频、10 条音频，视频/音频单条与合计时长均校验为 2–30 秒，2.5 可仅使用音频作为输入。`seedance-2.0` 保留为内部路由键，但请求提交前会强制写入 2.5 的 Ark 快照 ID，避免旧数据库模板将实际模型降级为 2.0。新增 new-api 幂等迁移，把已有的旧 2.5 catalog/ability 升级到当前快照模型 ID。
+
 ## 2026-08-07
 
 - Membership/Pricing: membership upgrades now use the price snapshot saved when the current plan was opened, calculate the remaining-time value as a deduction, and immediately replace the subscription with the target plan. Existing issued credits are retained while future unissued credits stop. Historical annual plans that issued their full annual quota upfront are explicitly excluded from the deduction. New annual plans opt into monthly 1/12 quota issuance through `metadata.creditIssuanceMode="yearly_monthly_installments"`, with `metadata.priceVersion` retained for audit; the membership checkout shows the calculated upgrade payment and deduction.
