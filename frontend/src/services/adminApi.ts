@@ -1216,6 +1216,7 @@ export async function getPaymentOrders(params?: {
 // 套餐配置
 export interface RechargePackage {
   price: number;
+  originalPrice?: number;
   credits: number;
   bonus: string | null;
   tag: string | null;
@@ -1225,6 +1226,8 @@ export interface RechargePackage {
 export interface PackagesResponse {
   packages: RechargePackage[];
   creditsPerYuan: number;
+  discountRate?: number;
+  membershipDiscountApplied?: boolean;
 }
 
 // 获取充值套餐

@@ -156,28 +156,6 @@ async function bootstrap() {
   await app.register(fastifyMultipart as any);
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
-  // Fastify 默认的 JSON parser 会把 `Content-Type: application/json` 且
-  // Content-Length 为 0 的 POST 视为解析错误。管理端有一类“只执行动作、
-  // 不带 body”的接口，浏览器/人工 curl 仍可能携带该 header；这里把空 body
-  // 规范为对象，避免请求尚未进入 Controller 就被错误地返回 500。
-  fastifyInstance.removeContentTypeParser("application/json");
-  fastifyInstance.addContentTypeParser(
-    "application/json",
-    { parseAs: "string" },
-    (_request, body, done) => {
-      const trimmed = typeof body === "string" ? body.trim() : "";
-      if (!trimmed) {
-        done(null, {});
-        return;
-      }
-
-      try {
-        done(null, JSON.parse(trimmed));
-      } catch (error) {
-        done(error as Error);
-      }
-    },
-  );
   fastifyInstance.addContentTypeParser(
     "*",
     { parseAs: "string" },

@@ -30,6 +30,7 @@ const WeChatPay = require('wechatpay-node-v3');
 
 const PAYMENT_ORDER_TTL_MINUTES = 30;
 const PAYMENT_RECONCILE_LOOKBACK_HOURS = 72;
+const ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE = 0.8;
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -285,6 +286,39 @@ export class PaymentService implements OnModuleInit {
     return Math.round(amount * 100) / 100;
   }
 
+  private async getRechargeDiscountRate(userId: string): Promise<number> {
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      select: { membershipPlanId: true, snapshot: true },
+    });
+    if (!subscription) return 1;
+
+    const snapshot =
+      subscription.snapshot && typeof subscription.snapshot === 'object' && !Array.isArray(subscription.snapshot)
+        ? (subscription.snapshot as Record<string, unknown>)
+        : null;
+    const snapshotCycle = typeof snapshot?.billingCycle === 'string'
+      ? snapshot.billingCycle.trim().toLowerCase()
+      : '';
+    if (snapshotCycle === 'yearly' || snapshotCycle === 'annual') {
+      return ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE;
+    }
+
+    const plan = await this.prisma.membershipPlan.findUnique({
+      where: { id: subscription.membershipPlanId },
+      select: { billingCycle: true },
+    });
+    const billingCycle = plan?.billingCycle?.trim().toLowerCase();
+    return billingCycle === 'yearly' || billingCycle === 'annual'
+      ? ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE
+      : 1;
+  }
+
   private getRechargePackageByAmount(amount: number) {
     return RECHARGE_PACKAGES.find(
       (item) => Math.abs(item.price - amount) < 0.0001,
@@ -299,20 +333,25 @@ export class PaymentService implements OnModuleInit {
     return packageConfig.credits;
   }
 
-  async getRechargePackages(_userId: string) {
+  async getRechargePackages(userId: string) {
+    const discountRate = await this.getRechargeDiscountRate(userId);
+    const membershipDiscountApplied = discountRate < 1;
     const packages = RECHARGE_PACKAGES.map((item) => {
       return {
-        price: item.price,
+        price: this.normalizeMoneyAmount(item.price * discountRate),
+        originalPrice: item.price,
         credits: item.credits,
-        bonus: null,
-        tag: null,
+        bonus:  null,
+        tag: membershipDiscountApplied ? '年费会员 8 折' : null,
         isFirstRecharge: false,
       };
     });
 
     return {
       packages,
-      creditsPerYuan: CREDITS_PER_YUAN,
+      creditsPerYuan: CREDITS_PER_YUAN / discountRate,
+      discountRate,
+      membershipDiscountApplied,
     };
   }
 
@@ -426,7 +465,26 @@ export class PaymentService implements OnModuleInit {
         throw new BadRequestException('Invalid amount precision');
       }
       orderAmount = normalizedAmount;
-      orderCredits = this.resolveRechargeOrderCredits(orderAmount);
+      if (!Number.isInteger(orderCredits) || orderCredits <= 0) {
+        throw new BadRequestException('Invalid recharge credits');
+      }
+      const discountRate = await this.getRechargeDiscountRate(userId);
+      const expectedAmount = this.normalizeMoneyAmount(
+        (orderCredits / CREDITS_PER_YUAN) * discountRate,
+      );
+      if (Math.abs(expectedAmount - orderAmount) >= 0.01) {
+        throw new BadRequestException(
+          discountRate < 1
+            ? '积分充值金额与年费会员折扣不匹配，请刷新充值页面后重试'
+            : '积分充值金额与积分数量不匹配',
+        );
+      }
+      orderCredits = Math.trunc(orderCredits);
+      dto.metadata = this.mergeOrderMetadata(dto.metadata, {
+        rechargeOriginalAmount: this.normalizeMoneyAmount(orderAmount / discountRate),
+        rechargeDiscountRate: discountRate,
+        annualMembershipDiscountApplied: discountRate < 1,
+      });
     }
 
     await this.prisma.paymentOrder.updateMany({

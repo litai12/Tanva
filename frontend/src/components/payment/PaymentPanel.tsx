@@ -51,6 +51,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   const { lt } = useLocaleText();
   const [packages, setPackages] = useState<RechargePackage[]>([]);
   const [creditsPerYuan, setCreditsPerYuan] = useState<number>(100);
+  const [membershipDiscountApplied, setMembershipDiscountApplied] = useState(false);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
@@ -226,6 +227,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         const data = await getPaymentPackages();
         setPackages(data.packages);
         if (data.creditsPerYuan) setCreditsPerYuan(data.creditsPerYuan);
+        setMembershipDiscountApplied(data.membershipDiscountApplied === true);
         if (data.packages.length > 0) {
           setSelectedPackage(0);
         }
@@ -616,7 +618,12 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                         : "border-zinc-700/80 bg-[#0f0f18] hover:border-zinc-600",
                   )}
                 >
-                  <div className={cn("text-2xl font-semibold", isWhite ? "text-slate-800" : "text-zinc-100")}>¥{pkg.price}</div>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <div className={cn("text-2xl font-semibold", isWhite ? "text-slate-800" : "text-zinc-100")}>¥{pkg.price}</div>
+                    {membershipDiscountApplied && typeof pkg.originalPrice === "number" && pkg.originalPrice > pkg.price ? (
+                      <div className={cn("text-xs line-through", isWhite ? "text-slate-400" : "text-zinc-600")}>¥{pkg.originalPrice}</div>
+                    ) : null}
+                  </div>
                   <div className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
                     {pkg.credits.toLocaleString()}
                     <span className="text-xs">{lt("积分", "credits")}</span>

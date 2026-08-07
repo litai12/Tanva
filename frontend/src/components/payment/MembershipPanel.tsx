@@ -41,6 +41,21 @@ function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): nu
   return (a.name || "").localeCompare(b.name || "", "zh-CN");
 }
 
+function resolvePlanTierRank(plan: {
+  sortOrder?: number;
+  monthlyQuotaCredits?: number;
+  price?: number;
+  metadata?: Record<string, unknown> | null;
+}): number {
+  const metadataTier = Number(getPlanMetadataObject(plan.metadata).tierRank);
+  if (Number.isFinite(metadataTier)) return metadataTier;
+  const sortOrder = Number(plan.sortOrder);
+  if (Number.isFinite(sortOrder) && sortOrder !== 0) return sortOrder;
+  const monthlyQuotaCredits = Number(plan.monthlyQuotaCredits);
+  if (Number.isFinite(monthlyQuotaCredits) && monthlyQuotaCredits > 0) return monthlyQuotaCredits;
+  return Number(plan.price) || 0;
+}
+
 const FREE_FEATURES: string[] = [
   "每日签到：50 积分",
   "Seedance 2 权益：不支持",
@@ -446,6 +461,24 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   };
 
   const isFreeUser = current?.entitlement?.membershipStatus !== "active";
+  const currentCatalogPlan = useMemo(
+    () => plans.find((plan) => plan.id === current?.plan?.id || normPlanCode(plan.code) === normPlanCode(current?.plan?.code)),
+    [plans, current?.plan?.code, current?.plan?.id],
+  );
+  const isPlanUpgradeAvailable = useCallback(
+    (plan: PaymentMembershipPlan): boolean => {
+      if (isFreeUser || !current?.plan) return true;
+      const currentRank = resolvePlanTierRank(currentCatalogPlan || current.plan);
+      const targetRank = resolvePlanTierRank(plan);
+      if (targetRank > currentRank) return true;
+      return (
+        targetRank === currentRank &&
+        current.plan.billingCycle === "monthly" &&
+        plan.billingCycle === "yearly"
+      );
+    },
+    [current?.plan, currentCatalogPlan, isFreeUser],
+  );
   const canTopUpCredits = true;
   const currentPlanName = isFreeUser
     ? TIER_SERIF_LABEL.free
@@ -805,6 +838,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     </div>
 
                   {filteredPlans.map((plan) => {
+                    const canUpgradeToPlan = isPlanUpgradeAvailable(plan);
                     const active = plan.code === selectedPlanCode;
                     const confirmedActive = active && userConfirmedPlan;
                     const tierTitle = plan.name;
@@ -923,17 +957,27 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
 
                         <button
                           type="button"
+                          disabled={!canUpgradeToPlan}
                           onClick={() => {
+                            if (!canUpgradeToPlan) return;
                             void selectPlanForPurchase(plan.code);
                           }}
                           className={cn(
                             "mt-4 w-full rounded-xl py-3 text-xs font-semibold text-white shadow-lg transition-transform sm:py-3.5 sm:text-sm",
-                            confirmedActive
+                            !canUpgradeToPlan
+                              ? isWhite
+                                ? "cursor-not-allowed bg-slate-200 text-slate-400 shadow-none"
+                                : "cursor-not-allowed bg-zinc-800 text-zinc-500 shadow-none"
+                              : confirmedActive
                               ? "bg-gradient-to-r from-[#6f66e8] to-[#9aa8ef] shadow-violet-950/50 ring-2 ring-white/20"
                               : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] shadow-violet-950/40 hover:scale-[1.01] active:scale-[0.99]",
                           )}
                         >
-                          {confirmedActive
+                          {!canUpgradeToPlan
+                            ? normPlanCode(plan.code) === normPlanCode(current?.plan?.code)
+                              ? "当前套餐"
+                              : "仅支持升级"
+                            : confirmedActive
                             ? "已选择 · 右侧扫码支付"
                             : plan.billingCycle === "yearly"
                               ? "订阅年计划"

@@ -103,10 +103,10 @@ export const initOpenTelemetry = (): void => {
   };
 
   process.once('SIGTERM', () => {
-    void shutdown();
+    void shutdown().finally(() => process.exit(0));
   });
   process.once('SIGINT', () => {
-    void shutdown();
+    void shutdown().finally(() => process.exit(0));
   });
 };
 
