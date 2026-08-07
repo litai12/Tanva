@@ -2260,6 +2260,10 @@ export class VideoProviderService {
 
   private resolveNewApiDuration(options: VideoProviderRequestDto): number {
     const duration = Number(options.duration || 5);
+    const isSeedance25VideoEditing =
+      options.provider === "doubao" &&
+      String(options.videoMode || "").trim().toLowerCase() === "video_editing";
+    if (isSeedance25VideoEditing && duration === -1) return -1;
     if (!Number.isFinite(duration) || duration <= 0) return 5;
     return Math.max(1, Math.min(30, Math.round(duration)));
   }
@@ -2878,9 +2882,17 @@ export class VideoProviderService {
     const allResolvedUrls = [...uploadedStringUrls, ...objectItemUrls];
 
     const transport = String(route.vendor?.metadata?.requestProfile?.transport || "").trim();
+    const isSeedance25VideoEditing =
+      modelKey === "seedance-2.0" &&
+      this.resolveManagedSeedanceModel(options).modelVersion === "2.5" &&
+      String(options.videoMode || "").trim().toLowerCase() === "video_editing" &&
+      referenceVideos.length === 1;
     const baseContext: Record<string, any> = {
       request: {
         ...options,
+        ...(isSeedance25VideoEditing
+          ? { aspectRatio: "adaptive", duration: -1 }
+          : {}),
         resolution: resolutionForRequest,
         prompt: options.prompt || "",
         promptWithParams: promptText,
@@ -4121,6 +4133,10 @@ export class VideoProviderService {
       model: modelId,
       content,
     };
+    const isSeedance25VideoEditing =
+      modelVersion === "2.5" &&
+      String(options.videoMode || "").trim().toLowerCase() === "video_editing" &&
+      referenceVideos.length === 1;
 
     if (isSeedance2Model) {
       if (typeof options.generateAudio === "boolean") {
@@ -4129,11 +4145,16 @@ export class VideoProviderService {
       if (typeof options.videoMode === "string" && options.videoMode.trim()) {
         payload.video_mode = options.videoMode.trim();
       }
-      if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
-        payload.ratio = options.aspectRatio.trim();
-      }
-      if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
-        payload.duration = options.duration;
+      if (isSeedance25VideoEditing) {
+        payload.ratio = "adaptive";
+        payload.duration = -1;
+      } else {
+        if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
+          payload.ratio = options.aspectRatio.trim();
+        }
+        if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
+          payload.duration = options.duration;
+        }
       }
       if (typeof options.resolution === "string" && options.resolution.trim()) {
         payload.resolution = options.resolution.trim().toUpperCase();

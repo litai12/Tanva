@@ -1376,7 +1376,14 @@ const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE25_DURATIONS = Array.from({ length: 27 }, (_, index) => index + 4);
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
-type Seedance20Mode = "reference_images" | "start_end" | "first_frame" | "smart_frames";
+type Seedance20Mode =
+  | "reference_images"
+  | "start_end"
+  | "first_frame"
+  | "smart_frames"
+  | "video_editing"
+  | "video_extend"
+  | "video_reference";
 type Seedance15Mode = "text" | "image" | "start_end";
 type SeedanceMode = Seedance20Mode | Seedance15Mode;
 
@@ -1385,6 +1392,9 @@ const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
   "start_end",
   "first_frame",
   "smart_frames",
+  "video_editing",
+  "video_extend",
+  "video_reference",
 ];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
@@ -12051,6 +12061,14 @@ function FlowInner() {
       const mode = inferSeedanceMode(node);
       if (profile.isSeedance20) {
         const isSeedance25 = profile.model === "seedance-2.5";
+        if (["video_editing", "video_extend", "video_reference"].includes(mode)) {
+          return {
+            imageHandleMax: 0,
+            image2HandleMax: 0,
+            videoHandleMax: 1,
+            audioHandleMax: 0,
+          };
+        }
         if (mode === "first_frame") {
           return {
             imageHandleMax: 1,
@@ -20725,7 +20743,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           const isSeedance25Request =
             isSeedance20Request && normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5";
           const seedanceMaxDuration = isSeedance25Request ? 30 : 15;
-          if (isSeedance20Request && (clipDuration < 4 || clipDuration > seedanceMaxDuration)) {
+          const isSeedanceVideoEditing =
+            isSeedance25Request &&
+            seedanceMode === "video_editing" &&
+            currentEdges.filter(
+              (edge) => edge.target === nodeId && edge.targetHandle === "video"
+            ).length === 1;
+          if (
+            isSeedance20Request &&
+            !isSeedanceVideoEditing &&
+            (clipDuration < 4 || clipDuration > seedanceMaxDuration)
+          ) {
             failCurrentVideoNode(`Seedance ${isSeedance25Request ? "2.5" : "2.0"} 生成时长仅支持 4-${seedanceMaxDuration} 秒`);
             return;
           }
@@ -21479,6 +21507,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               ? "start-end2video"
               : "img2video"
             : "img2video";
+        const isSeedanceVideoEditing =
+          isSeedance20Request &&
+          normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5" &&
+          seedanceMode === "video_editing" &&
+          referenceVideoUrls.length === 1;
+        const seedanceRequestAspectRatio = isSeedanceVideoEditing
+          ? "adaptive"
+          : aspectRatioForAPI;
+        const seedanceRequestDuration = isSeedanceVideoEditing
+          ? -1
+          : durationForAPI;
         const viduVideoModeForAPI =
           provider !== "vidu" && provider !== "viduq3-pro"
             ? undefined
@@ -21640,11 +21679,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                       : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
                       ? rawNodeData.audioUrls
                       : undefined,
-                  duration: durationForAPI,
-                  aspectRatio: aspectRatioForAPI,
+                  duration: seedanceRequestDuration,
+                  aspectRatio: seedanceRequestAspectRatio,
                   provider: provider as VideoProvider,
                   resolution: rawNodeData.resolution,
-                  videoMode: seedanceVideoModeForAPI,
+                  videoMode: isSeedanceVideoEditing
+                    ? "video_editing"
+                    : seedanceVideoModeForAPI,
                   generateAudio:
                     isSeedance20Request
                       ? typeof rawNodeData.generateAudio === "boolean"
@@ -22008,7 +22049,10 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   }
                 }
                 const failureMessage = formatVideoProviderError(
-                  (queryResult as any).error || "任务生成失败",
+                  (queryResult as any).error ||
+                    (queryResult as any).message ||
+                    (queryResult as any).reason ||
+                    "任务生成失败",
                   {
                     language,
                     fallbackZh: "任务生成失败，请重试。",

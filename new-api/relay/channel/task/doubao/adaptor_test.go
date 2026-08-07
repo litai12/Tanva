@@ -128,3 +128,44 @@ func TestConvertReferenceAudioUsesAssetURI(t *testing.T) {
 		t.Fatalf("reference audio item missing/wrong: %+v (roles=%v)", audio, findRoles(r.Content))
 	}
 }
+
+func TestConvertVideoEditingPreservesArkAutoDuration(t *testing.T) {
+	a := &TaskAdaptor{}
+	req := &relaycommon.TaskSubmitReq{
+		Model:           "doubao-seedance-2-5-260628",
+		Prompt:          "替换成写实风格",
+		Duration:        -1,
+		AspectRatio:     "adaptive",
+		ReferenceVideos: []string{"asset://video-1"},
+		ProviderOptions: map[string]interface{}{"videoMode": "video_editing"},
+	}
+
+	r, err := a.convertToRequestPayload(req)
+	if err != nil {
+		t.Fatalf("convertToRequestPayload error: %v", err)
+	}
+	if r.Duration == nil || int(*r.Duration) != -1 {
+		t.Fatalf("duration = %v, want pointer to -1", r.Duration)
+	}
+	if r.Ratio != "adaptive" {
+		t.Fatalf("ratio = %q, want adaptive", r.Ratio)
+	}
+}
+
+func TestConvertNormalVideoDoesNotInventNegativeDuration(t *testing.T) {
+	a := &TaskAdaptor{}
+	req := &relaycommon.TaskSubmitReq{
+		Model:           "doubao-seedance-2-5-260628",
+		Prompt:          "生成一个视频",
+		Duration:        -1,
+		ProviderOptions: map[string]interface{}{"videoMode": "text_to_video"},
+	}
+
+	r, err := a.convertToRequestPayload(req)
+	if err != nil {
+		t.Fatalf("convertToRequestPayload error: %v", err)
+	}
+	if r.Duration != nil {
+		t.Fatalf("duration = %v, want omitted for non-editing mode", r.Duration)
+	}
+}

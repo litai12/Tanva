@@ -57,6 +57,23 @@ func TestTaskSubmitReqUnmarshalSupportsSnakeAndCamelAliases(t *testing.T) {
 	require.Equal(t, "9:16", req.Metadata["aspect_ratio"])
 }
 
+func TestTaskSubmitReqUnmarshalPreservesProviderOptions(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"model":"doubao-seedance-2-5-260628",
+		"prompt":"替换成写实风格",
+		"duration":-1,
+		"provider_options":{"videoMode":"video_editing","sourceProvider":"doubao"}
+	}`)
+
+	var req TaskSubmitReq
+	require.NoError(t, tanvasMartcommon.Unmarshal(raw, &req))
+	require.Equal(t, -1, req.Duration)
+	require.Equal(t, "video_editing", req.ProviderOptions["videoMode"])
+	require.Equal(t, "doubao", req.ProviderOptions["sourceProvider"])
+}
+
 func TestNormalizeTaskSubmitReqIncludesInputReference(t *testing.T) {
 	t.Parallel()
 

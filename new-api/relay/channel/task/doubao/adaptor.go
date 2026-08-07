@@ -434,9 +434,14 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 
-	// 顶层 duration 优先于 seconds（兼容 OpenAI /v1/videos 的 seconds 字符串）
+	// 顶层 duration 优先于 seconds（兼容 OpenAI /v1/videos 的 seconds 字符串）。
+	// Seedance 2.5 video editing is a special Ark protocol mode: duration=-1
+	// means "follow the selected input video's duration". Do not apply the
+	// normal positive-duration fallback here, and do not omit the field.
 	if r.Duration == nil {
-		if req.Duration > 0 {
+		if isVideoEditing(req) && req.Duration == -1 {
+			r.Duration = lo.ToPtr(dto.IntValue(-1))
+		} else if req.Duration > 0 {
 			r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
 		} else if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
 			r.Duration = lo.ToPtr(dto.IntValue(sec))
@@ -475,6 +480,18 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	})
 
 	return &r, nil
+}
+
+func isVideoEditing(req *relaycommon.TaskSubmitReq) bool {
+	if req == nil || req.ProviderOptions == nil {
+		return false
+	}
+	for _, key := range []string{"videoMode", "video_mode"} {
+		if mode, ok := req.ProviderOptions[key].(string); ok && strings.EqualFold(strings.TrimSpace(mode), "video_editing") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

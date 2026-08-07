@@ -12,6 +12,8 @@
 - 年卡覆盖式升级的剩余价值抵扣必须同时满足“分期快照”和“当前周期存在 `annualInstallmentIndex` 积分流水”。抵扣比例是“当前有效期内计划发放期数中尚未实际发放的比例”，不是剩余天数比例；月卡、旧年卡和没有首期期号的异常一次性年卡一律为零。管理员手工缩短有效期时，结束日决定最多可计划多少期，结束日外的额度不会参与抵扣。
 
 ## 2026-07-31 Seedance 2.5
+- Seedance 2.5 单视频输入新增三种显式 Flow 模式：`video_editing`（视频编辑）、`video_extend`（视频延长）与 `video_reference`（多模态参考）；三者都限制为单条参考视频，避免“全能参考”同时携带 `video_url` 与普通生成时长/比例造成 Ark 自动切入编辑校验。编辑模式在前端探测到输入视频时把节点时长同步为参考视频时长，后端及 managed/new-api 路由最终强制向 Ark 发送 `ratio=adaptive`、`duration=-1`。
+- 视频编辑的 `duration=-1` 仅是 Ark 上游协议值，不进入积分计算；后端先探测参考视频真实时长，编辑任务按输入视频时长一次计费，并把正数计费上下文与上游 DTO 分离。
 - `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。
 - 2.5 输出时长为 4–30 秒，继续复用 Seedance 2.x 的模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。Tanva 不再对 2.5 的提示词施加 5000 字符上限，原始文本与追加的 `@` 图片映射会完整透传至 Ark；上游自身的请求限制仍由其响应如实返回。
 - 2.5 只允许 `480P`、`720P`。Flow 会在型号切换时回落非法值，`AiController` 在积分预扣和上游提交之前再次校验，历史节点携带 `1080P/4K` 时返回 HTTP 400。
@@ -134,6 +136,7 @@
 - 快乐马 `POST /api/ai/dashscope/generate-happyhorse-video` 默认仅允许已登录付费用户调用：成功支付过任意订单（充值或会员）可用；未支付过的会员用户需当前有效套餐 metadata 显式配置 `happyhorseAccess: "enabled"`；免费档默认不支持。该接口创建 DashScope 任务后立即返回 `taskId/apiUsageId`，前端通过 `/api/ai/dashscope/task/:taskId` 轮询并在成功/失败时回写积分状态。
 - Seedance 2.0 直连方舟链路已支持媒体优先请求：�?prompt 但有图片/视频/音频参考时不再错误拼接 `undefined` 文本；并同步放宽到官�?`4-15s`、`480P/720P`�? 种宽高比以及多模态参考组合�?
 - Seedance 2.0 模式选择会通过 `video_mode` 下发到方舟请求体，确�?`Seedance 2.0` 节点的模式化输入在上游生效�?
+- Seedance 2.5 视频编辑经 new-api `/v1/videos` 兼容层时，`provider_options.videoMode=video_editing` 与 `duration=-1` 会被保留；Doubao Ark 上游必须收到 `ratio=adaptive` 和显式 `duration=-1`，普通视频请求仍不接受负数时长。
 - Seedance 2.0 全能参考 (`reference_images`) 运行时要求所有图片使用 `reference_image` 角色；当 new-api `/v1/videos` 兼容层把图片误解释为首帧并返回 `first/last frame content cannot be mixed with reference media content` 时，后端会自动改走 managed V2/Ark `content` 直连兜底。
 - Seedance 2.0 权益识别补齐 `seed-2.0-pro / seed-2.0-mini`（含别名），避免 2.0 家族模型在后端分支判断中被误判为 1.5。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?

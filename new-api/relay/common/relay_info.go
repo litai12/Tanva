@@ -702,6 +702,11 @@ type TaskSubmitReq struct {
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	// ProviderOptions carries vendor-specific options from the unified /v1/videos
+	// endpoint. Seedance uses videoMode to distinguish editing from generation;
+	// keeping this field prevents the relay from dropping that mode before the
+	// channel adaptor builds the Ark request.
+	ProviderOptions map[string]interface{} `json:"provider_options,omitempty"`
 }
 
 type TaskMediaWithRole struct {
@@ -721,6 +726,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
 		Metadata             json.RawMessage `json:"metadata,omitempty"`
+		ProviderOptions      json.RawMessage `json:"provider_options,omitempty"`
 		Duration             json.RawMessage `json:"duration,omitempty"`
 		ReferenceImagesSnake json.RawMessage `json:"reference_images,omitempty"`
 		ReferenceVideosCamel json.RawMessage `json:"referenceVideos,omitempty"`
@@ -761,6 +767,13 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		var metadataObj map[string]interface{}
 		if err := common.Unmarshal(aux.Metadata, &metadataObj); err == nil {
 			t.Metadata = metadataObj
+		}
+	}
+
+	if len(aux.ProviderOptions) > 0 {
+		var providerOptions map[string]interface{}
+		if err := common.Unmarshal(aux.ProviderOptions, &providerOptions); err == nil {
+			t.ProviderOptions = providerOptions
 		}
 	}
 

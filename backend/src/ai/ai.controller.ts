@@ -1500,8 +1500,10 @@ export class AiController {
         return params;
       }
 
-      const outputDurationSec = Number(params.duration ?? params.durationSec);
-      if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) {
+      const isVideoEditing =
+        String(dto.videoMode || '').trim().toLowerCase() === 'video_editing';
+      const requestedDurationSec = Number(params.duration ?? params.durationSec);
+      if (!isVideoEditing && (!Number.isFinite(requestedDurationSec) || requestedDurationSec <= 0)) {
         throw new BadRequestException('Seedance 2.x 计费需要明确的正数输出时长');
       }
 
@@ -1515,8 +1517,25 @@ export class AiController {
         params.referenceVideoDurationsSec = inputVideoDurationsSec;
       }
 
+      if (isVideoEditing) {
+        const inputVideoDurationSec = Number(
+          inputVideoDurationsSec.reduce((total, duration) => total + duration, 0).toFixed(3),
+        );
+        if (!Number.isFinite(inputVideoDurationSec) || inputVideoDurationSec <= 0) {
+          throw new BadRequestException('Seedance 视频编辑计费需要可识别的参考视频时长');
+        }
+        // -1 is the Ark protocol value for editing and must never enter pricing.
+        // Editing follows the input video, so charge the processed input duration once.
+        params.outputDurationSec = inputVideoDurationSec;
+        params.inputVideoDurationSec = inputVideoDurationSec;
+        params.billingDurationSec = inputVideoDurationSec;
+        params.duration = inputVideoDurationSec;
+        params.durationSec = inputVideoDurationSec;
+        return params;
+      }
+
       const billing = calculateSeedance20BillingDuration(
-        outputDurationSec,
+        requestedDurationSec,
         inputVideoDurationsSec,
       );
       params.outputDurationSec = billing.outputDurationSec;
@@ -1631,8 +1650,16 @@ export class AiController {
         );
       }
       const duration = Number(dto.duration);
-      if (!Number.isFinite(duration) || duration < 4 || duration > 30 || !Number.isInteger(duration)) {
+      const isVideoEditing =
+        String(dto.videoMode || '').trim().toLowerCase() === 'video_editing';
+      if (
+        !isVideoEditing &&
+        (!Number.isFinite(duration) || duration < 4 || duration > 30 || !Number.isInteger(duration))
+      ) {
         throw new BadRequestException('Seedance 2.5 生成时长仅支持 4–30 秒的整数值');
+      }
+      if (isVideoEditing && duration !== -1) {
+        throw new BadRequestException('Seedance 2.5 视频编辑模式的 duration 必须为 -1');
       }
     }
 

@@ -49,7 +49,14 @@ type SeedanceModel =
   | "seed-2.0-pro"
   | "seed-2.0-lite"
   | "seed-2.0-mini";
-type Seedance20Mode = "reference_images" | "start_end" | "first_frame" | "smart_frames";
+type Seedance20Mode =
+  | "reference_images"
+  | "start_end"
+  | "first_frame"
+  | "smart_frames"
+  | "video_editing"
+  | "video_extend"
+  | "video_reference";
 type Seedance15Mode = "text" | "image" | "start_end";
 type SeedanceMode = Seedance20Mode | Seedance15Mode;
 type SeedFamily = "seedance" | "seed2";
@@ -325,6 +332,9 @@ const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
   "start_end",
   "first_frame",
   "smart_frames",
+  "video_editing",
+  "video_extend",
+  "video_reference",
 ];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
@@ -388,7 +398,13 @@ const isSeedance15ModeValue = (value: unknown): value is Seedance15Mode =>
   typeof value === "string" && SEEDANCE15_MODE_VALUES.includes(value as Seedance15Mode);
 
 const getSeedance20SupportedModes = (model: SeedanceModel): Seedance20Mode[] =>
-  model === "seed-2.0-mini" ? SEED20_MINI_SUPPORTED_MODES : SEEDANCE20_MODE_VALUES;
+  model === "seed-2.0-mini"
+    ? SEED20_MINI_SUPPORTED_MODES
+    : model === "seedance-2.5"
+    ? SEEDANCE20_MODE_VALUES
+    : SEEDANCE20_MODE_VALUES.filter(
+        (mode) => !["video_editing", "video_extend", "video_reference"].includes(mode)
+      );
 
 const getSeedance20ResolutionList = (model: SeedanceModel): string[] => {
   if (model === "seedance-2.5") return [...SEEDANCE25_DOC_RESOLUTIONS];
@@ -479,6 +495,16 @@ const getSeedance20ModeSpec = (mode: Seedance20Mode, model: SeedanceModel): Seed
         image2HandleMax: 0,
         videoHandleMax: model === "seedance-2.5" ? 10 : 3,
         audioHandleMax: model === "seedance-2.5" ? 10 : 3,
+      };
+    case "video_editing":
+    case "video_extend":
+    case "video_reference":
+      return {
+        visibleHandles: ["text", "video"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 1,
+        audioHandleMax: 0,
       };
     default:
       return {
@@ -1686,6 +1712,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     );
   }, [clipDuration, id, isSeedance20Model, seedance20RestrictedForCurrentUser]);
   const durationOptions = React.useMemo(() => {
+    if (
+      provider === "doubao" &&
+      seedanceModel === "seedance-2.5" &&
+      seedanceMode === "video_editing" &&
+      videoInputCount === 1 &&
+      Number.isFinite(inputVideoDurationSec) &&
+      inputVideoDurationSec >= 4 &&
+      inputVideoDurationSec <= 30
+    ) {
+      const value = Math.round(inputVideoDurationSec);
+      return [{ label: lt(`${value}秒（跟随参考视频）`, `${value}s (input video)`), value }];
+    }
     if (provider === "hailuo") return getDurationOptions();
     if (provider === "doubao" && isSeedance20Model) {
       const durationList =
@@ -1713,7 +1751,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       return getDurationOptions();
     }
     return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
-  }, [getDurationOptions, hailuoParam, isSeedance20Model, isViduNode, lt, provider, seedanceModel, vodDurationOptions]);
+  }, [getDurationOptions, hailuoParam, inputVideoDurationSec, isSeedance20Model, isViduNode, lt, provider, seedanceMode, seedanceModel, videoInputCount, vodDurationOptions]);
   const durationOptionValues = React.useMemo(
     () => durationOptions.map((option) => option.value),
     [durationOptions]
@@ -1734,7 +1772,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return isContiguous ? { min, max } : null;
   }, [durationOptionValues]);
   const shouldShowAspectSelector =
-    isHailuoModel
+    provider === "doubao" && seedanceModel === "seedance-2.5" && seedanceMode === "video_editing"
+      ? false
+      : isHailuoModel
       ? true
       : isSeedanceModel
       ? true
@@ -1883,6 +1923,34 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 "Text unlimited, image<=9, video<=3 (2–15s each), audio<=3 (2–5s each)"
               ),
             },
+            ...(seedanceModel === "seedance-2.5" && videoInputCount === 1
+              ? [
+                  {
+                    value: "video_editing",
+                    label: lt("视频编辑", "Video editing"),
+                    description: lt(
+                      "单个视频：保持人物/动作，编辑环境或画面；时长跟随参考视频",
+                      "One video: edit the scene while preserving subjects/actions; duration follows the input"
+                    ),
+                  },
+                  {
+                    value: "video_extend",
+                    label: lt("视频延长", "Video extension"),
+                    description: lt(
+                      "单个视频：延续原视频内容并生成后续镜头",
+                      "One video: continue the input video with new footage"
+                    ),
+                  },
+                  {
+                    value: "video_reference",
+                    label: lt("多模态参考", "Multimodal reference"),
+                    description: lt(
+                      "单个视频作为动作、构图或运镜参考，生成新视频",
+                      "Use one video as motion, composition, or camera reference"
+                    ),
+                  },
+                ]
+              : []),
             {
               value: "first_frame",
               label: lt("首帧（1图）", "First frame (1 image)"),
@@ -1921,8 +1989,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               description: lt("首帧(image) + 尾帧(image-2)，总共 1-2 张图", "Start frame (image) + end frame (image-2), 1-2 images total"),
             },
           ],
-    [isSeedance20Model, lt, seedance20SupportedModes]
+    [isSeedance20Model, lt, seedance20SupportedModes, seedanceModel, videoInputCount]
   );
+
+  React.useEffect(() => {
+    if (
+      provider !== "doubao" ||
+      seedanceModel !== "seedance-2.5" ||
+      seedanceMode !== "video_editing" ||
+      videoInputCount !== 1 ||
+      !Number.isFinite(inputVideoDurationSec) ||
+      inputVideoDurationSec <= 0
+    ) {
+      return;
+    }
+    const nextDuration = Math.round(inputVideoDurationSec);
+    if (nextDuration < 4 || nextDuration > 30 || nextDuration === clipDuration) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { clipDuration: nextDuration } },
+      })
+    );
+  }, [clipDuration, id, inputVideoDurationSec, provider, seedanceMode, seedanceModel, videoInputCount]);
 
   React.useEffect(() => {
     if (!shouldShowAspectSelector) {
