@@ -357,10 +357,7 @@ export class NodeConfigService {
           .filter(
             (vendor) =>
               vendor &&
-              (vendor.enabled !== false ||
-                (model.taskType === 'video' &&
-                  vendor.vendorKey !== 'tencent_vod' &&
-                  vendor.vendorKey !== 'tengxun')) &&
+              vendor.enabled !== false &&
               typeof vendor.vendorKey === 'string' &&
               vendor.vendorKey.trim(),
           )
@@ -480,15 +477,17 @@ export class NodeConfigService {
         nextMetadata.managedModelKey = targetManagedModelKey;
         nextMetadata.managedRoutes = managedRoutes;
 
-        // 视频节点的新建默认固定走普通通道；模型路由 defaultVendor 只属管理配置，
-        // 不能静默把 Flow 节点初始化成腾讯尊享。
-        const selectedVendor =
-          (managedModel?.taskType === 'video'
+        // 当前画布中已配置 Tencent VOD 的视频模型必须走 VOD 单一路由。
+        // Seedance/Wan 等没有 Tencent vendor 的模型保持原默认路由。
+        const tencentVideoVendor =
+          managedModel?.taskType === 'video'
             ? managedRoutes.vendors.find(
                 (vendor) =>
-                  vendor.vendorKey !== 'tencent_vod' && vendor.vendorKey !== 'tengxun',
+                  vendor.vendorKey === 'tencent_vod' || vendor.vendorKey === 'tengxun',
               )
-            : undefined) ||
+            : undefined;
+        const selectedVendor =
+          tencentVideoVendor ||
           managedRoutes.vendors.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
           managedRoutes.vendors[0];
 
@@ -503,7 +502,10 @@ export class NodeConfigService {
               vendorKey: selectedVendor.vendorKey,
               platformKey: selectedVendor.platformKey || selectedVendor.vendorKey,
               ...(managedModel?.taskType === 'video'
-                ? { channelTier: 'default', channelSelectionExplicit: false }
+                ? {
+                    channelTier: tencentVideoVendor ? 'vip' : 'default',
+                    channelSelectionExplicit: Boolean(tencentVideoVendor),
+                  }
                 : {}),
               creditsPerCall:
                 typeof selectedVendor.creditsPerCall === 'number'
@@ -1225,7 +1227,7 @@ export class NodeConfigService {
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '1:1'],
                 durations: [5, 10],
-                resolutions: ['720P', '1080P'],
+                resolutions: ['720P', '1080P', '2K', '4K'],
                 audioGeneration: true,
               },
               inputModes: ['text', 'image', 'start_end'],
@@ -1274,7 +1276,7 @@ export class NodeConfigService {
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '1:1'],
                 durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                resolutions: ['720P', '1080P'],
+                resolutions: ['720P', '1080P', '2K', '4K'],
                 audioGeneration: true,
               },
               inputModes: ['text', 'image'],
@@ -1307,6 +1309,7 @@ export class NodeConfigService {
               supportedModels: ['kling-o3'],
               defaultData: {
                 provider: 'kling-o3',
+                klingModel: 'kling-o3',
                 mode: 'std',
                 clipDuration: 5,
                 klingStoryboardMode: 'single',
@@ -1314,7 +1317,7 @@ export class NodeConfigService {
               billingType: 'per_call',
               billingNote: '按次计费，16元/次',
               supportedModes: ['text2video', 'image2video', 'video_edit'],
-              durationRange: { min: 3, max: 10 },
+              durationRange: { min: 3, max: 15 },
             },
             {
               label: 'VOD Kling 3.0-Omni',
@@ -1322,8 +1325,8 @@ export class NodeConfigService {
               modelVersion: '3.0-Omni',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
-                resolutions: ['720P', '1080P'],
+                durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                resolutions: ['720P', '1080P', '2K', '4K'],
                 audioGeneration: true,
               },
               inputModes: ['text', 'image', 'reference_video'],
@@ -1362,9 +1365,9 @@ export class NodeConfigService {
               modelVersion: 'q2 / q3',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                // apimart viduq3 仅支持 3-16s（1-2s 是 viduq3-mix 专属，本节点未启用 mix）。
+                // VOD Q3 为 3-16s；具体变体由输入模式解析。
                 durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-                resolutions: ['540P', '720P', '1080P'],
+                resolutions: ['720P', '1080P', '2K', '4K'],
               },
               inputModes: ['text', 'image', 'reference'],
               notes: ['Q2 / Q3 统一收拢到同一个 Vidu 节点'],
@@ -2068,6 +2071,7 @@ export class NodeConfigService {
           supportedModels: ['kling-o3'],
           defaultData: {
             provider: 'kling-o3',
+            klingModel: 'kling-o3',
             mode: 'std',
             clipDuration: 5,
             klingStoryboardMode: 'single',
@@ -2075,7 +2079,7 @@ export class NodeConfigService {
           billingType: 'per_call',
           billingNote: '按次计费，16元/次',
           supportedModes: ['text2video', 'image2video', 'video_edit'],
-          durationRange: { min: 3, max: 10 },
+          durationRange: { min: 3, max: 15 },
         },
       },
       {

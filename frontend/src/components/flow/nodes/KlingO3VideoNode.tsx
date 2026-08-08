@@ -10,7 +10,12 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
-import { sanitizeVideoVendorKey } from "../managedRoutePricing";
+import {
+  getManagedRouteOption,
+  isTencentVendorKey,
+  sanitizeVideoManagedRoutes,
+  sanitizeVideoVendorKey,
+} from "../managedRoutePricing";
 import {
   resolveKlingO3VideoMode,
   resolveKlingO3InputType,
@@ -33,7 +38,7 @@ type Props = {
     creditsPerCall?: number;
     clipDuration?: number;
     aspectRatio?: string;
-    mode?: "std" | "pro";
+    mode?: "std" | "pro" | "2k" | "4k";
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
     // 视频编辑参数
@@ -42,6 +47,9 @@ type Props = {
     keepOriginalSound?: "yes" | "no";
     vendorKey?: string;
     platformKey?: string;
+    channelTier?: "default" | "vip";
+    channelSelectionExplicit?: boolean;
+    nodeConfigMetadata?: Record<string, any>;
     klingStoryboardMode?: "single" | "intelligence" | "customize";
     klingStoryboardScript?: string;
     klingStoryboardShots?: Array<{ index?: number; prompt?: string; duration?: number | string }>;
@@ -138,10 +146,19 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
-  // Tencent route removed: kling-o3 follows the token and lets new-api pick the
-  // upstream per route. Never preview/send tencent_vod as the vendor.
-  const sanitizedVendorKey = sanitizeVideoVendorKey(data.vendorKey);
-  const sanitizedPlatformKey = sanitizeVideoVendorKey(data.platformKey);
+  const enforcedManagedRoute = getManagedRouteOption(
+    sanitizeVideoManagedRoutes(data.nodeConfigMetadata),
+    sanitizeVideoVendorKey(data.vendorKey)
+  );
+  const hasEnforcedVodRoute = Boolean(
+    enforcedManagedRoute && isTencentVendorKey(enforcedManagedRoute.vendorKey)
+  );
+  const sanitizedVendorKey = hasEnforcedVodRoute
+    ? enforcedManagedRoute?.vendorKey
+    : sanitizeVideoVendorKey(data.vendorKey);
+  const sanitizedPlatformKey = hasEnforcedVodRoute
+    ? enforcedManagedRoute?.platformKey || enforcedManagedRoute?.vendorKey
+    : sanitizeVideoVendorKey(data.platformKey);
   const previewRequestParams = React.useMemo(
     () => ({
       aiProvider: "kling-o3",
@@ -175,9 +192,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       referenceImageCount: imageInputCount,
       audioInputCount: 0,
       referenceVideoType: data.referenceVideoType,
-      // 不再写死 1080P：画质由 mode 决定，按 mode 派生计费 resolution，与后端扣费同源
-      // (后端 buildVideoProviderCreditParams 对 kling-o3 也按 mode 派生)。原写死 1080P 会让
-      // std(720P)的预估按 1080P 算→预估 800 而实扣 600。
+      // VOD 输出与计费都按 mode 派生同一个明确 resolution。
       resolution: klingO3BillingResolutionFromMode(data.mode),
     }),
     [
@@ -427,6 +442,34 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     [id]
   );
 
+  React.useEffect(() => {
+    if (!hasEnforcedVodRoute || !enforcedManagedRoute) return;
+    const desiredPlatform =
+      enforcedManagedRoute.platformKey || enforcedManagedRoute.vendorKey;
+    if (
+      data.vendorKey === enforcedManagedRoute.vendorKey &&
+      data.platformKey === desiredPlatform &&
+      data.channelTier === "vip" &&
+      data.channelSelectionExplicit === true
+    ) {
+      return;
+    }
+    patchNodeData({
+      vendorKey: enforcedManagedRoute.vendorKey,
+      platformKey: desiredPlatform,
+      channelTier: "vip",
+      channelSelectionExplicit: true,
+    });
+  }, [
+    data.channelSelectionExplicit,
+    data.channelTier,
+    data.platformKey,
+    data.vendorKey,
+    enforcedManagedRoute,
+    hasEnforcedVodRoute,
+    patchNodeData,
+  ]);
+
   const handleKlingSoundToggle = React.useCallback(() => {
     patchNodeData({ sound: !klingSoundEnabled });
   }, [klingSoundEnabled, patchNodeData]);
@@ -437,9 +480,11 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   }, [(data as any).sound, patchNodeData]);
 
   // ── omni 新增参数（直到 new-api：negative_prompt / mode 4k / watermark / 分镜 / 角色） ──
-  const modeValue: "std" | "pro" | "4k" =
-    (data as any).mode === "pro" || (data as any).mode === "4k"
-      ? ((data as any).mode as "pro" | "4k")
+  const modeValue: "std" | "pro" | "2k" | "4k" =
+    (data as any).mode === "pro" ||
+    (data as any).mode === "2k" ||
+    (data as any).mode === "4k"
+      ? ((data as any).mode as "pro" | "2k" | "4k")
       : "std";
   const negativePromptValue =
     typeof (data as any).negativePrompt === "string" ? (data as any).negativePrompt : "";
@@ -459,9 +504,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       ? (data as any).elementDescription
       : "";
 
-  const modeOptions: Array<{ value: "std" | "pro" | "4k"; label: string }> = [
+  const modeOptions: Array<{ value: "std" | "pro" | "2k" | "4k"; label: string }> = [
     { value: "std", label: lt("标准 720P", "Std 720P") },
     { value: "pro", label: lt("专业 1080P", "Pro 1080P") },
+    { value: "2k", label: "2K" },
     { value: "4k", label: lt("超清 4K", "Ultra 4K") },
   ];
   const storyboardOptions: Array<{
@@ -1245,7 +1291,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      {/* 画质模式：标准 / 专业 / 4K */}
+      {/* 画质模式：标准 / 专业 / 2K / 4K */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
           {lt("画质", "Quality")}

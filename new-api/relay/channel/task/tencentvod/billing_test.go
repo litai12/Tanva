@@ -1,6 +1,8 @@
 package tencentvod
 
 import (
+	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -69,5 +71,35 @@ func TestHailuoH3RejectsUnsupportedResolution(t *testing.T) {
 	_, taskErr := a.EstimateBillingChecked(c, info)
 	if taskErr == nil || taskErr.Code != "invalid_resolution" {
 		t.Fatalf("error=%v", taskErr)
+	}
+}
+
+func TestBuildRequestBodyForwardsProviderOptions(t *testing.T) {
+	c := hailuoContext(t, `{}`)
+	c.Set("task_request", relaycommon.TaskSubmitReq{
+		Prompt: "move",
+		ProviderOptions: map[string]interface{}{
+			"viduModelVariant": "q3-mix",
+			"videoMode":        "reference",
+		},
+	})
+	info := &relaycommon.RelayInfo{OriginModelName: "vidu-q3", TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+	body, err := (&TaskAdaptor{}).BuildRequestBody(c, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload createPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := payload.ProviderOptions["viduModelVariant"]; got != "q3-mix" {
+		t.Fatalf("viduModelVariant=%v want q3-mix", got)
+	}
+	if got := payload.ProviderOptions["videoMode"]; got != "reference" {
+		t.Fatalf("videoMode=%v want reference", got)
 	}
 }

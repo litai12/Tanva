@@ -115,12 +115,9 @@ const asObject = (value: unknown): Record<string, any> | null => {
   return null;
 };
 
-// Tencent VOD route keys. Video models (vidu/kling) must no longer pin the
-// channel to Tencent in the frontend — requests follow the token and let new-api
-// pick the upstream per route. These helpers strip the Tencent route from any
-// admin-configured managed routes so it is never auto-selected, displayed, or
-// sent. (The Tencent VOD upstream is still reachable, but only when new-api's own
-// tencent-vod channel selects it — not because the frontend forced it.)
+// Tencent VOD route keys. For a canvas video model whose managed route list
+// contains Tencent VOD, that route is authoritative: the UI must not expose or
+// silently fall back to a reseller route for the same model.
 const TENCENT_VENDOR_KEYS = new Set(["tencent_vod", "tengxun"]);
 
 export const isTencentVendorKey = (vendorKey?: string | null): boolean => {
@@ -143,36 +140,30 @@ export const sanitizeVideoVendorKey = (
 };
 
 /**
- * Return a copy of node config metadata with all Tencent (tencent_vod) managed
- * routes removed. defaultVendor is rewritten to the first surviving vendor when
- * the configured default was Tencent. Metadata without managedRoutes (or without
- * any Tencent vendor) is returned unchanged. When every vendor was Tencent the
- * resulting vendors array is empty, so getManagedRoutesMetadata returns null and
- * the node falls back to its plain creditsPerCall — and sends no vendor at all.
+ * VOD-capable canvas video models are VOD-only. If metadata contains one or more
+ * Tencent routes, discard other routes and make Tencent the default. Models with
+ * no Tencent route (Seedance, Wan, etc.) are returned unchanged.
  */
 export const sanitizeVideoManagedRoutes = <T extends Record<string, any> | null | undefined>(
   metadata: T
 ): T => {
-  // 保留腾讯尊享为可选项，但视频节点的产品默认必须是非腾讯普通通道。
-  // 后台 defaultVendor 仍可能为 tencent_vod（供旧管理配置/其他消费者使用），不能让它
-  // 在新建 Flow 节点时静默把 channelTier 初始化成 vip。
   const root = asObject(metadata);
   const managedRoutes = asObject(root?.managedRoutes);
   if (!root || !managedRoutes || !Array.isArray(managedRoutes.vendors)) return metadata;
-  const normalVendor = managedRoutes.vendors.find((item) => {
+  const tencentVendors = managedRoutes.vendors.filter((item) => {
     const vendor = asObject(item);
-    return vendor && !isTencentVendorKey(
+    return vendor && isTencentVendorKey(
       typeof vendor.vendorKey === "string" ? vendor.vendorKey : undefined
     );
   });
-  const normalVendorKey = asObject(normalVendor)?.vendorKey;
-  if (typeof normalVendorKey !== "string" || !normalVendorKey.trim()) return metadata;
-  if (managedRoutes.defaultVendor === normalVendorKey.trim()) return metadata;
+  const tencentVendorKey = asObject(tencentVendors[0])?.vendorKey;
+  if (typeof tencentVendorKey !== "string" || !tencentVendorKey.trim()) return metadata;
   return {
     ...root,
     managedRoutes: {
       ...managedRoutes,
-      defaultVendor: normalVendorKey.trim(),
+      defaultVendor: tencentVendorKey.trim(),
+      vendors: tencentVendors,
     },
   } as unknown as T;
 };

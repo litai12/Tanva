@@ -1347,16 +1347,18 @@ export class AiController {
       params.resolution = dto.resolution.trim().toUpperCase();
     }
 
-    // kling-o3(Omni) 画质由 mode(std/pro/4k) 决定，前端不下发 resolution（避免被
-    // resolveNewApiVideoSize 转成上游 size 字段、与 omni 的 mode 画质冲突）。但线路计价按
-    // resolution 分档，缺省会一律按最低档(720P)计费 → pro/1080P、4k 少扣。这里仅为「计费
-    // 上下文」按 mode 派生 resolution（不影响上游请求 effectiveDto），与前端预估
-    // klingO3BillingResolutionFromMode 同一映射；改一处务必同步前端。
+    // kling-o3(Omni) 的 mode 同时决定 VOD 输出与计费 resolution。
     if (dto.provider === 'kling-o3' && !params.resolution) {
       const klingMode =
         typeof dto.mode === 'string' ? dto.mode.trim().toLowerCase() : '';
       params.resolution =
-        klingMode === 'pro' ? '1080P' : klingMode === '4k' ? '4K' : '720P';
+        klingMode === 'pro'
+          ? '1080P'
+          : klingMode === '2k'
+          ? '2K'
+          : klingMode === '4k'
+          ? '4K'
+          : '720P';
     }
 
     if (typeof dto.aspectRatio === 'string' && dto.aspectRatio.trim().length > 0) {

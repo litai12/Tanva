@@ -31,7 +31,7 @@ export interface TencentVodAigcVideoFileInfo {
   fileId?: string;
   url?: string;
   objectId?: string;
-  usage?: 'FirstFrame' | 'Reference';
+  usage?: 'FirstFrame' | 'LastFrame' | 'Reference';
   referenceType?: 'feature' | 'base' | 'asset' | 'style';
   keepOriginalSound?: 'Enabled' | 'Disabled';
 }
@@ -47,6 +47,9 @@ export interface TencentVodAigcCreateVideoTaskRequest {
   duration?: number;
   resolution?: string;
   audioGeneration?: 'Enabled' | 'Disabled';
+  enhanceSwitch?: 'Enabled' | 'Disabled';
+  offPeak?: 'Enabled' | 'Disabled';
+  frameInterpolate?: 'Enabled' | 'Disabled';
   enhancePrompt?: 'Enabled' | 'Disabled';
   mediaName?: string;
   storageMode?: 'Temporary' | 'Permanent';
@@ -328,6 +331,15 @@ export class TencentVodAigcService {
     }
     if (request.audioGeneration) {
       payload.OutputConfig.AudioGeneration = request.audioGeneration;
+    }
+    if (request.enhanceSwitch) {
+      payload.OutputConfig.EnhanceSwitch = request.enhanceSwitch;
+    }
+    if (request.offPeak) {
+      payload.OutputConfig.OffPeak = request.offPeak;
+    }
+    if (request.frameInterpolate) {
+      payload.OutputConfig.FrameInterpolate = request.frameInterpolate;
     }
     if (request.mediaName) {
       payload.OutputConfig.MediaName = request.mediaName;

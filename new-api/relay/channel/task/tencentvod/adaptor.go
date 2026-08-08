@@ -64,6 +64,7 @@ type createPayload struct {
 	AspectRatio     string                 `json:"aspect_ratio,omitempty"`
 	Mode            string                 `json:"mode,omitempty"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	ProviderOptions map[string]interface{} `json:"provider_options,omitempty"`
 }
 
 const hailuoH3DurationCacheKey = "tencent_vod_hailuo_h3_duration_cache"
@@ -286,6 +287,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		AspectRatio:     req.AspectRatio,
 		Mode:            req.Mode,
 		Metadata:        req.Metadata,
+		ProviderOptions: req.ProviderOptions,
 	}
 
 	data, err := common.Marshal(body)

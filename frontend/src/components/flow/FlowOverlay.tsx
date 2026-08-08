@@ -107,6 +107,7 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
+  isTencentVendorKey,
   resolveManagedRoutePricing,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
@@ -11472,6 +11473,7 @@ function FlowInner() {
               mode: "std" as const,
               klingStoryboardMode: "single" as const,
               provider: "kling-o3",
+              klingModel: "kling-o3",
               boxW: size.w,
               boxH: size.h,
             }
@@ -11487,37 +11489,25 @@ function FlowInner() {
         ...(paletteDefaultData || {}),
         ...(paletteConfig
           ? (() => {
-              // 保留尊享为可选项，但新建节点固定从普通通道初始化。
               const metadata = sanitizeVideoManagedRoutes(
                 paletteConfig.metadata && typeof paletteConfig.metadata === "object"
                   ? (paletteConfig.metadata as Record<string, any>)
                   : undefined
               );
-              const managedRoutes = getManagedRoutesMetadata(metadata);
-              const normalManagedRoute = managedRoutes?.vendors.find(
-                (vendor) =>
-                  vendor.vendorKey !== "tencent_vod" && vendor.vendorKey !== "tengxun"
-              );
               const selectedManagedRoute = getManagedRouteOption(
-                metadata,
-                normalManagedRoute?.vendorKey
+                metadata
               );
               if (!selectedManagedRoute) {
-                // No surviving (non-Tencent) route — make sure the new node never
-                // keeps a stale tencent_vod vendor from paletteDefaultData.
-                return sanitizeVideoVendorKey(
-                  (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
-                )
-                  ? {}
-                  : { vendorKey: undefined, platformKey: undefined };
+                return {};
               }
+              const isVodRoute = isTencentVendorKey(selectedManagedRoute.vendorKey);
               return {
                 managedModelKey: metadata?.managedModelKey,
                 vendorKey: selectedManagedRoute.vendorKey,
                 platformKey:
                   selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
-                channelTier: "default",
-                channelSelectionExplicit: false,
+                channelTier: isVodRoute ? "vip" : "default",
+                channelSelectionExplicit: isVodRoute,
                 creditsPerCall: resolveNodeConfigCreditsPerCall(paletteConfig),
               };
             })()
@@ -11529,7 +11519,9 @@ function FlowInner() {
               nodeConfigNameEn: paletteConfig.nameEn,
               nodeConfigMetadata:
                 paletteConfig.metadata && typeof paletteConfig.metadata === "object"
-                  ? paletteConfig.metadata
+                  ? sanitizeVideoManagedRoutes(
+                      paletteConfig.metadata as Record<string, any>
+                    )
                   : undefined,
             }
           : {}),
@@ -20245,7 +20237,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         let provider: string;
         const klingModel =
           rawNodeData.klingModel ||
-          (isLegacyKling30Node || rawNodeData.provider === "kling-o3"
+          (normalizedVideoNodeType === "klingO1Video"
+            ? "kling-o3"
+            : isLegacyKling30Node || rawNodeData.provider === "kling-o3"
             ? "kling-v3-0"
             : isLegacyKling26Node || rawNodeData.provider === "kling-2.6"
             ? "kling-v2-6"
@@ -21561,8 +21555,21 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
-          // 通道只作为后端路由提示：普通通道经 /v1/videos 使用 NEW_API_KEY，
-          // 腾讯 VOD/尊享通道经既有 proxy 链路使用 NEW_API_KEY_VIP；令牌不下发前端。
+          const sanitizedRouteMetadata = sanitizeVideoManagedRoutes(
+            rawNodeData.nodeConfigMetadata &&
+              typeof rawNodeData.nodeConfigMetadata === "object"
+              ? rawNodeData.nodeConfigMetadata
+              : undefined
+          );
+          const enforcedManagedRoute = getManagedRouteOption(
+            sanitizedRouteMetadata,
+            sanitizeVideoVendorKey(rawNodeData.vendorKey)
+          );
+          const enforcedVodRoute = Boolean(
+            enforcedManagedRoute && isTencentVendorKey(enforcedManagedRoute.vendorKey)
+          );
+          // VOD-capable canvas models are always sent through Tencent VOD. The
+          // backend owns NEW_API_KEY_VIP; no token is exposed to the browser.
           const managedRoutePayload = {
             managedModelKey:
               typeof rawNodeData.managedModelKey === "string" &&
@@ -21570,7 +21577,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 ? rawNodeData.managedModelKey.trim()
                 : undefined,
             vendorKey:
-              rawNodeData.channelSelectionExplicit === true
+              enforcedVodRoute
+                ? enforcedManagedRoute?.vendorKey
+                : rawNodeData.channelSelectionExplicit === true
                 ? sanitizeVideoVendorKey(rawNodeData.vendorKey)
                 : provider === "vidu" || provider === "viduq3-pro"
                 ? "vidu_api"
@@ -21578,7 +21587,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 ? undefined
                 : sanitizeVideoVendorKey(rawNodeData.vendorKey),
             platformKey:
-              rawNodeData.channelSelectionExplicit === true
+              enforcedVodRoute
+                ? enforcedManagedRoute?.platformKey || enforcedManagedRoute?.vendorKey
+                : rawNodeData.channelSelectionExplicit === true
                 ? sanitizeVideoVendorKey(rawNodeData.platformKey)
                 : provider === "vidu" || provider === "viduq3-pro"
                 ? "vidu_api"
@@ -21586,7 +21597,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 ? undefined
                 : sanitizeVideoVendorKey(rawNodeData.platformKey),
             channelTier:
-              rawNodeData.channelSelectionExplicit === true &&
+              enforcedVodRoute
+                ? "vip"
+                : rawNodeData.channelSelectionExplicit === true &&
               (rawNodeData.channelTier === "default" || rawNodeData.channelTier === "vip")
                 ? rawNodeData.channelTier
                 : "default",
@@ -21760,7 +21773,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                     provider === "kling-o3" && !referenceVideoUrl
                       ? rawNodeData.klingStoryboardScript
                       : undefined,
-                  klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
+                  klingModel,
                   // 让后端区分 首尾帧(frame) / 单图(image) / 多主体参考(reference) /
                   // 参考视频(video) / 文生(text)。omni 据此用 image_with_roles 表达首尾帧/参考；
                   // v2-6/v3 走 image_urls[0,1]。仅统计 image/image-2 桩的图（不含 element 角色图）。

@@ -54,16 +54,15 @@ export function normalizeKlingO3ImageMode(raw: unknown): KlingO3ImageMode | unde
 }
 
 /**
- * kling-o3 画质(mode) → 计费用 resolution。std=720P / pro=1080P / 4k=4K。
- * 仅用于「计费上下文」单轨：节点不向上游下发 resolution(避免被转成 size 字段与 omni 的
- * mode 画质冲突)，但线路计价按 resolution 分档，故前端预估与后端扣费都按 mode 派生同一
- * resolution，保证 std/pro/4k 计费一致且正确。后端 ai.controller 有等价映射，改一处务必同步另一处。
+ * kling-o3 画质(mode) → VOD/计费用 resolution。
+ * std=720P / pro=1080P / 2k=2K / 4k=4K。
  */
 export function klingO3BillingResolutionFromMode(
   mode: unknown
-): "720P" | "1080P" | "4K" {
+): "720P" | "1080P" | "2K" | "4K" {
   const normalized = typeof mode === "string" ? mode.trim().toLowerCase() : "";
   if (normalized === "pro") return "1080P";
+  if (normalized === "2k") return "2K";
   if (normalized === "4k") return "4K";
   return "720P";
 }

@@ -786,7 +786,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
       : {};
-  // 保留用户选择的普通/尊享通道；后端据此选择对应的 new-api 令牌。
+  // 对 VOD-capable 画布模型收敛为单一 Tencent VOD 路由；非 VOD 模型保持原配置。
   const nodeConfigMetadata = React.useMemo(
     () => sanitizeVideoManagedRoutes(rawNodeConfigMetadata),
     [rawNodeConfigMetadata]
@@ -798,10 +798,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       if (provider === "doubao" && seedanceModel === "seedance-2.5") {
         return "seedance_api";
       }
+      const route = getManagedRouteOption(
+        nodeConfigMetadata,
+        sanitizeVideoVendorKey(data.vendorKey)
+      );
+      if (route && (route.vendorKey === "tencent_vod" || route.vendorKey === "tengxun")) {
+        return route.vendorKey;
+      }
       return data.channelSelectionExplicit === true &&
-      (data.channelTier === "vip" || data.channelTier === "default")
-        ? sanitizeVideoVendorKey(data.vendorKey)
-        : undefined;
+        (data.channelTier === "vip" || data.channelTier === "default")
+          ? sanitizeVideoVendorKey(data.vendorKey)
+          : undefined;
     },
     [
       data.channelSelectionExplicit,
@@ -809,6 +816,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       data.vendorKey,
       provider,
       seedanceModel,
+      nodeConfigMetadata,
     ]
   );
   const managedRoutesMetadata = React.useMemo(
@@ -1491,9 +1499,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       });
     }
     if (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") {
-      // Kling 3.0 (kling-v3-0)：APIMart 全场景 3–15s；Kling 2.6 仍为 5/10。
-      if (klingModel === "kling-v3-0") {
-        return Array.from({ length: 13 }, (_, i) => {
+      // Tencent VOD: Kling 3.0/Omni 为 3–15s；视频参考模式上限 10s。
+      // Kling 2.6 仍为离散 5/10s。
+      if (klingModel === "kling-v3-0" || provider === "kling-o3") {
+        const max = provider === "kling-o3" && hasVideoInput ? 10 : 15;
+        return Array.from({ length: max - 2 }, (_, i) => {
           const value = i + 3;
           return { label: lt(`${value}秒`, `${value}s`), value };
         });
@@ -1809,6 +1819,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
         return filtered.length > 0 ? filtered : [...SEEDANCE15_DOC_RESOLUTIONS];
       }
+      if (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") {
+        return ["720P", "1080P", "2K", "4K"];
+      }
+      if (provider === "vidu" || provider === "viduq3-pro") {
+        return ["720P", "1080P", "2K", "4K"];
+      }
       return vodResolutionOptions.length > 0
         ? vodResolutionOptions
         : legacySeedanceResolutionOptions;
@@ -1819,6 +1835,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       hailuoParam,
       legacySeedanceResolutionOptions,
       provider,
+      viduModel,
       seedance20ResolutionList,
       vodResolutionOptions,
     ]
@@ -2048,7 +2065,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             vendorKey: desiredVendor,
             platformKey: desiredPlatform,
             channelTier: desiredChannelTier,
-            channelSelectionExplicit: data.channelSelectionExplicit === true,
+            channelSelectionExplicit:
+              desiredChannelTier === "vip" || data.channelSelectionExplicit === true,
           },
         },
       })

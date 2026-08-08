@@ -6,7 +6,8 @@ export type ViduModelValue =
   | "q2-turbo"
   | "q3"
   | "q3-pro"
-  | "q3-turbo";
+  | "q3-turbo"
+  | "q3-mix";
 
 export const normalizeViduModelValue = (value?: string): ViduModelValue => {
   const normalized = String(value || "")
@@ -17,14 +18,8 @@ export const normalizeViduModelValue = (value?: string): ViduModelValue => {
   if (normalized === "q2") return "q2";
   if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
   if (normalized === "q2-turbo" || normalized === "q2turbo") return "q2-turbo";
-  if (
-    normalized === "q3-turbo" ||
-    normalized === "q3turbo" ||
-    normalized === "q3-mix" ||
-    normalized === "q3mix"
-  ) {
-    return "q3-turbo";
-  }
+  if (normalized === "q3-turbo" || normalized === "q3turbo") return "q3-turbo";
+  if (normalized === "q3-mix" || normalized === "q3mix") return "q3-mix";
   if (normalized === "q3-pro" || normalized === "q3pro") return "q3-pro";
   if (normalized === "q3") return "q3";
   return normalized.startsWith("q3") ? "q3" : "q2";

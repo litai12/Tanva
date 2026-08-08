@@ -47,6 +47,7 @@ const MANAGED_VIDU_TENCENT_PREFIX = "tencentvod-vidu-";
 type ManagedTencentVideoModelKey =
   | "kling-2.6"
   | "kling-3.0"
+  | "kling-o3"
   | "vidu-q2"
   | "vidu-q3"
   | "seedance-1.5"
@@ -65,6 +66,11 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
     prefix: MANAGED_KLING30_TENCENT_TASK_PREFIX,
     label: "Kling 3.0",
     uploadKeyPrefix: "kling-3.0",
+  },
+  "kling-o3": {
+    prefix: "tencentvod-kling-o3-",
+    label: "Kling 3.0 Omni",
+    uploadKeyPrefix: "kling-o3",
   },
   "vidu-q2": {
     prefix: `${MANAGED_VIDU_TENCENT_PREFIX}q2-`,
@@ -88,7 +94,14 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
   },
 };
 
-type ViduManagedModelVersion = "q2" | "q3";
+type ViduManagedModelVersion =
+  | "q2"
+  | "q2-pro"
+  | "q2-turbo"
+  | "q3"
+  | "q3-pro"
+  | "q3-turbo"
+  | "q3-mix";
 
 type SeedanceManagedModelVersion =
   | "1.5-pro"
@@ -230,14 +243,24 @@ export class VideoProviderService {
     "happyhorse-1.0-r2v",
     "happyhorse-1.0-video-edit",
   ]);
+  private static readonly TENCENT_VOD_VIDEO_MODELS = new Set([
+    "kling-v2-6",
+    "kling-v3",
+    "kling-v3-omni",
+    "vidu-q2",
+    "vidu-q3",
+    "hailuo-h3",
+  ]);
   private readonly logger = new Logger(VideoProviderService.name);
   private readonly doubaoVideoCache = new Map<string, { url: string; touchedAt: number }>();
   private readonly doubaoVideoCacheTtlMs = 60 * 60 * 1000;
   private readonly doubaoVideoCacheMaxEntries = 500;
   private readonly managedV2TaskPrefix = "managedv2:";
   private readonly newApiTaskPrefix = "newapi:";
+  private readonly newApiVodTaskPrefix = "newapivod:";
   private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4458").replace(/\/+$/, "");
   private readonly newApiKey = (process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "").trim();
+  private readonly newApiVodKey = (process.env.NEW_API_KEY_VIP || "").trim();
 
   constructor(
     private readonly oss: OssService,
@@ -1000,14 +1023,11 @@ export class VideoProviderService {
   private async generateVideoAttempt(
     options: VideoProviderRequestDto,
   ): Promise<VideoGenerationResult> {
-    // 普通通道经 new-api /v1/videos 使用 NEW_API_KEY；尊享通道沿用已部署的
-    // Tencent VOD proxy 链路，其中 TencentVodAigcService 使用 NEW_API_KEY_VIP。
-    // 当前 new-api distributor 没有 type=67 的 tencent-vod 视频 channel，不能把
-    // 尊享请求直接塞进 /v1/videos，否则 vip 分组会报告 No available channel。
-    if (this.isTencentPremiumRoute(options)) {
-      return this.generateVideoLegacy(options);
-    }
-    return this.createNewApiVideoTask(options);
+    const model = this.resolveNewApiVideoModel(options);
+    const forceVod =
+      VideoProviderService.TENCENT_VOD_VIDEO_MODELS.has(model) ||
+      this.isTencentPremiumRoute(options);
+    return this.createNewApiVideoTask(options, forceVod);
   }
 
   private isSeedance20Request(options: VideoProviderRequestDto): boolean {
@@ -1219,35 +1239,101 @@ export class VideoProviderService {
     resolution?: string;
     aspect_ratio?: string;
     mode?: string;
+    reference_videos?: string[];
+    audio_urls?: string[];
+    lastFrame?: string;
+    metadata?: Record<string, any>;
+    provider_options?: Record<string, any>;
   }): VideoProviderRequestDto {
     const model = String(input.model || "").trim().toLowerCase();
-    const referenceImages = Array.isArray(input.images)
-      ? input.images.filter((u) => typeof u === "string" && u.trim().length > 0)
+    const metadata =
+      input.metadata && typeof input.metadata === "object" ? input.metadata : {};
+    const providerOptions =
+      input.provider_options && typeof input.provider_options === "object"
+        ? input.provider_options
+        : {};
+    const imageWithRoles = Array.isArray(metadata.image_with_roles)
+      ? metadata.image_with_roles
+          .map((item: any) => ({
+            url: String(item?.url || "").trim(),
+            role: String(item?.role || "").trim().toLowerCase(),
+          }))
+          .filter((item: { url: string }) => Boolean(item.url))
+      : [];
+    const elementImages = Array.isArray(metadata.element_list)
+      ? metadata.element_list.flatMap((item: any) =>
+          Array.isArray(item?.element_input_urls)
+            ? item.element_input_urls.map((url: unknown) => String(url || "").trim())
+            : [],
+        ).filter(Boolean)
+      : [];
+    const referenceImages = Array.from(
+      new Set([
+        ...(Array.isArray(input.images) ? input.images : []),
+        ...imageWithRoles.map((item: { url: string }) => item.url),
+        ...(input.lastFrame ? [input.lastFrame] : []),
+      ].map((url) => String(url || "").trim()).filter(Boolean)),
+    );
+    const metadataVideos = Array.isArray(metadata.video_list)
+      ? metadata.video_list
+          .map((item: any) => String(item?.video_url || "").trim())
+          .filter(Boolean)
+      : [];
+    const referenceVideos = Array.from(
+      new Set([
+        ...(Array.isArray(input.reference_videos) ? input.reference_videos : []),
+        ...metadataVideos,
+      ].map((url) => String(url || "").trim()).filter(Boolean)),
+    );
+    const firstVideoMeta = Array.isArray(metadata.video_list)
+      ? metadata.video_list.find((item: any) => item?.video_url)
       : undefined;
     const base = {
-      prompt: input.prompt,
-      referenceImages,
+      prompt:
+        typeof metadata.prompt === "string" && metadata.prompt.trim()
+          ? metadata.prompt
+          : input.prompt,
+      referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+      elementImages: elementImages.length > 0 ? elementImages : undefined,
+      referenceVideos: referenceVideos.length > 0 ? referenceVideos : undefined,
+      referenceVideo: referenceVideos[0] || undefined,
+      audioUrls: Array.isArray(input.audio_urls) ? input.audio_urls.filter(Boolean) : undefined,
       duration:
         typeof input.duration === "number" && Number.isFinite(input.duration)
           ? input.duration
           : undefined,
       aspectRatio: (input.aspect_ratio || "").trim() || undefined,
       resolution: (input.resolution || "").trim() || undefined,
-      mode: (input.mode === "pro" ? "pro" : input.mode === "std" ? "std" : undefined) as
-        | "std"
-        | "pro"
-        | undefined,
-      // The new-api distributor already chose the tencent-vod channel, so force
-      // the tencent_vod vendor — generateManaged* re-resolves the route via
-      // executeManagedRouteWithFallback and would otherwise honor the config
-      // default (which may not be tencent).
+      mode:
+        input.mode === "pro" || input.mode === "std" || input.mode === "2k" || input.mode === "4k"
+          ? input.mode
+          : undefined,
+      // The new-api distributor already chose the tencent-vod channel.
       vendorKey: "tencent_vod",
+      platformKey: "tencent_vod",
+      channelTier: "vip" as const,
+      videoMode:
+        typeof providerOptions.videoMode === "string"
+          ? providerOptions.videoMode
+          : undefined,
+      viduModelVariant:
+        typeof providerOptions.viduModelVariant === "string"
+          ? providerOptions.viduModelVariant
+          : undefined,
+      sound: providerOptions.sound,
+      referenceVideoType:
+        providerOptions.referenceVideoType || firstVideoMeta?.refer_type,
+      keepOriginalSound:
+        providerOptions.keepOriginalSound || firstVideoMeta?.keep_original_sound,
+      klingStoryboardMode: providerOptions.klingStoryboardMode,
+      klingStoryboardScript: providerOptions.klingStoryboardScript,
+      offPeak: providerOptions.offPeak === true,
     };
     switch (model) {
       case "vidu-q2":
-        return { ...base, provider: "vidu", viduModel: "q2" } as VideoProviderRequestDto;
+        return { ...base, provider: "vidu", viduModel: base.viduModelVariant || "q2" } as VideoProviderRequestDto;
       case "vidu-q3":
-        return { ...base, provider: "viduq3-pro", viduModel: "q3" } as VideoProviderRequestDto;
+        return { ...base, provider: "viduq3-pro", viduModel: base.viduModelVariant || "q3" } as VideoProviderRequestDto;
       case "kling-v2-6":
         return { ...base, provider: "kling", klingModel: "kling-v2-6" } as VideoProviderRequestDto;
       case "kling-v3":
@@ -1272,6 +1358,8 @@ export class VideoProviderService {
     resolution?: string;
     aspect_ratio?: string;
     mode?: string;
+    metadata?: Record<string, any>;
+    provider_options?: Record<string, any>;
   }): Promise<{ taskId: string; status: string }> {
     if (String(input.model || "").trim().toLowerCase() === "hailuo-h3") {
       const resolution = String(input.resolution || "").trim().toUpperCase();
@@ -1334,15 +1422,48 @@ export class VideoProviderService {
       return { taskId: `tencentvod-hailuo-h3-${created.taskId}`, status: "queued" };
     }
     const dto = this.buildDtoFromUnifiedForTencent(input);
-    const result = await this.generateVideoLegacy(dto);
-    return { taskId: result.taskId, status: result.status };
+    const model = String(input.model || "").trim().toLowerCase();
+    // The type-67 channel is already the routing decision. Call Tencent
+    // directly here instead of re-entering managed route fallback, which could
+    // otherwise escape to APIMart after a Tencent failure.
+    if (model === "vidu-q2" || model === "vidu-q3") {
+      const resolved = this.resolveManagedViduModel(dto);
+      const result = await this.generateViduViaTencent(
+        dto,
+        { modelName: "Vidu", modelVersion: resolved.modelVersion },
+        resolved.modelVersion,
+        true,
+      );
+      const prefixed = this.withManagedTencentTaskPrefix(resolved.modelKey, result);
+      return { taskId: prefixed.taskId, status: prefixed.status };
+    }
+    if (model === "kling-v2-6" || model === "kling-v3") {
+      const modelKey: ManagedTencentVideoModelKey =
+        model === "kling-v2-6" ? "kling-2.6" : "kling-3.0";
+      const version = model === "kling-v2-6" ? "2.6" : "3.0";
+      const result = await this.generateKlingViaTencent(
+        dto,
+        { modelName: "Kling", modelVersion: version },
+        version,
+        true,
+      );
+      const prefixed = this.withManagedTencentTaskPrefix(modelKey, result);
+      return { taskId: prefixed.taskId, status: prefixed.status };
+    }
+    if (model === "kling-v3-omni") {
+      const result = await this.generateKlingViaTencent(
+        dto,
+        { modelName: "Kling", modelVersion: "3.0-Omni" },
+        "3.0-Omni",
+        true,
+      );
+      const prefixed = this.withManagedTencentTaskPrefix("kling-o3", result);
+      return { taskId: prefixed.taskId, status: prefixed.status };
+    }
+    throw new BadRequestException(`tencent-vod 暂不支持模型: ${input.model}`);
   }
 
-  /** Poll a Tencent VOD video task (called by the new-api tencent-vod adaptor).
-   * Routes via queryTask so BOTH prefixed managed ids (Vidu / Kling 2.6 / 3.0 /
-   * Seedance) AND the UNPREFIXED kling-o3 (Omni) id are handled — the latter
-   * needs the provider === "kling-o3" branch in queryTask. The provider arg is
-   * only consulted for unprefixed ids, so passing "kling-o3" is safe for all. */
+  /** Poll a Tencent VOD video task called by the type-67 adaptor. */
   async queryViaTencentVod(
     taskId: string,
   ): Promise<{ status: string; url?: string; reason?: string }> {
@@ -1368,6 +1489,17 @@ export class VideoProviderService {
           ? result.error || `Tencent VOD status: ${result.status}`
           : undefined,
       };
+    }
+    const managedTask = this.parseManagedTencentTaskId(taskId);
+    if (managedTask) {
+      const meta = MANAGED_TENCENT_VIDEO_MODEL_META[managedTask.modelKey];
+      const r = await this.queryTencentManagedVideoTask(
+        managedTask.rawTaskId,
+        meta.uploadKeyPrefix,
+        meta.label,
+        true,
+      );
+      return { status: r.status, url: r.videoUrl, reason: r.error };
     }
     const r = await this.queryTask("kling-o3", taskId);
     return { status: r.status, url: r.videoUrl, reason: r.error };
@@ -1400,7 +1532,10 @@ export class VideoProviderService {
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
-    if (taskId.startsWith(this.newApiTaskPrefix)) {
+    if (
+      taskId.startsWith(this.newApiTaskPrefix) ||
+      taskId.startsWith(this.newApiVodTaskPrefix)
+    ) {
       return this.queryNewApiVideoTask(taskId);
     }
 
@@ -1455,9 +1590,13 @@ export class VideoProviderService {
 
   private async createNewApiVideoTask(
     options: VideoProviderRequestDto,
+    forceVod = false,
   ): Promise<VideoGenerationResult> {
-    if (!this.newApiKey) {
-      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    const apiKey = forceVod ? this.newApiVodKey : this.newApiKey;
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        forceVod ? "NEW_API_KEY_VIP 未配置" : "NEW_API_KEY 未配置",
+      );
     }
 
     const model = this.resolveNewApiVideoModel(options);
@@ -1649,7 +1788,18 @@ export class VideoProviderService {
       prompt: options.prompt || "",
       duration: isOmniFlashExt && referenceVideos.length > 0 ? undefined : duration,
       size,
-      resolution: this.normalizeResolutionToken(options.resolution),
+      resolution: this.normalizeResolutionToken(
+        options.resolution ||
+          (model === "kling-v3-omni"
+            ? String(options.mode || "").trim().toLowerCase() === "4k"
+              ? "4K"
+              : String(options.mode || "").trim().toLowerCase() === "2k"
+              ? "2K"
+              : String(options.mode || "").trim().toLowerCase() === "pro"
+              ? "1080P"
+              : "720P"
+            : undefined),
+      ),
       // For Kling, image/images selection is decided by buildKlingApimartParams
       // (omni 首尾帧 uses image_with_roles and suppresses image_urls to satisfy the
       // upstream mutual-exclusion rule).
@@ -1705,6 +1855,12 @@ export class VideoProviderService {
         seedanceModel: options.seedanceModel,
         hailuoModel: options.hailuoModel,
         managedModelKey: options.managedModelKey,
+        sound: options.sound,
+        referenceVideoType: options.referenceVideoType,
+        keepOriginalSound: options.keepOriginalSound,
+        klingStoryboardMode: options.klingStoryboardMode,
+        klingStoryboardScript: options.klingStoryboardScript,
+        offPeak: options.offPeak,
         // Fallback raw URLs for new-api to perform its own asset upload if AK/SK is configured.
         referenceImageRawUrls,
       },
@@ -1720,7 +1876,7 @@ export class VideoProviderService {
       result = await this.requestNewApiJson("/v1/videos", {
         method: "POST",
         body: JSON.stringify(payload),
-      });
+      }, apiKey);
     } catch (err: any) {
       // 安全网：凡 seedance2 命中“首帧与参考媒体混用”400（无论上面模式判定是否漏判），
       // 一律改走 Ark content/role 直连兜底——该路径把所有图都标 reference_image，不会混用。
@@ -1744,7 +1900,7 @@ export class VideoProviderService {
         result = await this.requestNewApiJson("/v1/videos", {
           method: "POST",
           body: JSON.stringify(fallbackPayload),
-        });
+        }, apiKey);
       } else {
         throw err;
       }
@@ -1770,7 +1926,7 @@ export class VideoProviderService {
       throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
     }
 
-    const taskId = `${this.newApiTaskPrefix}${rawTaskId}`;
+    const taskId = `${forceVod ? this.newApiVodTaskPrefix : this.newApiTaskPrefix}${rawTaskId}`;
     const videoUrl = this.extractVideoUrl(result);
     const thumbnailUrl = this.extractThumbnailUrl(result);
     return {
@@ -1780,10 +1936,10 @@ export class VideoProviderService {
       thumbnailUrl,
       execution: {
         modelKey: options.managedModelKey || model,
-        vendorKey: "new-api",
-        platformKey: "new-api",
-        route: "new-api",
-        providerChannel: "new-api",
+        vendorKey: forceVod ? "tencent_vod" : "new-api",
+        platformKey: forceVod ? "tencent_vod" : "new-api",
+        route: forceVod ? "tencent_vod" : "new-api",
+        providerChannel: forceVod ? "tencent_vod" : "new-api",
         routedProvider: options.provider,
         fallbackUsed: false,
         consumedCredits: Number((result as any)?.__consumedCredits) || undefined,
@@ -1794,13 +1950,20 @@ export class VideoProviderService {
   private async queryNewApiVideoTask(
     taskId: string,
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string }> {
-    if (!this.newApiKey) {
-      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    const isVodTask = taskId.startsWith(this.newApiVodTaskPrefix);
+    const apiKey = isVodTask ? this.newApiVodKey : this.newApiKey;
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        isVodTask ? "NEW_API_KEY_VIP 未配置" : "NEW_API_KEY 未配置",
+      );
     }
-    const rawTaskId = taskId.slice(this.newApiTaskPrefix.length);
+    const rawTaskId = taskId.slice(
+      isVodTask ? this.newApiVodTaskPrefix.length : this.newApiTaskPrefix.length,
+    );
     const result = await this.requestNewApiJson(
       `/v1/videos/${encodeURIComponent(rawTaskId)}?t=${Date.now()}`,
       { method: "GET" },
+      apiKey,
     );
     const status = this.normalizeNewApiStatus(result);
     const upstreamVideoUrl = this.extractVideoUrl(result);
@@ -1913,12 +2076,19 @@ export class VideoProviderService {
     if (explicit === "omni-flash-ext") {
       return "omni-flash-ext";
     }
-    if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
-      // 命名元素(element_list) kapon omni-video 不支持 → 发 apimart 别名(仅 apimart 有该
-      // ability)精准命中 apimart；其余 omni 模式走 kapon omni-video(kling-v3-omni)。
-      if (this.extractReferenceImageUrls(options.elementImages).length > 0) {
-        return "kling-v3-omni-apimart";
+    if (options.provider === "kling-o3") {
+      // Kling 3.0 and Kling 3.0 Omni currently share the frontend provider
+      // implementation. The concrete klingModel must win; otherwise the 3.0
+      // card is silently submitted as Omni.
+      const klingHint = String(options.klingModel || options.managedModelKey || explicit)
+        .trim()
+        .toLowerCase();
+      if (klingHint === "kling-v3-0" || klingHint === "kling-v3" || klingHint === "kling-3.0") {
+        return "kling-v3";
       }
+      return "kling-v3-omni";
+    }
+    if (explicit.includes("omni") || explicit.includes("o3")) {
       return "kling-v3-omni";
     }
     if (options.provider === "kling" || options.provider === "kling-2.6") {
@@ -2341,12 +2511,13 @@ export class VideoProviderService {
   private async requestNewApiJson(
     path: string,
     init: RequestInit,
+    apiKey = this.newApiKey,
   ): Promise<any> {
     const response = await fetch(`${this.newApiBaseUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.newApiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         ...(init.headers || {}),
       },
     });
@@ -2993,8 +3164,9 @@ export class VideoProviderService {
         ? options.prompt.trim()
         : "";
 
-    const resolvedModelVersion =
-      (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase() as ViduManagedModelVersion;
+    // The node's concrete variant is authoritative. A managed vendor config of
+    // plain q2/q3 is a family route and must not collapse q3-pro/q3-mix/etc.
+    const resolvedModelVersion = fallbackModelVersion;
 
     const explicitVideoMode = String(options.videoMode || "")
       .trim()
@@ -3014,6 +3186,14 @@ export class VideoProviderService {
         !normalizedPrompt &&
         resolvedModelVersion === "q2");
 
+    const referenceMode =
+      explicitVideoMode === "reference" ||
+      explicitVideoMode === "reference2video" ||
+      explicitVideoMode === "reference_images" ||
+      resolvedModelVersion === "q3-mix";
+    if (resolvedModelVersion === "q3-mix" && normalizedImages.length === 0) {
+      throw new BadRequestException("Vidu q3-mix 只支持参考生视频，至少需要 1 张参考图");
+    }
     const primaryImages = isStartEndCandidate ? normalizedImages.slice(0, 1) : normalizedImages;
     const lastFrameUrl = isStartEndCandidate ? normalizedImages[1] : undefined;
 
@@ -3022,7 +3202,7 @@ export class VideoProviderService {
       category: "Image" as const,
       url,
       objectId: `id${index + 1}`,
-      usage: undefined,
+      usage: referenceMode ? ("Reference" as const) : ("FirstFrame" as const),
     }));
 
     if (!normalizedPrompt && fileInfos.length === 0) {
@@ -3043,7 +3223,7 @@ export class VideoProviderService {
 
     return {
       modelName: vendorConfig.modelName || "Vidu",
-      modelVersion: vendorConfig.modelVersion || fallbackModelVersion,
+      modelVersion: resolvedModelVersion,
       prompt: normalizedPrompt || undefined,
       fileInfos,
       aspectRatio: options.aspectRatio,
@@ -3051,6 +3231,9 @@ export class VideoProviderService {
       resolution: resolutionRaw,
       storageMode: "Temporary",
       enhancePrompt: "Enabled",
+      enhanceSwitch:
+        resolutionRaw === "2K" || resolutionRaw === "4K" ? "Enabled" : undefined,
+      offPeak: options.offPeak ? "Enabled" : "Disabled",
       lastFrameUrl,
     };
   }
@@ -3532,7 +3715,15 @@ export class VideoProviderService {
     legacyProvider: "vidu" | "viduq3-pro";
     label: string;
   } {
-    const normalized = String(options.viduModel || "").trim().toLowerCase();
+    const normalized = String(options.viduModelVariant || options.viduModel || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^vidu/, "")
+      .replace("q2pro", "q2-pro")
+      .replace("q2turbo", "q2-turbo")
+      .replace("q3pro", "q3-pro")
+      .replace("q3turbo", "q3-turbo")
+      .replace("q3mix", "q3-mix");
     const isQ2Family =
       normalized === "" ||
       normalized === "q2" ||
@@ -3553,17 +3744,28 @@ export class VideoProviderService {
     }
 
     if (isQ3Family) {
+      const explicitMode = String(options.videoMode || "").trim().toLowerCase();
+      const modelVersion: ViduManagedModelVersion =
+        normalized === "q3-pro" || normalized === "q3-turbo" || normalized === "q3-mix"
+          ? normalized
+          : explicitMode === "reference" ||
+            explicitMode === "reference2video" ||
+            explicitMode === "reference_images"
+          ? "q3"
+          : "q3-pro";
       return {
         modelKey: "vidu-q3",
-        modelVersion: "q3",
+        modelVersion,
         legacyProvider: "viduq3-pro",
         label: "Vidu Q3",
       };
     }
 
+    const modelVersion: ViduManagedModelVersion =
+      normalized === "q2-pro" || normalized === "q2-turbo" ? normalized : "q2";
     return {
       modelKey: "vidu-q2",
-      modelVersion: "q2",
+      modelVersion,
       legacyProvider: "vidu",
       label: "Vidu Q2",
     };
@@ -3790,7 +3992,8 @@ export class VideoProviderService {
   private async generateKlingViaTencent(
     options: VideoProviderRequestDto,
     vendorConfig: { modelName?: string; modelVersion?: string },
-    fallbackModelVersion: string
+    fallbackModelVersion: string,
+    skipLegacyTaskObserver = false,
   ): Promise<VideoGenerationResult> {
     const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
     if (referenceAudios.length > 0) {
@@ -3872,11 +4075,10 @@ export class VideoProviderService {
         ? options.resolution.trim().toUpperCase()
         : "";
     const defaultResolution = options.mode === "pro" ? "1080P" : "720P";
-    const resolutionRaw = isKling26Model
-      ? rawResolution === "720P" || rawResolution === "1080P"
-        ? rawResolution
-        : defaultResolution
-      : rawResolution || defaultResolution;
+    const allowedResolutions = new Set(["720P", "1080P", "2K", "4K"]);
+    const resolutionRaw = allowedResolutions.has(rawResolution)
+      ? rawResolution
+      : defaultResolution;
 
     const requestedDuration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
@@ -3930,8 +4132,10 @@ export class VideoProviderService {
       audioGeneration,
       storageMode: "Temporary",
       enhancePrompt: "Enabled",
+      enhanceSwitch:
+        resolutionRaw === "2K" || resolutionRaw === "4K" ? "Enabled" : undefined,
       extInfo,
-    });
+    }, { skipLegacyTaskObserver });
 
     return {
       taskId,
@@ -3942,14 +4146,18 @@ export class VideoProviderService {
   private async generateViduViaTencent(
     options: VideoProviderRequestDto,
     vendorConfig: { modelName?: string; modelVersion?: string },
-    fallbackModelVersion: ViduManagedModelVersion
+    fallbackModelVersion: ViduManagedModelVersion,
+    skipLegacyTaskObserver = false,
   ): Promise<VideoGenerationResult> {
     const request = this.buildViduTencentCreateTaskRequest(
       options,
       vendorConfig,
       fallbackModelVersion
     );
-    const { taskId } = await this.tencentVodAigcService.createVideoTask(request);
+    const { taskId } = await this.tencentVodAigcService.createVideoTask(
+      request,
+      { skipLegacyTaskObserver },
+    );
 
     return {
       taskId,
@@ -3978,9 +4186,13 @@ export class VideoProviderService {
   private async queryTencentManagedVideoTask(
     taskId: string,
     uploadKeyPrefix: string,
-    modelLabel: string
+    modelLabel: string,
+    skipLegacyTaskObserver = false,
   ) {
-    const result = await this.tencentVodAigcService.queryVideoTask(taskId);
+    const result = await this.tencentVodAigcService.queryVideoTask(
+      taskId,
+      { skipLegacyTaskObserver },
+    );
     const normalizedStatus = String(result.status || "").trim().toLowerCase();
     const terminalError = this.extractTencentVodTerminalError(result.raw);
 
