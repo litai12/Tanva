@@ -92,10 +92,18 @@ function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   return `立即到账积分 ${total} `;
 }
 
-function vipFeatureLines(plan: PaymentMembershipPlan, rewardMultiplier: number): { main: string[]; accent: string[] } {
+function vipFeatureLines(
+  plan: PaymentMembershipPlan,
+  rewardMultiplier: number,
+  hasRechargeDiscount: boolean,
+): { main: string[]; accent: string[] } {
   const metadata = getPlanMetadataObject(plan.metadata);
   const main = [buildPlanCreditsSummary(plan), ...splitBenefitText(metadata.coreBenefits)];
   const accent: string[] = [];
+
+  if (hasRechargeDiscount) {
+    accent.push("积分充值：享 8 折");
+  }
 
   if (metadata.seedance2Access === "enabled") {
     accent.push("Seedance 2 权益：支持");
@@ -241,14 +249,18 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     return list;
   }, [plans, billingPeriod]);
 
-  const monthlyPlans = useMemo(
-    () => (plans || []).filter((plan) => plan.billingCycle === "monthly").sort(sortPlansByTier),
-    [plans],
-  );
-
   const yearlyPlans = useMemo(
     () => (plans || []).filter((plan) => plan.billingCycle === "yearly").sort(sortPlansByTier),
     [plans],
+  );
+
+  const highestYearlyTierRank = useMemo(
+    () =>
+      yearlyPlans.reduce(
+        (highest, plan) => Math.max(highest, resolvePlanTierRank(plan)),
+        Number.NEGATIVE_INFINITY,
+      ),
+    [yearlyPlans],
   );
 
   const getPeriodImmediateCredits = useCallback(
@@ -842,9 +854,19 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const active = plan.code === selectedPlanCode;
                     const confirmedActive = active && userConfirmedPlan;
                     const tierTitle = plan.name;
-                    const { main, accent } = vipFeatureLines(plan, sevenDayRewardMultiplier);
                     const isRecommended = isRecommendedPlan(plan);
-                    const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 积分充值享 8 折" : "月费套餐";
+                    const hasRechargeDiscount =
+                      plan.billingCycle === "yearly" && resolvePlanTierRank(plan) === highestYearlyTierRank;
+                    const { main, accent } = vipFeatureLines(
+                      plan,
+                      sevenDayRewardMultiplier,
+                      hasRechargeDiscount,
+                    );
+                    const billingLabel = hasRechargeDiscount
+                      ? "年费套餐 · 积分充值享 8 折"
+                      : plan.billingCycle === "yearly"
+                        ? "年费套餐 · 套餐积分按月发放"
+                        : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
                         ? Math.round((plan.price / 12) * 100) / 100
@@ -1176,7 +1198,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         积分充值
                       </h4>
                       <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                        积分充值已开放，所有用户均可直接购买积分。
+                        所有用户均可购买积分；当前最高档年卡会员购买享 8 折。
                       </p>
                     </div>
                     <PaymentPanel

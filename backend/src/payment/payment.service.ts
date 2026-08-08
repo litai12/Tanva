@@ -20,6 +20,10 @@ import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
+import {
+  HIGHEST_TIER_YEARLY_RECHARGE_DISCOUNT_RATE,
+  isHighestTierYearlyRechargeDiscountEligible,
+} from './recharge-discount-policy';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -30,7 +34,6 @@ const WeChatPay = require('wechatpay-node-v3');
 
 const PAYMENT_ORDER_TTL_MINUTES = 30;
 const PAYMENT_RECONCILE_LOOKBACK_HOURS = 72;
-const ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE = 0.8;
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -294,28 +297,16 @@ export class PaymentService implements OnModuleInit {
         currentPeriodEndAt: { gt: new Date() },
       },
       orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-      select: { membershipPlanId: true, snapshot: true },
+      select: { membershipPlanId: true },
     });
     if (!subscription) return 1;
 
-    const snapshot =
-      subscription.snapshot && typeof subscription.snapshot === 'object' && !Array.isArray(subscription.snapshot)
-        ? (subscription.snapshot as Record<string, unknown>)
-        : null;
-    const snapshotCycle = typeof snapshot?.billingCycle === 'string'
-      ? snapshot.billingCycle.trim().toLowerCase()
-      : '';
-    if (snapshotCycle === 'yearly' || snapshotCycle === 'annual') {
-      return ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE;
-    }
-
-    const plan = await this.prisma.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-      select: { billingCycle: true },
-    });
-    const billingCycle = plan?.billingCycle?.trim().toLowerCase();
-    return billingCycle === 'yearly' || billingCycle === 'annual'
-      ? ANNUAL_MEMBER_RECHARGE_DISCOUNT_RATE
+    const activePlans = await this.membershipService.listActivePlans();
+    return isHighestTierYearlyRechargeDiscountEligible(
+      subscription.membershipPlanId,
+      activePlans,
+    )
+      ? HIGHEST_TIER_YEARLY_RECHARGE_DISCOUNT_RATE
       : 1;
   }
 
@@ -342,7 +333,7 @@ export class PaymentService implements OnModuleInit {
         originalPrice: item.price,
         credits: item.credits,
         bonus:  null,
-        tag: membershipDiscountApplied ? '年费会员 8 折' : null,
+        tag: membershipDiscountApplied ? '最高档年卡 8 折' : null,
         isFirstRecharge: false,
       };
     });
@@ -475,7 +466,7 @@ export class PaymentService implements OnModuleInit {
       if (Math.abs(expectedAmount - orderAmount) >= 0.01) {
         throw new BadRequestException(
           discountRate < 1
-            ? '积分充值金额与年费会员折扣不匹配，请刷新充值页面后重试'
+            ? '积分充值金额与最高档年卡折扣不匹配，请刷新充值页面后重试'
             : '积分充值金额与积分数量不匹配',
         );
       }
@@ -483,7 +474,7 @@ export class PaymentService implements OnModuleInit {
       dto.metadata = this.mergeOrderMetadata(dto.metadata, {
         rechargeOriginalAmount: this.normalizeMoneyAmount(orderAmount / discountRate),
         rechargeDiscountRate: discountRate,
-        annualMembershipDiscountApplied: discountRate < 1,
+        highestTierYearlyMembershipDiscountApplied: discountRate < 1,
       });
     }
 

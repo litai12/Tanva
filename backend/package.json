@@ -9,6 +9,7 @@
     "lint": "echo 'no lint configured'",
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",
     "verify:membership-coverage-upgrade": "ts-node --transpile-only scripts/verify-membership-coverage-upgrade.ts",
+    "verify:recharge-discount-policy": "ts-node --transpile-only scripts/verify-recharge-discount-policy.ts",
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
     "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",
