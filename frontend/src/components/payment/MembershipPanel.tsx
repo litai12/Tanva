@@ -477,6 +477,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     () => plans.find((plan) => plan.id === current?.plan?.id || normPlanCode(plan.code) === normPlanCode(current?.plan?.code)),
     [plans, current?.plan?.code, current?.plan?.id],
   );
+  const hasHighestYearlyRechargeDiscount =
+    current?.entitlement?.membershipStatus === "active" &&
+    currentCatalogPlan?.billingCycle === "yearly" &&
+    resolvePlanTierRank(currentCatalogPlan) === highestYearlyTierRank;
   const isPlanUpgradeAvailable = useCallback(
     (plan: PaymentMembershipPlan): boolean => {
       if (isFreeUser || !current?.plan) return true;
@@ -1198,7 +1202,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         积分充值
                       </h4>
                       <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                        所有用户均可购买积分；当前最高档年卡会员购买享 8 折。
+                        {hasHighestYearlyRechargeDiscount
+                          ? "所有用户均可购买积分；当前已享年费旗舰会员 8 折。"
+                          : "所有用户均可购买积分；年费旗舰会员享受 8 折。"}
                       </p>
                     </div>
                     <PaymentPanel

@@ -1,6 +1,8 @@
 # Changelog
 
-- Membership purchase UX: 当前套餐及非升级目标的购买按钮置灰；只有当前可售最高档年卡的生效会员购买独立积分充值包时享 8 折，最高档年卡的标题说明与权益列表均明确展示该权益，后端统一判定资格、报价、校验和落单；月卡和其他年卡均按充值原价购买，套餐订阅价格不参与该充值折扣。
+- Payment UX: 暂时隐藏“自定义积分充值”模块，仅保留固定积分充值档位；原有自定义充值逻辑保留，便于后续重新开放。
+
+- Membership purchase UX: 当前套餐及非升级目标的购买按钮置灰；只有当前可售最高档年卡的生效会员购买独立积分充值包时享 8 折，最高档年卡的标题说明与权益列表均明确展示该权益，充值区对未开通用户展示“年费旗舰会员享受 8 折”、对已生效用户展示“当前已享年费旗舰会员 8 折”；后端统一判定资格、报价、校验和落单，月卡和其他年卡均按充值原价购买，套餐订阅价格不参与该充值折扣。
 
 - Admin/API statistics: added a dedicated `MINIMAX H3 VIDEO` model-node filter for `hailuo` / `hailuo-h3` usage records, and updated the Seedance filter label to explicitly include Seedance 2.5.
 - Membership: 下架所有旧套餐（包括历史重复项与一次性到账年卡），可售目录收敛为 6 个 `2026-08-v2` 套餐。三档年卡均带 `creditIssuanceMode="yearly_monthly_installments"`，服务端按 12 期发放，已有订阅/订单仍保留原套餐行与快照以保证历史结算不变。

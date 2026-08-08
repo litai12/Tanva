@@ -30,6 +30,9 @@ const showToast = (message: string, type: "success" | "error" | "info" = "info")
   );
 };
 
+// 产品暂不开放自定义积分充值；保留原实现，后续可直接恢复入口。
+const SHOW_CUSTOM_CREDIT_TOP_UP = false;
+
 export type PaymentPanelHandle = {
   openOrders: () => void;
   closeOrders: () => void;
@@ -256,6 +259,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
 
   // 打开面板时根据历史已付金额判断是否显示自定义积分入口：累计已支付 ≥ ¥200 才解锁
   useEffect(() => {
+    if (!SHOW_CUSTOM_CREDIT_TOP_UP) return;
+
     let cancelled = false;
     (async () => {
       try {
@@ -658,7 +663,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           </div>
 
           {/* 自定义积分（历史累计已支付 ≥ ¥200 才显示该区域；金额由积分按汇率换算） */}
-          {customAmountEligible && (
+          {SHOW_CUSTOM_CREDIT_TOP_UP && customAmountEligible && (
             <div
               className={cn(
                 "rounded-xl border-2 transition-all",
