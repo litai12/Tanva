@@ -32,8 +32,11 @@ Seedance、Wan 与 HappyHorse 不属于本规则，继续使用各自现有线�
 
 部署前需确认 Backend 配置 `NEW_API_KEY_VIP`，且该 token 可命中 `vip` ability；type 67 channel 的 `base_url` 与内部 token 已由运维填写，不能保留 placeholder。
 
+若创建接口返回 `No available channel for model ... under group vip`，先检查 `abilities` 是否存在对应模型的 `vip` 行；仅有 `default`/`auto` 不足以服务 `NEW_API_KEY_VIP`。本地 compose 的历史数据库需要重新执行上述幂等补丁并重启 new-api，使内存路由缓存刷新。
+
 ## 能力传递
 
 - Kling：支持 720P、1080P、2K、4K；2K/4K 自动带 `EnhanceSwitch=Enabled`。3.0/Omni 为 3–15 秒，视频参考限制为 3–10 秒；2.6 为 5/10 秒。
+- Kling 3.0-Omni 4K 无参考视频：无声/有声的腾讯 VOD 刊例价均为 `3 元/秒`，Tanva 按 `300 积分/秒` 预扣；例如 3 秒为 900 积分。参考视频 4K 的既有 2.0/2.4 元每秒档不由本次价格修复修改。
 - Vidu：保留 `q2-pro`、`q2-turbo`、`q3-pro`、`q3-turbo`、`q3-mix` 等具体版本，不再压扁成 q2/q3；参考模式使用 `FileInfos[].Usage=Reference`，图生使用 `FirstFrame`，错峰参数写入 `OutputConfig.OffPeak`。
 - Hailuo H3：继续由 new-api 模型目录和现有 H3 动态计价逻辑作为规格与价格唯一来源。

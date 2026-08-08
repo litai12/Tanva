@@ -9,4 +9,6 @@
 
 Backend 使用 `NEW_API_KEY_VIP` 调 new-api `/v1/videos`，任务 ID 使用 `newapivod:`，创建与轮询必须使用同一 token。new-api 的 type 67 adaptor 转发 `metadata` 和 `provider_options`，以保留 Vidu 具体版本、Kling 声音、参考视频和分镜等能力。
 
+`NEW_API_KEY_VIP` 只能命中 `vip` ability；type 67 渠道只有 `default`/`auto` 行时，价格预览仍可能成功，但实际创建会在 new-api distributor 阶段返回 503。Kling 3.0-Omni 4K 无参考视频的 VOD 刊例价为 3 元/秒，无声、有声统一对应 300 积分/秒。
+
 Seedance、Wan、HappyHorse 不应用该前端收敛规则。完整链路与部署补丁说明见 `helloagents/wiki/tencent-vod-canvas-video-routing.md`。

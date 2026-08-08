@@ -1,5 +1,7 @@
 # Changelog
 
+- Flow/Video VOD routing：修复本地 new-api type=67 渠道缺少 `vip` abilities 导致 `kling-v3-omni` 在 distributor 阶段返回 503；六个 VOD-only 业务模型现在同时覆盖 `default`、`auto`、`vip`。同步校正 Kling 3.0-Omni 无参考 4K 价格，无声/有声均按腾讯 VOD 刊例价 `3 元/秒 = 300 积分/秒`，3 秒预览为 900 积分。
+
 - Flow/Video VOD routing：当前画布启用的 Kling 2.6、Kling 3.0、Kling 3.0 Omni、Vidu Q2/Q3 与 Hailuo H3 收敛为 Tencent VOD 单线路。新建及历史节点都会自愈为 VOD；Backend 使用 `NEW_API_KEY_VIP` 经 new-api type 67 创建/轮询并保留具体 Vidu 子型号、参考媒体、声音和分镜参数；网关部署补丁禁用这些业务模型 ID 的非 VOD abilities。Seedance、Wan、HappyHorse 不变。
 
 - Payment UX: 暂时隐藏“自定义积分充值”模块，仅保留固定积分充值档位；原有自定义充值逻辑保留，便于后续重新开放。
