@@ -38,14 +38,24 @@ export const getEffectiveViduProvider = (
 export const resolveViduVideoMode = (params: {
   hasImage2Input: boolean;
   imageCount: number;
-  hasPrompt: boolean;
+  explicitVideoMode?: string;
 }): "start-end2video" | "text2video" | "img2video" | "reference2video" => {
+  const explicit = String(params.explicitVideoMode || "").trim().toLowerCase();
+  if (["text", "text2video"].includes(explicit)) return "text2video";
+  if (["image", "first_frame", "first-frame", "img2video"].includes(explicit)) {
+    return "img2video";
+  }
+  if (["frame", "start_end", "start-end", "start-end2video"].includes(explicit)) {
+    return "start-end2video";
+  }
+  if (["reference", "reference_images", "reference2video"].includes(explicit)) {
+    return "reference2video";
+  }
   if (params.hasImage2Input) return "start-end2video";
   if (params.imageCount === 0) return "text2video";
-  if (params.imageCount === 1) {
-    return params.hasPrompt ? "reference2video" : "img2video";
-  }
-  return params.hasPrompt ? "reference2video" : "start-end2video";
+  if (params.imageCount === 1) return "img2video";
+  if (params.imageCount === 2) return "start-end2video";
+  return "reference2video";
 };
 
 export const buildViduRequestSemantics = (params: {
@@ -53,18 +63,30 @@ export const buildViduRequestSemantics = (params: {
   hasImage2Input: boolean;
   imageCount: number;
   hasPrompt: boolean;
+  explicitVideoMode?: string;
 }) => {
-  const viduModelVariant = normalizeViduModelValue(params.rawViduModel);
+  const requestedViduModelVariant = normalizeViduModelValue(params.rawViduModel);
+  const resolvedVideoMode = resolveViduVideoMode({
+    hasImage2Input: params.hasImage2Input,
+    imageCount: params.imageCount,
+    explicitVideoMode: params.explicitVideoMode,
+  });
+  const videoMode =
+    requestedViduModelVariant === "q3-mix" ? "reference2video" : resolvedVideoMode;
+  // Vidu Q3's reference model and q3-pro generation model are distinct VOD
+  // versions. Keep the node family as q3 while sending/pricing the real variant.
+  const viduModelVariant: ViduModelValue =
+    requestedViduModelVariant === "q3"
+      ? videoMode === "reference2video"
+        ? "q3"
+        : "q3-pro"
+      : requestedViduModelVariant;
   const viduModel = normalizeViduModelForApi(viduModelVariant);
   return {
     provider: isViduQ3FamilyModel(viduModelVariant) ? ("viduq3-pro" as const) : ("vidu" as const),
     viduModel,
     viduModelVariant,
     isQ2ProMode: viduModelVariant === "q2-pro",
-    videoMode: resolveViduVideoMode({
-      hasImage2Input: params.hasImage2Input,
-      imageCount: params.imageCount,
-      hasPrompt: params.hasPrompt,
-    }),
+    videoMode,
   };
 };

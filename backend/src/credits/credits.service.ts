@@ -513,7 +513,7 @@ export class CreditsService {
       outputImageCount: params.outputImageCount ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
-    return `credits:preview:v3:${digest}`;
+    return `credits:preview:v4:${digest}`;
   }
 
   private async getCachedPreviewQuote(
@@ -744,11 +744,22 @@ export class CreditsService {
       params.model,
     );
 
-    creditsToDeduct = this.resolveKlingModelCredits(
-      params.serviceType,
-      creditsToDeduct,
-      effectiveRequestParams,
-    );
+    // A matched managed Tencent VOD rule is the pricing SSOT. The legacy
+    // std/pro fixed matrix predates 2K/4K and must not overwrite a dynamic
+    // quote (for example Kling 3.0 4K RMB 3/s becoming the old 720P price).
+    const hasManagedTencentKlingQuote =
+      managedRoutePricing?.vendorKey === 'tencent_vod' &&
+      typeof managedRoutePricing?.price?.credits === 'number' &&
+      ['kling-2.6-video', 'kling-3.0-video', 'kling-o3-video'].includes(
+        params.serviceType,
+      );
+    if (!hasManagedTencentKlingQuote) {
+      creditsToDeduct = this.resolveKlingModelCredits(
+        params.serviceType,
+        creditsToDeduct,
+        effectiveRequestParams,
+      );
+    }
 
     creditsToDeduct = this.resolveBananaTextRouteCredits(
       params.serviceType,

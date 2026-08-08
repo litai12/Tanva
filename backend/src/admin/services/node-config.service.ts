@@ -1279,7 +1279,7 @@ export class NodeConfigService {
                 resolutions: ['720P', '1080P', '2K', '4K'],
                 audioGeneration: true,
               },
-              inputModes: ['text', 'image'],
+              inputModes: ['text', 'image', 'start_end'],
               notes: [
                 '该节点参数按腾讯 VOD AIGC 文档约束展示',
                 'std=720P，pro=1080P，时长 3~15s',
@@ -1329,8 +1329,8 @@ export class NodeConfigService {
                 resolutions: ['720P', '1080P', '2K', '4K'],
                 audioGeneration: true,
               },
-              inputModes: ['text', 'image', 'reference_video'],
-              notes: ['当前接入优先覆盖文生视频和图片参考模式'],
+              inputModes: ['text', 'image', 'start_end', 'reference', 'reference_video'],
+              notes: ['参考视频模式支持 3~10 秒且不支持 4K'],
             },
           ),
         },
@@ -1369,8 +1369,8 @@ export class NodeConfigService {
                 durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                 resolutions: ['720P', '1080P', '2K', '4K'],
               },
-              inputModes: ['text', 'image', 'reference'],
-              notes: ['Q2 / Q3 统一收拢到同一个 Vidu 节点'],
+              inputModes: ['text', 'image', 'start_end', 'reference'],
+              notes: ['Q2 / Q3 统一收拢到同一个 Vidu 节点', '仅使用正常模式，不提供错峰计价'],
             },
           ),
         },
@@ -1388,7 +1388,8 @@ export class NodeConfigService {
         metadata: {
           type: 'hailuoVideo', provider: 'hailuo', modelKeys: ['hailuo-h3'], supportedModels: ['h3'],
           catalogEndpoint: '/api/ai/video-providers/hailuo/models', pricingSource: 'new-api',
-          defaultData: { provider: 'hailuo', hailuoModel: 'h3', hailuoMode: 'reference', managedModelKey: 'hailuo-h3', vendorKey: 'new_api', platformKey: 'new_api', channelTier: 'default', channelSelectionExplicit: true },
+          defaultData: { provider: 'hailuo', hailuoModel: 'h3', hailuoMode: 'reference', generateAudio: true, managedModelKey: 'hailuo-h3', vendorKey: 'tencent_vod', platformKey: 'tencent_vod', channelTier: 'vip', channelSelectionExplicit: true },
+          managedRoutes: { modelKey: 'hailuo-h3', defaultVendor: 'tencent_vod', vendors: [{ vendorKey: 'tencent_vod', platformKey: 'tencent_vod', provider: 'hailuo', route: 'new_api', modelName: 'Hailuo', modelVersion: 'H3' }] },
         },
       },
       {
@@ -2102,7 +2103,6 @@ export class NodeConfigService {
             viduModel: 'q2',
             resolution: '720p',
             style: 'general',
-            offPeak: false,
           },
         },
       },
@@ -2119,7 +2119,8 @@ export class NodeConfigService {
         metadata: {
           type: 'hailuoVideo', provider: 'hailuo', modelKeys: ['hailuo-h3'], supportedModels: ['h3'],
           catalogEndpoint: '/api/ai/video-providers/hailuo/models', pricingSource: 'new-api',
-          defaultData: { provider: 'hailuo', hailuoModel: 'h3', hailuoMode: 'reference', managedModelKey: 'hailuo-h3', vendorKey: 'new_api', platformKey: 'new_api', channelTier: 'default', channelSelectionExplicit: true },
+          defaultData: { provider: 'hailuo', hailuoModel: 'h3', hailuoMode: 'reference', generateAudio: true, managedModelKey: 'hailuo-h3', vendorKey: 'tencent_vod', platformKey: 'tencent_vod', channelTier: 'vip', channelSelectionExplicit: true },
+          managedRoutes: { modelKey: 'hailuo-h3', defaultVendor: 'tencent_vod', vendors: [{ vendorKey: 'tencent_vod', platformKey: 'tencent_vod', provider: 'hailuo', route: 'new_api', modelName: 'Hailuo', modelVersion: 'H3' }] },
         },
       },
       {

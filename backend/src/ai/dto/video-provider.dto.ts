@@ -160,7 +160,7 @@ export class VideoProviderRequestDto {
   @IsString()
   seed2InputTier?: string;
 
-  @ApiProperty({ description: 'Off-peak generation (Vidu)', required: false })
+  @ApiProperty({ description: 'Deprecated: canvas VOD requests always use normal pricing', required: false })
   @IsOptional()
   @IsBoolean()
   offPeak?: boolean;

@@ -1357,8 +1357,8 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "videoToGif",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
-const VIDU_MAX_REFERENCE_IMAGES = 2; // Vidu 当前统一限制最多 2 张参考图（图1/图2）
-const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
+const VIDU_MAX_REFERENCE_IMAGES = 7;
+const VIDUQ3_MAX_REFERENCE_IMAGES = 7;
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 // Kling O3 (Omni) 图片参考模式支持 1~7 张（首尾帧仍是 2 张，但后端只取 [0]/[1]，
 // 多余的图在 frame/video 模式被忽略，故收集上限统一取参考模式的 7 即可）。
@@ -1486,10 +1486,14 @@ const isSeedance20ModelValue = (value?: unknown): boolean => {
   return normalized !== "seedance-1.5-pro";
 };
 
-const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number =>
-  isViduQ3FamilyModel(nodeData?.viduModel)
+const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number => {
+  const mode = String(nodeData?.viduMode || nodeData?.videoMode || "").trim().toLowerCase();
+  const isReference = ["reference", "reference_images", "reference2video"].includes(mode);
+  if (!isReference) return 2;
+  return isViduQ3FamilyModel(nodeData?.viduModel)
     ? VIDUQ3_MAX_REFERENCE_IMAGES
     : VIDU_MAX_REFERENCE_IMAGES;
+};
 
 const resolveNano2LikeMaxReferenceImages = (
   nodeData?: Record<string, unknown>
@@ -3321,9 +3325,7 @@ const buildVideoPricingContext = (
   } else if (typeof context.viduModel === "string" && context.viduModel.trim()) {
     context.viduModelVariant = context.viduModel;
   }
-  if (typeof nodeData?.offPeak === "boolean") {
-    context.offPeak = nodeData.offPeak;
-  }
+  if (nodeType === "viduVideo" || nodeType === "viduQ3") context.offPeak = false;
   if (typeof nodeData?.hasVideoInput === "boolean") {
     context.referenceVideo = nodeData.hasVideoInput;
     context.hasVideoInput = nodeData.hasVideoInput;
@@ -11427,7 +11429,6 @@ function FlowInner() {
                   ? ("720P" as const)
                   : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
-              offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
               // Seedance 1.5 Pro专用参数
               camerafixed: type === "doubaoVideo" || type === "seedance20Video" || type === "seedVideo" ? false : undefined,
               watermark: type === "doubaoVideo" || type === "seedance20Video" || type === "seedVideo" ? false : undefined,
@@ -11915,12 +11916,7 @@ function FlowInner() {
     return klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
   }, []);
 
-  /**
-   * Kling 首尾帧(image-2)句柄可用性：
-   *  - Kling v3-0：APIMart image_urls/image_with_roles 不限模式，std/pro 均支持首尾帧(2 张)；
-   *  - Kling v2-6：仅 pro 模式支持第二张(首+尾)。
-   * 须与 GenericVideoNode 的 canUseKlingImage2Input 保持一致，否则句柄可见但连不上线。
-   */
+  /** 当前画布 Kling 统一走腾讯 VOD，2.6/3.0 均支持首尾帧输入。 */
   const canKlingNodeUseImage2Input = React.useCallback((node?: Node | null) => {
     if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video" && node.type !== "kling30Video")) {
       return false;
@@ -11933,9 +11929,7 @@ function FlowInner() {
         : node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
         : "kling-v2-6");
-    if (klingModel === "kling-v3-0") return true;
-    const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-    return klingModel === "kling-v2-6" && mode === "pro";
+    return klingModel === "kling-v3-0" || klingModel === "kling-v2-6";
   }, []);
 
   const isSeedance20ModeValue = React.useCallback(
@@ -13062,14 +13056,11 @@ function FlowInner() {
             ? "kling-v2-6"
             : "kling-v2-6");
         const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
-        const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-
         // Kling 视频节点：每个 handle 最多 1 张图（image 首帧 / image-2 尾帧）
         if (params.targetHandle === "image" || params.targetHandle === "image-2") {
           if (!isImageHandle(params.targetHandle) && params.targetHandle !== "image-2") return false;
           if (params.targetHandle === "image-2") {
-            // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro
-            const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+            const allowImage2 = isKling26Model;
             if (!allowImage2) return false;
           }
           // 同一个 handle 只能连 1 张图（不能重复连线替换）
@@ -13422,26 +13413,58 @@ function FlowInner() {
           tgt?.type === "viduVideo" &&
           (params.targetHandle === "image" || params.targetHandle === "image-2")
         ) {
-          next = next.filter(
-            (e) =>
-              !(
-                e.target === params.target &&
-                e.targetHandle === params.targetHandle
-              )
-          );
+          const data = (tgt.data || {}) as Record<string, any>;
+          const mode = String(data.viduMode || data.videoMode || "").trim().toLowerCase();
+          const isReference = ["reference", "reference_images", "reference2video"].includes(mode);
+          if (!isReference || params.targetHandle === "image-2") {
+            next = next.filter(
+              (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+            );
+          } else {
+            let remainingToDrop = Math.max(
+              0,
+              next.filter((e) => e.target === params.target && e.targetHandle === "image").length -
+                VIDU_MAX_REFERENCE_IMAGES +
+                1,
+            );
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              if (e.target === params.target && e.targetHandle === "image") {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
         }
         // Vidu Q3 视频节点：image/image-2 各保留 1 条（新线替换旧线）
         if (
           tgt?.type === "viduQ3" &&
           (params.targetHandle === "image" || params.targetHandle === "image-2")
         ) {
-          next = next.filter(
-            (e) =>
-              !(
-                e.target === params.target &&
-                e.targetHandle === params.targetHandle
-              )
-          );
+          const data = (tgt.data || {}) as Record<string, any>;
+          const mode = String(data.viduMode || data.videoMode || "").trim().toLowerCase();
+          const isReference = ["reference", "reference_images", "reference2video"].includes(mode);
+          if (!isReference || params.targetHandle === "image-2") {
+            next = next.filter(
+              (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+            );
+          } else {
+            let remainingToDrop = Math.max(
+              0,
+              next.filter((e) => e.target === params.target && e.targetHandle === "image").length -
+                VIDUQ3_MAX_REFERENCE_IMAGES +
+                1,
+            );
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              if (e.target === params.target && e.targetHandle === "image") {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
         }
         // Kling 视频节点：v2-6 std 最多 1 张图、pro 最多 2 张；v3-0 std/pro 均支持首尾帧(2 张)
         if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video" || tgt?.type === "kling30Video") &&
@@ -13455,9 +13478,7 @@ function FlowInner() {
               ? "kling-v2-6"
               : "kling-v2-6");
           const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
-          const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-          // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro 支持第二张
-          const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+          const allowImage2 = isKling26Model;
           const maxImages = allowImage2 ? 2 : 1;
           // image-2 只能在允许首尾帧时接，不能替换 image
           if (params.targetHandle === "image-2" && !allowImage2) {
@@ -20552,15 +20573,38 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             }
           }
         } else if (provider === "vidu" || provider === "viduq3-pro") {
-          if (hasImage2Edge && !hasPrimaryImageInput) {
+          const explicitViduMode = String(rawNodeData.viduMode || rawNodeData.videoMode || "")
+            .trim()
+            .toLowerCase();
+          const isViduReferenceMode = ["reference", "reference_images", "reference2video"].includes(explicitViduMode);
+          const isViduTextMode = ["text", "text2video"].includes(explicitViduMode);
+          const isViduFirstFrameMode = ["image", "first_frame", "first-frame", "img2video"].includes(explicitViduMode);
+          const isViduStartEndMode = ["frame", "start_end", "start-end", "start-end2video"].includes(explicitViduMode);
+          if (isViduTextMode && imageCount > 0) {
+            failCurrentVideoNode("Vidu 文生视频模式不能连接图片");
+            return;
+          }
+          if (isViduFirstFrameMode && imageCount !== 1) {
+            failCurrentVideoNode("Vidu 首帧模式需要且仅支持 1 张图片");
+            return;
+          }
+          if (isViduStartEndMode && (!hasImage2Edge || imageCount !== 2)) {
+            failCurrentVideoNode("Vidu 首尾帧模式需要图1和图2各 1 张图片");
+            return;
+          }
+          if (isViduReferenceMode && (imageCount < 1 || imageCount > 7)) {
+            failCurrentVideoNode("Vidu 参考模式需要 1-7 张参考图");
+            return;
+          }
+          if (!isViduReferenceMode && hasImage2Edge && !hasPrimaryImageInput) {
             failCurrentVideoNode("请先连接图1（image）再连接图2（image-2）");
             return;
           }
-          if (hasImage2Edge && imageCount < 2) {
+          if (!isViduReferenceMode && hasImage2Edge && imageCount < 2) {
             failCurrentVideoNode("Vidu 图2（image-2）已连接，但缺少图1或图2资源");
             return;
           }
-          if (!hasImage2Edge && imageCount >= 2) {
+          if (!isViduReferenceMode && !hasImage2Edge && imageCount >= 2) {
             failCurrentVideoNode("Vidu 两图模式请将第二张图连接到图2句柄（image-2）");
             return;
           }
@@ -20651,6 +20695,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           hasImage2Input: hasImage2Edge,
           imageCount,
           hasPrompt: Boolean(finalPrompt),
+          explicitVideoMode: rawNodeData.viduMode || rawNodeData.videoMode,
         });
         const isViduQ2ProMode = viduSemantics.isQ2ProMode;
         const viduModelForApi = viduSemantics.viduModel;
@@ -21673,6 +21718,10 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   provider: "hailuo" as VideoProvider,
                   hailuoModel: rawNodeData.hailuoModel || "h3",
                   videoMode: rawNodeData.hailuoMode || "reference",
+                  generateAudio:
+                    typeof rawNodeData.generateAudio === "boolean"
+                      ? rawNodeData.generateAudio
+                      : true,
                 }
               : provider === "doubao"
               ? {
@@ -21724,12 +21773,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                     viduModelForApi === "q2" && !isViduQ2ProMode
                       ? rawNodeData.style
                       : undefined,
-                  offPeak:
-                    viduModelForApi === "q2" && !isViduQ2ProMode
-                      ? rawNodeData.offPeak
-                      : undefined,
+                  offPeak: false,
                   viduModel: viduModelForApi,
-                  viduModelVariant: normalizedViduModelVariant,
+                  viduModelVariant: viduSemantics.viduModelVariant,
                 }
               : {
                   ...managedRoutePayload,
@@ -21796,20 +21842,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                       : klingReferenceImagesForSend.length === 1
                       ? "image"
                       : "text",
-                  // 声音：按 APIMart 各模型真实约束发"有效声音"，避免"扣有声却无声"。
-                  //  - omni(kling-o3): audio 与 video_list 互斥 → 连了参考视频则无声。
-                  //  - v2-6: audio 仅 pro 模式且单图可用(与尾帧互斥) → 否则无声。
-                  //  - v3: 文档无约束(此处 kling-v3-0 实际走 omni，见上)。
-                  // 后端按发出的 sound 计费，故这里发有效值即保证计费一致。
+                  // 声音按腾讯 VOD 的实际能力归一。Omni 参考视频和 Kling 2.6
+                  // 首尾帧当前均按无声提交，其他组合保留用户选择，确保预估与实扣一致。
                   sound:
                     provider === "kling-o3"
                       ? referenceVideoUrl
                         ? "off"
                         : normalizedKlingSound
                       : provider === "kling-2.6" || provider === "kling"
-                      ? rawNodeData.mode === "pro" && referenceImageUrls.length <= 1
-                        ? normalizedKlingSound
-                        : "off"
+                      ? klingReferenceImagesForSend.length >= 2 && klingModel === "kling-v2-6"
+                        ? "off"
+                        : normalizedKlingSound
                       : undefined,
                   referenceVideo: referenceVideoUrl,
                   referenceVideoType: rawNodeData.referenceVideoType,

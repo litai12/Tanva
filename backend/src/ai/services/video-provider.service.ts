@@ -1288,6 +1288,18 @@ export class VideoProviderService {
     const firstVideoMeta = Array.isArray(metadata.video_list)
       ? metadata.video_list.find((item: any) => item?.video_url)
       : undefined;
+    const normalizedRoleMode = imageWithRoles.some((item: { role: string }) =>
+      ["last_frame", "lastframe", "last-frame"].includes(item.role),
+    )
+      ? "start_end"
+      : imageWithRoles.length > 0 &&
+          imageWithRoles.every((item: { role: string }) =>
+            ["reference", "reference_image", "referenceimage"].includes(item.role),
+          )
+        ? "reference"
+        : imageWithRoles.length > 0
+          ? "image"
+          : undefined;
     const base = {
       prompt:
         typeof metadata.prompt === "string" && metadata.prompt.trim()
@@ -1315,7 +1327,7 @@ export class VideoProviderService {
       videoMode:
         typeof providerOptions.videoMode === "string"
           ? providerOptions.videoMode
-          : undefined,
+          : normalizedRoleMode,
       viduModelVariant:
         typeof providerOptions.viduModelVariant === "string"
           ? providerOptions.viduModelVariant
@@ -1327,7 +1339,13 @@ export class VideoProviderService {
         providerOptions.keepOriginalSound || firstVideoMeta?.keep_original_sound,
       klingStoryboardMode: providerOptions.klingStoryboardMode,
       klingStoryboardScript: providerOptions.klingStoryboardScript,
-      offPeak: providerOptions.offPeak === true,
+      generateAudio:
+        typeof providerOptions.generateAudio === "boolean"
+          ? providerOptions.generateAudio
+          : undefined,
+      // 画布 VOD 业务统一使用正常模式。即使历史节点仍携带 offPeak=true，
+      // 也不能让它影响腾讯请求或计费规则匹配。
+      offPeak: false,
     };
     switch (model) {
       case "vidu-q2":
@@ -1384,16 +1402,42 @@ export class VideoProviderService {
       const videoUrls = Array.from(new Set((input.reference_videos || []).map(String).map((v) => v.trim()).filter(Boolean)));
       const audioUrls = Array.from(new Set((input.audio_urls || []).map(String).map((v) => v.trim()).filter(Boolean)));
 
+      const allHailuoImageUrls = Array.from(
+        new Set([...imageUrls, ...(lastFrameUrl ? [lastFrameUrl] : [])]),
+      );
+      if (allHailuoImageUrls.length > 9) {
+        throw new BadRequestException("Hailuo H3 最多支持 9 张参考图");
+      }
+      if (videoUrls.length > 3) {
+        throw new BadRequestException("Hailuo H3 最多支持 3 个参考视频");
+      }
+      if (audioUrls.length > 3) {
+        throw new BadRequestException("Hailuo H3 最多支持 3 个参考音频");
+      }
+      if (audioUrls.length > 0 && allHailuoImageUrls.length === 0 && videoUrls.length === 0) {
+        throw new BadRequestException("Hailuo H3 参考音频不能单独使用，需同时提供图片或视频");
+      }
+      if (allHailuoImageUrls.length + videoUrls.length + audioUrls.length > 12) {
+        throw new BadRequestException("Hailuo H3 图片、视频和音频合计最多支持 12 个参考文件");
+      }
+
+      const hailuoMode = String(input.mode || "").trim().toLowerCase();
+      const isStartEndMode = ["frame", "start_end", "start-end", "start-end2video"].includes(hailuoMode);
+      if (isStartEndMode && allHailuoImageUrls.length !== 2) {
+        throw new BadRequestException("Hailuo H3 首尾帧模式需要且仅需要 2 张图片");
+      }
+      const isReferenceMode = ["reference", "reference_images", "reference2video"].includes(hailuoMode);
+
       const fileInfos = [
         ...imageUrls.map((url, index) => ({
           type: "Url" as const,
           category: "Image" as const,
           url,
-          usage: (String(input.mode || "").toLowerCase() === "reference" || imageUrls.length > 1
-            ? "Reference"
-            : index === 0
-              ? "FirstFrame"
-              : "Reference") as "FirstFrame" | "Reference",
+          usage: (isStartEndMode
+            ? index === 0 ? "FirstFrame" : "LastFrame"
+            : isReferenceMode
+              ? "Reference"
+              : "FirstFrame") as "FirstFrame" | "LastFrame" | "Reference",
         })),
         ...videoUrls.map((url) => ({
           type: "Url" as const,
@@ -1417,6 +1461,8 @@ export class VideoProviderService {
         aspectRatio: String(input.aspect_ratio || "").trim() || undefined,
         duration,
         resolution,
+        audioGeneration:
+          input.provider_options?.generateAudio === false ? "Disabled" : "Enabled",
         storageMode: "Temporary",
       }, { skipLegacyTaskObserver: true });
       return { taskId: `tencentvod-hailuo-h3-${created.taskId}`, status: "queued" };
@@ -1860,7 +1906,9 @@ export class VideoProviderService {
         keepOriginalSound: options.keepOriginalSound,
         klingStoryboardMode: options.klingStoryboardMode,
         klingStoryboardScript: options.klingStoryboardScript,
-        offPeak: options.offPeak,
+        generateAudio: options.generateAudio,
+        // Tencent VOD canvas models are sold at the normal price only.
+        offPeak: false,
         // Fallback raw URLs for new-api to perform its own asset upload if AK/SK is configured.
         referenceImageRawUrls,
       },
@@ -3171,28 +3219,32 @@ export class VideoProviderService {
     const explicitVideoMode = String(options.videoMode || "")
       .trim()
       .toLowerCase();
-    const forceStartEndMode =
-      explicitVideoMode === "start-end2video" ||
-      explicitVideoMode === "start_end" ||
-      explicitVideoMode === "start-end";
+    const forceStartEndMode = [
+      "frame",
+      "start-end2video",
+      "start_end",
+      "start-end",
+    ].includes(explicitVideoMode);
 
     if (forceStartEndMode && normalizedImages.length < 2) {
       throw new BadRequestException("Vidu 首尾帧模式至少需要 2 张图片（图1/图2）");
     }
-
-    const isStartEndCandidate =
-      forceStartEndMode ||
-      (normalizedImages.length >= 2 &&
-        !normalizedPrompt &&
-        resolvedModelVersion === "q2");
 
     const referenceMode =
       explicitVideoMode === "reference" ||
       explicitVideoMode === "reference2video" ||
       explicitVideoMode === "reference_images" ||
       resolvedModelVersion === "q3-mix";
+    const isStartEndCandidate =
+      forceStartEndMode || (normalizedImages.length === 2 && !referenceMode);
     if (resolvedModelVersion === "q3-mix" && normalizedImages.length === 0) {
       throw new BadRequestException("Vidu q3-mix 只支持参考生视频，至少需要 1 张参考图");
+    }
+    if (referenceMode && normalizedImages.length > 7) {
+      throw new BadRequestException("Vidu 参考生视频最多支持 7 张参考图");
+    }
+    if (!referenceMode && normalizedImages.length > 2) {
+      throw new BadRequestException("Vidu 首帧/首尾帧模式最多支持 2 张图片；多图请切换参考模式");
     }
     const primaryImages = isStartEndCandidate ? normalizedImages.slice(0, 1) : normalizedImages;
     const lastFrameUrl = isStartEndCandidate ? normalizedImages[1] : undefined;
@@ -3213,13 +3265,23 @@ export class VideoProviderService {
       typeof options.resolution === "string" && options.resolution.trim()
         ? options.resolution.trim().toUpperCase()
         : "720P";
+    if (!["540P", "720P", "1080P", "2K", "4K"].includes(resolutionRaw)) {
+      throw new BadRequestException("Vidu 分辨率仅支持 540P/720P/1080P/2K/4K");
+    }
 
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
-        ? Math.max(1, Math.min(16, Math.round(options.duration)))
+        ? Math.round(options.duration)
         : resolvedModelVersion.startsWith("q3")
         ? 8
         : 5;
+    const minDuration = resolvedModelVersion.startsWith("q3") ? 3 : 1;
+    const maxDuration = resolvedModelVersion.startsWith("q3") ? 16 : 8;
+    if (duration < minDuration || duration > maxDuration) {
+      throw new BadRequestException(
+        `Vidu ${resolvedModelVersion} 时长必须为 ${minDuration}-${maxDuration} 秒`,
+      );
+    }
 
     return {
       modelName: vendorConfig.modelName || "Vidu",
@@ -3233,7 +3295,8 @@ export class VideoProviderService {
       enhancePrompt: "Enabled",
       enhanceSwitch:
         resolutionRaw === "2K" || resolutionRaw === "4K" ? "Enabled" : undefined,
-      offPeak: options.offPeak ? "Enabled" : "Disabled",
+      audioGeneration: options.generateAudio === false ? "Disabled" : "Enabled",
+      offPeak: "Disabled",
       lastFrameUrl,
     };
   }
@@ -4017,13 +4080,30 @@ export class VideoProviderService {
     const normalizedModelVersion = String(modelVersion || "").trim().toLowerCase();
     const isKling26Model =
       normalizedModelVersion === "2.6" || normalizedModelVersion === "2.6.0";
-    const isKling30Family = this.isTencentKling3ModelVersion(modelVersion);
+    const isKling30Omni = normalizedModelVersion.includes("omni");
     const hasReferenceVideo =
       typeof normalizedReferenceVideo === "string" && normalizedReferenceVideo.trim().length > 0;
-    const isStartEndMode = isKling26Model && normalizedImages.length >= 2;
+    const explicitVideoMode = String(options.videoMode || "").trim().toLowerCase();
+    const isReferenceImageMode = [
+      "reference",
+      "reference2video",
+      "reference_images",
+    ].includes(explicitVideoMode);
+    const isStartEndMode =
+      ["frame", "start_end", "start-end", "start-end2video"].includes(explicitVideoMode) ||
+      (normalizedImages.length === 2 && !isReferenceImageMode);
 
-    if (hasReferenceVideo && !isKling30Family) {
+    if (hasReferenceVideo && !isKling30Omni) {
       throw new BadRequestException(`腾讯 VOD Kling ${fallbackModelVersion} 暂不支持视频参考模式`);
+    }
+    if (isReferenceImageMode && !isKling30Omni) {
+      throw new BadRequestException(`腾讯 VOD Kling ${fallbackModelVersion} 不支持多图主体参考，请使用首帧或首尾帧模式`);
+    }
+    if (!isKling30Omni && normalizedImages.length > 2) {
+      throw new BadRequestException(`腾讯 VOD Kling ${fallbackModelVersion} 最多支持首尾 2 张图片`);
+    }
+    if (isStartEndMode && normalizedImages.length !== 2) {
+      throw new BadRequestException("腾讯 VOD Kling 首尾帧模式需要且仅需要 2 张图片");
     }
 
     const firstFrameUrl = normalizedImages[0];
@@ -4045,8 +4125,8 @@ export class VideoProviderService {
             type: "Url" as const,
             category: "Image" as const,
             url,
-            objectId: `id${index + 1}`,
-            usage: "Reference" as const,
+            objectId: isReferenceImageMode ? `id${index + 1}` : undefined,
+            usage: isReferenceImageMode ? ("Reference" as const) : ("FirstFrame" as const),
           }))
       : [];
     const normalizedReferenceVideoType: "feature" | "base" =
@@ -4079,6 +4159,9 @@ export class VideoProviderService {
     const resolutionRaw = allowedResolutions.has(rawResolution)
       ? rawResolution
       : defaultResolution;
+    if (hasReferenceVideo && resolutionRaw === "4K") {
+      throw new BadRequestException("腾讯 VOD Kling 3.0-Omni 视频参考模式暂不支持 4K");
+    }
 
     const requestedDuration =
       typeof options.duration === "number" && Number.isFinite(options.duration)

@@ -34,8 +34,20 @@ const viduDto = service.buildDtoFromUnifiedForTencent({
 assert.equal(viduDto.viduModelVariant, 'q3-mix');
 assert.equal(viduDto.viduModel, 'q3-mix');
 assert.equal(viduDto.videoMode, 'reference');
-assert.equal(viduDto.offPeak, true);
+assert.equal(viduDto.offPeak, false);
 assert.equal(viduDto.channelTier, 'vip');
+
+const roleAwareDto = service.buildDtoFromUnifiedForTencent({
+  model: 'kling-v3',
+  metadata: {
+    image_with_roles: [
+      { url: 'https://example.com/first.png', role: 'first_frame' },
+      { url: 'https://example.com/last.png', role: 'last_frame' },
+    ],
+  },
+  provider_options: {},
+});
+assert.equal(roleAwareDto.videoMode, 'start_end');
 assert.equal(
   service.resolveManagedViduModel({ viduModel: 'q3', videoMode: 'reference2video' })
     .modelVersion,
@@ -45,6 +57,134 @@ assert.equal(
   service.resolveManagedViduModel({ viduModelVariant: 'q3-mix', videoMode: 'reference2video' })
     .modelVersion,
   'q3-mix',
+);
+
+const viduVodRequest = service.buildViduTencentCreateTaskRequest(
+  {
+    provider: 'viduq3-pro',
+    prompt: 'move naturally',
+    referenceImages: ['https://example.com/ref.png'],
+    duration: 5,
+    resolution: '4K',
+    videoMode: 'reference2video',
+    offPeak: true,
+  },
+  { modelName: 'Vidu', modelVersion: 'q3' },
+  'q3',
+);
+assert.equal(viduVodRequest.offPeak, 'Disabled');
+assert.equal(viduVodRequest.audioGeneration, 'Enabled');
+assert.equal(viduVodRequest.fileInfos[0].usage, 'Reference');
+
+service.logger = { warn() {}, log() {}, error() {} };
+const klingVodRequests: any[] = [];
+service.tencentVodAigcService = {
+  createVideoTask: async (request: any) => {
+    klingVodRequests.push(request);
+    return { taskId: `vod-${klingVodRequests.length}` };
+  },
+};
+await service.generateKlingViaTencent(
+  {
+    provider: 'kling',
+    klingModel: 'kling-v3-0',
+    prompt: 'camera push',
+    referenceImages: [
+      'https://example.com/first.png',
+      'https://example.com/last.png',
+    ],
+    videoMode: 'frame',
+    duration: 5,
+    resolution: '1080P',
+    sound: 'on',
+  },
+  { modelName: 'Kling', modelVersion: '3.0' },
+  '3.0',
+  true,
+);
+assert.equal(klingVodRequests[0].fileInfos[0].usage, 'FirstFrame');
+assert.equal(klingVodRequests[0].lastFrameUrl, 'https://example.com/last.png');
+assert.equal(klingVodRequests[0].audioGeneration, 'Enabled');
+
+await service.generateKlingViaTencent(
+  {
+    provider: 'kling',
+    klingModel: 'kling-v2-6',
+    referenceImages: [
+      'https://example.com/first.png',
+      'https://example.com/last.png',
+    ],
+    videoMode: 'frame',
+    duration: 5,
+    resolution: '1080P',
+    sound: 'on',
+  },
+  { modelName: 'Kling', modelVersion: '2.6' },
+  '2.6',
+  true,
+);
+assert.equal(klingVodRequests[1].audioGeneration, 'Disabled');
+
+await assert.rejects(
+  service.generateKlingViaTencent(
+    {
+      provider: 'kling',
+      klingModel: 'kling-v3-0',
+      referenceVideo: 'https://example.com/reference.mp4',
+      duration: 5,
+      resolution: '1080P',
+    },
+    { modelName: 'Kling', modelVersion: '3.0' },
+    '3.0',
+    true,
+  ),
+  /不支持视频参考模式/,
+);
+
+await assert.rejects(
+  service.generateKlingViaTencent(
+    {
+      provider: 'kling-o3',
+      klingModel: 'kling-o3',
+      referenceVideo: 'https://example.com/reference.mp4',
+      duration: 5,
+      resolution: '4K',
+    },
+    { modelName: 'Kling', modelVersion: '3.0-Omni' },
+    '3.0-Omni',
+    true,
+  ),
+  /不支持 4K/,
+);
+
+service.prepareRemoteImageUrls = async (urls: string[]) => urls;
+service.uploadBase64ImageToOSS = async (url: string) => url;
+await service.createViaTencentVod({
+  model: 'hailuo-h3',
+  prompt: 'first to last frame',
+  images: [
+    'https://example.com/first.png',
+    'https://example.com/last.png',
+  ],
+  duration: 5,
+  resolution: '2K',
+  mode: 'start_end',
+  provider_options: { generateAudio: true },
+});
+const hailuoRequest = klingVodRequests.at(-1);
+assert.equal(hailuoRequest.fileInfos[0].usage, 'FirstFrame');
+assert.equal(hailuoRequest.fileInfos[1].usage, 'LastFrame');
+assert.equal(hailuoRequest.audioGeneration, 'Enabled');
+
+await assert.rejects(
+  service.createViaTencentVod({
+    model: 'hailuo-h3',
+    audio_urls: ['https://example.com/voice.mp3'],
+    duration: 5,
+    resolution: '2K',
+    mode: 'reference',
+  }),
+  /不能单独使用/,
 );
 
 const forceVod: boolean[] = [];

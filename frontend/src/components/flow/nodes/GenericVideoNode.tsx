@@ -777,10 +777,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (!data.resolution && typeof resolution === "string") patch.resolution = resolution;
     if (!data.aspectRatio && typeof aspectRatio === "string") patch.aspectRatio = aspectRatio;
     if (!data.hailuoMode && typeof mode === "string") patch.hailuoMode = mode;
+    if (typeof data.generateAudio !== "boolean") patch.generateAudio = true;
     if (Object.keys(patch).length > 0) {
       window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
     }
-  }, [data.aspectRatio, data.clipDuration, data.hailuoMode, data.hailuoModelSpec, data.resolution, hailuoCatalogModel, hailuoParam, id, provider]);
+  }, [data.aspectRatio, data.clipDuration, data.generateAudio, data.hailuoMode, data.hailuoModelSpec, data.resolution, hailuoCatalogModel, hailuoParam, id, provider]);
   const seedanceModel: SeedanceModel = normalizeSeedanceModelValue(data.seedanceModel);
   const rawNodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
@@ -958,20 +959,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduRequestSemantics = isViduNode
     ? buildViduRequestSemantics({
         rawViduModel: viduModel,
-        hasImage2Input,
-        imageCount: imageInputCount,
-        hasPrompt: false,
+      hasImage2Input,
+      imageCount: imageInputCount,
+      hasPrompt: false,
+      explicitVideoMode: (data as any).viduMode || (data as any).videoMode,
       })
     : null;
   const normalizedViduModelVariant = viduRequestSemantics?.viduModelVariant;
   const viduModelForPreview = viduRequestSemantics?.viduModel;
+  const viduInputMode = React.useMemo<"text" | "first_frame" | "start_end" | "reference">(() => {
+    const mode = viduRequestSemantics?.videoMode;
+    if (mode === "img2video") return "first_frame";
+    if (mode === "start-end2video") return "start_end";
+    if (mode === "reference2video") return "reference";
+    return "text";
+  }, [viduRequestSemantics?.videoMode]);
   const isProMode = ((data as any).mode || "std") === "pro";
-  // 第二张图(首尾帧/尾帧)句柄：
-  //  - Kling v2-6：APIMart 仅在 pro 模式支持首+尾两张图，故沿用 pro-only。
-  //  - Kling v3 / O3(omni)：APIMart 的 image_urls / image_with_roles 不限模式，
-  //    std 也支持首尾帧，故放开 image-2 句柄。
-  const canUseKlingImage2Input =
-    isUnifiedKlingNode && (klingModel === "kling-v2-6" ? isProMode : true);
+  // 当前画布 Kling 全部走腾讯 VOD；2.6/3.0/Omni 都支持首尾帧输入。
+  const canUseKlingImage2Input = isUnifiedKlingNode;
 
   // 动态显隐句柄(如切到 pro 才出现的 image-2)后，必须通知 React Flow 重算句柄坐标，
   // 否则连到新句柄的连线会画到旧/零坐标——在 Edge 上表现为“专业模式 image-2 连线不显示”
@@ -1105,9 +1110,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (typeof data.klingModel === "string" && data.klingModel.trim()) {
       context.klingModel = data.klingModel.trim().toLowerCase();
     }
-    if (typeof (data as any).offPeak === "boolean") {
-      context.offPeak = Boolean((data as any).offPeak);
-    }
+    if (isViduNode) context.offPeak = false;
     context.referenceVideo = hasVideoInput;
     context.hasVideoInput = hasVideoInput;
     if (
@@ -1196,7 +1199,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       generationMode: previewVideoMode,
       generateAudio: data.generateAudio,
       watermark: data.watermark,
-      offPeak: data.offPeak,
+      offPeak: isViduNode ? false : undefined,
       referenceImageCount: imageInputCount,
       referenceVideoCount: isSeedance20Model || isHailuoModel ? videoInputCount : hasVideoInput ? 1 : 0,
       audioInputCount,
@@ -1850,7 +1853,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isViduQ2FamilyModel = viduModelFamily === "q2";
   const isViduQ2ProMode = viduModel === "q2-pro";
   const isCurrentViduQ3FamilyModel = viduModelFamily === "q3";
-  const isViduQ3ProMode = viduModel === "q3-pro";
   const isViduQ3TurboModel = viduModel === "q3-turbo";
   // 下拉只有 q2 / q3 两个选项，所以把所有变体(q2-pro / q3-pro / q3-turbo / q3-mix /
   // q2-turbo 等)统一折叠到家族值，否则像 q3-turbo 这种值在选项里找不到，按钮标签会
@@ -2240,24 +2242,65 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [id, viduModel]
   );
 
-  const handleViduQ3ModeChange = React.useCallback(
-    (value: "std" | "pro") => {
-      const nextModel: ViduModel = value === "pro" ? "q3-pro" : "q3";
-      if (nextModel === viduModel) return;
+  const handleViduInputModeChange = React.useCallback(
+    (value: "text" | "first_frame" | "start_end" | "reference") => {
+      if (value === viduInputMode) return;
+      const videoMode =
+        value === "text"
+          ? "text2video"
+          : value === "first_frame"
+          ? "img2video"
+          : value === "start_end"
+          ? "start-end2video"
+          : "reference2video";
+      setEdges((edges) => {
+        let imageCount = 0;
+        let image2Count = 0;
+        return edges.flatMap((edge) => {
+          if (
+            edge.target !== id ||
+            (edge.targetHandle !== "image" && edge.targetHandle !== "image-2")
+          ) {
+            return [edge];
+          }
+          if (value === "text") return [];
+          if (value === "first_frame") {
+            if (imageCount > 0) return [];
+            imageCount += 1;
+            return [{ ...edge, targetHandle: "image" }];
+          }
+          if (value === "start_end") {
+            if (edge.targetHandle === "image-2") {
+              if (image2Count > 0) return [];
+              image2Count += 1;
+              return [edge];
+            }
+            if (imageCount > 0) return [];
+            imageCount += 1;
+            return [edge];
+          }
+          if (imageCount >= 7) return [];
+          imageCount += 1;
+          return [{ ...edge, targetHandle: "image" }];
+        });
+      });
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
             id,
             patch: {
-              viduModel: nextModel,
-              provider: "viduq3-pro",
-              clipDuration: undefined,
+              viduMode: value,
+              videoMode,
+              // Q3/Q3-Pro are VOD input-mode versions, not a user-facing
+              // quality switch. Keep the family value and resolve the concrete
+              // version from videoMode at preview/submit time.
+              viduModel: isCurrentViduQ3FamilyModel ? "q3" : viduModel,
             },
           },
         })
       );
     },
-    [id, viduModel]
+    [id, isCurrentViduQ3FamilyModel, setEdges, viduInputMode, viduModel]
   );
 
   const handleSeedanceModelChange = React.useCallback(
@@ -2347,6 +2390,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id, isSeedance20Model, seedanceGenerateAudio]);
+
+  const handleHailuoAudioToggle = React.useCallback(() => {
+    if (!isHailuoModel) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { generateAudio: data.generateAudio === false } },
+      })
+    );
+  }, [data.generateAudio, id, isHailuoModel]);
 
   const handleSeedanceModeChange = React.useCallback(
     (value: SeedanceMode) => {
@@ -2953,7 +3005,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       />
       {((isSeedanceModel || isHailuoModel)
         ? capabilityModeSpec?.visibleHandles.includes("image")
-        : true) && (
+        : !isViduNode || viduInputMode !== "text") && (
         <Handle
           type='target'
           position={Position.Left}
@@ -2966,7 +3018,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {/* image-2 句柄: Seedance/Vidu 与 Kling(2.6或Pro模式)可见 */}
       {(((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("image-2")) ||
         canUseKlingImage2Input ||
-        isViduNode) && (
+        (isViduNode && viduInputMode === "start_end")) && (
         <Handle
           type='target'
           position={Position.Left}
@@ -3551,19 +3603,38 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       )}
 
       {isHailuoModel && (
-        <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
-          <NodeSelect
-            value={hailuoMode}
-            options={(hailuoParam("mode")?.options || []).map((option) => ({
-              value: String(option.value),
-              label: option.label,
-            }))}
-            onChange={(value) => handleHailuoModeChange(value as HailuoMode)}
-            title={lt("选择 Hailuo 模式", "Select Hailuo mode")}
-          />
-          {hailuoCatalogError && <div style={{ marginTop: 5, color: "#dc2626", fontSize: 11 }}>{hailuoCatalogError}</div>}
-        </div>
+        <>
+          <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
+            <NodeSelect
+              value={hailuoMode}
+              options={(hailuoParam("mode")?.options || []).map((option) => ({
+                value: String(option.value),
+                label: option.label,
+              }))}
+              onChange={(value) => handleHailuoModeChange(value as HailuoMode)}
+              title={lt("选择 Hailuo 模式", "Select Hailuo mode")}
+            />
+            {hailuoCatalogError && <div style={{ marginTop: 5, color: "#dc2626", fontSize: 11 }}>{hailuoCatalogError}</div>}
+          </div>
+          <button
+            type='button'
+            onClick={handleHailuoAudioToggle}
+            style={{
+              width: "100%",
+              marginBottom: 8,
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: data.generateAudio === false ? "#fff" : "#111827",
+              color: data.generateAudio === false ? "#111827" : "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {lt("生成音频", "Generate audio")}: {data.generateAudio === false ? lt("关闭", "Off") : lt("开启", "On")}
+          </button>
+        </>
       )}
 
       {isSeedanceModel && (
@@ -3921,27 +3992,26 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {(provider === "vidu" || provider === "viduq3-pro") &&
-        isCurrentViduQ3FamilyModel &&
-        !isViduQ3TurboModel && (
+      {(provider === "vidu" || provider === "viduq3-pro") && !isViduQ3TurboModel && (
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-              {lt("模式", "Mode")}
+              {lt("输入模式", "Input mode")}
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
               {[
-                { label: lt("标准", "Standard"), value: "std" as const },
-                { label: lt("专业", "Pro"), value: "pro" as const },
+                { label: lt("文生", "Text"), value: "text" as const },
+                { label: lt("首帧", "First"), value: "first_frame" as const },
+                { label: lt("首尾", "Frames"), value: "start_end" as const },
+                { label: lt("参考", "Reference"), value: "reference" as const },
               ].map((opt) => {
-                const isActive = (isViduQ3ProMode ? "pro" : "std") === opt.value;
+                const isActive = viduInputMode === opt.value;
                 return (
                   <button
                     key={opt.value}
                     type='button'
-                    onClick={() => handleViduQ3ModeChange(opt.value)}
+                    onClick={() => handleViduInputModeChange(opt.value)}
                     style={{
-                      flex: 1,
-                      padding: "6px 10px",
+                      padding: "6px 4px",
                       borderRadius: 8,
                       border: "1px solid #e5e7eb",
                       background: isActive ? "#111827" : "#fff",
@@ -4152,29 +4222,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               }}
             >
               {lt("椋庢牸", "Style")}: {(data as any).style === "anime" ? lt("鍔ㄦ极", "Anime") : lt("閫氱敤", "General")}
-            </button>
-            <button
-              type='button'
-              onClick={() => {
-                const currentOffPeak = (data as any).offPeak || false;
-                window.dispatchEvent(
-                  new CustomEvent("flow:updateNodeData", {
-                    detail: { id, patch: { offPeak: !currentOffPeak } },
-                  })
-                );
-              }}
-              style={{
-                flex: 1,
-                padding: "6px 10px",
-                borderRadius: 8,
-                border: `1px solid #e5e7eb`,
-                background: (data as any).offPeak ? "#111827" : "#fff",
-                color: (data as any).offPeak ? "#fff" : "#111827",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              {lt("关闭", "Off")}
             </button>
             </div>
           )}

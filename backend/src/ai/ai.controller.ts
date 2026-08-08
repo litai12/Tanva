@@ -1384,8 +1384,10 @@ export class AiController {
       params.watermark = dto.watermark;
     }
 
-    if (typeof dto.offPeak === 'boolean') {
-      params.offPeak = dto.offPeak;
+    // 画布上当前启用的 VOD 模型只按正常模式售卖。历史节点即使还带
+    // offPeak=true，也必须在预估/扣费上下文中归一为 false。
+    if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
+      params.offPeak = false;
     }
 
     const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
@@ -6044,7 +6046,60 @@ export class AiController {
         effectiveDto.managedModelKey = 'vidu-q2';
       } else if (viduVariant.startsWith('q3')) {
         effectiveDto.managedModelKey = 'vidu-q3';
+        const videoMode = String(effectiveDto.videoMode || '').trim().toLowerCase();
+        const isReferenceMode = [
+          'reference',
+          'reference2video',
+          'reference_images',
+        ].includes(videoMode);
+        if (viduVariant === 'q3' || viduVariant === 'q3-pro') {
+          effectiveDto.viduModelVariant = isReferenceMode ? 'q3' : 'q3-pro';
+        }
       }
+      effectiveDto.offPeak = false;
+    }
+    const normalizedKlingModel = String(effectiveDto.klingModel || '')
+      .trim()
+      .toLowerCase();
+    const isCanvasVodModel =
+      effectiveDto.provider === 'vidu' ||
+      effectiveDto.provider === 'viduq3-pro' ||
+      (effectiveDto.provider === 'hailuo' &&
+        String(effectiveDto.hailuoModel || 'h3').trim().toLowerCase() === 'h3') ||
+      ((effectiveDto.provider === 'kling' ||
+        effectiveDto.provider === 'kling-2.6' ||
+        effectiveDto.provider === 'kling-o3') &&
+        [
+          'kling-v2-6',
+          'kling-v3-0',
+          'kling-o3',
+          '',
+        ].includes(normalizedKlingModel));
+    if (isCanvasVodModel) {
+      effectiveDto.channelTier = 'vip';
+      effectiveDto.vendorKey = 'tencent_vod';
+      effectiveDto.platformKey = 'tencent_vod';
+    }
+    const normalizedVideoMode = String(effectiveDto.videoMode || '')
+      .trim()
+      .toLowerCase();
+    const isStartEndMode = [
+      'frame',
+      'start_end',
+      'start-end',
+      'start-end2video',
+    ].includes(normalizedVideoMode);
+    if (
+      normalizedKlingModel === 'kling-v2-6' &&
+      (isStartEndMode || (effectiveDto.referenceImages?.length || 0) >= 2)
+    ) {
+      effectiveDto.sound = 'off';
+    }
+    if (
+      effectiveDto.provider === 'kling-o3' &&
+      (effectiveDto.referenceVideo || (effectiveDto.referenceVideos?.length || 0) > 0)
+    ) {
+      effectiveDto.sound = 'off';
     }
     // channelTier 是用户本次明确选择，优先级高于旧节点残留的 vendor/platform。
     // 同时归一请求本身，确保计费上下文与实际执行入口一致。
