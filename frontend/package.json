@@ -23,6 +23,7 @@
     "test:managed-video-routing": "node --test src/components/flow/managedRoutePricing.test.ts",
     "test:xiaot-patch-contract": "node --test src/services/xiaotImagePatchContract.test.ts",
     "test:canvas-auto-layout": "node --test src/utils/canvasAutoLayout.test.ts",
+    "test:shared-request-pool": "node --test src/utils/sharedRequestPool.test.ts",
     "test:storyboard-prompt-table": "node --test src/components/flow/storyboardPromptTable.test.ts",
     "lint": "eslint .",
     "preview": "vite preview",

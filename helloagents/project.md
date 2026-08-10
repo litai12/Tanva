@@ -44,6 +44,7 @@
 
 ### Flow / AI 运行约定
 - 画布运行价以认证后的 `POST /api/credits/preview` 为唯一报价入口，并与实际预扣复用 `CreditsService.resolveEffectiveCreditsQuote`；前端静态值只允许作为报价返回前的短暂兜底，模型/线路/质量/分辨率/时长等参数必须与真实执行请求一致。Banana 的 `normal/apimart`、`stable/tencent`、`ultra/beqlee` 路线别名必须在报价与所有图片执行封装中做相同归一化，不得把极速路线静默降为普通路线。GPT Image 2 的 `quality` 与 `resolution` 是独立维度：腾讯尊享路线 `auto` 归一为 `low`，只由 `quality` 选择 `image2_low/medium/high`，`resolution` 只写入输出配置，不得提升质量档；尊享模式还需在基础质量/分辨率价格上按实际参考图数量追加 `10 积分/张（0.1 元/张）`，preview、同步预扣和异步预扣必须使用同一参考图数量。同步与异步生图入口都必须完整透传 `quality/background/moderation/outputFormat/outputCompression/maskUrl/officialFallback`。
+- Flow 节点挂载时的 `POST /api/credits/preview` 必须经过前端共享请求池：请求体完全相同的报价共用同一 in-flight Promise，并短时复用成功结果；不同报价执行全局并发上限，失败结果不得缓存。该优化只合并网络请求，不能改变后端作为唯一报价源或省略任何模型/线路/规格参数。
 - AI Chat 固定使用小T单轨入口，不再提供小T开关；preferences v5 会忽略历史关闭偏好并固定开启。旧能力必须作为小T宿主工具接入，不能以关闭小T回到旧链路。
 - 小T是 AI Chat 的单一入口；原生“只出图”和“案例搜索”作为 `host_tool` 宿主能力暴露给小T，由小T判断并调用。Tanva 在当前小T消息内执行旧链路并展示图片或案例卡片，不得在进入小T之前做前端分流，也不得要求用户切换回旧聊天模式。
 - 小T单轨仍保留图片比例、图片尺寸、视频比例、视频时长和附件上传入口；四项生成规格作为结构化偏好随每轮 capability manifest 交给小T，用户当轮明确指定的规格优先于已保存偏好。

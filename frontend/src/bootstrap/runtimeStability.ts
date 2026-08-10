@@ -1,4 +1,13 @@
-type RuntimeErrorKind = "error" | "unhandledrejection" | "resource-error";
+type RuntimeErrorKind =
+  | "error"
+  | "unhandledrejection"
+  | "resource-error"
+  | "react-render-error";
+
+type RuntimeErrorContext = Record<
+  string,
+  string | number | boolean | null | undefined
+>;
 
 type RuntimeErrorPayload = {
   kind: RuntimeErrorKind;
@@ -10,6 +19,8 @@ type RuntimeErrorPayload = {
   href: string;
   userAgent: string;
   timestamp: string;
+  componentStack?: string | null;
+  context?: RuntimeErrorContext;
 };
 
 const APP_VERSION = __APP_VERSION__;
@@ -213,7 +224,11 @@ const reportRuntimeError = (
   kind: RuntimeErrorKind,
   message: string,
   stack: string | null,
-  source: string | null
+  source: string | null,
+  options?: {
+    componentStack?: string | null;
+    context?: RuntimeErrorContext;
+  }
 ): void => {
   if (!shouldReportRuntimeErrors) return;
   if (!shouldEnableTelemetry) return;
@@ -223,7 +238,7 @@ const reportRuntimeError = (
   // don't spawn perpetually-"pending" sendBeacon pings in DevTools.
   if (isBrowserExtensionUrl(source) || isNonFatalBrowserRuntimeError(message, stack)) return;
 
-  const signature = `${kind}|${message}|${source ?? ""}`;
+  const signature = `${kind}|${message}|${source ?? ""}|${options?.context?.projectId ?? ""}`;
   if (seenErrorSignatures.has(signature)) return;
   seenErrorSignatures.add(signature);
   reportedErrorCount += 1;
@@ -238,6 +253,10 @@ const reportRuntimeError = (
     href: typeof window !== "undefined" ? window.location.href : "unknown",
     userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
     timestamp: new Date().toISOString(),
+    componentStack: options?.componentStack
+      ? options.componentStack.slice(0, 12000)
+      : null,
+    context: options?.context,
   };
 
   const body = JSON.stringify(payload);
@@ -275,6 +294,33 @@ const reportRuntimeError = (
     .finally(() => {
       window.clearTimeout(timeout);
     });
+};
+
+export const reportReactRenderError = ({
+  error,
+  label,
+  componentStack,
+  context,
+}: {
+  error: unknown;
+  label?: string;
+  componentStack?: string | null;
+  context?: RuntimeErrorContext;
+}): void => {
+  const info = toErrorInfo(error);
+  reportRuntimeError(
+    "react-render-error",
+    info.message || "React render failed",
+    info.stack,
+    label ? `react-error-boundary:${label}` : "react-error-boundary",
+    {
+      componentStack: componentStack ?? null,
+      context: {
+        boundaryLabel: label ?? null,
+        ...context,
+      },
+    },
+  );
 };
 
 const installGlobalErrorHandlers = (): void => {

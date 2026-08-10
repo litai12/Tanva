@@ -3,7 +3,6 @@ import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
-import ImageSizeIndicator from '@/components/canvas/ImageSizeIndicator';
 import ToolBar from '@/components/toolbar/ToolBar';
 import FocusModeButton from '@/components/canvas/FocusModeButton';
 import DrawingController from '@/components/canvas/DrawingController';
@@ -19,8 +18,7 @@ import { useLayerStore } from '@/stores';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import paper from 'paper';
-import { logger } from '@/utils/logger';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
@@ -35,6 +33,8 @@ import CommentDrawer from '@/components/comments/CommentDrawer';
 
 const Canvas: React.FC = () => {
     const chatTheme = useAIChatStore((state) => state.chatTheme);
+    const projectId = useProjectContentStore((state) => state.projectId);
+    const contentVersion = useProjectContentStore((state) => state.version);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const [isPaperReady, setIsPaperReady] = useState(false); // Delay Paper.js init.
@@ -119,7 +119,10 @@ const Canvas: React.FC = () => {
             )}
 
             {/* Flow canvas overlay */}
-            <RuntimeErrorBoundary label="工作流画布">
+            <RuntimeErrorBoundary
+                label="工作流画布"
+                resetKeys={[projectId, contentVersion]}
+            >
                 <FlowOverlay />
             </RuntimeErrorBoundary>
 

@@ -12,13 +12,31 @@ export class TelemetryController {
   @HttpCode(204)
   frontendError(@Body() body: unknown, @Req() req: FastifyRequest): void {
     const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-    const stringifyIfNeeded = (value: unknown): string | null => {
+    const stringifyIfNeeded = (value: unknown, maxLength = 12000): string | null => {
       if (value == null) return null;
-      if (typeof value === 'string') return value;
+      let serialized: string;
       try {
-        return JSON.stringify(value);
+        serialized = typeof value === 'string' ? value : JSON.stringify(value);
       } catch {
-        return String(value);
+        serialized = String(value);
+      }
+      if (serialized.length <= maxLength) return serialized;
+      return `${serialized.slice(0, maxLength)}...[truncated ${serialized.length - maxLength} chars]`;
+    };
+    const normalizeContext = (value: unknown): Record<string, unknown> | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      try {
+        const serialized = JSON.stringify(value);
+        if (serialized.length <= 12000) {
+          return JSON.parse(serialized) as Record<string, unknown>;
+        }
+        return {
+          truncated: true,
+          originalLength: serialized.length,
+          preview: serialized.slice(0, 12000),
+        };
+      } catch {
+        return { unserializable: true };
       }
     };
 
@@ -35,6 +53,8 @@ export class TelemetryController {
         stringifyIfNeeded(req.headers['user-agent']) ??
         'unknown',
       timestamp: stringifyIfNeeded(payload.timestamp),
+      componentStack: stringifyIfNeeded(payload.componentStack),
+      context: normalizeContext(payload.context),
       ip: req.ip,
       receivedAt: new Date().toISOString(),
     };

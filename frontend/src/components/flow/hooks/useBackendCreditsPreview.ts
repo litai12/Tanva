@@ -1,11 +1,50 @@
 import React from "react";
 import { fetchWithAuth } from "@/services/authFetch";
+import { SharedRequestPool } from "@/utils/sharedRequestPool";
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL &&
   import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
+
+const PREVIEW_REQUEST_TIMEOUT_MS = 12000;
+const creditsPreviewPool = new SharedRequestPool<number>({
+  maxConcurrent: 6,
+  ttlMs: 60_000,
+  maxEntries: 256,
+});
+
+const requestCreditsPreview = async (
+  body: Record<string, unknown>,
+): Promise<number | undefined> => {
+  const requestKey = JSON.stringify(body);
+  return creditsPreviewPool.request(requestKey, async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      PREVIEW_REQUEST_TIMEOUT_MS,
+    );
+    try {
+      const res = await fetchWithAuth(`${API_BASE_URL}/credits/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestKey,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`Credits preview failed with HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (typeof data?.credits !== "number") {
+        throw new Error("Credits preview response did not include credits");
+      }
+      return data.credits;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  });
+};
 
 export const useBackendCreditsPreview = ({
   serviceType,
@@ -16,7 +55,7 @@ export const useBackendCreditsPreview = ({
 }: {
   serviceType?: string | null;
   model?: string | null;
-  requestParams?: Record<string, any> | null;
+  requestParams?: Record<string, unknown> | null;
   outputImageCount?: number;
   enabled?: boolean;
 }) => {
@@ -34,7 +73,6 @@ export const useBackendCreditsPreview = ({
       return;
     }
 
-    const controller = new AbortController();
     let cancelled = false;
     setCredits(undefined);
 
@@ -45,17 +83,9 @@ export const useBackendCreditsPreview = ({
         if (requestParams) body.requestParams = requestParams;
         if (typeof outputImageCount === "number") body.outputImageCount = outputImageCount;
 
-        const res = await fetchWithAuth(`${API_BASE_URL}/credits/preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!cancelled && typeof data?.credits === "number") {
-          setCredits(data.credits);
+        const nextCredits = await requestCreditsPreview(body);
+        if (!cancelled && typeof nextCredits === "number") {
+          setCredits(nextCredits);
         }
       } catch {
         // Callers must leave the quote empty; static fallbacks would create a second price source.
@@ -65,7 +95,6 @@ export const useBackendCreditsPreview = ({
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, depsKey]);

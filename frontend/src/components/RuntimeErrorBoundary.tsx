@@ -1,5 +1,9 @@
 import React from "react";
 import { RefreshCw } from "lucide-react";
+import { reportReactRenderError } from "@/bootstrap/runtimeStability";
+import { useAuthStore } from "@/stores/authStore";
+import { useProjectContentStore } from "@/stores/projectContentStore";
+import { useProjectStore } from "@/stores/projectStore";
 
 type RuntimeErrorBoundaryProps = {
   children: React.ReactNode;
@@ -32,10 +36,33 @@ export default class RuntimeErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    const authState = useAuthStore.getState();
+    const projectState = useProjectStore.getState();
+    const contentState = useProjectContentStore.getState();
+    const flow = contentState.content?.flow;
+
     console.error("[RuntimeErrorBoundary] render failed", {
       label: this.props.label,
       error,
       componentStack: info.componentStack,
+    });
+
+    reportReactRenderError({
+      error,
+      label: this.props.label,
+      componentStack: info.componentStack,
+      context: {
+        boundaryVariant: this.props.variant ?? "panel",
+        userId: authState.user?.id ?? null,
+        projectId: contentState.projectId ?? projectState.currentProjectId,
+        contentVersion: contentState.version,
+        flowNodeCount: Array.isArray(flow?.nodes) ? flow.nodes.length : 0,
+        flowEdgeCount: Array.isArray(flow?.edges) ? flow.edges.length : 0,
+        hydrated: contentState.hydrated,
+        projectViewReady: contentState.projectViewReady,
+        dirty: contentState.dirty,
+        cacheValidationPending: contentState.cacheValidationPending,
+      },
     });
   }
 
@@ -98,4 +125,3 @@ export default class RuntimeErrorBoundary extends React.Component<
     );
   }
 }
-

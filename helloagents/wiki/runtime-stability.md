@@ -14,6 +14,8 @@
   - `unhandledrejection`
   - static resource load errors
 - Added structured frontend error reporting to backend endpoint `/api/telemetry/frontend-error`.
+- React `RuntimeErrorBoundary` render failures now use the same endpoint with `kind=react-render-error`; reports include the JavaScript stack, React component stack, boundary label/variant, user/project identifiers, content version, Flow node/edge counts, hydration/readiness/dirty state, and cache-validation state. The backend retains nested `context` for PM2/OpenObserve triage and truncates oversized strings/contexts before logging.
+- The Flow boundary resets when the active project or content version changes, so a captured render error does not permanently pin the workspace to its fallback after project switching or a newer project snapshot is hydrated.
 - Markdown rendering checks RegExp lookbehind support before enabling `remark-gfm`. Safari 15 falls back to base Markdown because the GFM autolink plugin dynamically creates a lookbehind expression that the browser cannot compile.
 - Runtime error boundaries isolate AI Chat and Flow rendering failures, with a root-level reload fallback so an uncaught React render error cannot leave a blank page.
 - Autosave keeps 5s debounce, plus a 15s minimum persisted save interval to avoid write amplification under burst edits.
@@ -35,6 +37,7 @@
   - backend request telemetry skips project content/upload success payload logging unless `OPENOBSERVE_LOG_HEAVY_PAYLOAD_REQUESTS=true`
 - Project saves emit `[ProjectSaveHotspot]` when slow or large, with stage timings for sanitize/hash, OSS put, DB update, and workflow history snapshot.
 - `fetchWithAuth` coalesces AI-triggered `refresh-credits` events so batch generation does not fan out into repeated balance/daily-reward fetches.
+- Flow node credit previews use a shared request pool keyed by the exact serialized quote body. Identical requests share one in-flight request and cache successful results for 60 seconds (maximum 256 entries); distinct requests run at no more than 6 concurrent calls with a 12-second request timeout. Failed/malformed responses are not cached. This prevents large project hydration from mounting one independent `/api/credits/preview` request per equivalent node while preserving backend-authoritative pricing.
 - Current small-concurrency overload risk is write amplification: each editing client can emit whole-project saves, thumbnail generation/upload, DB metadata writes, and telemetry writes on the same interaction loop.
 - Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
 - Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.

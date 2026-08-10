@@ -14,6 +14,8 @@ type FrontendErrorLog = {
   href: string | null;
   userAgent: string;
   timestamp: string | null;
+  componentStack: string | null;
+  context: Record<string, unknown> | null;
   ip: string | null;
   receivedAt: string;
 };
