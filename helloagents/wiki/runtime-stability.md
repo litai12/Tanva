@@ -14,7 +14,7 @@
   - `unhandledrejection`
   - static resource load errors
 - Added structured frontend error reporting to backend endpoint `/api/telemetry/frontend-error`.
-- React `RuntimeErrorBoundary` render failures now use the same endpoint with `kind=react-render-error`; reports include the JavaScript stack, React component stack, boundary label/variant, user/project identifiers, content version, Flow node/edge counts, hydration/readiness/dirty state, and cache-validation state. The backend retains nested `context` for PM2/OpenObserve triage and truncates oversized strings/contexts before logging.
+- React `RuntimeErrorBoundary` render failures now use the same endpoint with `kind=react-render-error`; reports include the JavaScript stack, React component stack, boundary label/variant, user/project identifiers, content version, Flow node/edge counts, hydration/readiness/dirty state, and cache-validation state. The backend writes the nested `context` directly to the PM2 error log and truncates oversized strings/contexts before logging; this frontend-error path does not depend on OpenObserve.
 - The Flow boundary resets when the active project or content version changes, so a captured render error does not permanently pin the workspace to its fallback after project switching or a newer project snapshot is hydrated.
 - Markdown rendering checks RegExp lookbehind support before enabling `remark-gfm`. Safari 15 falls back to base Markdown because the GFM autolink plugin dynamically creates a lookbehind expression that the browser cannot compile.
 - Runtime error boundaries isolate AI Chat and Flow rendering failures, with a root-level reload fallback so an uncaught React render error cannot leave a blank page.

@@ -1,6 +1,6 @@
 # Changelog
 
-- Runtime Stability/Flow：React `RuntimeErrorBoundary` 捕获的渲染异常现在以 `react-render-error` 上报 `/api/telemetry/frontend-error`，携带 JS stack、React component stack、边界、用户/项目、内容版本、Flow 节点/边数量与水合/缓存状态；后端 PM2/OpenObserve 保留结构化 context 并限制超长载荷。工作流边界随项目/内容版本变化自动复位，避免一次错误后永久停在白屏 fallback。Flow 节点报价新增共享请求池：完全相同的 `/api/credits/preview` 共用 in-flight 请求并缓存成功结果 60 秒，不同报价最多并发 6 个、12 秒超时、失败不缓存，消除大项目水合时的百级报价请求风暴且不改变后端权威价格。
+- Runtime Stability/Flow：React `RuntimeErrorBoundary` 捕获的渲染异常现在以 `react-render-error` 上报 `/api/telemetry/frontend-error`，携带 JS stack、React component stack、边界、用户/项目、内容版本、Flow 节点/边数量与水合/缓存状态；后端直接写入结构化 PM2 error 日志并限制超长载荷，此入口不依赖已卸载的 OpenObserve。工作流边界随项目/内容版本变化自动复位，避免一次错误后永久停在白屏 fallback。Flow 节点报价新增共享请求池：完全相同的 `/api/credits/preview` 共用 in-flight 请求并缓存成功结果 60 秒，不同报价最多并发 6 个、12 秒超时、失败不缓存，消除大项目水合时的百级报价请求风暴且不改变后端权威价格。
 
 - Flow/Credits/GPT Image 2：修复 new-api 腾讯图片适配器从错误的 `Extra.quality` 取值并按 2K/4K 自动抬升质量的问题；`auto + 4K` 现在保持 `image2_low + Resolution=4K`，medium/high 也只由 quality 决定。APIMart 补齐正式图片字段透传，腾讯渠道显式拒绝不支持的 `n>1`，网关计量识别 `resolution` 并按 GPT Image 2 的 1K/2K/4K 固定价格比例计算。Tanva 同步生图补齐质量、背景、审核、压缩、蒙版和官方回退参数；画布同步修正 GPT 尊享质量矩阵、文本节点、Seed 3D、Audio Studio、Sora/Seedream 兜底，并让视频分析的报价线路与实际请求保持一致。Banana `ultra/beqlee` 极速线路现在也会由两个图片请求封装完整保留，报价与执行不再分叉，极速兜底矩阵同步后端当前价格。GPT Image 2 尊享模式新增每张参考图 `10` 积分附加费，前端 preview、同步/异步实际预扣、节点说明和流水审计统一使用实际参考图数量。
 

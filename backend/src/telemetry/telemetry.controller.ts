@@ -1,13 +1,8 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
 
 @Controller('telemetry')
 export class TelemetryController {
-  constructor(
-    private readonly openObserveTelemetryService: OpenObserveTelemetryService,
-  ) {}
-
   @Post('frontend-error')
   @HttpCode(204)
   frontendError(@Body() body: unknown, @Req() req: FastifyRequest): void {
@@ -59,8 +54,7 @@ export class TelemetryController {
       receivedAt: new Date().toISOString(),
     };
 
-    // Keep telemetry in structured server logs for release-level debugging.
+    // PM2 is the production source of truth for frontend runtime failures.
     console.error('[frontend-error]', JSON.stringify(normalized));
-    void this.openObserveTelemetryService.ingestFrontendError(normalized);
   }
 }
