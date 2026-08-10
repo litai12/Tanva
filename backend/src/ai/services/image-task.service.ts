@@ -485,6 +485,7 @@ export class ImageTaskService {
         : {}),
       ...(resolvedRoute ? { bananaImageRoute: resolvedRoute } : {}),
       ...(normalizedProviderOptions ? { providerOptions: normalizedProviderOptions } : {}),
+      referenceImageCount: imageRefs.length,
       ...(prompt ? { requestPrompt: prompt } : {}),
       ...(imageRefs[0] ? { requestThumbnailUrl: imageRefs[0] } : {}),
       ...(imageRefs.length > 0 ? { requestThumbnailUrls: imageRefs } : {}),

@@ -5,6 +5,7 @@
 - Seed 3D 改用后端 `convert-2d-to-3d` 报价，200 积分静态值仅作短暂兜底；Audio Studio 的角标跟随当前 managed vendor 价格，不再沿用切换前的节点值。
 - Text Chat、Prompt Optimize、HTML PPT、Sora 与 Seedream 的添加面板/加载中兜底已同步当前后端价格；后端报价成功后始终覆盖这些兜底。
 - `aiBackendAPI` 与 `aiImageService` 统一识别 `ultra/beqlee`，不再出现画布按极速路线报价、执行封装却丢失路线的情况；极速图片与文本的短暂 UI 兜底也与后端矩阵一致。
+- GPT Image 2 尊享节点把当前图片输入连线数作为 `referenceImageCount` 交给后端报价，Run 总积分即时包含 `10 积分/张` 的参考图附加费，并在节点底部明确显示规则与当前附加积分。
 
 ## 2026-08-04 Hailuo H3 端点提示与输入上限
 - Hailuo 节点复用与 Seedance 相同的动态句柄布局；悬浮 `prompt`、`image`、`image-2`、`video`、`audio` 端点时，提示位置会跟随当前模式的端点位置。

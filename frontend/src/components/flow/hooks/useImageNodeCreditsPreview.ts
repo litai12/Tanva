@@ -173,6 +173,7 @@ export const useImageNodeCreditsPreview = ({
         requestParams: {
           aiProvider: provider,
           imageSize: normalizedImageSize,
+          referenceImageCount: safeReferenceCount,
           bananaImageRoute: bananaImageRoute || undefined,
           providerOptions: {
             banana: {

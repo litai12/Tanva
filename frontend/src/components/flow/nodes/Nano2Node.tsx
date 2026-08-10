@@ -1139,6 +1139,14 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           {lt("参考图上限", "Reference max")}: {maxReferenceImages}
         </div>
       ) : null}
+      {showGptImage2QualitySelector ? (
+        <div style={{ marginTop: 4, fontSize: 11, color: "#9ca3af" }}>
+          {lt(
+            `尊享参考图：每张额外 10 积分${imageInputCount > 0 ? `，当前 +${imageInputCount * 10}` : ""}`,
+            `Premium references: +10 credits each${imageInputCount > 0 ? `, currently +${imageInputCount * 10}` : ""}`
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

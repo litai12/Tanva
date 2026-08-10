@@ -3909,6 +3909,7 @@ export class AiController {
         imageSize: dto.imageSize,
         quality: dto.quality,
         aspectRatio: dto.aspectRatio,
+        referenceImageCount: normalizedImageUrlsForProvider.length,
         outputImageCount: requestedOutputImageCount,
         parallelGroupId: dto.parallelGroupId,
         parallelGroupIndex: dto.parallelGroupIndex,
@@ -4066,7 +4067,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
+      }, normalizedImageUrlsForProvider.length, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
         validateSuccessResult: (payload) => ({
           ok: this.hasImagePayload(payload),
           message: 'Image generation succeeded but no image payload returned',

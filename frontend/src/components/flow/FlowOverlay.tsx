@@ -3493,11 +3493,15 @@ const resolveStableRouteCredits = (params: {
         : globalImageSize;
     const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
     const normalizedQuality = normalizeGptImage2StableQuality(nodeData?.quality);
-    const unitCredits = Number(
+    const baseCredits = Number(
       GPT_IMAGE_2_STABLE_ROUTE_PRICING[normalizedQuality][normalizedSize]
     );
-    if (Number.isFinite(unitCredits) && unitCredits > 0) {
-      resolvedCredits = unitCredits;
+    const referenceImageCount = Math.max(
+      0,
+      Math.floor(Number(nodeData?.referenceImageCount) || 0)
+    );
+    if (Number.isFinite(baseCredits) && baseCredits > 0) {
+      resolvedCredits = baseCredits + referenceImageCount * 10;
     }
   } else if (normalizedType === "gptImage2") {
     const preferredSize =

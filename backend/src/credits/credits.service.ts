@@ -91,6 +91,9 @@ const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const CREDITS_PER_YUAN = 100;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
 const GPT_IMAGE2_CREDITS = 40;
+const GPT_IMAGE2_TENCENT_REFERENCE_IMAGE_CREDITS = Math.round(
+  0.1 * CREDITS_PER_YUAN,
+);
 const DEEPSEEK_V4_MODEL_CREDITS: Record<string, number> = {
   'deepseek-v4-flash': 30,
   'deepseek-v4-flash-260425': 30,
@@ -700,9 +703,24 @@ export class CreditsService {
     serviceType: ServiceType;
     model?: string;
     requestParams?: any;
+    inputImageCount?: number;
     outputImageCount?: number;
   }) {
-    const normalizedRequestParams = this.normalizeManagedPricingRequestParams(params.requestParams);
+    const normalizedRequestParamsBase = this.normalizeManagedPricingRequestParams(
+      params.requestParams,
+    );
+    const normalizedInputImageCount = this.normalizeNonNegativeInteger(
+      params.inputImageCount,
+    );
+    // Actual deductions receive inputImageCount from the server-side request
+    // parser. Make it authoritative over any client-provided pricing hint.
+    const normalizedRequestParams =
+      typeof params.inputImageCount === 'number' && Number.isFinite(params.inputImageCount)
+        ? {
+            ...(normalizedRequestParamsBase || {}),
+            referenceImageCount: normalizedInputImageCount,
+          }
+        : normalizedRequestParamsBase;
     const pricing = await this.resolveServicePricing({
       serviceType: params.serviceType,
       requestParams: normalizedRequestParams,
@@ -1974,6 +1992,12 @@ export class CreditsService {
     return null;
   }
 
+  private normalizeNonNegativeInteger(value: unknown): number {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+    return Math.floor(numeric);
+  }
+
   private resolveBananaRouteFromRequestParams(
     requestParams: any,
   ): 'normal' | 'stable' | 'ultra' | null {
@@ -2171,7 +2195,14 @@ export class CreditsService {
       if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
         return null;
       }
-      return configuredCredits;
+      const referenceImageCount = this.normalizeNonNegativeInteger(
+        requestParams?.referenceImageCount,
+      );
+      const referenceImageCredits =
+        route === 'stable'
+          ? referenceImageCount * GPT_IMAGE2_TENCENT_REFERENCE_IMAGE_CREDITS
+          : 0;
+      return configuredCredits + referenceImageCredits;
     }
 
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
@@ -2983,6 +3014,16 @@ export class CreditsService {
     if (isBananaImageService) {
       if (channel === 'tencent') {
         remarkParts.push('pricing: stable-route image matrix');
+        if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
+          const referenceImageCount = this.normalizeNonNegativeInteger(
+            requestParams?.referenceImageCount,
+          );
+          if (referenceImageCount > 0) {
+            remarkParts.push(
+              `pricing: ${referenceImageCount} reference image(s) x ${GPT_IMAGE2_TENCENT_REFERENCE_IMAGE_CREDITS} credits`,
+            );
+          }
+        }
       } else if (channel === 'apimart') {
         remarkParts.push('pricing: normal-route image matrix');
       } else if (channel === '147') {
@@ -4283,6 +4324,7 @@ export class CreditsService {
       serviceType,
       model,
       requestParams,
+      inputImageCount,
       outputImageCount,
     });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
