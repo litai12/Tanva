@@ -1,7 +1,6 @@
 package tencent
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,10 +13,11 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/imageutil"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
-	"github.com/gin-gonic/gin"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
@@ -51,6 +51,10 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if request.N != nil && *request.N > 1 {
+		return nil, fmt.Errorf("tencent image: n=%d is unsupported; this channel returns exactly one image per request", *request.N)
+	}
+
 	apiKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
 	apiKey = strings.TrimPrefix(apiKey, "Bearer ")
 
@@ -59,15 +63,10 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, fmt.Errorf("tencent image: invalid channel key: %w", err)
 	}
 
-	// Resolve quality/resolution → Tencent model version
-	quality := ""
-	if qRaw, ok := request.Extra["quality"]; ok {
-		_ = json.Unmarshal(qRaw, &quality)
-	}
-	resolution := ""
-	if rRaw, ok := request.Extra["resolution"]; ok {
-		_ = json.Unmarshal(rRaw, &resolution)
-	}
+	// quality is a first-class ImageRequest field. Resolution controls only the
+	// output dimensions and must never promote the requested quality tier.
+	quality := strings.TrimSpace(request.Quality)
+	resolution := imageutil.ExtractRequestedImageSize(&request)
 	// 按请求模型名选择腾讯 ModelName/ModelVersion：gemini→GEM，gpt-image-2→OG。
 	// 优先用映射后的上游模型名，回退到客户端请求的 model。
 	reqModel := strings.TrimSpace(info.UpstreamModelName)
@@ -77,10 +76,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	modelName, modelVersion := resolveTencentImageModel(reqModel, quality, resolution)
 
 	// Collect reference image URLs
-	var imageURLs []string
-	if urlsRaw, ok := request.Extra["image_urls"]; ok {
-		_ = json.Unmarshal(urlsRaw, &imageURLs)
-	}
+	imageURLs := imageutil.ExtractReferenceImages(&request)
 	fileInfos := toVodFileInfos(imageURLs)
 
 	outCfg := vodImageOutputConfig{StorageMode: "Temporary"}

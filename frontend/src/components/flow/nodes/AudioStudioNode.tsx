@@ -127,6 +127,14 @@ function AudioStudioNode({ id, data, selected }: Props) {
   const effectiveMode: AudioStudioMode = isUpload
     ? 'upload'
     : selectedSpec?.mode || (data.mode as AudioStudioMode) || 'seed-audio';
+  const selectedManagedCredits = React.useMemo(() => {
+    if (isUpload) return undefined;
+    const resolved = resolveManagedRoutePricing(nodeConfigMetadata, selectedModelKey, {});
+    return typeof resolved?.credits === 'number' && Number.isFinite(resolved.credits)
+      ? resolved.credits
+      : undefined;
+  }, [isUpload, nodeConfigMetadata, selectedModelKey]);
+  const displayedCredits = selectedManagedCredits ?? data.creditsPerCall;
 
   // ---- 动态句柄 ----
   const inputHandles = React.useMemo(() => {
@@ -356,12 +364,14 @@ function AudioStudioNode({ id, data, selected }: Props) {
     if (effectiveMode === 'seed-audio') {
       return lt('≈2积分/秒，按实际时长结算', '≈2 credits/sec, billed by actual duration');
     }
-    const resolved = resolveManagedRoutePricing(nodeConfigMetadata, selectedModelKey, {});
-    if (typeof resolved?.credits === 'number') {
-      return lt(`${resolved.credits} 积分/次`, `${resolved.credits} credits / run`);
+    if (typeof selectedManagedCredits === 'number') {
+      return lt(
+        `${selectedManagedCredits} 积分/次`,
+        `${selectedManagedCredits} credits / run`,
+      );
     }
     return null;
-  }, [isUpload, effectiveMode, nodeConfigMetadata, selectedModelKey, lt]);
+  }, [isUpload, effectiveMode, selectedManagedCredits, lt]);
 
   // 句柄垂直分布
   const handleTop = (index: number, total: number): string => {
@@ -393,7 +403,7 @@ function AudioStudioNode({ id, data, selected }: Props) {
           <AudioLines size={20} color="#8b5cf6" strokeWidth={2.2} />
           <span>
             {lt('音频工作台', 'Audio Studio')}
-            <RunCreditBadge credits={data.creditsPerCall} inline />
+            <RunCreditBadge credits={displayedCredits} inline />
           </span>
         </div>
         {!isUpload ? (

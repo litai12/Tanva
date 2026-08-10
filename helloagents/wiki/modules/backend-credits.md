@@ -1,5 +1,14 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-08-10 GPT Image 2 参数与画布报价一致性
+
+- `POST /api/credits/preview` 与实际 `withCredits` 预扣共同使用 `resolveEffectiveCreditsQuote`；画布运行按钮优先消费该报价，不再让模型线路的旧静态价格决定实际显示。
+- GPT Image 2 普通路线按分辨率为 `1K/2K/4K = 20/30/40`。腾讯尊享路线按质量与分辨率计价：`auto/low = 30/35/40`、`medium = 65/110/160`、`high = 190/350/560`。
+- `quality` 与 `resolution` 不互相推导：`auto` 在腾讯路线归一为 `low`，网关只用 `quality` 选择 `image2_low/medium/high`，同时把 `resolution` 原样写入腾讯 `OutputConfig`。
+- Tanva 同步生图与异步生图都透传 GPT Image 2 的质量、背景、审核、输出格式/压缩、蒙版和官方回退参数；new-api 的腾讯/APIMart 适配器必须从 `ImageRequest` 正式字段读取这些值，不能假设它们位于 `Extra`。
+- 画布审计同时校正 Seed 3D（显示/报价/实扣均为当前 `convert-2d-to-3d` 价格 200）、文本节点普通/尊享兜底价、Audio Studio 模型切换价格、Sora/Seedream 添加面板区间。视频分析节点将线路提示同时交给报价与实际请求，且 Run 价只使用后端报价。
+- Banana 极速路线使用 `ultra/beqlee` 双别名；前端请求封装、后端报价和真实执行必须保留同一条路线。极速图片兜底矩阵与后端一致：Fast 为 20，Pro 为 `100/100/100/179`，Ultra 模型为 `50/50/75/113`（依次为 0.5K/1K/2K/4K）。
+
 ## 2026-08-02 小T 对话固定计费
 - `xiaot-agent` 每个完整成功的对话回合固定扣 `2` 积分，Fast/Pro/Ultra/DeepSeek V4 Flash 不再按模型或上游 usage 区分价格。
 - 上游 `usage.total_tokens` 仅作账单审计数据保存，不再乘汇率或直接作为扣费值，避免将 `4800+` 的 usage 误扣为对话积分。

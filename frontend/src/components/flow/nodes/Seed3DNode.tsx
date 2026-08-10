@@ -10,6 +10,7 @@ import RunCreditBadge from "./RunCreditBadge";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 import { useLocaleText } from "@/utils/localeText";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type Seed3DDetailPreset = "3.0" | "3.1";
 
@@ -127,7 +128,16 @@ function Seed3DNode({ id, data, selected }: Props) {
     data.model === "3.0" ? "3.0" : "3.1";
   const lowPolyEnabled = currentDetailPreset === "3.0" ? Boolean(data.lowPoly) : false;
   const sketchEnabled = currentDetailPreset === "3.0" ? Boolean(data.sketch) : false;
-  const resolvedRunCredits = 300;
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "convert-2d-to-3d",
+    model: "doubao-seed3d-2-0-260328",
+    requestParams: {
+      aiProvider: "seed3d",
+      nodeType: "seed3d",
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits = backendCredits ?? data.creditsPerCall ?? 200;
 
   const updateData = React.useCallback(
     (patch: Record<string, any>) => {

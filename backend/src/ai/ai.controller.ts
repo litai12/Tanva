@@ -3957,6 +3957,11 @@ export class AiController {
                 imageOnly: dto.imageOnly,
                 aspectRatio: dto.aspectRatio,
                 imageSize: dto.imageSize,
+                quality: dto.quality,
+                background: dto.background,
+                moderation: dto.moderation,
+                outputCompression: dto.outputCompression,
+                maskUrl: dto.maskUrl,
                 thinkingLevel: dto.thinkingLevel,
                 outputFormat: dto.outputFormat,
                 providerOptions: dto.providerOptions,
@@ -3968,6 +3973,7 @@ export class AiController {
                 googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
                 batchMode: dto.batchMode,
                 batchCount: dto.batchCount,
+                officialFallback: dto.officialFallback,
               });
 
               if (result.success && result.data) {

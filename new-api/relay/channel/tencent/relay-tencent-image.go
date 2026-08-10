@@ -31,14 +31,14 @@ type vodImageOutputConfig struct {
 }
 
 type vodCreateImageTaskReq struct {
-	ModelName     string               `json:"ModelName"`
-	ModelVersion  string               `json:"ModelVersion"`
-	SubAppId      int64                `json:"SubAppId"`
-	EnhancePrompt string               `json:"EnhancePrompt"`
-	OutputConfig  vodImageOutputConfig `json:"OutputConfig"`
-	Prompt        string               `json:"Prompt,omitempty"`
-	FileInfos     []vodImageFileInfo   `json:"FileInfos,omitempty"`
-	NegativePrompt string              `json:"NegativePrompt,omitempty"`
+	ModelName      string               `json:"ModelName"`
+	ModelVersion   string               `json:"ModelVersion"`
+	SubAppId       int64                `json:"SubAppId"`
+	EnhancePrompt  string               `json:"EnhancePrompt"`
+	OutputConfig   vodImageOutputConfig `json:"OutputConfig"`
+	Prompt         string               `json:"Prompt,omitempty"`
+	FileInfos      []vodImageFileInfo   `json:"FileInfos,omitempty"`
+	NegativePrompt string               `json:"NegativePrompt,omitempty"`
 }
 
 type vodTaskDetailReq struct {
@@ -148,21 +148,22 @@ func vodCall(secretId, secretKey, action, version string, payload any) (map[stri
 
 // ─── Tencent image version resolution ────────────────────────────────────────
 
-func resolveTencentImageVersion(quality, resolution string) string {
+func resolveTencentImageVersion(quality, _ string) string {
 	q := strings.ToLower(strings.TrimSpace(quality))
-	r := strings.ToUpper(strings.TrimSpace(resolution))
-	if q == "high" || r == "4K" {
+	if q == "high" {
 		return "image2_high"
 	}
-	if q == "medium" || r == "2K" {
+	if q == "medium" {
 		return "image2_medium"
 	}
+	// Tencent has no auto version. Tanva defines auto as the low-cost tier;
+	// unknown/empty values keep the same safe default for backwards compatibility.
 	return "image2_low"
 }
 
 // resolveTencentImageModel 把请求的模型名映射到腾讯 VOD AIGC 的 (ModelName, ModelVersion)。
 //   - Gemini / Nano-Banana → "GEM"，版本 2.5 / 3.0 / 3.1
-//   - gpt-image-2 等其它 → "OG"，版本 image2_low/medium/high（按画质/分辨率推算）
+//   - gpt-image-2 等其它 → "OG"，版本 image2_low/medium/high（只按 quality）
 //
 // 历史实现见 banana.provider.ts:resolveTencentImageModel；迁移到 new-api 后曾被写死成 "OG"，
 // 导致尊享(腾讯)路线下所有图都变成 gpt-image-2，gemini 永远拿不到 GEM。
@@ -183,7 +184,7 @@ func resolveTencentImageModel(model, quality, resolution string) (string, string
 			return "GEM", "3.0"
 		}
 	}
-	// gpt-image-2 等 → OG，按画质/分辨率推算 image2_* 版本
+	// gpt-image-2 等 → OG；resolution 只写入 OutputConfig，不参与质量档位选择。
 	return "OG", resolveTencentImageVersion(quality, resolution)
 }
 

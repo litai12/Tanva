@@ -18,6 +18,7 @@ import {
 } from './flowNodeDarkTheme';
 import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import {
   DEFAULT_VIDEO_STORYBOARD_PROMPT,
   parseStoryboardAnalysis,
@@ -196,6 +197,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     VIDEO_ANALYZE_MODELS.find((option) => option.value === selectedModel) ||
     VIDEO_ANALYZE_MODELS[0];
   const usesDurationPricing = DURATION_PRICED_VIDEO_ANALYZE_MODELS.has(selectedModel);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const effectiveVideoDuration =
     connectedVideoDuration ?? loadedVideoDuration;
   const durationPreviewParams = React.useMemo(
@@ -208,15 +210,29 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         : null,
     [effectiveVideoDuration, usesDurationPricing],
   );
-  const durationCreditPreview = useBackendCreditsPreview({
+  const creditPreviewRequestParams = React.useMemo(
+    () => ({
+      ...(durationPreviewParams || {}),
+      bananaImageRoute,
+      channelHint:
+        bananaImageRoute === 'stable'
+          ? 'tencent'
+          : bananaImageRoute === 'ultra'
+            ? 'beqlee'
+            : 'apimart',
+      providerOptions: {
+        banana: { imageRoute: bananaImageRoute },
+      },
+    }),
+    [bananaImageRoute, durationPreviewParams],
+  );
+  const creditPreview = useBackendCreditsPreview({
     serviceType: 'gemini-video-analyze',
     model: selectedModel,
-    requestParams: durationPreviewParams,
-    enabled: Boolean(durationPreviewParams),
+    requestParams: creditPreviewRequestParams,
+    enabled: !usesDurationPricing || Boolean(durationPreviewParams),
   });
-  const runCredits = usesDurationPricing
-    ? durationCreditPreview.credits
-    : data.creditsPerCall;
+  const runCredits = creditPreview.credits;
   const hasRunCredits =
     typeof runCredits === 'number' && runCredits > 0;
 
@@ -435,6 +451,16 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           prompt: promptToUse,
           videoUrl: effectiveVideoUrl,
           model: selectedModel,
+          bananaImageRoute,
+          channelHint:
+            bananaImageRoute === 'stable'
+              ? 'tencent'
+              : bananaImageRoute === 'ultra'
+                ? 'beqlee'
+                : 'apimart',
+          providerOptions: {
+            banana: { imageRoute: bananaImageRoute },
+          },
         }),
       });
 
@@ -481,6 +507,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     }
   }, [
     analysisPromptDraft,
+    bananaImageRoute,
     effectiveVideoUrl,
     isAnalyzing,
     lt,
@@ -662,7 +689,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         </span>
         {usesDurationPricing &&
         effectiveVideoDuration &&
-        durationCreditPreview.hasCredits ? (
+        creditPreview.hasCredits ? (
           <span
             style={{
               display: 'block',
@@ -672,8 +699,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             }}
           >
             {lt(
-              `按 ${Number(effectiveVideoDuration.toFixed(3))} 秒预估 ${durationCreditPreview.credits} 积分；实扣以后端识别时长为准`,
-              `Estimated ${durationCreditPreview.credits} credits for ${Number(effectiveVideoDuration.toFixed(3))}s; final billing uses the server-detected duration`,
+              `按 ${Number(effectiveVideoDuration.toFixed(3))} 秒预估 ${creditPreview.credits} 积分；实扣以后端识别时长为准`,
+              `Estimated ${creditPreview.credits} credits for ${Number(effectiveVideoDuration.toFixed(3))}s; final billing uses the server-detected duration`,
             )}
           </span>
         ) : null}

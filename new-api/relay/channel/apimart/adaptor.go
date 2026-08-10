@@ -37,6 +37,37 @@ import (
 // Async video is served by relay/channel/task/apimart (TaskAdaptor).
 type Adaptor struct{}
 
+func appendTypedImageMetadata(request dto.ImageRequest, meta map[string]any) {
+	putRaw := func(key string, raw []byte) {
+		if len(raw) == 0 {
+			return
+		}
+		var value any
+		if err := common.Unmarshal(raw, &value); err == nil {
+			meta[key] = value
+		}
+	}
+	if quality := strings.TrimSpace(request.Quality); quality != "" {
+		meta["quality"] = quality
+	}
+	if responseFormat := strings.TrimSpace(request.ResponseFormat); responseFormat != "" {
+		meta["response_format"] = responseFormat
+	}
+	putRaw("style", request.Style)
+	putRaw("user", request.User)
+	putRaw("extra_fields", request.ExtraFields)
+	putRaw("background", request.Background)
+	putRaw("moderation", request.Moderation)
+	putRaw("output_format", request.OutputFormat)
+	putRaw("output_compression", request.OutputCompression)
+	putRaw("partial_images", request.PartialImages)
+	putRaw("watermark_enabled", request.WatermarkEnabled)
+	putRaw("user_id", request.UserId)
+	if request.Watermark != nil {
+		meta["watermark"] = *request.Watermark
+	}
+}
+
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {}
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -157,6 +188,10 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			meta["n"] = int(*request.N)
 		}
 	}
+	// ImageRequest.UnmarshalJSON keeps standard OpenAI image parameters on
+	// typed fields, not in Extra. Forward the supported/model-specific fields
+	// explicitly so APIMart receives the same request the client submitted.
+	appendTypedImageMetadata(request, meta)
 	if len(meta) == 0 {
 		meta = nil
 	}

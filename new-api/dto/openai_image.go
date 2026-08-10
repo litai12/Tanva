@@ -123,9 +123,10 @@ func indexComma(s string) int {
 }
 
 func isHighResImageModel(model string) bool {
-	return strings.Contains(model, "gpt-image-2") ||
-		strings.Contains(model, "banana") ||
-		model == "doubao-seedream-5-0-260128"
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(normalized, "gpt-image-2") ||
+		strings.Contains(normalized, "banana") ||
+		normalized == "doubao-seedream-5-0-260128"
 }
 
 func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -151,10 +152,12 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			}
 		}
 	} else if isHighResImageModel(i.Model) {
-		// Prefer explicit imageSize extra field (1K/2K/4K) sent by apimart-style callers.
-		// Ratio matches fixedImagePricingRules: 1K→1×, 2K→2×, 4K→3×.
+		// Prefer the explicit resolution/imageSize field sent by image callers.
+		// GPT Image 2 ratios match model.fixedImagePricingRules:
+		// 1K ¥0.2 → 1×, 2K ¥0.3 → 1.5×, 4K ¥0.4 → 2×.
+		isGPTImage2 := strings.Contains(strings.ToLower(strings.TrimSpace(i.Model)), "gpt-image-2")
 		resolved := false
-		for _, key := range []string{"imageSize", "image_size"} {
+		for _, key := range []string{"resolution", "imageSize", "image_size"} {
 			raw, ok := i.Extra[key]
 			if !ok || len(raw) == 0 {
 				continue
@@ -163,10 +166,18 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			if common.Unmarshal(raw, &sz) == nil {
 				switch strings.ToUpper(strings.TrimSpace(sz)) {
 				case "2K":
-					sizeRatio = 2.0
+					if isGPTImage2 {
+						sizeRatio = 1.5
+					} else {
+						sizeRatio = 2.0
+					}
 					resolved = true
 				case "4K":
-					sizeRatio = 3.0
+					if isGPTImage2 {
+						sizeRatio = 2.0
+					} else {
+						sizeRatio = 3.0
+					}
 					resolved = true
 				case "1K":
 					// sizeRatio stays 1.0
@@ -178,8 +189,9 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			}
 		}
 		if !resolved {
-			// Fallback: pixel-based size field or quality flag.
-			if strings.Contains(i.Size, "4096") || i.Quality == "high" {
+			// GPT Image 2 keeps quality and resolution independent. Retain the
+			// legacy quality=high fallback for other high-resolution model families.
+			if strings.Contains(i.Size, "4096") || (!isGPTImage2 && i.Quality == "high") {
 				sizeRatio = 2.0
 			}
 		}

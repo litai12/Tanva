@@ -509,8 +509,12 @@ const isHttpImageRef = (value: string): boolean => /^https?:\/\//i.test(value.tr
 
 const getBananaImageRouteOption = (
   bananaImageRoute?: string | null
-): BananaImageRoute =>
-  bananaImageRoute === "stable" ? "stable" : "normal";
+): BananaImageRoute => {
+  const normalized = String(bananaImageRoute || "").trim().toLowerCase();
+  if (normalized === "stable" || normalized === "tencent") return "stable";
+  if (normalized === "ultra" || normalized === "beqlee") return "ultra";
+  return "normal";
+};
 
 const buildBananaProviderOptions = (
   bananaImageRoute?: string | null
@@ -1152,7 +1156,12 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     model: textModel,
     requestParams: {
       aiProvider: effectiveProvider,
-      channelHint: bananaImageRoute === "stable" ? "tencent" : "apimart",
+      channelHint:
+        bananaImageRoute === "stable"
+          ? "tencent"
+          : bananaImageRoute === "ultra"
+          ? "beqlee"
+          : "apimart",
     },
     enabled: true,
   });

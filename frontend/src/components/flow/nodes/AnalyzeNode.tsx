@@ -693,8 +693,12 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   );
   const effectiveProvider = currentProviderValue;
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const analyzeBananaImageRoute: 'normal' | 'stable' =
-    bananaImageRoute === 'stable' ? 'stable' : 'normal';
+  const analyzeBananaImageRoute: 'normal' | 'stable' | 'ultra' =
+    bananaImageRoute === 'stable'
+      ? 'stable'
+      : bananaImageRoute === 'ultra'
+      ? 'ultra'
+      : 'normal';
   const analysisModel = React.useMemo(
     () => getImageChatModelForProvider(effectiveProvider),
     [effectiveProvider]
@@ -711,7 +715,12 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     model: analysisModel,
     requestParams: {
       aiProvider: effectiveProvider,
-      channelHint: analyzeBananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+      channelHint:
+        analyzeBananaImageRoute === 'stable'
+          ? 'tencent'
+          : analyzeBananaImageRoute === 'ultra'
+          ? 'beqlee'
+          : 'apimart',
     },
     enabled: true,
   });

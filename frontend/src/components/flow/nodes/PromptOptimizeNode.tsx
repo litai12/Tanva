@@ -57,7 +57,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     model: textModel,
     requestParams: {
       aiProvider: effectiveProvider,
-      channelHint: bananaImageRoute === 'stable' ? 'tencent' : bananaImageRoute === 'ultra' ? 'ultra' : 'apimart',
+      channelHint: bananaImageRoute === 'stable' ? 'tencent' : bananaImageRoute === 'ultra' ? 'beqlee' : 'apimart',
     },
     enabled: true,
   });

@@ -1787,10 +1787,10 @@ const QUICK_CONNECT_BASE_PRESET: Record<
 const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
   textPrompt: 0, // 提示词节点 - 不消耗积分
-  textChat: 10, // 纯文本交互节点 - gemini-text
-  htmlPpt: 10, // HTML PPT 节点 - gemini-text
+  textChat: 5, // 纯文本交互节点 - gemini-text（普通路线）
+  htmlPpt: 5, // HTML PPT 节点 - gemini-text（普通路线）
   textNote: 0, // 纯文本节点 - 不消耗积分
-  promptOptimize: 10, // 提示词优化节点 - gemini-text
+  promptOptimize: 5, // 提示词优化节点 - gemini-text（普通路线）
   analysis: 10, // Image Chat - gemini-2.5-image-analyze (Fast default)
   image: 0, // 图片节点 - 不消耗积分
   // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
@@ -1803,11 +1803,11 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
   gptImage2: 40, // GPT-Image-2 生图
-  seedream5: "30-50", // Seedream 生图（按模型动态计费）
+  seedream5: "30-90", // Seedream 生图（按模型+分辨率动态计费）
   videoAnalyze: 0, // 视频分析节点 - 动态计费，运行前由后端按模型/时长试算
   three: 200, // 三维节点 - convert-2d-to-3d
-  seed3d: 300, // Seed 3D - convert-2d-to-3d
-  sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
+  seed3d: 200, // Seed 3D - convert-2d-to-3d
+  sora2Video: "200-750", // Sora 2 标准/Pro；运行价按当前模型实时解析
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
@@ -2911,43 +2911,60 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   },
 };
 
+// 极速通道（beqlee 官方代理）的后端报价返回前 UI fallback。
+const BANANA_ULTRA_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  fast: {
+    "0.5K": 20,
+    "1K": 20,
+    "2K": 20,
+    "4K": 20,
+  },
+  pro: {
+    "0.5K": 100,
+    "1K": 100,
+    "2K": 100,
+    "4K": 179,
+  },
+  ultra: {
+    "0.5K": 50,
+    "1K": 50,
+    "2K": 75,
+    "4K": 113,
+  },
+};
+
 const BANANA_TEXT_ROUTE_PRICING: Record<
-  "normal" | "stable",
+  "normal" | "stable" | "ultra",
   Record<BananaPricingTier, number>
 > = {
   normal: {
+    fast: 5,
+    pro: 5,
+    ultra: 5,
+  },
+  stable: {
     fast: 10,
-    pro: 20,
-    ultra: 30,
+    pro: 10,
+    ultra: 10,
   },
-  stable: {
-    fast: 20,
-    pro: 30,
-    ultra: 50,
+  ultra: {
+    fast: 5,
+    pro: 10,
+    ultra: 10,
   },
 };
 
-const VIDEO_ANALYZE_ROUTE_PRICING: Record<
-  "normal" | "stable",
-  Record<BananaPricingTier, number>
+// 仅作为后端报价返回前的 UI fallback；实际展示/扣费以后端 credits/preview 为准。
+const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<
+  "low" | "medium" | "high",
+  Record<"1K" | "2K" | "4K", number>
 > = {
-  normal: {
-    fast: 60,
-    pro: 90,
-    ultra: 120,
-  },
-  stable: {
-    fast: 80,
-    pro: 120,
-    ultra: 160,
-  },
-};
-
-// GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
-const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
-  "1K": 40,
-  "2K": 80,
-  "4K": 110,
+  low: { "1K": 30, "2K": 35, "4K": 40 },
+  medium: { "1K": 65, "2K": 110, "4K": 160 },
+  high: { "1K": 190, "2K": 350, "4K": 560 },
 };
 const GPT_IMAGE_2_NORMAL_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
   "1K": 20,
@@ -3016,6 +3033,17 @@ const normalizeGptImage2StableImageSize = (
   if (normalized === "2K") return "2K";
   if (normalized === "4K") return "4K";
   return "1K";
+};
+
+const normalizeGptImage2StableQuality = (
+  rawQuality: unknown
+): "low" | "medium" | "high" => {
+  const normalized =
+    typeof rawQuality === "string" ? rawQuality.trim().toLowerCase() : "";
+  if (normalized === "medium") return "medium";
+  if (normalized === "high") return "high";
+  // 与后端一致：auto / empty / invalid 均按 low 档报价与执行。
+  return "low";
 };
 
 const FLOW_IMAGE_ASPECT_RATIO_CANDIDATES: Array<{
@@ -3417,7 +3445,7 @@ const resolveStableRouteCredits = (params: {
   nodeData?: Record<string, any>;
   fallbackCredits?: number;
   aiProvider?: string | null;
-  bananaImageRoute?: "normal" | "stable";
+  bananaImageRoute?: "normal" | "stable" | "ultra";
   globalImageSize?: string | null;
   globalImageModel?: string | null;
 }): number | undefined => {
@@ -3443,37 +3471,13 @@ const resolveStableRouteCredits = (params: {
   ) {
     const tier = resolveBananaPricingTierByProvider(providerForPricing);
     if (tier) {
-      const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
-      const configuredCredits = Number(BANANA_TEXT_ROUTE_PRICING[routeKey][tier]);
-      if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
-        resolvedCredits = configuredCredits;
-      }
-    }
-  }
-
-  if (normalizedType === "videoAnalyze") {
-    const explicitAnalysisModel =
-      typeof nodeData?.analysisModel === "string" && nodeData.analysisModel.trim()
-        ? nodeData.analysisModel.trim()
-        : null;
-    if (explicitAnalysisModel?.startsWith("doubao-seed-2-0-")) {
-      // 豆包视频理解按后端确认的视频真实时长后扣，固定积分预览会误导；
-      // VideoAnalyzeNode 会根据当前媒体时长调用后端报价接口。
-      resolvedCredits = 0;
-    } else {
-      const providerKey = String(providerForPricing || "").trim().toLowerCase();
-      const tier: BananaPricingTier =
-        resolveBananaPricingTierByModel(explicitAnalysisModel) ||
-        (providerKey === "banana-2.5"
-          ? "fast"
-          : providerKey === "banana-3.1" || providerKey === "nano2"
-          ? "ultra"
-          : resolveBananaPricingTierByModel(globalImageModel) || "pro");
       const routeKey =
-        !explicitAnalysisModel && bananaImageRoute === "stable"
+        bananaImageRoute === "stable"
           ? "stable"
+          : bananaImageRoute === "ultra"
+          ? "ultra"
           : "normal";
-      const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+      const configuredCredits = Number(BANANA_TEXT_ROUTE_PRICING[routeKey][tier]);
       if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
         resolvedCredits = configuredCredits;
       }
@@ -3488,7 +3492,10 @@ const resolveStableRouteCredits = (params: {
         ? nodeData.imageSize
         : globalImageSize;
     const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
-    const unitCredits = Number(GPT_IMAGE_2_STABLE_ROUTE_PRICING[normalizedSize]);
+    const normalizedQuality = normalizeGptImage2StableQuality(nodeData?.quality);
+    const unitCredits = Number(
+      GPT_IMAGE_2_STABLE_ROUTE_PRICING[normalizedQuality][normalizedSize]
+    );
     if (Number.isFinite(unitCredits) && unitCredits > 0) {
       resolvedCredits = unitCredits;
     }
@@ -3529,7 +3536,7 @@ const resolveStableRouteCredits = (params: {
     }
   }
 
-  // 普通通道下的 Banana 图片节点动态积分（使用新的定价逻辑）
+  // 普通/极速通道下的 Banana 图片节点动态积分
   if (bananaImageRoute !== "stable" && normalizedType && BANANA_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     const tier = resolveBananaPricingTierForNode({
       nodeType: normalizedType,
@@ -3542,7 +3549,11 @@ const resolveStableRouteCredits = (params: {
           ? nodeData.imageSize
           : globalImageSize;
       const normalizedSize = normalizeBananaImageSize(preferredSize, tier);
-      const unitCredits = Number(BANANA_ROUTE_PRICING[tier][normalizedSize]);
+      const routePricing =
+        bananaImageRoute === "ultra"
+          ? BANANA_ULTRA_ROUTE_PRICING
+          : BANANA_ROUTE_PRICING;
+      const unitCredits = Number(routePricing[tier][normalizedSize]);
       if (Number.isFinite(unitCredits) && unitCredits > 0) {
         const outputCount =
           normalizedType === "generate4" || normalizedType === "generatePro4"

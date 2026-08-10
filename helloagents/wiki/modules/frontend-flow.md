@@ -1,3 +1,11 @@
+## 2026-08-10 画布报价与实际执行参数对齐
+
+- GPT Image 2 Run 报价携带与执行相同的 `quality + imageSize + bananaImageRoute`；腾讯尊享路线的 `auto` 显示 low 档价格，4K 只改变输出分辨率，不再把执行版本提升为 high。
+- `VideoAnalyzeNode` 对 Gemini 与豆包模型统一调用 `/api/credits/preview`；`bananaImageRoute/channelHint/providerOptions` 同时进入报价与 `/api/ai/analyze-video`，避免显示路线和实际执行路线分叉。
+- Seed 3D 改用后端 `convert-2d-to-3d` 报价，200 积分静态值仅作短暂兜底；Audio Studio 的角标跟随当前 managed vendor 价格，不再沿用切换前的节点值。
+- Text Chat、Prompt Optimize、HTML PPT、Sora 与 Seedream 的添加面板/加载中兜底已同步当前后端价格；后端报价成功后始终覆盖这些兜底。
+- `aiBackendAPI` 与 `aiImageService` 统一识别 `ultra/beqlee`，不再出现画布按极速路线报价、执行封装却丢失路线的情况；极速图片与文本的短暂 UI 兜底也与后端矩阵一致。
+
 ## 2026-08-04 Hailuo H3 端点提示与输入上限
 - Hailuo 节点复用与 Seedance 相同的动态句柄布局；悬浮 `prompt`、`image`、`image-2`、`video`、`audio` 端点时，提示位置会跟随当前模式的端点位置。
 - `image`、`video`、`audio` 的 Hailuo 提示文案从 new-api 模型目录的 `inputs.metadata` 读取数量上限；当前 Hailuo H3 显示为 `image (1-9)`、`video (1-3)`、`audio (1-3)`，首帧/首尾帧模式仍显示固定的 1 张/图 1 图 2。

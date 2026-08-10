@@ -277,7 +277,7 @@ export async function getSeedream5ProviderInfo(
   return seedreamProviderInFlight;
 }
 
-type BananaImageRoute = "normal" | "stable";
+type BananaImageRoute = "normal" | "stable" | "ultra";
 
 const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   if (typeof value !== "string") return null;
@@ -285,6 +285,7 @@ const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   if (!normalized) return null;
   if (normalized === "normal" || normalized === "apimart") return "normal";
   if (normalized === "stable" || normalized === "tencent") return "stable";
+  if (normalized === "ultra" || normalized === "beqlee") return "ultra";
   return null;
 };
 

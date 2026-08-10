@@ -44,7 +44,7 @@ const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
 const MAX_NETWORK_RETRIES = 3;
 const RETRY_DELAY_MS = 1000; // 固定1秒延迟
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-type BananaImageRoute = "normal" | "stable";
+type BananaImageRoute = "normal" | "stable" | "ultra";
 
 const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   if (typeof value !== "string") return null;
@@ -52,6 +52,7 @@ const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   if (!normalized) return null;
   if (normalized === "normal" || normalized === "apimart") return "normal";
   if (normalized === "stable" || normalized === "tencent") return "stable";
+  if (normalized === "ultra" || normalized === "beqlee") return "ultra";
   return null;
 };
 

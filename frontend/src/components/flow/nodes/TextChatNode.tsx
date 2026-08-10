@@ -171,7 +171,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     model: textModel,
     requestParams: {
       aiProvider: effectiveProvider,
-      channelHint: bananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+      channelHint:
+        bananaImageRoute === 'stable'
+          ? 'tencent'
+          : bananaImageRoute === 'ultra'
+          ? 'beqlee'
+          : 'apimart',
     },
     enabled: true,
   });

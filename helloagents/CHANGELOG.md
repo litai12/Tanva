@@ -1,5 +1,7 @@
 # Changelog
 
+- Flow/Credits/GPT Image 2：修复 new-api 腾讯图片适配器从错误的 `Extra.quality` 取值并按 2K/4K 自动抬升质量的问题；`auto + 4K` 现在保持 `image2_low + Resolution=4K`，medium/high 也只由 quality 决定。APIMart 补齐正式图片字段透传，腾讯渠道显式拒绝不支持的 `n>1`，网关计量识别 `resolution` 并按 GPT Image 2 的 1K/2K/4K 固定价格比例计算。Tanva 同步生图补齐质量、背景、审核、压缩、蒙版和官方回退参数；画布同步修正 GPT 尊享质量矩阵、文本节点、Seed 3D、Audio Studio、Sora/Seedream 兜底，并让视频分析的报价线路与实际请求保持一致。Banana `ultra/beqlee` 极速线路现在也会由两个图片请求封装完整保留，报价与执行不再分叉，极速兜底矩阵同步后端当前价格。
+
 - Flow/Video VOD capabilities：统一移除 Vidu 错峰入口并在预估、提交、Tencent `OutputConfig` 三层强制正常模式；修复 Vidu 单图带提示词被误判为参考生、Q3/Q3-Pro 版本与计价不一致的问题，新增文生/首帧/首尾帧/参考四档输入模式与最多 7 张参考图。Kling 2.6/3.0/Omni 现在保留首帧、尾帧、参考图角色，2.6 首尾帧按实际无声能力计费，普通 3.0 禁止误发参考视频，Omni 参考视频禁止 4K。Hailuo H3 增加后端媒体上限兜底与原生音频开关。新增正常价迁移：Kling 3.0 4K 无声/有声均为 3 元/秒，Vidu Q3/Q3-Pro 补齐正常价 2K/4K 规则并移除错峰规则。
 
 - Flow/Video VOD routing：修复本地 new-api type=67 渠道缺少 `vip` abilities 导致 `kling-v3-omni` 在 distributor 阶段返回 503；六个 VOD-only 业务模型现在同时覆盖 `default`、`auto`、`vip`。同步校正 Kling 3.0-Omni 无参考 4K 价格，无声/有声均按腾讯 VOD 刊例价 `3 元/秒 = 300 积分/秒`，3 秒预览为 900 积分。
