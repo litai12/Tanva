@@ -1,9 +1,16 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-08-11 Tanvas 图片积分定价
+
+- 普通线路按 Tanvas 1.5 倍积分列计费：Gemini 2.5 Fast 固定 `20`；Gemini 3 Pro 的 1K/2K/4K 为 `60/70/85`；Gemini 3.1 Flash（Nano Banana 2）的 0.5K/1K/2K/4K 为 `40/40/50/70`。
+- 腾讯尊享线路：Gemini 2.5 Fast 固定 `40`；Gemini 3 Pro 的 1K/2K/4K 为 `130/130/240`；Gemini 3.1 Flash 的 0.5K/1K/2K/4K 为 `45/65/100/155`。
+- GPT Image 2 普通线路 1K/2K/4K 仍为 `20/30/40`；腾讯尊享 Low=`30/40/50`、Medium=`60/120/190`、High=`230/460/760`，每张实际参考图继续追加 `10` 积分。
+- 同一 Pro / Nano Banana 2 矩阵覆盖生成、编辑与融合服务；`POST /credits/preview` 和实际预扣共用同一解析器。极速 `ultra/beqlee` 暂停开放，前端历史偏好与请求边界迁回普通线路，后端旧矩阵只作历史兼容。
+
 ## 2026-08-10 GPT Image 2 参数与画布报价一致性
 
 - `POST /api/credits/preview` 与实际 `withCredits` 预扣共同使用 `resolveEffectiveCreditsQuote`；画布运行按钮优先消费该报价，不再让模型线路的旧静态价格决定实际显示。
-- GPT Image 2 普通路线按分辨率为 `1K/2K/4K = 20/30/40`。腾讯尊享路线按质量与分辨率计价：`auto/low = 30/35/40`、`medium = 65/110/160`、`high = 190/350/560`；在此基础上，每张实际参考图额外收取 `10` 积分（`0.1` 元）。
+- GPT Image 2 普通路线按分辨率为 `1K/2K/4K = 20/30/40`。腾讯尊享路线按质量与分辨率计价：`auto/low = 30/40/50`、`medium = 60/120/190`、`high = 230/460/760`；在此基础上，每张实际参考图额外收取 `10` 积分（`0.1` 元）。
 - `quality` 与 `resolution` 不互相推导：`auto` 在腾讯路线归一为 `low`，网关只用 `quality` 选择 `image2_low/medium/high`，同时把 `resolution` 原样写入腾讯 `OutputConfig`。
 - Tanva 同步生图与异步生图都透传 GPT Image 2 的质量、背景、审核、输出格式/压缩、蒙版和官方回退参数；new-api 的腾讯/APIMart 适配器必须从 `ImageRequest` 正式字段读取这些值，不能假设它们位于 `Extra`。
 - 画布审计同时校正 Seed 3D（显示/报价/实扣均为当前 `convert-2d-to-3d` 价格 200）、文本节点普通/尊享兜底价、Audio Studio 模型切换价格、Sora/Seedream 添加面板区间。视频分析节点将线路提示同时交给报价与实际请求，且 Run 价只使用后端报价。
@@ -58,13 +65,13 @@
 - `backend/src/credits/dto/credits.dto.ts`：DTO
 
 ## 图像计费规则（当前）
-- 生图：按 `resolutionPricing` 区分（如 Pro 2K=60，Ultra 2K=45）。
+- 生图：按线路和 `resolutionPricing` 区分；普通 Pro 1K/2K/4K=`60/70/85`，普通 Nano Banana 2 0.5K/1K/2K/4K=`40/40/50/70`。
 - 图像编辑：
-  - Pro（`gemini-image-edit`）1K=40，2K=60，4K=120，其余分辨率默认 30。
-  - Ultra（`gemini-3.1-image-edit`）0.5K=20，2K=45，4K=60，其余分辨率默认 30。
+  - Pro（`gemini-image-edit`）普通 1K/2K/4K=`60/70/85`，尊享=`130/130/240`。
+  - Nano Banana 2（`gemini-3.1-image-edit`）普通 0.5K/1K/2K/4K=`40/40/50/70`，尊享=`45/65/100/155`。
 - 图像融合：
-  - Pro（`gemini-image-blend`）1K=40，2K=60，4K=120，其余分辨率默认 30。
-  - Ultra（`gemini-3.1-image-blend`）0.5K=20，2K=45，4K=60，其余分辨率默认 30。
+  - Pro（`gemini-image-blend`）与同线路、同分辨率的 Pro 生图价格一致。
+  - Nano Banana 2（`gemini-3.1-image-blend`）与同线路、同分辨率的 Nano Banana 2 生图价格一致。
 - 账单流水中的 `description` 由后端生成，格式为 `使用 {serviceName}（{imageSize}）`，前端直接展示。
 
 ## API（前缀 `/api/credits`，节选）

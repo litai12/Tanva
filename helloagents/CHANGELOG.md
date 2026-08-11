@@ -1,5 +1,7 @@
 # Changelog
 
+- Flow/Credits/Image Pricing：按两张 Tanvas 对照表将普通与腾讯尊享图片线路统一切到 1.5 倍积分定价。普通 Fast/Pro/Nano Banana 2 分别为 `20`、`60/70/85`、`40/40/50/70`；尊享分别为 `40`、`130/130/240`、`45/65/100/155`。GPT Image 2 普通保持 `20/30/40`，尊享 Low/Medium/High 调整为 `30/40/50`、`60/120/190`、`230/460/760`，参考图仍为 `10/张`。生成、编辑、融合、preview、实际预扣、节点兜底和后台默认目录同步。极速线路入口暂停开放，preferences v7 与图片请求边界把历史 `ultra/beqlee` 迁回普通线路；新增 `verify:image-pricing` 覆盖全部规格。
+
 - Payment/Credits/Whitelist：个人积分充值取消最高档年卡 `8 折`，所有用户价格不变；普通用户到账 `100%`，仅有效最高档年卡会员及白名单中显式开启“充值到账 120%”权益的用户额外获赠 `20%` 永久积分。个人档位调整为 `25 / 50 / 100 / 500 / 1000 / 5000` 元并删除 `200` 元档。创建订单时固化资格、基础/赠送/总积分，付款后将赠送部分写入永久 gift 批次；历史订单不追溯。原水印白名单抽象为统一白名单，可独立配置“去水印 / 最高档年卡权益 / 充值到账 120%”Tag；最高年卡权益白名单不创建订阅、不触发会员周期积分到账。
 
 - Flow/Backend/new-api/Seedance 2.5：接入方舟 `omni_reference_task_type`。单视频“多模态参考 / 视频编辑 / 视频延长”分别前置引导为 `reference/edit/extend`；编辑固定 `ratio=adaptive,duration=-1` 且输入视频校验 4–30 秒，延长固定 `ratio=adaptive`，纯文生与首尾帧不误传。Tanva DTO、计费审计、直连/V2 Ark 请求、new-api 统一请求与 Doubao adapter 全链路透传并重复校验；节点补充任务一致的提示词写法。编辑与延长均保持既有商业口径：`billingDurationSec = inputVideoDurationSec + outputDurationSec`，其中编辑输出时长跟随输入视频。

@@ -1799,15 +1799,15 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   analysis: 10, // Image Chat - gemini-2.5-image-analyze (Fast default)
   image: 0, // 图片节点 - 不消耗积分
   // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
-  generate: "20-40",
+  generate: "20-85",
   // 参考图生成节点在 Flow 展示区间，实际扣分以运行请求参数为准
-  generateRef: "20-40",
+  generateRef: "20-85",
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 80, // 四图生成节点 - 4次 × 20积分
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
-  gptImage2: 40, // GPT-Image-2 生图
+  gptImage2: 20, // GPT-Image-2 默认普通线路 1K
   seedream5: "30-90", // Seedream 生图（按模型+分辨率动态计费）
   videoAnalyze: 0, // 视频分析节点 - 动态计费，运行前由后端按模型/时长试算
   three: 200, // 三维节点 - convert-2d-to-3d
@@ -1843,8 +1843,8 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   // Beta 节点
   textPromptPro: 0, // 专业提示词节点 - 输入节点，不消耗积分
   imagePro: 0, // 专业图片节点 - 不消耗积分
-  generatePro: 40, // 专业生成节点 - 1K 默认 40 积分（高分辨率实时变化）
-  generatePro4: 160, // 四图专业生成节点 - 4次 × 40积分
+  generatePro: 60, // 专业生成节点 - 普通线路 Pro 1K 默认 60 积分（高分辨率实时变化）
+  generatePro4: 240, // 四图专业生成节点 - 4次 × 普通线路 Pro 1K 60积分
 };
 
 type NodePaletteItem = {
@@ -2783,16 +2783,16 @@ const BANANA_ROUTE_PRICING: Record<
     "4K": 20,
   },
   pro: {
-    "0.5K": 40,
-    "1K": 40,
-    "2K": 60,
-    "4K": 80,
+    "0.5K": 60,
+    "1K": 60,
+    "2K": 70,
+    "4K": 85,
   },
   ultra: {
-    "0.5K": 30,
-    "1K": 30,
-    "2K": 40,
-    "4K": 50,
+    "0.5K": 40,
+    "1K": 40,
+    "2K": 50,
+    "4K": 70,
   },
 };
 
@@ -2902,17 +2902,17 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   },
   // Pro: Nano Banana Pro
   pro: {
-    "0.5K": 90,
-    "1K": 90,
-    "2K": 100,
-    "4K": 170,
+    "0.5K": 130,
+    "1K": 130,
+    "2K": 130,
+    "4K": 240,
   },
   // Ultra: Nano Banana 2
   ultra: {
-    "0.5K": 30,
-    "1K": 40,
-    "2K": 50,
-    "4K": 110,
+    "0.5K": 45,
+    "1K": 65,
+    "2K": 100,
+    "4K": 155,
   },
 };
 
@@ -2967,9 +2967,9 @@ const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<
   "low" | "medium" | "high",
   Record<"1K" | "2K" | "4K", number>
 > = {
-  low: { "1K": 30, "2K": 35, "4K": 40 },
-  medium: { "1K": 65, "2K": 110, "4K": 160 },
-  high: { "1K": 190, "2K": 350, "4K": 560 },
+  low: { "1K": 30, "2K": 40, "4K": 50 },
+  medium: { "1K": 60, "2K": 120, "4K": 190 },
+  high: { "1K": 230, "2K": 460, "4K": 760 },
 };
 const GPT_IMAGE_2_NORMAL_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
   "1K": 20,
@@ -3545,7 +3545,7 @@ const resolveStableRouteCredits = (params: {
     }
   }
 
-  // 普通/极速通道下的 Banana 图片节点动态积分
+  // 普通线路，以及迁移完成前的历史极速线路，使用各自的图片节点兜底积分。
   if (bananaImageRoute !== "stable" && normalizedType && BANANA_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     const tier = resolveBananaPricingTierForNode({
       nodeType: normalizedType,

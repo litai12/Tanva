@@ -52,7 +52,7 @@ const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   if (!normalized) return null;
   if (normalized === "normal" || normalized === "apimart") return "normal";
   if (normalized === "stable" || normalized === "tencent") return "stable";
-  if (normalized === "ultra" || normalized === "beqlee") return "ultra";
+  if (normalized === "ultra" || normalized === "beqlee") return "normal";
   return null;
 };
 

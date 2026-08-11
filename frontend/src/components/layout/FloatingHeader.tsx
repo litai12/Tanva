@@ -36,7 +36,6 @@ import {
   Cloud,
   Crown,
   Zap,
-  Flame,
   Key,
   Eye,
   EyeOff,
@@ -123,20 +122,20 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
-  // 稳定通道（腾讯）- Nano Banana 定价
-  fast: { "0.5K": 30, "1K": 30, "2K": 30, "4K": 30 },
-  pro: { "0.5K": 90, "1K": 90, "2K": 100, "4K": 170 },
-  ultra: { "0.5K": 30, "1K": 30, "2K": 50, "4K": 110 },
+  // 尊享通道（腾讯）- Tanvas 1.5 倍积分定价
+  fast: { "0.5K": 40, "1K": 40, "2K": 40, "4K": 40 },
+  pro: { "0.5K": 130, "1K": 130, "2K": 130, "4K": 240 },
+  ultra: { "0.5K": 45, "1K": 65, "2K": 100, "4K": 155 },
 };
 
 const BANANA_NORMAL_ROUTE_PRICING: Record<
   BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
-  // 普通通道 - 旧定价（参考用）
+  // 普通通道 - Tanvas 1.5 倍积分定价
   fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
-  pro: { "0.5K": 40, "1K": 40, "2K": 60, "4K": 80 },
-  ultra: { "0.5K": 30, "1K": 30, "2K": 40, "4K": 50 },
+  pro: { "0.5K": 60, "1K": 60, "2K": 70, "4K": 85 },
+  ultra: { "0.5K": 40, "1K": 40, "2K": 50, "4K": 70 },
 };
 
 // 极速通道（beqlee官方代理）= 官方价 ×1.1
@@ -1306,18 +1305,6 @@ const FloatingHeader: React.FC = () => {
           "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/20",
         iconClass: "text-amber-600 dark:text-amber-400",
       },
-      {
-        value: "ultra" as BananaImageRoute,
-        label: t("workspace.settings.aiTab.bananaRoute.ultra"),
-        shortLabel: t("workspace.header.routeSwitch.ultraShort"),
-        description: t("workspace.settings.aiTab.bananaRoute.ultraDesc"),
-        Icon: Flame,
-        activeClass:
-          "border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-900/30 dark:text-purple-200",
-        inactiveClass:
-          "border-slate-200 bg-white text-slate-700 hover:border-purple-300 hover:bg-purple-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-purple-500 dark:hover:bg-purple-900/20",
-        iconClass: "text-purple-600 dark:text-purple-400",
-      },
     ],
     [t]
   );
@@ -2342,33 +2329,6 @@ const FloatingHeader: React.FC = () => {
                   </div>
                 </button>
 
-                <button
-                  type='button'
-                  onClick={() => setBananaImageRoute("ultra")}
-                  className={cn(
-                    "relative rounded-xl border-2 p-4 text-left transition-all sm:col-span-2",
-                    bananaImageRoute === "ultra"
-                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-900/30"
-                      : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
-                  )}
-                >
-                  <div className='flex items-start justify-between'>
-                    <div className='flex-1'>
-                      <div className='flex items-center gap-2 mb-1'>
-                        <Flame className='w-4 h-4 text-purple-600 dark:text-purple-400' />
-                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
-                          {t("workspace.settings.aiTab.bananaRoute.ultra")}
-                        </span>
-                      </div>
-                      <div className='text-xs text-slate-500 dark:text-slate-400'>
-                        {t("workspace.settings.aiTab.bananaRoute.ultraDesc")}
-                      </div>
-                    </div>
-                    {bananaImageRoute === "ultra" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-purple-600 dark:text-purple-400' />
-                    )}
-                  </div>
-                </button>
               </div>
               {!bananaProviderSelected && (
                 <div className='mt-3 text-xs text-amber-600 dark:text-amber-400'>

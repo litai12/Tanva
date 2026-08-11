@@ -91,7 +91,7 @@ const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
 const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const CREDITS_PER_YUAN = 100;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
-const GPT_IMAGE2_CREDITS = 40;
+const GPT_IMAGE2_CREDITS = 20;
 const GPT_IMAGE2_TENCENT_REFERENCE_IMAGE_CREDITS = Math.round(
   0.1 * CREDITS_PER_YUAN,
 );
@@ -112,18 +112,18 @@ const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<
 > = {
   low: {
     '1K': 30,
-    '2K': 35,
-    '4K': 40,
+    '2K': 40,
+    '4K': 50,
   },
   medium: {
-    '1K': 65,
-    '2K': 110,
-    '4K': 160,
+    '1K': 60,
+    '2K': 120,
+    '4K': 190,
   },
   high: {
-    '1K': 190,
-    '2K': 350,
-    '4K': 560,
+    '1K': 230,
+    '2K': 460,
+    '4K': 760,
   },
 };
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
@@ -324,36 +324,36 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
-  // ???? (normal/apimart) ??
+  // 普通线路（normal/APIMart/ToAPI），按 Tanvas 1.5 倍积分定价。
   // Fast: 1K=20
-  // Pro: 1K=40, 2K=60, 4K=80
-  // Ultra: 0.5K=30, 1K=30, 2K=40, 4K=50
+  // Pro: 1K=60, 2K=70, 4K=85
+  // Ultra: 0.5K/1K=40, 2K=50, 4K=70
   fast: {
     '0.5K': 20,
     '1K': 20,
     '2K': 20,
     '4K': 20,
   },
-  // Pro ????
+  // Pro 模型
   pro: {
+    '0.5K': 60,
+    '1K': 60,
+    '2K': 70,
+    '4K': 85,
+  },
+  // Nano Banana 2（Ultra 模型档）
+  ultra: {
     '0.5K': 40,
     '1K': 40,
-    '2K': 60,
-    '4K': 80,
-  },
-  // Ultra ????
-  ultra: {
-    '0.5K': 30,
-    '1K': 30,
-    '2K': 40,
-    '4K': 50,
+    '2K': 50,
+    '4K': 70,
   },
 };
 
-// ???? (stable/tencent) ??
+// 尊享线路（stable/Tencent），按 Tanvas 1.5 倍积分定价。
 // Fast: 1K=40
-// Pro: 1K=90, 2K=100, 4K=170
-// Ultra: 0.5K=30, 1K=40, 2K=50, 4K=110
+// Pro: 1K/2K=130, 4K=240
+// Ultra: 0.5K=45, 1K=65, 2K=100, 4K=155
 const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
@@ -365,16 +365,16 @@ const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
     '4K': 40,
   },
   pro: {
-    '0.5K': 90,
-    '1K': 90,
-    '2K': 100,
-    '4K': 170,
+    '0.5K': 130,
+    '1K': 130,
+    '2K': 130,
+    '4K': 240,
   },
   ultra: {
-    '0.5K': 30,
-    '1K': 40,
-    '2K': 50,
-    '4K': 110,
+    '0.5K': 45,
+    '1K': 65,
+    '2K': 100,
+    '4K': 155,
   },
 };
 
@@ -517,7 +517,7 @@ export class CreditsService {
       outputImageCount: params.outputImageCount ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
-    return `credits:preview:v4:${digest}`;
+    return `credits:preview:v5:${digest}`;
   }
 
   private async getCachedPreviewQuote(

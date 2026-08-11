@@ -138,7 +138,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 6;
+const AI_CHAT_PREFERENCES_VERSION = 7;
 const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
@@ -10328,9 +10328,10 @@ export const useAIChatStore = create<AIChatState>()(
           }
         },
         setBananaImageRoute: (route) => {
-          set({ bananaImageRoute: route });
+          const enabledRoute: BananaImageRoute = route === "stable" ? "stable" : "normal";
+          set({ bananaImageRoute: enabledRoute });
           if (typeof window !== "undefined") {
-            (window as any).__tanvaBananaImageRoute = route;
+            (window as any).__tanvaBananaImageRoute = enabledRoute;
           }
         },
         setAutoModeMultiplier: (multiplier) => {
@@ -10473,7 +10474,7 @@ export const useAIChatStore = create<AIChatState>()(
         const validChatThemes = ["white", "black"];
         const validVideoRatios = ["16:9", "9:16"];
         const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
-        const validBananaImageRoutes = ["normal", "stable", "ultra"];
+        const validBananaImageRoutes = ["normal", "stable"];
         const validXiaotModels = XIAOT_CHAT_MODELS as readonly string[];
 
         return {
@@ -10511,6 +10512,7 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
+          // v7：极速线路暂停使用，历史 ultra/beqlee 偏好统一迁回普通线路。
           // v6：小T Beta 改为用户主动选择，旧版本曾强制写入 true，统一迁回旧入口。
           xiaotMode: false,
           // 小T大脑支持 Fast/Pro/Ultra/DeepSeek；旧值或未知值统一回落 Fast。
