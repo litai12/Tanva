@@ -105,6 +105,7 @@
 ### 支付与补单
 - 微信、支付宝和本地支付订单统一使用 30 分钟有效期；前端倒计时以接口返回的 `expiredAt` 为准，过期后不得继续展示旧二维码。
 - 支付成功统一通过幂等的 `processPaymentSuccess` 入账；自动对账每 5 分钟核查最近 72 小时内的 `pending/expired/cancelled/failed` 订单，详细约定见 `helloagents/wiki/payment-reconciliation.md`。
+- 个人独立积分充值对所有用户保持固定档位原价，当前价格档位为 `25 / 50 / 100 / 500 / 1000 / 5000` 元（不提供 `200` 元档），基础兑换口径为 `1 元 = 100 积分`，不再提供最高档年卡 `8 折`。普通用户到账 `100%`；仅当前有效的最高档年卡会员，以及统一白名单中显式开启“充值到账 120%”权益的用户，额外获得基础积分的 `20%`。资格必须在创建订单时固化进 metadata，订单 `credits` 记录总到账；基础部分进入 recharge lot，赠送部分进入独立 `gift + permanent + expiresAt=null` lot，不参与衰减、到期清理或会员到期回收。支付回调、主动查询和补单必须共用 `processPaymentSuccess`，以条件 `updateMany(id + status != PAID)` 原子抢占 PAID 状态；历史无 bonus snapshot 的订单不得追溯加赠。统一白名单权益可独立配置“去水印 / 最高档年卡权益 / 充值到账 120%”；最高档年卡权益不创建订阅，也不得触发会员月度/年度分期积分发放。
 
 ## AI Metadata 同步
 - 修改代码或文档后，在仓库根目录运行：

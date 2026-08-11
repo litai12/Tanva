@@ -31,6 +31,7 @@ import {
   type CreditLotStatus,
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 import {
   MODEL_PROVIDER_MAPPING_SETTING_KEY,
   type ManagedModelConfig,
@@ -2354,28 +2355,40 @@ export class CreditsService {
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
 
     try {
-      const entitlement = await client.membershipEntitlementSnapshot.findUnique({
-        where: { userId },
-        select: {
-          currentPlanCode: true,
-          membershipStatus: true,
-          currentPeriodEndAt: true,
-        },
-      });
+      const [{ plan: effectivePlan, source: entitlementSource }, entitlement] =
+        await Promise.all([
+          resolveEffectiveMembershipPlan(client, userId),
+          client.membershipEntitlementSnapshot.findUnique({
+            where: { userId },
+            select: {
+              currentPlanCode: true,
+              membershipStatus: true,
+              currentPeriodEndAt: true,
+            },
+          }),
+        ]);
 
       const isActiveVip =
-        entitlement?.membershipStatus === 'active' &&
-        entitlement.currentPeriodEndAt instanceof Date &&
-        entitlement.currentPeriodEndAt.getTime() > Date.now();
+        entitlementSource === 'vip_whitelist' ||
+        (entitlement?.membershipStatus === 'active' &&
+          entitlement.currentPeriodEndAt instanceof Date &&
+          entitlement.currentPeriodEndAt.getTime() > Date.now());
 
       const tierCode = isActiveVip
-        ? this.normalizeDailyRewardTierCode(entitlement?.currentPlanCode)
+        ? this.normalizeDailyRewardTierCode(
+            entitlementSource === 'vip_whitelist'
+              ? effectivePlan?.code
+              : entitlement?.currentPlanCode,
+          )
         : 'free';
 
       let baseCredits = policy.dailyRewardCredits;
 
       if (tierCode !== 'free') {
-        let membershipGiftCredits = 0;
+        let membershipGiftCredits =
+          entitlementSource === 'vip_whitelist' && effectivePlan
+            ? Math.max(0, Math.trunc(effectivePlan.dailyGiftCredits))
+            : 0;
         const activeSubscription = await client.userMembershipSubscription.findFirst({
           where: {
             userId,
@@ -2397,11 +2410,19 @@ export class CreditsService {
             ? (activeSubscription.snapshot as Prisma.JsonObject)
             : null;
 
-        if (typeof snapshot?.dailyGiftCredits === 'number' && Number.isFinite(snapshot.dailyGiftCredits)) {
+        if (
+          entitlementSource !== 'vip_whitelist' &&
+          typeof snapshot?.dailyGiftCredits === 'number' &&
+          Number.isFinite(snapshot.dailyGiftCredits)
+        ) {
           membershipGiftCredits = Math.trunc(snapshot.dailyGiftCredits);
-        } else if (typeof snapshot?.dailyGiftCredits === 'string' && Number.isFinite(Number(snapshot.dailyGiftCredits))) {
+        } else if (
+          entitlementSource !== 'vip_whitelist' &&
+          typeof snapshot?.dailyGiftCredits === 'string' &&
+          Number.isFinite(Number(snapshot.dailyGiftCredits))
+        ) {
           membershipGiftCredits = Math.trunc(Number(snapshot.dailyGiftCredits));
-        } else if (activeSubscription?.membershipPlanId) {
+        } else if (entitlementSource !== 'vip_whitelist' && activeSubscription?.membershipPlanId) {
           const plan = await client.membershipPlan.findUnique({
             where: { id: activeSubscription.membershipPlanId },
             select: { dailyGiftCredits: true },
@@ -2422,7 +2443,7 @@ export class CreditsService {
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2021'
+        (error.code === 'P2021' || error.code === 'P2022')
       ) {
         return {
           tierCode: 'free',
@@ -2636,16 +2657,22 @@ export class CreditsService {
         },
       });
 
-      const activeSubscription = await tx.userMembershipSubscription.findFirst({
-        where: {
-          userId: params.userId,
-          status: 'active',
-          currentPeriodStartAt: { lte: now },
-          currentPeriodEndAt: { gt: now },
-        },
-        select: { id: true },
-      });
-      if (activeSubscription) {
+      const [activeSubscription, vipWhitelistUser] = await Promise.all([
+        tx.userMembershipSubscription.findFirst({
+          where: {
+            userId: params.userId,
+            status: 'active',
+            currentPeriodStartAt: { lte: now },
+            currentPeriodEndAt: { gt: now },
+          },
+          select: { id: true },
+        }),
+        tx.user.findUnique({
+          where: { id: params.userId },
+          select: { vipEntitlementWhitelist: true },
+        }),
+      ]);
+      if (activeSubscription || vipWhitelistUser?.vipEntitlementWhitelist === true) {
         return false;
       }
 
@@ -3276,11 +3303,20 @@ export class CreditsService {
       }),
       client.user.findUnique({
         where: { id: userId },
-        select: { role: true, noWatermark: true },
+        select: {
+          role: true,
+          noWatermark: true,
+          vipEntitlementWhitelist: true,
+        },
       }),
     ]);
 
-    if (paidOrder || activeMembership || userProfile?.noWatermark === true) return true;
+    if (
+      paidOrder ||
+      activeMembership ||
+      userProfile?.noWatermark === true ||
+      userProfile?.vipEntitlementWhitelist === true
+    ) return true;
     const role = typeof userProfile?.role === 'string' ? userProfile.role.toLowerCase() : '';
     return role === 'admin' || role === 'normal_admin';
   }
@@ -3622,6 +3658,7 @@ export class CreditsService {
     const users = await this.prisma.user.findMany({
       where: {
         status: 'active',
+        vipEntitlementWhitelist: false,
       },
       select: {
         id: true,

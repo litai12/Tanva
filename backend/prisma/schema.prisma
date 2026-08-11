@@ -20,6 +20,8 @@ model User {
   role                       String                 @default("user")
   status                     String                 @default("active")
   noWatermark                Boolean                @default(false)
+  vipEntitlementWhitelist    Boolean                @default(false)
+  vipRechargeBonusEnabled    Boolean                @default(false)
   googleCustomApiKey         String?
   googleKeyMode              String                 @default("official")
   googleOfficialVerified     Boolean                @default(false)
@@ -55,6 +57,7 @@ model User {
   @@index([phone, status])  // 手机号登录优化
   @@index([email, status])  // 邮箱登录优化（如果支持）
   @@index([role, status])   // 角色筛选优化
+  @@index([vipEntitlementWhitelist])
   @@index([wechatUnionId])
 }
 

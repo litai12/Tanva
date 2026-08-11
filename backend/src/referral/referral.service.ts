@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
+import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 
 // 邀请奖励配置
 const REFERRAL_INVITER_REWARD = 500; // 邀请人奖励积分
@@ -64,27 +65,10 @@ export class ReferralService {
     inviterUserId: string,
     tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<number> {
-    const subscription = await tx.userMembershipSubscription.findFirst({
-      where: {
-        userId: inviterUserId,
-        status: 'active',
-        currentPeriodStartAt: { lte: new Date() },
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      select: {
-        membershipPlanId: true,
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    if (!subscription?.membershipPlanId) {
+    const { plan } = await resolveEffectiveMembershipPlan(tx, inviterUserId);
+    if (!plan) {
       return FREE_USER_REFERRAL_REWARD_LIMIT;
     }
-
-    const plan = await tx.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-      select: { metadata: true },
-    });
 
     return (
       this.parseInviteLimitFromPlanMetadata(plan?.metadata) ?? FREE_USER_REFERRAL_REWARD_LIMIT

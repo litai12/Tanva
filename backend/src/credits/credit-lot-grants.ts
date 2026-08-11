@@ -60,6 +60,15 @@ export function buildAdminGiftCreditLotData(
   });
 }
 
+export function buildRechargeBonusCreditLotData(
+  input: CreditLotGrantBaseInput,
+): CreditLotGrantData {
+  return buildPermanentLotData({
+    ...input,
+    sourceType: 'gift',
+  });
+}
+
 export function buildSignupCreditLotData(
   input: CreditLotGrantBaseInput,
 ): CreditLotGrantData {

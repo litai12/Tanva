@@ -1217,7 +1217,10 @@ export async function getPaymentOrders(params?: {
 export interface RechargePackage {
   price: number;
   originalPrice?: number;
+  /** 创建订单时提交的基础充值积分。 */
   credits: number;
+  bonusCredits?: number;
+  totalCredits?: number;
   bonus: string | null;
   tag: string | null;
   isFirstRecharge: boolean;
@@ -1226,8 +1229,12 @@ export interface RechargePackage {
 export interface PackagesResponse {
   packages: RechargePackage[];
   creditsPerYuan: number;
+  effectiveCreditsPerYuan?: number;
+  bonusRate?: number;
   discountRate?: number;
   membershipDiscountApplied?: boolean;
+  rechargeBonusEligible?: boolean;
+  rechargeBonusEligibilitySource?: "highest_yearly_membership" | "vip_whitelist" | null;
 }
 
 // 获取充值套餐
@@ -1284,6 +1291,8 @@ export interface MembershipCurrentResponse {
     currentPeriodEndAt: string | null;
     pauseGiftDecay: boolean;
     hasActiveSubscription: boolean;
+    isVipEntitlementWhitelisted: boolean;
+    vipRechargeBonusEnabled: boolean;
   };
   balances: {
     freeCredits: number;
@@ -1302,6 +1311,8 @@ export interface MembershipMeResponse {
   currentPeriodEndAt: string | null;
   benefits: {
     pauseGiftDecay: boolean;
+    isVipEntitlementWhitelisted: boolean;
+    vipRechargeBonusEnabled: boolean;
   };
   balances: {
     freeCredits: number;
@@ -1556,6 +1567,55 @@ export async function adminRefreshYearlyMembershipQuota() {
 }
 
 // ==================== 水印白名单 ====================
+
+export interface WhitelistEntitlements {
+  noWatermark: boolean;
+  vipEntitlementWhitelist: boolean;
+  vipRechargeBonusEnabled: boolean;
+}
+
+export interface WhitelistUser extends WhitelistEntitlements {
+  id: string;
+  phone: string;
+  email: string | null;
+  name: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getWhitelist(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<{ users: WhitelistUser[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  const response = await request(`/api/admin/whitelist?${searchParams}`);
+  return response.json();
+}
+
+export async function upsertWhitelistUser(
+  userId: string,
+  entitlements: WhitelistEntitlements,
+): Promise<WhitelistUser> {
+  const response = await request(`/api/admin/whitelist/${userId}`, {
+    method: "POST",
+    body: JSON.stringify(entitlements),
+  });
+  return response.json();
+}
+
+export async function removeWhitelistUser(userId: string) {
+  const response = await request(`/api/admin/whitelist/${userId}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+
+// 旧水印白名单 API 保留兼容。
 
 export interface WatermarkWhitelistUser {
   id: string;

@@ -2161,7 +2161,140 @@ export class AdminService {
     });
   }
 
-  // ==================== 水印白名单管理 ====================
+  // ==================== 统一白名单管理 ====================
+
+  private buildWhitelistTags(user: {
+    noWatermark: boolean;
+    vipEntitlementWhitelist: boolean;
+    vipRechargeBonusEnabled: boolean;
+  }): string[] {
+    return [
+      ...(user.noWatermark ? ['去水印'] : []),
+      ...(user.vipEntitlementWhitelist ? ['最高档年卡权益'] : []),
+      ...(user.vipRechargeBonusEnabled ? ['充值到账 120%'] : []),
+    ];
+  }
+
+  async getWhitelist(options: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+  } = {}) {
+    const { page = 1, pageSize = 10, search } = options;
+    const entitlementFilter = {
+      OR: [
+        { noWatermark: true },
+        { vipEntitlementWhitelist: true },
+        { vipRechargeBonusEnabled: true },
+      ],
+    };
+    const where: any = search
+      ? {
+          AND: [
+            entitlementFilter,
+            {
+              OR: [
+                { phone: { contains: search } },
+                { email: { contains: search } },
+                { name: { contains: search } },
+              ],
+            },
+          ],
+        }
+      : entitlementFilter;
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          phone: true,
+          email: true,
+          name: true,
+          noWatermark: true,
+          vipEntitlementWhitelist: true,
+          vipRechargeBonusEnabled: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      users: users.map((user) => ({
+        ...user,
+        tags: this.buildWhitelistTags(user),
+      })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  async upsertWhitelistUser(
+    userId: string,
+    input: {
+      noWatermark?: boolean;
+      vipEntitlementWhitelist?: boolean;
+      vipRechargeBonusEnabled?: boolean;
+    },
+  ) {
+    const data = {
+      noWatermark: input.noWatermark === true,
+      vipEntitlementWhitelist: input.vipEntitlementWhitelist === true,
+      vipRechargeBonusEnabled: input.vipRechargeBonusEnabled === true,
+    };
+    if (!data.noWatermark && !data.vipEntitlementWhitelist && !data.vipRechargeBonusEnabled) {
+      throw new BadRequestException('至少选择一项白名单权益');
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        name: true,
+        noWatermark: true,
+        vipEntitlementWhitelist: true,
+        vipRechargeBonusEnabled: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return { ...user, tags: this.buildWhitelistTags(user) };
+  }
+
+  async removeWhitelistUser(userId: string) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        noWatermark: false,
+        vipEntitlementWhitelist: false,
+        vipRechargeBonusEnabled: false,
+      },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        name: true,
+        noWatermark: true,
+        vipEntitlementWhitelist: true,
+        vipRechargeBonusEnabled: true,
+      },
+    });
+    return { ...user, tags: [] as string[] };
+  }
+
+  // ==================== 旧水印白名单兼容接口 ====================
 
   /**
    * 获取水印白名单用户列表

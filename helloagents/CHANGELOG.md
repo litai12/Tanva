@@ -1,5 +1,7 @@
 # Changelog
 
+- Payment/Credits/Whitelist：个人积分充值取消最高档年卡 `8 折`，所有用户价格不变；普通用户到账 `100%`，仅有效最高档年卡会员及白名单中显式开启“充值到账 120%”权益的用户额外获赠 `20%` 永久积分。个人档位调整为 `25 / 50 / 100 / 500 / 1000 / 5000` 元并删除 `200` 元档。创建订单时固化资格、基础/赠送/总积分，付款后将赠送部分写入永久 gift 批次；历史订单不追溯。原水印白名单抽象为统一白名单，可独立配置“去水印 / 最高档年卡权益 / 充值到账 120%”Tag；最高年卡权益白名单不创建订阅、不触发会员周期积分到账。
+
 - Flow/Backend/new-api/Seedance 2.5：接入方舟 `omni_reference_task_type`。单视频“多模态参考 / 视频编辑 / 视频延长”分别前置引导为 `reference/edit/extend`；编辑固定 `ratio=adaptive,duration=-1` 且输入视频校验 4–30 秒，延长固定 `ratio=adaptive`，纯文生与首尾帧不误传。Tanva DTO、计费审计、直连/V2 Ark 请求、new-api 统一请求与 Doubao adapter 全链路透传并重复校验；节点补充任务一致的提示词写法。编辑与延长均保持既有商业口径：`billingDurationSec = inputVideoDurationSec + outputDurationSec`，其中编辑输出时长跟随输入视频。
 
 - Flow/Runtime/Video：修复开启浏览器网页翻译后删减 Prompt 会让整张工作流显示“加载失败”的问题。Flow 动态区域及 Prompt Portal 禁止第三方 DOM 翻译，所有自定义节点增加节点级错误边界，单节点异常只在局部展示并上报节点上下文。视频任务来源补充 `files.toapis.com` 服务端白名单并逐跳校验重定向，查询成功后强制转存 Tanva OSS；前端检测到已托管 URL 时直接复用，避免浏览器跨域下载和重复上传。

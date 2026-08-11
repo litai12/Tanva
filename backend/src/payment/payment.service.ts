@@ -16,14 +16,19 @@ import {
 import { TransactionType } from '../credits/dto/credits.dto';
 import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { ReferralService } from '../referral/referral.service';
-import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
+import {
+  buildRechargeBonusCreditLotData,
+  buildRechargeCreditLotData,
+} from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import {
-  HIGHEST_TIER_YEARLY_RECHARGE_DISCOUNT_RATE,
-  isHighestTierYearlyRechargeDiscountEligible,
-} from './recharge-discount-policy';
+  calculateRechargeGrant,
+  RECHARGE_BONUS_POLICY_VERSION,
+  RECHARGE_BONUS_RATE,
+  resolveRechargeOrderGrant,
+} from './recharge-bonus-policy';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -289,27 +294,6 @@ export class PaymentService implements OnModuleInit {
     return Math.round(amount * 100) / 100;
   }
 
-  private async getRechargeDiscountRate(userId: string): Promise<number> {
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-      select: { membershipPlanId: true },
-    });
-    if (!subscription) return 1;
-
-    const activePlans = await this.membershipService.listActivePlans();
-    return isHighestTierYearlyRechargeDiscountEligible(
-      subscription.membershipPlanId,
-      activePlans,
-    )
-      ? HIGHEST_TIER_YEARLY_RECHARGE_DISCOUNT_RATE
-      : 1;
-  }
-
   private getRechargePackageByAmount(amount: number) {
     return RECHARGE_PACKAGES.find(
       (item) => Math.abs(item.price - amount) < 0.0001,
@@ -325,24 +309,31 @@ export class PaymentService implements OnModuleInit {
   }
 
   async getRechargePackages(userId: string) {
-    const discountRate = await this.getRechargeDiscountRate(userId);
-    const membershipDiscountApplied = discountRate < 1;
+    const eligibility = await this.membershipService.getRechargeBonusEligibility(userId);
     const packages = RECHARGE_PACKAGES.map((item) => {
+      const grant = calculateRechargeGrant(item.credits, eligibility.eligible);
       return {
-        price: this.normalizeMoneyAmount(item.price * discountRate),
+        price: item.price,
         originalPrice: item.price,
-        credits: item.credits,
-        bonus:  null,
-        tag: membershipDiscountApplied ? '最高档年卡 8 折' : null,
+        credits: grant.baseCredits,
+        bonusCredits: grant.bonusCredits,
+        totalCredits: grant.totalCredits,
+        bonus: eligibility.eligible ? '赠送积分永久有效' : null,
+        tag: eligibility.eligible ? '充值到账 120%' : null,
         isFirstRecharge: false,
       };
     });
 
     return {
       packages,
-      creditsPerYuan: CREDITS_PER_YUAN / discountRate,
-      discountRate,
-      membershipDiscountApplied,
+      creditsPerYuan: CREDITS_PER_YUAN,
+      effectiveCreditsPerYuan:
+        CREDITS_PER_YUAN * (eligibility.eligible ? 1 + RECHARGE_BONUS_RATE : 1),
+      bonusRate: eligibility.eligible ? RECHARGE_BONUS_RATE : 0,
+      rechargeBonusEligible: eligibility.eligible,
+      rechargeBonusEligibilitySource: eligibility.source,
+      discountRate: 1,
+      membershipDiscountApplied: false,
     };
   }
 
@@ -459,22 +450,25 @@ export class PaymentService implements OnModuleInit {
       if (!Number.isInteger(orderCredits) || orderCredits <= 0) {
         throw new BadRequestException('Invalid recharge credits');
       }
-      const discountRate = await this.getRechargeDiscountRate(userId);
-      const expectedAmount = this.normalizeMoneyAmount(
-        (orderCredits / CREDITS_PER_YUAN) * discountRate,
-      );
+      const baseCredits = Math.trunc(orderCredits);
+      const expectedAmount = this.normalizeMoneyAmount(baseCredits / CREDITS_PER_YUAN);
       if (Math.abs(expectedAmount - orderAmount) >= 0.01) {
-        throw new BadRequestException(
-          discountRate < 1
-            ? '积分充值金额与最高档年卡折扣不匹配，请刷新充值页面后重试'
-            : '积分充值金额与积分数量不匹配',
-        );
+        throw new BadRequestException('积分充值金额与积分数量不匹配');
       }
-      orderCredits = Math.trunc(orderCredits);
+      const eligibility = await this.membershipService.getRechargeBonusEligibility(userId);
+      const grant = calculateRechargeGrant(baseCredits, eligibility.eligible);
+      orderCredits = grant.totalCredits;
       dto.metadata = this.mergeOrderMetadata(dto.metadata, {
-        rechargeOriginalAmount: this.normalizeMoneyAmount(orderAmount / discountRate),
-        rechargeDiscountRate: discountRate,
-        highestTierYearlyMembershipDiscountApplied: discountRate < 1,
+        rechargeOriginalAmount: orderAmount,
+        rechargeDiscountRate: 1,
+        highestTierYearlyMembershipDiscountApplied: false,
+        rechargeBonusPolicyVersion: RECHARGE_BONUS_POLICY_VERSION,
+        rechargeBonusRate: eligibility.eligible ? RECHARGE_BONUS_RATE : 0,
+        rechargeBonusEligible: eligibility.eligible,
+        rechargeBonusEligibilitySource: eligibility.source,
+        rechargeBaseCredits: grant.baseCredits,
+        rechargeBonusCredits: grant.bonusCredits,
+        rechargeTotalCredits: grant.totalCredits,
       });
     }
 
@@ -809,8 +803,13 @@ export class PaymentService implements OnModuleInit {
         where: { userId, status: PaymentStatus.PAID },
       });
       const isFirstRecharge = paidOrderCount === 0;
-      await tx.paymentOrder.update({
-        where: { id: orderId },
+      // Atomic PAID claim: concurrent webhook/status/reconciliation paths may all
+      // observe the same pending order, but only one transaction may grant credits.
+      const paidClaim = await tx.paymentOrder.updateMany({
+        where: {
+          id: orderId,
+          status: { not: PaymentStatus.PAID },
+        },
         data: {
           status: PaymentStatus.PAID,
           paidAt: options?.paidAt ?? new Date(),
@@ -822,6 +821,7 @@ export class PaymentService implements OnModuleInit {
           }) as any,
         },
       });
+      if (paidClaim.count === 0) return;
       if (currentOrder.orderType === 'membership') {
         const activation = await this.membershipService.activatePaidMembershipOrder({
           tx,
@@ -932,14 +932,30 @@ export class PaymentService implements OnModuleInit {
         topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
         return;
       }
+      const rechargeGrant = resolveRechargeOrderGrant(
+        currentOrder.credits,
+        currentOrder.metadata,
+      );
       let account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
-      const newBalance = account.balance + credits;
-      await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
-      const creditLot = await tx.creditLot.create({
+      const newBalance = account.balance + rechargeGrant.totalCredits;
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: newBalance,
+          totalEarned: account.totalEarned + rechargeGrant.totalCredits,
+        },
+      });
+      const commonGrantMetadata = {
+        orderNo: currentOrder.orderNo,
+        ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
+        source: options?.source ?? 'unknown',
+        paymentMethod: options?.paymentMethod ?? currentOrder.paymentMethod,
+      };
+      const rechargeCreditLot = await tx.creditLot.create({
         data: buildRechargeCreditLotData({
           accountId: account.id,
-          amount: credits,
+          amount: rechargeGrant.baseCredits,
           grantedAt: options?.paidAt ?? new Date(),
           expiresAt:
             policy.fixedCreditExpireDays > 0
@@ -950,10 +966,8 @@ export class PaymentService implements OnModuleInit {
               : null,
           orderId: currentOrder.id,
           metadata: {
-            orderNo: currentOrder.orderNo,
-            ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
-            source: options?.source ?? 'unknown',
-            paymentMethod: options?.paymentMethod ?? currentOrder.paymentMethod,
+            ...commonGrantMetadata,
+            grantType: 'recharge_base',
           },
         }),
       });
@@ -961,19 +975,53 @@ export class PaymentService implements OnModuleInit {
         data: {
           accountId: account.id,
           type: TransactionType.EARN,
-          amount: credits,
+          amount: rechargeGrant.baseCredits,
           balanceBefore: account.balance,
-          balanceAfter: newBalance,
+          balanceAfter: account.balance + rechargeGrant.baseCredits,
           description: `充值`,
-          creditLotId: creditLot.id,
+          creditLotId: rechargeCreditLot.id,
           metadata: {
             orderId: currentOrder.id,
-            orderNo: currentOrder.orderNo,
-            ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
-            source: options?.source ?? 'unknown',
+            ...commonGrantMetadata,
+            grantType: 'recharge_base',
           },
         },
       });
+      if (rechargeGrant.bonusCredits > 0) {
+        const bonusCreditLot = await tx.creditLot.create({
+          data: buildRechargeBonusCreditLotData({
+            accountId: account.id,
+            amount: rechargeGrant.bonusCredits,
+            grantedAt: options?.paidAt ?? new Date(),
+            orderId: currentOrder.id,
+            metadata: {
+              ...commonGrantMetadata,
+              grantType: 'recharge_bonus',
+              bonusRate: RECHARGE_BONUS_RATE,
+              permanent: true,
+            },
+          }),
+        });
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EARN,
+            amount: rechargeGrant.bonusCredits,
+            balanceBefore: account.balance + rechargeGrant.baseCredits,
+            balanceAfter: newBalance,
+            description: `充值赠送 20%（永久积分）`,
+            businessType: 'recharge_bonus',
+            creditLotId: bonusCreditLot.id,
+            metadata: {
+              orderId: currentOrder.id,
+              ...commonGrantMetadata,
+              grantType: 'recharge_bonus',
+              bonusRate: RECHARGE_BONUS_RATE,
+              permanent: true,
+            },
+          },
+        });
+      }
       if (isFirstRecharge) {
         await this.referralService.rewardInviterForInviteeFirstRechargeInTransaction(tx, userId);
       }

@@ -2363,7 +2363,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             detail: {
               type: "info",
               message: lt(
-                "Seedance 2.x / Seed 2.0 系列需开通 VIP 权益或进入水印白名单后才可选择",
+                "Seedance 2.x / Seed 2.0 系列需开通 VIP 权益或配置对应白名单权益后才可选择",
                 "Seedance 2.x / Seed 2.0 series requires VIP access or watermark whitelist access",
               ),
             },
@@ -3590,7 +3590,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       title={
                         isSeedanceLocked
                           ? lt(
-                              "需开通 VIP 权益或进入水印白名单后才能选择",
+                              "需开通 VIP 权益或配置对应白名单权益后才能选择",
                               "Requires VIP access or watermark whitelist access",
                             )
                           : undefined

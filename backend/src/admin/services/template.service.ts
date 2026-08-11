@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTemplateDto, UpdateTemplateDto, TemplateQueryDto } from '../dto/template.dto';
 import { OssService } from '../../oss/oss.service';
 import { sanitizeDesignJson } from '../../utils/designJsonSanitizer';
+import { resolveEffectiveMembershipPlan } from '../../membership/vip-entitlement-policy';
 
 const sanitizeNullableString = (value: unknown): string | null | undefined => {
   if (value === undefined) return undefined;
@@ -67,27 +68,10 @@ export class TemplateService {
   }
 
   private async resolveUserTemplateLibraryAccess(userId: string): Promise<'basic' | 'full'> {
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodStartAt: { lte: new Date() },
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      select: {
-        membershipPlanId: true,
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    if (!subscription?.membershipPlanId) {
+    const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
+    if (!plan) {
       return this.getFreeTierTemplateLibraryAccess();
     }
-
-    const plan = await this.prisma.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-      select: { metadata: true },
-    });
 
     if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
       return this.normalizeTemplateLibraryAccess(

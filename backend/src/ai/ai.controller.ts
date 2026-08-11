@@ -64,6 +64,7 @@ import { AudioGenerateDto } from './audio/audio-generate.dto';
 import { AudioRoutingService } from './audio/audio-routing.service';
 import { AudioGenerateResult } from './audio/audio-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import {
@@ -309,28 +310,7 @@ export class AiController {
   }
 
   private async resolveUserNoWatermarkAccess(userId: string): Promise<'enabled' | 'disabled'> {
-    const now = new Date();
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodStartAt: { lte: now },
-        currentPeriodEndAt: { gt: now },
-      },
-      select: {
-        membershipPlanId: true,
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    if (!subscription?.membershipPlanId) {
-      return 'disabled';
-    }
-
-    const plan = await this.prisma.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-      select: { metadata: true },
-    });
+    const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
 
     if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
       const metadata = plan.metadata as Record<string, unknown>;
@@ -356,24 +336,8 @@ export class AiController {
   }
 
   private async resolveUserSeedance2Access(userId: string): Promise<'enabled' | 'disabled'> {
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodStartAt: { lte: new Date() },
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      select: {
-        membershipPlanId: true,
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    if (subscription?.membershipPlanId) {
-      const plan = await this.prisma.membershipPlan.findUnique({
-        where: { id: subscription.membershipPlanId },
-        select: { metadata: true },
-      });
+    const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
+    if (plan) {
       if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
         return this.normalizeSeedance2Access(
           (plan.metadata as Record<string, unknown>).seedance2Access,
@@ -419,27 +383,10 @@ export class AiController {
       return 'enabled';
     }
 
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodStartAt: { lte: new Date() },
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      select: {
-        membershipPlanId: true,
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    if (!subscription?.membershipPlanId) {
+    const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
+    if (!plan) {
       return 'disabled';
     }
-
-    const plan = await this.prisma.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-      select: { metadata: true },
-    });
 
     if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
       const metadata = plan.metadata as Record<string, unknown>;
@@ -517,7 +464,7 @@ export class AiController {
     const access = await this.resolveSeedance2CombinedAccess(userId, req);
     if (!access.allowed) {
       throw new BadRequestException(
-        'Seedance 2.x 仅支持 VIP 或水印白名单用户使用',
+        'Seedance 2.x 仅支持 VIP 或已配置对应权益的白名单用户使用',
       );
     }
   }

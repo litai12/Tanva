@@ -51,9 +51,9 @@ import {
   adminIssueDailyMembershipGifts,
   adminDecayMembershipGifts,
   adminRefreshYearlyMembershipQuota,
-  getWatermarkWhitelist,
-  addToWatermarkWhitelist,
-  removeFromWatermarkWhitelist,
+  getWhitelist,
+  upsertWhitelistUser,
+  removeWhitelistUser,
   getPaidUsers,
   getCreditChangeRecords,
   getAdminUserCreditTransactions,
@@ -83,7 +83,8 @@ import {
   type MembershipCreditPolicyView,
   type AdminMembershipPlan,
   type AdminMembershipStateResponse,
-  type WatermarkWhitelistUser,
+  type WhitelistEntitlements,
+  type WhitelistUser,
   type PaidUser,
   type PaidUsersSortBy,
   type CreditChangeRecord,
@@ -121,7 +122,7 @@ type AdminTabKey =
   | "credit-anomalies"
   | "api-stats"
   | "api-records"
-  | "watermark"
+  | "whitelist"
   | "node-configs"
   | "settings"
   | "templates"
@@ -8451,9 +8452,14 @@ function VolcReviewTab() {
   );
 }
 
-// 水印白名单管理 Tab
-function WatermarkWhitelistTab() {
-  const [whitelistUsers, setWhitelistUsers] = useState<WatermarkWhitelistUser[]>([]);
+// 统一白名单管理 Tab：每个用户独立配置权益。
+function WhitelistTab() {
+  const emptyEntitlements: WhitelistEntitlements = {
+    noWatermark: false,
+    vipEntitlementWhitelist: false,
+    vipRechargeBonusEnabled: false,
+  };
+  const [whitelistUsers, setWhitelistUsers] = useState<WhitelistUser[]>([]);
   const [allUsers, setAllUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -8461,11 +8467,18 @@ function WatermarkWhitelistTab() {
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [userSearch, setUserSearch] = useState("");
+  const [selectedUser, setSelectedUser] = useState<{
+    id: string;
+    name: string | null;
+    phone: string;
+  } | null>(null);
+  const [entitlements, setEntitlements] = useState<WhitelistEntitlements>(emptyEntitlements);
+  const [saving, setSaving] = useState(false);
 
-  const loadWhitelist = async () => {
+  const loadWhitelist = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getWatermarkWhitelist({ page, pageSize: 10, search });
+      const result = await getWhitelist({ page, pageSize: 10, search });
       setWhitelistUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -8473,44 +8486,57 @@ function WatermarkWhitelistTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search]);
 
-  const loadAllUsers = async () => {
+  const loadAllUsers = useCallback(async () => {
     try {
       const result = await getUsers({ page: 1, pageSize: 50, search: userSearch });
       setAllUsers(result.users);
     } catch (error) {
       console.error("加载用户列表失败:", error);
     }
-  };
+  }, [userSearch]);
 
   useEffect(() => {
     loadWhitelist();
-  }, [page, search]);
+  }, [loadWhitelist]);
 
   useEffect(() => {
     if (showAddModal) {
       loadAllUsers();
     }
-  }, [showAddModal, userSearch]);
+  }, [loadAllUsers, showAddModal]);
 
-  const handleAdd = async (userId: string) => {
+  const openEntitlementEditor = (
+    user: { id: string; name: string | null; phone: string },
+    current?: WhitelistEntitlements,
+  ) => {
+    setSelectedUser(user);
+    setEntitlements(current ?? emptyEntitlements);
+  };
+
+  const handleSave = async () => {
+    if (!selectedUser) return;
+    setSaving(true);
     try {
-      await addToWatermarkWhitelist(userId);
+      await upsertWhitelistUser(selectedUser.id, entitlements);
+      setSelectedUser(null);
       setShowAddModal(false);
-      loadWhitelist();
-    } catch (error: any) {
-      alert(error.message || "添加失败");
+      await loadWhitelist();
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleRemove = async (userId: string) => {
     if (!confirm("确定要从白名单中移除该用户吗？")) return;
     try {
-      await removeFromWatermarkWhitelist(userId);
+      await removeWhitelistUser(userId);
       loadWhitelist();
-    } catch (error: any) {
-      alert(error.message || "移除失败");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "移除失败");
     }
   };
 
@@ -8524,7 +8550,7 @@ function WatermarkWhitelistTab() {
           className='max-w-xs'
         />
         <Button onClick={() => { setPage(1); loadWhitelist(); }}>搜索</Button>
-        <Button onClick={() => setShowAddModal(true)}>添加用户</Button>
+        <Button onClick={() => setShowAddModal(true)}>添加白名单用户</Button>
       </div>
 
       <div className='bg-white rounded-lg border overflow-hidden'>
@@ -8534,18 +8560,19 @@ function WatermarkWhitelistTab() {
               <th className='px-4 py-3 text-left'>用户</th>
               <th className='px-4 py-3 text-left'>手机号</th>
               <th className='px-4 py-3 text-left'>邮箱</th>
-              <th className='px-4 py-3 text-left'>添加时间</th>
+              <th className='px-4 py-3 text-left'>权益 Tag</th>
+              <th className='px-4 py-3 text-left'>更新时间</th>
               <th className='px-4 py-3 text-left'>操作</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
+                <td colSpan={6} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
               </tr>
             ) : whitelistUsers.length === 0 ? (
               <tr>
-                <td colSpan={5} className='px-4 py-8 text-center text-gray-500'>暂无数据</td>
+                <td colSpan={6} className='px-4 py-8 text-center text-gray-500'>暂无数据</td>
               </tr>
             ) : (
               whitelistUsers.map((user) => (
@@ -8553,10 +8580,38 @@ function WatermarkWhitelistTab() {
                   <td className='px-4 py-3'>{user.name || "-"}</td>
                   <td className='px-4 py-3'>{user.phone}</td>
                   <td className='px-4 py-3'>{user.email || "-"}</td>
-                  <td className='px-4 py-3 text-xs text-gray-500'>
-                    {new Date(user.createdAt).toLocaleDateString()}
-                  </td>
                   <td className='px-4 py-3'>
+                    <div className='flex flex-wrap gap-1.5'>
+                      {user.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            tag === "充值到账 120%"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : tag === "最高档年卡权益"
+                                ? "bg-violet-100 text-violet-700"
+                                : "bg-blue-100 text-blue-700"
+                          }`}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className='px-4 py-3 text-xs text-gray-500'>
+                    {new Date(user.updatedAt).toLocaleString("zh-CN")}
+                  </td>
+                  <td className='px-4 py-3 space-x-2'>
+                    <Button
+                      size='sm'
+                      onClick={() => openEntitlementEditor(user, {
+                        noWatermark: user.noWatermark,
+                        vipEntitlementWhitelist: user.vipEntitlementWhitelist,
+                        vipRechargeBonusEnabled: user.vipRechargeBonusEnabled,
+                      })}
+                    >
+                      配置权益
+                    </Button>
                     <Button size='sm' variant='outline' onClick={() => handleRemove(user.id)}>
                       移除
                     </Button>
@@ -8609,7 +8664,20 @@ function WatermarkWhitelistTab() {
                       <td className='px-3 py-2'>{user.name || "-"}</td>
                       <td className='px-3 py-2'>{user.phone}</td>
                       <td className='px-3 py-2'>
-                        <Button size='sm' onClick={() => handleAdd(user.id)}>添加</Button>
+                        <Button
+                          size='sm'
+                          onClick={() => openEntitlementEditor({
+                            id: user.id,
+                            name: user.name,
+                            phone: user.phone,
+                          }, {
+                            noWatermark: false,
+                            vipEntitlementWhitelist: false,
+                            vipRechargeBonusEnabled: false,
+                          })}
+                        >
+                          配置
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -8618,6 +8686,60 @@ function WatermarkWhitelistTab() {
             </div>
             <div className='mt-4 flex justify-end'>
               <Button variant='outline' onClick={() => setShowAddModal(false)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedUser && (
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-[60]'>
+          <div className='w-[460px] max-w-[calc(100vw-2rem)] rounded-lg bg-white p-6 shadow-xl'>
+            <h3 className='text-lg font-semibold'>配置白名单权益</h3>
+            <p className='mt-1 text-sm text-gray-500'>
+              {selectedUser.name || "未命名用户"} · {selectedUser.phone}
+            </p>
+            <div className='mt-5 space-y-3'>
+              {([
+                {
+                  key: "noWatermark",
+                  label: "去水印",
+                  description: "视频输出使用去水印权益。",
+                },
+                {
+                  key: "vipEntitlementWhitelist",
+                  label: "最高档年卡权益",
+                  description: "继承最高档年卡功能权益，但不发放会员周期积分。",
+                },
+                {
+                  key: "vipRechargeBonusEnabled",
+                  label: "充值到账 120%",
+                  description: "充值价格不变，额外 20% 作为永久赠送积分。",
+                },
+              ] as const).map((item) => (
+                <label
+                  key={item.key}
+                  className='flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-3'
+                >
+                  <div>
+                    <div className='text-sm font-medium text-gray-900'>{item.label}</div>
+                    <div className='mt-0.5 text-xs text-gray-500'>{item.description}</div>
+                  </div>
+                  <Switch
+                    checked={entitlements[item.key]}
+                    onCheckedChange={(checked) =>
+                      setEntitlements((current) => ({ ...current, [item.key]: checked }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <div className='mt-6 flex justify-end gap-2'>
+              <Button variant='outline' onClick={() => setSelectedUser(null)} disabled={saving}>
+                取消
+              </Button>
+              <Button onClick={() => void handleSave()} disabled={saving}>
+                {saving ? "保存中..." : "保存权益"}
+              </Button>
             </div>
           </div>
         </div>
@@ -15409,7 +15531,7 @@ export default function Admin() {
     { key: "credit-anomalies", label: "异常积分" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
-    { key: "watermark", label: "水印白名单" },
+    { key: "whitelist", label: "白名单" },
     { key: "node-configs", label: "节点管理" },
     { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
@@ -15537,7 +15659,7 @@ export default function Admin() {
         {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}
         {currentTab === "api-stats" && <ApiModelStatsTab />}
         {currentTab === "api-records" && <ApiRecordsTab />}
-        {currentTab === "watermark" && <WatermarkWhitelistTab />}
+        {currentTab === "whitelist" && <WhitelistTab />}
         {currentTab === "node-configs" && <NodeConfigsTab />}
         {currentTab === "templates" && <TemplatesTab />}
         {currentTab === "settings" && (

@@ -11,6 +11,10 @@ import { TransactionType } from '../credits/dto/credits.dto';
 import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
+import {
+  findVipWhitelistHighestYearlyPlan,
+  isHighestTierYearlyPlan,
+} from './vip-entitlement-policy';
 import type {
   ActivatePaidMembershipOrderParams,
   ActivatePaidMembershipOrderResult,
@@ -237,7 +241,7 @@ export class MembershipService {
   }
 
   async getCurrentMembership(userId: string) {
-    const [subscription, nextChange, balances] = await Promise.all([
+    const [subscription, nextChange, balances, whitelistPlan] = await Promise.all([
       this.withMissingMembershipTablesFallback(
         () =>
           this.prisma.userMembershipSubscription.findFirst({
@@ -251,9 +255,13 @@ export class MembershipService {
       ),
       this.getNextChange(userId),
       this.getCreditBalances(userId),
+      this.withMissingMembershipTablesFallback(
+        () => findVipWhitelistHighestYearlyPlan(this.prisma, userId),
+        () => null,
+      ),
     ]);
 
-    if (!subscription) {
+    if (!subscription && !whitelistPlan) {
       return {
         subscription: null,
         plan: null,
@@ -263,25 +271,30 @@ export class MembershipService {
       };
     }
 
-    const plan = await this.withMissingMembershipTablesFallback(
-      () =>
-        this.prisma.membershipPlan.findUnique({
-          where: { id: subscription.membershipPlanId },
-        }),
-      () => null,
-    );
+    const subscriptionPlan = subscription
+      ? await this.withMissingMembershipTablesFallback(
+          () =>
+            this.prisma.membershipPlan.findUnique({
+              where: { id: subscription.membershipPlanId },
+            }),
+          () => null,
+        )
+      : null;
+    const plan = whitelistPlan ?? subscriptionPlan;
 
     return {
-      subscription: {
-        id: subscription.id,
-        status: subscription.status,
-        periodType: subscription.periodType,
-        currentPeriodStartAt: subscription.currentPeriodStartAt,
-        currentPeriodEndAt: subscription.currentPeriodEndAt,
-        activatedAt: subscription.activatedAt,
-        renewalCount: subscription.renewalCount,
-        lastOrderId: subscription.lastOrderId,
-      },
+      subscription: subscription
+        ? {
+            id: subscription.id,
+            status: subscription.status,
+            periodType: subscription.periodType,
+            currentPeriodStartAt: subscription.currentPeriodStartAt,
+            currentPeriodEndAt: subscription.currentPeriodEndAt,
+            activatedAt: subscription.activatedAt,
+            renewalCount: subscription.renewalCount,
+            lastOrderId: subscription.lastOrderId,
+          }
+        : null,
       plan: plan
         ? {
             id: plan.id,
@@ -302,7 +315,7 @@ export class MembershipService {
   }
 
   async getMembershipEntitlement(userId: string) {
-    const [snapshot, activeSubscriptionCount] = await Promise.all([
+    const [snapshot, activeSubscriptionCount, whitelistPlan, user] = await Promise.all([
       this.withMissingMembershipTablesFallback(
         () =>
           this.prisma.membershipEntitlementSnapshot.findUnique({
@@ -320,7 +333,37 @@ export class MembershipService {
           }),
         () => 0,
       ),
+      this.withMissingMembershipTablesFallback(
+        () => findVipWhitelistHighestYearlyPlan(this.prisma, userId),
+        () => null,
+      ),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          vipEntitlementWhitelist: true,
+          vipRechargeBonusEnabled: true,
+        },
+      }),
     ]);
+
+    if (whitelistPlan) {
+      const metadata =
+        whitelistPlan.metadata &&
+        typeof whitelistPlan.metadata === 'object' &&
+        !Array.isArray(whitelistPlan.metadata)
+          ? (whitelistPlan.metadata as Record<string, unknown>)
+          : null;
+      return {
+        currentPlanCode: whitelistPlan.code,
+        membershipStatus: 'active',
+        currentPeriodStartAt: null,
+        currentPeriodEndAt: null,
+        pauseGiftDecay: metadata?.pauseGiftDecay === true,
+        hasActiveSubscription: activeSubscriptionCount > 0,
+        isVipEntitlementWhitelisted: true,
+        vipRechargeBonusEnabled: user?.vipRechargeBonusEnabled === true,
+      };
+    }
 
     if (!snapshot) {
       return {
@@ -330,6 +373,8 @@ export class MembershipService {
         currentPeriodEndAt: null,
         pauseGiftDecay: false,
         hasActiveSubscription: activeSubscriptionCount > 0,
+        isVipEntitlementWhitelisted: false,
+        vipRechargeBonusEnabled: false,
       };
     }
 
@@ -340,7 +385,47 @@ export class MembershipService {
       currentPeriodEndAt: snapshot.currentPeriodEndAt,
       pauseGiftDecay: snapshot.pauseGiftDecay,
       hasActiveSubscription: activeSubscriptionCount > 0,
+      isVipEntitlementWhitelisted: false,
+      vipRechargeBonusEnabled: false,
     };
+  }
+
+  async getRechargeBonusEligibility(userId: string, now = new Date()) {
+    const [user, subscription, activePlans] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          vipEntitlementWhitelist: true,
+          vipRechargeBonusEnabled: true,
+        },
+      }),
+      this.withMissingMembershipTablesFallback(
+        () =>
+          this.prisma.userMembershipSubscription.findFirst({
+            where: {
+              userId,
+              status: 'active',
+              currentPeriodStartAt: { lte: now },
+              currentPeriodEndAt: { gt: now },
+            },
+            select: { membershipPlanId: true },
+            orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+          }),
+        () => null,
+      ),
+      this.listActivePlans(),
+    ]);
+
+    if (user?.vipRechargeBonusEnabled === true) {
+      return { eligible: true, source: 'vip_whitelist' as const };
+    }
+    if (
+      subscription?.membershipPlanId &&
+      isHighestTierYearlyPlan(subscription.membershipPlanId, activePlans)
+    ) {
+      return { eligible: true, source: 'highest_yearly_membership' as const };
+    }
+    return { eligible: false, source: null };
   }
 
   async getMembershipMe(userId: string) {
@@ -359,6 +444,8 @@ export class MembershipService {
       currentPeriodEndAt: entitlement.currentPeriodEndAt,
       benefits: {
         pauseGiftDecay: entitlement.pauseGiftDecay,
+        isVipEntitlementWhitelisted: entitlement.isVipEntitlementWhitelisted,
+        vipRechargeBonusEnabled: entitlement.vipRechargeBonusEnabled,
       },
       balances: {
         freeCredits: balances.freeCredits,
@@ -1268,13 +1355,27 @@ export class MembershipService {
           })
         ).map((order) => order.userId),
       );
+      const vipWhitelistUserIds = new Set(
+        (
+          await tx.user.findMany({
+            where: {
+              id: { in: accounts.map((account) => account.userId) },
+              vipEntitlementWhitelist: true,
+            },
+            select: { id: true },
+          })
+        ).map((user) => user.id),
+      );
 
       let affectedUsers = 0;
       let decayedCredits = 0;
       let updatedLots = 0;
 
       for (const account of accounts) {
-        if (paidUserIds.has(account.userId)) {
+        if (
+          paidUserIds.has(account.userId) ||
+          vipWhitelistUserIds.has(account.userId)
+        ) {
           continue;
         }
 

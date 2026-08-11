@@ -54,7 +54,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   const { lt } = useLocaleText();
   const [packages, setPackages] = useState<RechargePackage[]>([]);
   const [creditsPerYuan, setCreditsPerYuan] = useState<number>(100);
-  const [membershipDiscountApplied, setMembershipDiscountApplied] = useState(false);
+  const [rechargeBonusEligible, setRechargeBonusEligible] = useState(false);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
@@ -230,7 +230,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         const data = await getPaymentPackages();
         setPackages(data.packages);
         if (data.creditsPerYuan) setCreditsPerYuan(data.creditsPerYuan);
-        setMembershipDiscountApplied(data.membershipDiscountApplied === true);
+        setRechargeBonusEligible(data.rechargeBonusEligible === true);
         if (data.packages.length > 0) {
           setSelectedPackage(0);
         }
@@ -603,6 +603,28 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         >
         {/* 左侧：套餐选择 */}
         <div className={cn("min-w-0 pb-4 md:pb-6", isWhite ? "w-full shrink-0 xl:flex-1 xl:min-w-0" : "flex-1")}>
+          <div
+            className={cn(
+              "mb-3 rounded-xl border px-3 py-2.5 text-sm",
+              rechargeBonusEligible
+                ? isWhite
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-emerald-500/25 bg-emerald-500/10 text-emerald-200"
+                : isWhite
+                  ? "border-slate-200 bg-slate-50 text-slate-600"
+                  : "border-zinc-700 bg-zinc-900/60 text-zinc-300",
+            )}
+          >
+            {rechargeBonusEligible
+              ? lt(
+                  "当前享受充值到账 120%：价格不变，额外 20% 为不衰减、不过期的永久赠送积分。",
+                  "You receive 120% credits at the same price; the extra 20% never decays or expires.",
+                )
+              : lt(
+                  "当前按原价到账 100%；最高档年卡会员及已配置该权益的白名单用户可到账 120%。",
+                  "You currently receive 100%; top annual members and eligible whitelist users receive 120%.",
+                )}
+          </div>
           {/* 套餐网格 */}
           <div className="mb-3 grid grid-cols-3 gap-3">
             {packages.map((pkg, index) => {
@@ -625,14 +647,19 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                 >
                   <div className="flex flex-wrap items-baseline gap-2">
                     <div className={cn("text-2xl font-semibold", isWhite ? "text-slate-800" : "text-zinc-100")}>¥{pkg.price}</div>
-                    {membershipDiscountApplied && typeof pkg.originalPrice === "number" && pkg.originalPrice > pkg.price ? (
-                      <div className={cn("text-xs line-through", isWhite ? "text-slate-400" : "text-zinc-600")}>¥{pkg.originalPrice}</div>
-                    ) : null}
                   </div>
                   <div className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                    {pkg.credits.toLocaleString()}
+                    {(pkg.totalCredits ?? pkg.credits).toLocaleString()}
                     <span className="text-xs">{lt("积分", "credits")}</span>
                   </div>
+                  {typeof pkg.bonusCredits === "number" && pkg.bonusCredits > 0 ? (
+                    <div className={cn("mt-1 text-xs", isWhite ? "text-emerald-600" : "text-emerald-300")}>
+                      {lt(
+                        `含 ${pkg.bonusCredits.toLocaleString()} 永久赠送积分`,
+                        `Includes ${pkg.bonusCredits.toLocaleString()} permanent bonus credits`,
+                      )}
+                    </div>
+                  ) : null}
                   {(localizedTag || localizedBonus) && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {localizedTag && (

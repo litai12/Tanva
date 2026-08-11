@@ -37,10 +37,16 @@
 
 ## 2026-04-19 Recharge policy simplification
 - `GET /api/payment/packages` returns fixed recharge tiers for all users (no VIP first-top-up x2 logic).
-- Current base tiers: `25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`.
+- Current base tiers: `25=2500`, `50=5000`, `100=10000`, `500=50000`, `1000=100000`, `5000=500000`; the former `200` tier is no longer sold.
 - Backend enforcement:
   - Recharge order credits are still recalculated server-side in `PaymentService.createOrder` from amount.
   - Client-provided `credits` does not control final recharge grant.
+
+## 2026-08-11 Qualified recharge 20% permanent bonus
+- 所有个人用户独立积分充值保持固定档位原价；最高档年卡 `8 折` 已移除。当前价格档位为 `25 / 50 / 100 / 500 / 1000 / 5000` 元，原 `200` 元档下架，基础兑换仍为 `1 元 = 100 积分`。普通用户总到账依次为 `2500 / 5000 / 10000 / 50000 / 100000 / 500000`；有效最高档年卡会员及白名单中开启“充值到账 120%”的用户总到账为 `3000 / 6000 / 12000 / 60000 / 120000 / 600000`。
+- 新订单在 `PaymentOrder.metadata` 固化 bonus policy version、资格来源、基础积分、赠送积分和总积分；`PaymentOrder.credits` 记录总到账积分。付款后的资格变化不得改变既有订单到账，历史订单没有该快照时保持原订单积分语义，不追溯加赠。
+- 支付成功后基础积分创建 `sourceType=recharge` 批次；20% 赠送部分单独创建 `sourceType=gift + validityType=permanent + expiresAt=null` 批次，不参与每日衰减、到期清理或会员到期回收。两批次和两条 EARN 流水位于同一事务，回调/查询/补单以条件更新原子抢占 PAID 状态，避免并发重复赠送。
+- 原水印白名单现为统一白名单，权益可分别开启“去水印 / 最高档年卡权益 / 充值到账 120%”。最高档年卡权益通过有效套餐解析提供功能能力，但不创建 `UserMembershipSubscription`，因此不会进入首期、月度刷新或年付分期积分发放任务。
 
 ## 作用
 - 维护用户积分余额、交易流水、API 使用记录与服务定价。
@@ -181,7 +187,7 @@
   - 套餐覆盖式升级以用户开通时 `UserMembershipSubscription.snapshot` / `PaymentOrder.planSnapshot` 的价格快照为准，而不是当前后台套餐价格。目标档位更高（或同档月费转年费）时，旧套餐剩余时间价值抵扣新套餐；旧套餐已发放积分保留、未来未发放额度停止。
   - 用户有生效会员时，只能购买严格更高档位的套餐；同档续费和所有低档套餐订单均由服务端拒绝。订阅到期后不再存在活跃订阅，用户可按新购逻辑选择套餐。
   - 年费套餐必须在 `MembershipPlan.metadata` 显式配置 `creditIssuanceMode: "yearly_monthly_installments"` 才按 12 期发放；推荐同时写入 `priceVersion` 用于运营审计。未配置该模式的历史年费视为“一次性到账”版本：保留既有余额和发放行为，但升级时不计算剩余价值抵扣，避免已完整领取全年积分后重复享受折抵。
-  - 独立积分充值的 `8 折` 权益仅限当前可售年卡中层级最高的生效订阅。`PaymentService` 使用与前端套餐卡一致的 `tierRank -> sortOrder -> 额度 -> 价格` 层级口径，同时用于充值报价和创建订单金额校验；月卡、其他年卡、过期或历史已下架套餐均不享该折扣。
+  - 独立积分充值不再按会员身份打折；所有用户按固定原价购买基础积分，普通用户到账 `100%`，仅有效最高档年卡与开启对应白名单权益的用户到账 `120%`。订单金额只按基础积分和 `1:100` 校验，资格与赠送积分由服务端订单快照确定，客户端不能控制。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.issueFreeUserStarterQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`，其中刷新周期仅作为一次性额度有效期窗口使用，不再触发月度续发。
 - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。

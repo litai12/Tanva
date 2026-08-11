@@ -78,6 +78,7 @@ type AdminPermission =
   | 'teams:credits:add'
   | 'teams:credits:deduct'
   | 'teams:delete'
+  | 'whitelist:manage'
   | 'watermark-whitelist:manage';
 
 const FULL_ADMIN_ROLE = 'admin';
@@ -96,6 +97,7 @@ const NORMAL_ADMIN_DENIED_PERMISSIONS = new Set<AdminPermission>([
   'teams:credits:add',
   'teams:credits:deduct',
   'teams:delete',
+  'whitelist:manage',
   'watermark-whitelist:manage',
 ]);
 
@@ -702,6 +704,48 @@ export class AdminController {
   }
 
   // ==================== 水印白名单管理 ====================
+
+  @Get('whitelist')
+  @ApiOperation({ summary: '获取统一白名单及已配置权益' })
+  async getWhitelist(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { page?: string; pageSize?: string; search?: string },
+  ) {
+    this.checkAdmin(req, 'whitelist:manage');
+    return this.adminService.getWhitelist({
+      page: query.page ? parseInt(query.page) : 1,
+      pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
+      search: query.search,
+    });
+  }
+
+  @Post('whitelist/:userId')
+  @ApiOperation({ summary: '添加或更新白名单用户权益' })
+  async upsertWhitelistUser(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body()
+    body: {
+      noWatermark?: boolean;
+      vipEntitlementWhitelist?: boolean;
+      vipRechargeBonusEnabled?: boolean;
+    },
+  ) {
+    this.checkAdmin(req, 'whitelist:manage');
+    return this.adminService.upsertWhitelistUser(userId, body);
+  }
+
+  @Delete('whitelist/:userId')
+  @ApiOperation({ summary: '移除白名单用户并清除全部白名单权益' })
+  async removeWhitelistUser(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req, 'whitelist:manage');
+    return this.adminService.removeWhitelistUser(userId);
+  }
+
+  // 旧水印白名单接口保留兼容；新管理后台统一使用 /admin/whitelist。
 
   @Get('watermark-whitelist')
   @ApiOperation({ summary: '获取水印白名单用户列表' })
