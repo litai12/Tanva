@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
-import { Loader2, Eye, EyeOff, Check, MessageCircle, RefreshCw } from "lucide-react";
+import { Loader2, Eye, EyeOff, Check, RefreshCw } from "lucide-react";
 import { authApi, type WechatOfficialLoginSession } from "@/services/authApi";
 import { validateInviteCode } from "@/services/referralApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
@@ -29,7 +29,9 @@ export default function LoginPage() {
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
   const [wechatBinding, setWechatBinding] = useState(false);
+  const [wechatRefreshCooldown, setWechatRefreshCooldown] = useState(0);
   const wechatConsumingRef = useRef(false);
+  const wechatLoadingRef = useRef(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login, loginWithSms, error, user, setAuthenticatedUser } = useAuthStore();
@@ -231,8 +233,11 @@ export default function LoginPage() {
     }
   };
 
-  const loadWechatSession = async () => {
+  const loadWechatSession = useCallback(async () => {
+    if (wechatLoadingRef.current) return;
+    wechatLoadingRef.current = true;
     setWechatLoading(true);
+    setWechatRefreshCooldown(5);
     setWechatError(null);
     try {
       const session = await authApi.createWechatOfficialSession("/app");
@@ -240,14 +245,37 @@ export default function LoginPage() {
     } catch (err: any) {
       setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
     } finally {
+      wechatLoadingRef.current = false;
       setWechatLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
-    if (tab !== "wechat" || wechatSession || wechatLoading || wechatConsuming) return;
+    if (
+      tab !== "wechat" ||
+      wechatSession ||
+      wechatLoading ||
+      wechatConsuming ||
+      wechatError
+    ) return;
     void loadWechatSession();
-  }, [tab, wechatSession, wechatLoading, wechatConsuming]);
+  }, [
+    loadWechatSession,
+    tab,
+    wechatConsuming,
+    wechatError,
+    wechatLoading,
+    wechatSession,
+  ]);
+
+  useEffect(() => {
+    if (wechatRefreshCooldown <= 0) return;
+    const timer = window.setInterval(
+      () => setWechatRefreshCooldown((seconds) => Math.max(0, seconds - 1)),
+      1000
+    );
+    return () => window.clearInterval(timer);
+  }, [wechatRefreshCooldown]);
 
   // 发送验证码的冷却（秒）
   const [sendCooldown, setSendCooldown] = useState(0);
@@ -327,12 +355,12 @@ export default function LoginPage() {
 	                      type='button'
 	                      className='group relative rounded-2xl bg-white p-2 shadow-xl sm:p-3'
 	                      onClick={() => {
-	                        setWechatSession(null);
 	                        setWechatConsuming(false);
+	                        setWechatError(null);
 	                        wechatConsumingRef.current = false;
 	                        void loadWechatSession();
 	                      }}
-	                      disabled={wechatLoading}
+	                      disabled={wechatLoading || wechatRefreshCooldown > 0}
 	                    >
 	                      {wechatSession?.qrCodeUrl ? (
 	                        <img
@@ -345,9 +373,14 @@ export default function LoginPage() {
 	                          {wechatLoading ? t("auth.login.wechatLoading") : t("auth.login.wechatUnavailable")}
 	                        </div>
 	                      )}
-	                      <div className='absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100'>
+	                      <div className={`absolute inset-3 flex items-center justify-center rounded-xl transition-all duration-200 ${wechatLoading ? 'bg-black/40 opacity-100' : wechatRefreshCooldown > 0 ? 'pointer-events-none bg-black/0 opacity-0' : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:opacity-100'}`}>
 	                        <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
 	                      </div>
+	                      {wechatRefreshCooldown > 0 && !wechatLoading ? (
+	                        <span className='absolute right-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-xs font-semibold text-white shadow-sm'>
+	                          {wechatRefreshCooldown}s
+	                        </span>
+	                      ) : null}
 	                    </button>
 	                  ) : null}
                   <p className='mt-4 text-sm text-white/90'>

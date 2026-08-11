@@ -39,3 +39,6 @@
 - 扫码会话状态接口会返回 `displayName`：优先取已关联账号的真实 `user.name`，其后才回退到微信昵称；绑定微信身份时不会再用微信昵称/占位名覆盖已有账号名称。
 - 当前只实现微信公众平台 `明文模式` 回调；后台配置时不要启用仅加密模式，否则需要额外 AES 解密链路。
 - 公众号全局 token 现通过微信推荐的 `cgi-bin/stable_token` 获取，并在生成二维码遇到 `access_token is invalid or not latest` 时自动强制刷新后重试一次，降低多实例/第三方系统并发刷新导致的失效问题。
+- 创建公众号登录二维码按匿名浏览器 visitor ID 限制为每 5 秒最多一次；旧客户端没有 visitor ID 时回退到真实 IP + User-Agent。生产配置 `REDIS_URL` 后通过 `SET NX PX` 跨实例原子生效，Redis 不可用时退化为进程内锁，超限返回 HTTP 429 与 `retryAfterMs`。
+- 同一进程内并发获取公众号 access token 会复用同一个 in-flight 请求，避免缓存未命中时并发打穿微信 `stable_token` 接口。前端创建失败后必须停在错误态，只有用户主动刷新才可重试。
+- 微信返回 `invalid ip ... not in whitelist` 表示 Tanva 服务端出口 IP 未加入微信公众号后台的 IP 白名单；应用限流只能阻止请求风暴，不能替代公众号后台白名单配置。

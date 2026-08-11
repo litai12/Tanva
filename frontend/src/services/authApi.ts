@@ -37,6 +37,25 @@ export type WechatOfficialLoginSession = {
   avatarUrl?: string | null;
 };
 
+const WECHAT_LOGIN_CLIENT_ID_KEY = "tanva_wechat_login_client_id";
+let wechatSessionRequest: Promise<WechatOfficialLoginSession> | null = null;
+
+function getWechatLoginClientId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(WECHAT_LOGIN_CLIENT_ID_KEY);
+    if (stored && /^[a-zA-Z0-9_-]{16,128}$/.test(stored)) return stored;
+
+    const next = window.crypto?.randomUUID?.();
+    if (!next) return null;
+    window.localStorage.setItem(WECHAT_LOGIN_CLIENT_ID_KEY, next);
+    return next;
+  } catch {
+    // localStorage 不可用时不发送易变化的临时 ID，由后端回退到 IP + User-Agent。
+    return null;
+  }
+}
+
 const isMock = import.meta.env.VITE_AUTH_MODE === "mock";
 
 // 后端基础地址，统一从 .env 中读取：
@@ -197,15 +216,32 @@ export const authApi = {
         returnTo,
       };
     }
-    const res = await fetchWithAuth(`${base}/api/auth/wechat-official/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ returnTo }),
-      credentials: "include",
-      auth: "omit",
-      allowRefresh: false,
-    });
-    return json<WechatOfficialLoginSession>(res);
+    if (wechatSessionRequest) return wechatSessionRequest;
+
+    const clientId = getWechatLoginClientId();
+    const request = (async () => {
+      const res = await fetchWithAuth(`${base}/api/auth/wechat-official/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(clientId ? { "X-Wechat-Login-Client-Id": clientId } : {}),
+        },
+        body: JSON.stringify({ returnTo }),
+        credentials: "include",
+        auth: "omit",
+        allowRefresh: false,
+      });
+      return json<WechatOfficialLoginSession>(res);
+    })();
+
+    wechatSessionRequest = request;
+    try {
+      return await request;
+    } finally {
+      if (wechatSessionRequest === request) {
+        wechatSessionRequest = null;
+      }
+    }
   },
 
   async getWechatOfficialSessionStatus(sessionId: string) {

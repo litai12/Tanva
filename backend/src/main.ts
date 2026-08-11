@@ -261,6 +261,7 @@ async function bootstrap() {
       "x-idempotency-key",
       "x-request-id",
       "x-banana-image-route",
+      "x-wechat-login-client-id",
     ],
     exposedHeaders: ["x-trace-id"],
   });

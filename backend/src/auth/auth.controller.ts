@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './guards/jwt.guard';
 import { RefreshAuthGuard } from './guards/refresh.guard';
 import { SmsService } from './sms.service';
 import { UsersService } from '../users/users.service';
+import { WechatLoginSessionRateLimitService } from './wechat-login-session-rate-limit.service';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -17,6 +18,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly sms: SmsService,
     private readonly usersService: UsersService,
+    private readonly wechatLoginSessionRateLimit: WechatLoginSessionRateLimitService,
   ) {}
 
   @Post('register')
@@ -84,7 +86,15 @@ export class AuthController {
 
   @Post('wechat-official/sessions')
   @HttpCode(HttpStatus.OK)
-  async createWechatOfficialSession(@Body() body: { returnTo?: string }) {
+  async createWechatOfficialSession(
+    @Body() body: { returnTo?: string },
+    @Req() req: any,
+  ) {
+    await this.wechatLoginSessionRateLimit.assertAllowed({
+      clientId: req.headers?.['x-wechat-login-client-id'],
+      ip: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
     return this.auth.createWechatOfficialLoginSession(body?.returnTo);
   }
 

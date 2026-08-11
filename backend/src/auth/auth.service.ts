@@ -124,6 +124,7 @@ export class AuthService {
   private wechatOfficialAccessTokenCache:
     | { token: string; expiresAt: number }
     | null = null;
+  private wechatOfficialAccessTokenRequest: Promise<string> | null = null;
 
   constructor(
     private readonly usersService: UsersService,
@@ -546,31 +547,48 @@ export class AuthService {
       return this.wechatOfficialAccessTokenCache.token;
     }
 
-    const res = await fetch("https://api.weixin.qq.com/cgi-bin/stable_token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "client_credential",
-        appid: config.appId,
-        secret: config.appSecret,
-        force_refresh: forceRefresh,
-      } satisfies WechatOfficialStableAccessTokenRequest),
-    });
-    const data = (await res.json().catch(() => null)) as
-      | WechatOfficialAccessTokenResponse
-      | null;
-
-    if (!res.ok || !data?.access_token) {
-      const msg = data?.errmsg || `HTTP ${res.status}`;
-      throw new BadRequestException(`微信公众号 access_token 获取失败: ${msg}`);
+    if (this.wechatOfficialAccessTokenRequest) {
+      return this.wechatOfficialAccessTokenRequest;
     }
 
-    this.wechatOfficialAccessTokenCache = {
-      token: data.access_token,
-      expiresAt: now + Math.max((data.expires_in || 7200) - 300, 300) * 1000,
-    };
+    const request = (async () => {
+      const requestedAt = Date.now();
+      const res = await fetch("https://api.weixin.qq.com/cgi-bin/stable_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "client_credential",
+          appid: config.appId,
+          secret: config.appSecret,
+          force_refresh: forceRefresh,
+        } satisfies WechatOfficialStableAccessTokenRequest),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | WechatOfficialAccessTokenResponse
+        | null;
 
-    return data.access_token;
+      if (!res.ok || !data?.access_token) {
+        const msg = data?.errmsg || `HTTP ${res.status}`;
+        throw new BadRequestException(`微信公众号 access_token 获取失败: ${msg}`);
+      }
+
+      this.wechatOfficialAccessTokenCache = {
+        token: data.access_token,
+        expiresAt:
+          requestedAt + Math.max((data.expires_in || 7200) - 300, 300) * 1000,
+      };
+
+      return data.access_token;
+    })();
+
+    this.wechatOfficialAccessTokenRequest = request;
+    try {
+      return await request;
+    } finally {
+      if (this.wechatOfficialAccessTokenRequest === request) {
+        this.wechatOfficialAccessTokenRequest = null;
+      }
+    }
   }
 
   private shouldRefreshWechatOfficialAccessToken(

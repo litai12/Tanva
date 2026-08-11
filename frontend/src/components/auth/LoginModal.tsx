@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
-import { Check, Eye, EyeOff, Loader2, MessageCircle, RefreshCw, X } from 'lucide-react';
+import { Check, Eye, EyeOff, Loader2, RefreshCw, X } from 'lucide-react';
 import { authApi, type WechatOfficialLoginSession } from '@/services/authApi';
 import { validateInviteCode } from '@/services/referralApi';
 import { useTranslation } from 'react-i18next';
@@ -34,7 +34,9 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
   const [wechatBinding, setWechatBinding] = useState(false);
+  const [wechatRefreshCooldown, setWechatRefreshCooldown] = useState(0);
   const wechatConsumingRef = useRef(false);
+  const wechatLoadingRef = useRef(false);
 
   const { login, loginWithSms, error: authError, setAuthenticatedUser } = useAuthStore();
 
@@ -81,10 +83,15 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     setWechatError(null);
     setWechatConsuming(false);
     setWechatBinding(false);
+    setWechatRefreshCooldown(0);
+    wechatLoadingRef.current = false;
   }, []);
 
   const loadWechatSession = useCallback(async () => {
+    if (wechatLoadingRef.current) return;
+    wechatLoadingRef.current = true;
     setWechatLoading(true);
+    setWechatRefreshCooldown(5);
     setWechatError(null);
     try {
       const session = await authApi.createWechatOfficialSession('/app');
@@ -92,6 +99,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     } catch (err: any) {
       setWechatError(err?.message || t('auth.login.wechatLoadFailed'));
     } finally {
+      wechatLoadingRef.current = false;
       setWechatLoading(false);
     }
   }, [t]);
@@ -257,6 +265,15 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     return () => clearInterval(timer);
   }, [sendCooldown]);
 
+  useEffect(() => {
+    if (wechatRefreshCooldown <= 0) return;
+    const timer = window.setInterval(
+      () => setWechatRefreshCooldown((seconds) => Math.max(0, seconds - 1)),
+      1000
+    );
+    return () => window.clearInterval(timer);
+  }, [wechatRefreshCooldown]);
+
   if (!isOpen) return null;
 
   const displayError = localError || authError;
@@ -347,13 +364,12 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   type="button"
                   className="group relative rounded-2xl bg-white p-3 shadow-sm"
                   onClick={() => {
-                    setWechatSession(null);
                     setWechatConsuming(false);
                     setWechatError(null);
                     wechatConsumingRef.current = false;
                     void loadWechatSession();
                   }}
-                  disabled={wechatLoading}
+                  disabled={wechatLoading || wechatRefreshCooldown > 0}
                 >
                   {wechatSession?.qrCodeUrl ? (
                     <img
@@ -366,9 +382,14 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                       {wechatLoading ? t('auth.login.wechatLoading') : t('auth.login.wechatUnavailable')}
                     </div>
                   )}
-                  <div className="absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100">
+                  <div className={`absolute inset-3 flex items-center justify-center rounded-xl transition-all duration-200 ${wechatLoading ? 'bg-black/40 opacity-100' : wechatRefreshCooldown > 0 ? 'pointer-events-none bg-black/0 opacity-0' : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:opacity-100'}`}>
                     <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
                   </div>
+                  {wechatRefreshCooldown > 0 && !wechatLoading ? (
+                    <span className="absolute right-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-xs font-semibold text-white shadow-sm">
+                      {wechatRefreshCooldown}s
+                    </span>
+                  ) : null}
                 </button>
                 <p className="mt-4 text-sm text-slate-700">
                   {wechatConsuming

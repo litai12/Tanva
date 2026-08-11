@@ -12,6 +12,7 @@ import { ReferralModule } from '../referral/referral.module';
 import { CreditsModule } from '../credits/credits.module';
 import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCoreModule } from '../team-core/team-core.module';
+import { WechatLoginSessionRateLimitService } from './wechat-login-session-rate-limit.service';
 
 @Module({
   imports: [
@@ -23,7 +24,14 @@ import { TeamCoreModule } from '../team-core/team-core.module';
     TelemetryModule,
     TeamCoreModule,
   ],
-  providers: [AuthService, SmsService, RegisterIpLimitService, JwtStrategy, RefreshJwtStrategy],
+  providers: [
+    AuthService,
+    SmsService,
+    RegisterIpLimitService,
+    WechatLoginSessionRateLimitService,
+    JwtStrategy,
+    RefreshJwtStrategy,
+  ],
   controllers: [AuthController],
   exports: [AuthService],
 })

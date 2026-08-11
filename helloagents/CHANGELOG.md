@@ -1098,3 +1098,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Seedance 2.5：单个参考视频新增“视频编辑 / 视频延长 / 多模态参考”模式；视频编辑自动跟随输入视频时长，并在直连 Ark 与 managed/new-api 路径强制提交 `ratio=adaptive`、`duration=-1`。
 - Backend/Seedance：视频编辑的 `duration=-1` 不再进入普通 4–30 秒计费校验；参考视频探测后按真实输入时长生成正数计费上下文，同时保持上游请求的 `duration=-1`。
 - new-api/Doubao：保留 `/v1/videos` 的 `provider_options.videoMode`，并在 Seedance 2.5 视频编辑模式显式透传 Ark 所需的 `duration=-1`，修复兼容层把该字段静默丢弃导致上游判定参数缺失。
+
+## 2026-08-11 — 微信公众号登录二维码刷新防风暴
+
+### Fixed
+
+- 独立登录页在微信公众号 access token/二维码创建失败后停止自动重试，修复错误态触发 effect 立即重入造成的二维码请求死循环。
+- 登录页与登录弹窗的二维码刷新增加 5 秒可见冷却；请求期间和冷却期间禁止重复点击，刷新时保留当前二维码直到新会话创建成功。
+- 二维码创建接口按匿名浏览器 visitor ID（旧客户端回退真实 IP + User-Agent）实施 5 秒服务端限流；Redis 可用时跨实例原子生效，绕过前端的重复请求返回 HTTP 429。
+- 同一进程并发获取微信公众号 access token 时复用 in-flight 请求，避免微信缓存未命中时并发穿透。

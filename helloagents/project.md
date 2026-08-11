@@ -101,6 +101,7 @@
 ### 环境变量与敏感信息
 - 后端使用 `.env`（见 `backend/src/app.module.ts` 的 `envFilePath` 配置：优先 `backend/.env`，其次 `../.env`）
 - 不要提交密钥/凭据（`.gitignore` 已包含 `backend/.env` 等）
+- 微信公众号扫码登录二维码创建按匿名浏览器限制为 5 秒一次；前端失败后不自动重试，后端优先使用 Redis 做跨实例原子限流并合并进程内 access token 并发请求。微信 `invalid ip ... not in whitelist` 仍需把实际服务端出口 IP 加入公众号后台白名单。
 
 ### 支付与补单
 - 微信、支付宝和本地支付订单统一使用 30 分钟有效期；前端倒计时以接口返回的 `expiredAt` 为准，过期后不得继续展示旧二维码。

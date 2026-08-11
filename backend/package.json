@@ -22,6 +22,7 @@
     "verify:async-3d": "ts-node --transpile-only scripts/verify-async-3d.ts",
     "verify:volc-asset-errors": "ts-node --transpile-only scripts/verify-volc-asset-errors.ts",
     "verify:volc-task-assets": "ts-node --transpile-only scripts/verify-volc-task-assets.ts",
+    "verify:wechat-login-rate-limit": "ts-node --transpile-only scripts/verify-wechat-login-rate-limit.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
     "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
   },

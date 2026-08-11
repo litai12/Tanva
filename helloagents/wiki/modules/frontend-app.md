@@ -49,6 +49,7 @@
 ## 路由约定（节选）
 - 公开：`/`、`/auth/login`、`/auth/register`、`/oss`
 - 登录页新增观猹 OAuth 入口（位于登录按钮下方），点击后跳转后端 `/api/auth/watcha/authorize`，由后端回调 `/api/auth/watcha/callback` 完成登录与回跳。
+- 微信公众号登录二维码创建失败后保持错误态，不再由 effect 自动重试；登录页和登录弹窗均只允许用户主动刷新，每次尝试后显示 5 秒倒计时并禁止重复点击。前端以 localStorage 中的随机 visitor ID 配合后端执行匿名用户限流，同一页面内并发创建请求会复用一个 in-flight Promise。
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
 - 登录页与注册页已补充移动端适配：小屏下认证卡片改为顶部对齐并允许纵向滚动，标签切换改为三列紧凑布局，验证码输入区改为纵向堆叠，协议文案允许多行左对齐，避免窄屏遮挡与横向溢出（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
 
