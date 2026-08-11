@@ -18,6 +18,14 @@ assert.deepEqual(calculateSeedance20BillingDuration(5, [5]), {
   billingDurationSec: 10,
 });
 
+// Seedance 2.5 editing sends duration=-1 upstream, but its actual 10-second
+// output follows the 10-second input and must be billed as 10 + 10 seconds.
+assert.deepEqual(calculateSeedance20BillingDuration(10, [10]), {
+  outputDurationSec: 10,
+  inputVideoDurationSec: 10,
+  billingDurationSec: 20,
+});
+
 assert.deepEqual(calculateSeedance20BillingDuration(4, [2.345, 3.456]), {
   outputDurationSec: 4,
   inputVideoDurationSec: 5.801,

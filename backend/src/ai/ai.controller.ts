@@ -1605,13 +1605,17 @@ export class AiController {
         if (!Number.isFinite(inputVideoDurationSec) || inputVideoDurationSec <= 0) {
           throw new BadRequestException('Seedance 视频编辑计费需要可识别的参考视频时长');
         }
-        // -1 is the Ark protocol value for editing and must never enter pricing.
-        // Editing follows the input video, so charge the processed input duration once.
-        params.outputDurationSec = inputVideoDurationSec;
-        params.inputVideoDurationSec = inputVideoDurationSec;
-        params.billingDurationSec = inputVideoDurationSec;
-        params.duration = inputVideoDurationSec;
-        params.durationSec = inputVideoDurationSec;
+        // -1 is only the Ark protocol value. Editing output follows the input length,
+        // while billing remains input processed duration + actual output duration.
+        const billing = calculateSeedance20BillingDuration(
+          inputVideoDurationSec,
+          inputVideoDurationsSec,
+        );
+        params.outputDurationSec = billing.outputDurationSec;
+        params.inputVideoDurationSec = billing.inputVideoDurationSec;
+        params.billingDurationSec = billing.billingDurationSec;
+        params.duration = billing.billingDurationSec;
+        params.durationSec = billing.billingDurationSec;
         return params;
       }
 

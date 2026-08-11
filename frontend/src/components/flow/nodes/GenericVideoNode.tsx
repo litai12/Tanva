@@ -32,7 +32,10 @@ import {
   type ViduModelValue,
 } from "@/services/videoProviderParams";
 import { getHailuoModelCatalog, type HailuoModelCatalog } from "@/services/videoProviderAPI";
-import { resolveSeedance25OmniReferenceTaskType } from "@/services/seedance25TaskType";
+import {
+  resolveSeedance25OmniReferenceTaskType,
+  resolveSeedanceBillingDurations,
+} from "@/services/seedance25TaskType";
 import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
@@ -1063,20 +1066,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     context.duration = duration;
     context.durationSec = duration;
     if (isSeedance20Model) {
-      const isSeedance25Editing = seedance25OmniReferenceTaskType === "edit";
-      const editingDurationSec =
-        inputVideoDurationSec > 0 ? inputVideoDurationSec : duration;
-      const billingDurationSec = Number(
-        (isSeedance25Editing
-          ? editingDurationSec
-          : duration + inputVideoDurationSec
-        ).toFixed(3)
-      );
-      context.outputDurationSec = isSeedance25Editing ? editingDurationSec : duration;
-      context.inputVideoDurationSec = inputVideoDurationSec;
-      context.billingDurationSec = billingDurationSec;
-      context.duration = billingDurationSec;
-      context.durationSec = billingDurationSec;
+      const billing = resolveSeedanceBillingDurations({
+        taskType: seedance25OmniReferenceTaskType,
+        requestedOutputDurationSec: duration,
+        inputVideoDurationSec,
+      });
+      context.outputDurationSec = billing.outputDurationSec;
+      context.inputVideoDurationSec = billing.inputVideoDurationSec;
+      context.billingDurationSec = billing.billingDurationSec;
+      context.duration = billing.billingDurationSec;
+      context.durationSec = billing.billingDurationSec;
     }
 
     if (typeof data.resolution === "string" && data.resolution.trim()) {
@@ -1208,8 +1207,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
       seed2InputTier: (data as any).seed2InputTier,
-      // duration/durationSec 由 pricingContext 提供；Seedance 2.5 编辑任务按输入视频
-      // 时长计费，其他 Seedance 2.x 参考视频任务使用输入总时长 + 输出时长。
+      // duration/durationSec 由 pricingContext 提供；所有 Seedance 2.x 参考视频任务
+      // 都按输入视频总时长 + 实际输出视频时长计费。编辑的实际输出时长跟随输入视频。
       resolution:
         typeof data.resolution === "string" && data.resolution.trim()
           ? data.resolution.trim().toUpperCase()

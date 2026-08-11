@@ -20,7 +20,7 @@
 2. 编辑模式固定 `ratio=adaptive,duration=-1`，输入视频限定 4–30 秒；延长固定 `ratio=adaptive` 并保留 4–30 秒输出时长；参考模式沿用合法比例和时长。
 3. `VideoProviderRequestDto` 增加受枚举约束的 `omniReferenceTaskType`，Controller 在计费前推导、检查冲突与素材限制。
 4. new-api `TaskSubmitReq` 与 Ark Doubao adapter 增加强类型字段和同级校验；直连 Ark 与数据库驱动的 V2 request profile 同步透传。
-5. 编辑任务的前端价格预览按参考视频时长一次计费，与后端实际预扣保持一致。
+5. 编辑任务的 Ark `duration=-1` 不参与计费；前端与后端都将实际输出时长还原为输入视频时长，再按“输入视频时长 + 输出视频时长”求和，保持价格预览与实际预扣一致。
 
 ## 验收标准
 

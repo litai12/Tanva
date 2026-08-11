@@ -44,3 +44,34 @@ export const resolveSeedance25OmniReferenceTaskType = (input: {
   }
   return undefined;
 };
+
+export const resolveSeedanceBillingDurations = (input: {
+  taskType?: Seedance25OmniReferenceTaskType;
+  requestedOutputDurationSec: number;
+  inputVideoDurationSec: number;
+}): {
+  outputDurationSec: number;
+  inputVideoDurationSec: number;
+  billingDurationSec: number;
+} => {
+  const requestedOutputDurationSec =
+    Number.isFinite(input.requestedOutputDurationSec) && input.requestedOutputDurationSec > 0
+      ? input.requestedOutputDurationSec
+      : 0;
+  const inputVideoDurationSec =
+    Number.isFinite(input.inputVideoDurationSec) && input.inputVideoDurationSec > 0
+      ? input.inputVideoDurationSec
+      : 0;
+  // Ark uses duration=-1 for editing, but pricing must use the real output length.
+  // Editing output follows the input video, then both processed durations are charged.
+  const outputDurationSec =
+    input.taskType === "edit" && inputVideoDurationSec > 0
+      ? inputVideoDurationSec
+      : requestedOutputDurationSec;
+
+  return {
+    outputDurationSec: Number(outputDurationSec.toFixed(3)),
+    inputVideoDurationSec: Number(inputVideoDurationSec.toFixed(3)),
+    billingDurationSec: Number((outputDurationSec + inputVideoDurationSec).toFixed(3)),
+  };
+};

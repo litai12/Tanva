@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSeedance25OmniReferenceTaskType } from "./seedance25TaskType.ts";
+import {
+  resolveSeedance25OmniReferenceTaskType,
+  resolveSeedanceBillingDurations,
+} from "./seedance25TaskType.ts";
 
 test("maps Seedance 2.5 explicit video modes to Ark task type hints", () => {
   assert.equal(
@@ -55,5 +58,32 @@ test("does not add Seedance 2.5 task hints to other model versions", () => {
       referenceImageCount: 1,
     }),
     undefined,
+  );
+});
+
+test("prices Seedance editing and extension as input duration plus output duration", () => {
+  assert.deepEqual(
+    resolveSeedanceBillingDurations({
+      taskType: "edit",
+      requestedOutputDurationSec: 5,
+      inputVideoDurationSec: 10,
+    }),
+    {
+      outputDurationSec: 10,
+      inputVideoDurationSec: 10,
+      billingDurationSec: 20,
+    },
+  );
+  assert.deepEqual(
+    resolveSeedanceBillingDurations({
+      taskType: "extend",
+      requestedOutputDurationSec: 8,
+      inputVideoDurationSec: 10,
+    }),
+    {
+      outputDurationSec: 8,
+      inputVideoDurationSec: 10,
+      billingDurationSec: 18,
+    },
   );
 });

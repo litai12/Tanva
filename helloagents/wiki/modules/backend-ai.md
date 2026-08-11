@@ -13,7 +13,7 @@
 
 ## 2026-07-31 Seedance 2.5
 - Seedance 2.5 单视频输入新增三种显式 Flow 模式：`video_editing`（视频编辑）、`video_extend`（视频延长）与 `video_reference`（多模态参考）；三者都限制为单条参考视频，避免“全能参考”同时携带 `video_url` 与普通生成时长/比例造成 Ark 自动切入编辑校验。编辑模式在前端探测到输入视频时把节点时长同步为参考视频时长，后端及 managed/new-api 路由最终强制向 Ark 发送 `ratio=adaptive`、`duration=-1`。
-- 视频编辑的 `duration=-1` 仅是 Ark 上游协议值，不进入积分计算；后端先探测参考视频真实时长，编辑任务按输入视频时长一次计费，并把正数计费上下文与上游 DTO 分离。
+- 视频编辑的 `duration=-1` 仅是 Ark 上游协议值，不进入积分计算；后端先探测参考视频真实时长，将跟随输入的实际输出时长还原为同等时长，再按 `billingDurationSec = inputVideoDurationSec + outputDurationSec` 计费。例如输入 10 秒、输出跟随为 10 秒，按 20 秒计费；正数计费上下文与上游 DTO 保持分离。
 - `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。
 - Seedance 2.5 全模态参考新增 `omniReferenceTaskType` DTO 字段，并在 Ark 请求中转换为 `omni_reference_task_type=reference|edit|extend|auto`。Controller 会从 `video_reference/video_editing/video_extend` 兼容推导，拒绝显式类型与具体模式冲突；`edit` 前置校验参考视频、4–30 秒输入、`adaptive/-1`，`extend` 前置校验参考视频和 `adaptive`。new-api 的统一 `TaskSubmitReq` 与 Doubao adapter 保留同一字段并重复校验，直连 Ark 与 V2 request profile 也使用相同参数。
 - 2.5 输出时长为 4–30 秒，继续复用 Seedance 2.x 的模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。Tanva 不再对 2.5 的提示词施加 5000 字符上限，原始文本与追加的 `@` 图片映射会完整透传至 Ark；上游自身的请求限制仍由其响应如实返回。
