@@ -58,6 +58,7 @@ import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
 import { lazyNodeComponent } from "./lazyNodeComponent";
+import { guardFlowNodeTypes } from "./FlowNodeErrorBoundary";
 // 重依赖节点按需加载:three全家桶/PPT模板数据不进主包
 const HtmlPptNode = lazyNodeComponent(() => import("./nodes/HtmlPptNode"));
 const ThreeNode = lazyNodeComponent(() => import("./nodes/ThreeNode"));
@@ -1068,7 +1069,7 @@ const FLOW_INTERACTIVE_TARGET_SELECTOR =
   ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
-const rawNodeTypes = {
+const rawNodeTypes = guardFlowNodeTypes({
   nodeGroup: NodeGroupNode,
   textPrompt: TextPromptNode,
   textPromptPro: TextPromptProNode,
@@ -1123,7 +1124,7 @@ const rawNodeTypes = {
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
   audioStudio: AudioStudioNode,
-};
+});
 
 // nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
 // "幽灵节点"——这些 type 不在注册表里，@xyflow/react 会回退成内置默认节点(一个空白小方框，
@@ -28025,7 +28026,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
     <FlowRenderModeProvider value={flowRenderModeValue}>
       <div
         ref={containerRef}
-        className={`tanva-flow-overlay absolute inset-0 ${
+        // 浏览器翻译/翻译扩展会包裹或替换 React 管理的文本节点；随后编辑提示词时，
+        // React 删除旧节点会因真实 DOM 已被篡改而抛出 removeChild/insertBefore 异常。
+        // Flow 自带中英文文案，禁止第三方翻译动态画布，不影响应用语言切换。
+        translate="no"
+        className={`notranslate tanva-flow-overlay absolute inset-0 ${
           isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
         } ${
           isPointerMode ? "pointer-mode" : ""
@@ -29422,7 +29427,11 @@ export default function FlowOverlay() {
     ? { pointerEvents: "auto" }
     : { pointerEvents: "none" };
   return (
-    <div style={{ position: "absolute", inset: 0, ...wrapperStyle }}>
+    <div
+      className="notranslate"
+      translate="no"
+      style={{ position: "absolute", inset: 0, ...wrapperStyle }}
+    >
       <ReactFlowProvider>
         <FlowInner />
       </ReactFlowProvider>

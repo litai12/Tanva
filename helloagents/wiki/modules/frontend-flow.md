@@ -1,3 +1,8 @@
+## 2026-08-11 浏览器翻译与节点错误隔离
+
+- `FlowOverlay` 根容器同时使用 `translate="no"` 和 `notranslate`，Prompt 的 `@` 候选 Portal 也沿用同一标记。Chrome 网页翻译或翻译扩展不得改写 React 管理的动态节点文本；界面语言仍由应用自己的 i18n 控制。
+- 所有 React Flow 自定义节点注册时由 `FlowNodeErrorBoundary` 包裹。单个节点发生渲染异常时只替换该节点并提供重试，同时上报节点 ID、节点类型和 component stack；不再让工作流级 `RuntimeErrorBoundary` 卸载整张画布。
+
 ## 2026-08-10 画布报价与实际执行参数对齐
 
 - GPT Image 2 Run 报价携带与执行相同的 `quality + imageSize + bananaImageRoute`；腾讯尊享路线的 `auto` 显示 low 档价格，4K 只改变输出分辨率，不再把执行版本提升为 high。

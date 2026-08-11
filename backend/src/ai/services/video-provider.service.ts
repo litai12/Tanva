@@ -393,10 +393,59 @@ export class VideoProviderService {
   }
 
   private isAllowedUpstreamHost(hostname: string): boolean {
+    const normalizedHostname = String(hostname || "").trim().toLowerCase();
+    if (!normalizedHostname) return false;
     const allowed = this.oss.allowedPublicHosts();
     return allowed.some(
-      (host) => hostname === host || hostname.endsWith("." + host)
+      (host) => {
+        const normalizedHost = String(host || "").trim().toLowerCase();
+        return Boolean(
+          normalizedHost &&
+            (normalizedHostname === normalizedHost ||
+              normalizedHostname.endsWith("." + normalizedHost)),
+        );
+      },
     );
+  }
+
+  private async fetchAllowedVideoSource(sourceUrl: string): Promise<Response> {
+    let currentUrl = sourceUrl;
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+      let parsed: URL;
+      try {
+        parsed = new URL(currentUrl);
+      } catch {
+        throw new BadRequestException("视频 URL 无效");
+      }
+
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new BadRequestException("视频 URL 协议不支持");
+      }
+      if (!this.isAllowedUpstreamHost(parsed.hostname)) {
+        this.logger.warn(`视频来源域名不在白名单: ${parsed.hostname}`);
+        throw new ServiceUnavailableException(
+          `视频来源域名未获准转存: ${parsed.hostname}`,
+        );
+      }
+
+      const response = await fetch(parsed.toString(), { redirect: "manual" });
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        return response;
+      }
+
+      const location = response.headers.get("location");
+      if (!location) {
+        throw new ServiceUnavailableException("视频来源返回了无地址的重定向");
+      }
+      try {
+        await response.body?.cancel();
+      } catch {
+        // 重定向响应体不参与视频转存，释放失败不影响下一跳校验。
+      }
+      currentUrl = new URL(location, parsed).toString();
+    }
+
+    throw new ServiceUnavailableException("视频来源重定向次数过多");
   }
 
   private extractManagedImageKey(input: string): string | null {
@@ -499,24 +548,10 @@ export class VideoProviderService {
     const cached = this.getCachedDoubaoVideoUrl(taskId);
     if (cached) return cached;
 
-    let parsed: URL;
-    try {
-      parsed = new URL(sourceUrl);
-    } catch {
-      throw new BadRequestException("视频 URL 无效");
-    }
-
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new BadRequestException("视频 URL 协议不支持");
-    }
-
-    if (!this.isAllowedUpstreamHost(parsed.hostname)) {
-      this.logger.warn(`视频来源域名不在白名单: ${parsed.hostname}`);
-      // 不抛出异常，直接返回原始 URL
-      return sourceUrl;
-    }
-
-    const response = await fetch(sourceUrl);
+    // 成片地址只允许由服务端从受控域名拉取；未知来源不能再原样返回给浏览器，
+    // 否则第三方缺失 CORS 时会让已成功的视频任务永久卡在“上传 OSS 失败”。
+    // 手动校验每一跳重定向，避免白名单源把请求重定向到内网或未知主机。
+    const response = await this.fetchAllowedVideoSource(sourceUrl);
     if (!response.ok) {
       throw new ServiceUnavailableException(
         `视频拉取失败: HTTP ${response.status}`

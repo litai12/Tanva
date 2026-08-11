@@ -43,6 +43,8 @@
 - AI 图片生成、编辑、融合及同步图像识别的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` / `image_url` 前最终校验。图像识别统一使用 Gemini/ToAPIs，包含小T大脑选择 `gpt-5.6-luna` 的场景；任何图片识别链路均不得下载图片或转换、透传 base64。视频理解是独立例外：设计数据仍只保存远程视频 URL；豆包 Seed 2.0 视频分析通过 new-api Responses `input_video.video_url` 直接传远程 URL，不下载或转码；Gemini 路径可在后端最后一跳将不超过 15MB 的视频临时编码为 `file.file_data=data:video/*;base64,...`，且不得写入 DB、OSS、Redis 或任务持久化字段，更大视频保留抽帧远程 URL 兜底。
 
 ### Flow / AI 运行约定
+- Flow 动态画布根节点及其挂到 `document.body` 的交互浮层必须同时标记 `translate="no"` 与 `notranslate`。浏览器网页翻译会包裹/替换 React 管理的文本节点，随后编辑 Prompt 可能触发 `removeChild` / `insertBefore` DOM 不一致；应用内中英文切换继续通过 i18n 完成。自定义 Flow 节点必须经过节点级错误边界注册，单节点渲染失败不得卸载整张工作流。
+- 异步视频查询成功后，第三方临时视频必须由后端按逐跳域名白名单下载并转存到 Tanva OSS，再把自有远程 URL 返回前端；不得把需要第三方 CORS 的原始 URL 交给浏览器下载。前端识别到已托管资产时直接复用，不重复下载上传。
 - 画布运行价以认证后的 `POST /api/credits/preview` 为唯一报价入口，并与实际预扣复用 `CreditsService.resolveEffectiveCreditsQuote`；前端静态值只允许作为报价返回前的短暂兜底，模型/线路/质量/分辨率/时长等参数必须与真实执行请求一致。Banana 的 `normal/apimart`、`stable/tencent`、`ultra/beqlee` 路线别名必须在报价与所有图片执行封装中做相同归一化，不得把极速路线静默降为普通路线。GPT Image 2 的 `quality` 与 `resolution` 是独立维度：腾讯尊享路线 `auto` 归一为 `low`，只由 `quality` 选择 `image2_low/medium/high`，`resolution` 只写入输出配置，不得提升质量档；尊享模式还需在基础质量/分辨率价格上按实际参考图数量追加 `10 积分/张（0.1 元/张）`，preview、同步预扣和异步预扣必须使用同一参考图数量。同步与异步生图入口都必须完整透传 `quality/background/moderation/outputFormat/outputCompression/maskUrl/officialFallback`。
 - Flow 节点挂载时的 `POST /api/credits/preview` 必须经过前端共享请求池：请求体完全相同的报价共用同一 in-flight Promise，并短时复用成功结果；不同报价执行全局并发上限，失败结果不得缓存。该优化只合并网络请求，不能改变后端作为唯一报价源或省略任何模型/线路/规格参数。
 - AI Chat 固定使用小T单轨入口，不再提供小T开关；preferences v5 会忽略历史关闭偏好并固定开启。旧能力必须作为小T宿主工具接入，不能以关闭小T回到旧链路。

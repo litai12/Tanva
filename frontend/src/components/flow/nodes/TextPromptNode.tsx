@@ -1990,7 +1990,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       )}
       {atMention && dropdownPos && createPortal(
         <div
-          className="nodrag nopan"
+          className="notranslate nodrag nopan"
+          translate="no"
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
           style={{
             position: 'fixed',

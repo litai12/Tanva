@@ -88,6 +88,7 @@ import {
   isPersistableImageRef,
   normalizeRemoteUrl,
   isLikelyBackendAllowedRemoteUrl,
+  isLikelyManagedAssetUrl,
   requiresManagedImageUpload,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
@@ -10690,8 +10691,12 @@ export async function uploadVideoToOSS(
     const trimmed = videoUrl.trim();
     if (!trimmed) return null;
 
-    // 如果已经是我们自己的 OSS URL，直接返回
-    if (trimmed.includes("aliyuncs.com") && !trimmed.includes("X-Amz")) {
+    // 后端任务查询已经负责把第三方临时地址转存为第一方远程资源。
+    // 第一方 TOS/OSS 地址直接复用，避免浏览器重复下载、重复上传以及再次触发 CORS。
+    if (
+      isLikelyManagedAssetUrl(trimmed) ||
+      (trimmed.includes("aliyuncs.com") && !trimmed.includes("X-Amz"))
+    ) {
       return trimmed;
     }
 

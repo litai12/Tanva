@@ -18,3 +18,4 @@
 
 ## 注意事项
 - `allowedPublicHosts()` 内置了部分常见 AI/静态资源域名白名单；是否需要更严格以产品要求为准。
+- new-api/Seedance 等异步视频查询返回第三方视频时，`VideoProviderService` 会逐跳校验下载地址及重定向目标；`files.toapis.com` 是已知允许的视频来源。校验通过后必须在服务端转存为 Tanva OSS URL，未知域名或跳转到未知域名时直接失败并记录来源，不得把第三方临时 URL 原样返回浏览器触发 CORS。

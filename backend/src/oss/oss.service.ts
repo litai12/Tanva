@@ -842,6 +842,9 @@ export class OssService {
       's3.cn-northwest-1.amazonaws.com.cn',
       'apimart.ai',
       'apib.ai', // APIMart 生成视频的 CDN 域名（如 upload.apib.ai），与 apimart.ai 不同，需单列
+      // new-api / ToAPIs 视频任务会返回 files.toapis.com 的临时成片地址。
+      // 该地址只由后端拉取并转存到 Tanva OSS，不能下放浏览器直连（缺少 CORS）。
+      'files.toapis.com',
       'kechuangai.com',
       'models.kapon.cloud',
       'volces.com',
