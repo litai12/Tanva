@@ -132,12 +132,13 @@ func TestConvertReferenceAudioUsesAssetURI(t *testing.T) {
 func TestConvertVideoEditingPreservesArkAutoDuration(t *testing.T) {
 	a := &TaskAdaptor{}
 	req := &relaycommon.TaskSubmitReq{
-		Model:           "doubao-seedance-2-5-260628",
-		Prompt:          "替换成写实风格",
-		Duration:        -1,
-		AspectRatio:     "adaptive",
-		ReferenceVideos: []string{"asset://video-1"},
-		ProviderOptions: map[string]interface{}{"videoMode": "video_editing"},
+		Model:                 "doubao-seedance-2-5-260628",
+		Prompt:                "替换成写实风格",
+		Duration:              -1,
+		AspectRatio:           "adaptive",
+		ReferenceVideos:       []string{"asset://video-1"},
+		OmniReferenceTaskType: "edit",
+		ProviderOptions:       map[string]interface{}{"videoMode": "video_editing"},
 	}
 
 	r, err := a.convertToRequestPayload(req)
@@ -149,6 +150,96 @@ func TestConvertVideoEditingPreservesArkAutoDuration(t *testing.T) {
 	}
 	if r.Ratio != "adaptive" {
 		t.Fatalf("ratio = %q, want adaptive", r.Ratio)
+	}
+	if r.OmniReferenceTaskType != "edit" {
+		t.Fatalf("omni_reference_task_type = %q, want edit", r.OmniReferenceTaskType)
+	}
+}
+
+func TestConvertVideoExtensionForwardsTaskType(t *testing.T) {
+	a := &TaskAdaptor{}
+	req := &relaycommon.TaskSubmitReq{
+		Model:                 "doubao-seedance-2-5-260628",
+		Prompt:                "从结尾继续向后延长镜头",
+		Duration:              8,
+		AspectRatio:           "adaptive",
+		ReferenceVideos:       []string{"asset://video-1"},
+		OmniReferenceTaskType: "extend",
+	}
+
+	r, err := a.convertToRequestPayload(req)
+	if err != nil {
+		t.Fatalf("convertToRequestPayload error: %v", err)
+	}
+	if r.OmniReferenceTaskType != "extend" {
+		t.Fatalf("omni_reference_task_type = %q, want extend", r.OmniReferenceTaskType)
+	}
+	if r.Duration == nil || int(*r.Duration) != 8 {
+		t.Fatalf("duration = %v, want 8", r.Duration)
+	}
+	if r.Ratio != "adaptive" {
+		t.Fatalf("ratio = %q, want adaptive", r.Ratio)
+	}
+}
+
+func TestConvertReferenceTaskForwardsTaskTypeWithoutSpecialOverrides(t *testing.T) {
+	a := &TaskAdaptor{}
+	req := &relaycommon.TaskSubmitReq{
+		Model:                 "doubao-seedance-2-5-260628",
+		Prompt:                "参考视频运镜生成新的海边场景",
+		Duration:              10,
+		AspectRatio:           "16:9",
+		ReferenceVideos:       []string{"asset://video-1"},
+		OmniReferenceTaskType: "reference",
+	}
+
+	r, err := a.convertToRequestPayload(req)
+	if err != nil {
+		t.Fatalf("convertToRequestPayload error: %v", err)
+	}
+	if r.OmniReferenceTaskType != "reference" {
+		t.Fatalf("omni_reference_task_type = %q, want reference", r.OmniReferenceTaskType)
+	}
+	if r.Ratio != "16:9" {
+		t.Fatalf("ratio = %q, want 16:9", r.Ratio)
+	}
+}
+
+func TestConvertTaskTypeRejectsIncompatibleParameters(t *testing.T) {
+	a := &TaskAdaptor{}
+	tests := []struct {
+		name string
+		req  relaycommon.TaskSubmitReq
+	}{
+		{
+			name: "edit requires auto duration",
+			req: relaycommon.TaskSubmitReq{
+				Model: "doubao-seedance-2-5-260628", Duration: 8, AspectRatio: "adaptive",
+				ReferenceVideos: []string{"asset://video-1"}, OmniReferenceTaskType: "edit",
+			},
+		},
+		{
+			name: "extend requires adaptive ratio",
+			req: relaycommon.TaskSubmitReq{
+				Model: "doubao-seedance-2-5-260628", Duration: 8, AspectRatio: "16:9",
+				ReferenceVideos: []string{"asset://video-1"}, OmniReferenceTaskType: "extend",
+			},
+		},
+		{
+			name: "edit requires video",
+			req: relaycommon.TaskSubmitReq{
+				Model: "doubao-seedance-2-5-260628", Duration: -1, AspectRatio: "adaptive",
+				OmniReferenceTaskType: "edit",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := a.convertToRequestPayload(&tc.req); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 

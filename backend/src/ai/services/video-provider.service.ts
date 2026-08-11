@@ -1700,6 +1700,10 @@ export class VideoProviderService {
     const size = usesNativeAspectRatio ? undefined : this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
+    const seedance25OmniReferenceTaskType =
+      model === "doubao-seedance-2-5-260628"
+        ? options.omniReferenceTaskType
+        : undefined;
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
     // on assets that already passed the upload-time check (volcAssetStatus === "active").
     // Other models fall back to raw HTTPS URLs.
@@ -1927,6 +1931,7 @@ export class VideoProviderService {
       aspect_ratio: options.aspectRatio,
       watermark: options.watermark,
       generate_audio: options.generateAudio,
+      omni_reference_task_type: seedance25OmniReferenceTaskType,
       provider_options: {
         sourceProvider: options.provider,
         videoMode: isOmniFlashExt ? omniEffectiveVideoMode : options.videoMode,
@@ -1934,6 +1939,7 @@ export class VideoProviderService {
         viduModel: options.viduModel,
         viduModelVariant: options.viduModelVariant,
         seedanceModel: options.seedanceModel,
+        omniReferenceTaskType: seedance25OmniReferenceTaskType,
         hailuoModel: options.hailuoModel,
         managedModelKey: options.managedModelKey,
         sound: options.sound,
@@ -2515,7 +2521,8 @@ export class VideoProviderService {
     const duration = Number(options.duration || 5);
     const isSeedance25VideoEditing =
       options.provider === "doubao" &&
-      String(options.videoMode || "").trim().toLowerCase() === "video_editing";
+      (options.omniReferenceTaskType === "edit" ||
+        String(options.videoMode || "").trim().toLowerCase() === "video_editing");
     if (isSeedance25VideoEditing && duration === -1) return -1;
     if (!Number.isFinite(duration) || duration <= 0) return 5;
     return Math.max(1, Math.min(30, Math.round(duration)));
@@ -3136,16 +3143,30 @@ export class VideoProviderService {
     const allResolvedUrls = [...uploadedStringUrls, ...objectItemUrls];
 
     const transport = String(route.vendor?.metadata?.requestProfile?.transport || "").trim();
+    const seedance25OmniReferenceTaskType =
+      modelKey === "seedance-2.0" &&
+      this.resolveManagedSeedanceModel(options).modelVersion === "2.5"
+        ? options.omniReferenceTaskType
+        : undefined;
     const isSeedance25VideoEditing =
       modelKey === "seedance-2.0" &&
       this.resolveManagedSeedanceModel(options).modelVersion === "2.5" &&
-      String(options.videoMode || "").trim().toLowerCase() === "video_editing" &&
-      referenceVideos.length === 1;
+      (seedance25OmniReferenceTaskType === "edit" ||
+        String(options.videoMode || "").trim().toLowerCase() === "video_editing") &&
+      referenceVideos.length > 0;
+    const isSeedance25VideoExtension =
+      modelKey === "seedance-2.0" &&
+      this.resolveManagedSeedanceModel(options).modelVersion === "2.5" &&
+      (seedance25OmniReferenceTaskType === "extend" ||
+        String(options.videoMode || "").trim().toLowerCase() === "video_extend") &&
+      referenceVideos.length > 0;
     const baseContext: Record<string, any> = {
       request: {
         ...options,
         ...(isSeedance25VideoEditing
           ? { aspectRatio: "adaptive", duration: -1 }
+          : isSeedance25VideoExtension
+          ? { aspectRatio: "adaptive" }
           : {}),
         resolution: resolutionForRequest,
         prompt: options.prompt || "",
@@ -3154,6 +3175,7 @@ export class VideoProviderService {
           modelKey.startsWith("seedance-")
             ? resolveSeedanceUpstreamModelId(this.resolveManagedSeedanceModel(options).modelVersion)
             : undefined,
+        omniReferenceTaskType: seedance25OmniReferenceTaskType,
         referenceImages: allResolvedUrls,
         referenceImage: allResolvedUrls[0] || "",
         referenceVideos,
@@ -4463,10 +4485,18 @@ export class VideoProviderService {
       model: modelId,
       content,
     };
+    const seedance25OmniReferenceTaskType =
+      modelVersion === "2.5" ? options.omniReferenceTaskType : undefined;
     const isSeedance25VideoEditing =
       modelVersion === "2.5" &&
-      String(options.videoMode || "").trim().toLowerCase() === "video_editing" &&
-      referenceVideos.length === 1;
+      (seedance25OmniReferenceTaskType === "edit" ||
+        String(options.videoMode || "").trim().toLowerCase() === "video_editing") &&
+      referenceVideos.length > 0;
+    const isSeedance25VideoExtension =
+      modelVersion === "2.5" &&
+      (seedance25OmniReferenceTaskType === "extend" ||
+        String(options.videoMode || "").trim().toLowerCase() === "video_extend") &&
+      referenceVideos.length > 0;
 
     if (isSeedance2Model) {
       if (typeof options.generateAudio === "boolean") {
@@ -4475,11 +4505,16 @@ export class VideoProviderService {
       if (typeof options.videoMode === "string" && options.videoMode.trim()) {
         payload.video_mode = options.videoMode.trim();
       }
+      if (seedance25OmniReferenceTaskType) {
+        payload.omni_reference_task_type = seedance25OmniReferenceTaskType;
+      }
       if (isSeedance25VideoEditing) {
         payload.ratio = "adaptive";
         payload.duration = -1;
       } else {
-        if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
+        if (isSeedance25VideoExtension) {
+          payload.ratio = "adaptive";
+        } else if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
           payload.ratio = options.aspectRatio.trim();
         }
         if (typeof options.duration === "number" && Number.isFinite(options.duration)) {

@@ -229,11 +229,12 @@ export const TANVA_CAPABILITY_MANIFEST = {
     },
     {
       type: "seedance20Video",
-      label: "Seedance2.0 视频",
-      purpose: "即梦 Seedance2.0：仅图生视频，4个模式(reference_images/首尾帧/首帧/智能帧)全部需要≥1张图，无纯文生模式。用它必须先有图节点连入 image 输入。纯文本生视频请改用支持文生的模型。",
+      label: "Seedance 2.x 视频",
+      purpose: "Seedance 2.x 多模态视频节点。2.5 的单参考视频任务需明确选择 video_editing（修改原视频）、video_extend（前后延长）或 video_reference（只参考动作/构图生成新视频），宿主会据此发送 Ark 任务类型引导参数。",
       params: {
-        seedanceMode: { type: "string", enum: ["reference_images", "start_end", "first_frame", "smart_frames"], description: "全部模式均需≥1张图：reference_images(参考图)/start_end(首尾帧,需首+尾)/first_frame(首帧)/smart_frames(智能帧)" },
-        resolution: { type: "string", enum: ["720P", "1080P"] },
+        seedanceModel: { type: "string", enum: ["seedance-2.0", "seedance-2.5", "seedance-2.0-fast", "seed-2.0-pro", "seed-2.0-lite", "seed-2.0-mini"] },
+        seedanceMode: { type: "string", enum: ["reference_images", "start_end", "first_frame", "smart_frames", "video_editing", "video_extend", "video_reference"], description: "2.5 视频模式提示词必须和任务一致：editing 写清修改/保留项，extend 写清向前或向后延长，reference 写清仅参考哪些特征并生成新视频" },
+        resolution: { type: "string", enum: ["480P", "720P", "1080P", "4K"] },
         aspectRatio: { type: "string", enum: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"], description: "缺省 16:9" },
         generateAudio: { type: "boolean" },
       },

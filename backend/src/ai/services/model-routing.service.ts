@@ -106,6 +106,7 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
         model: '{{request.seedanceUpstreamModelId}}',
         content: '{{request.content}}',
         video_mode: '{{request.videoMode}}',
+        omni_reference_task_type: '{{request.omniReferenceTaskType}}',
         generate_audio: '{{request.generateAudio}}',
         ratio: '{{request.aspectRatio}}',
         duration: '{{request.duration}}',

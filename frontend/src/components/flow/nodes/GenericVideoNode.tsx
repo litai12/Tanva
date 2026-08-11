@@ -32,6 +32,7 @@ import {
   type ViduModelValue,
 } from "@/services/videoProviderParams";
 import { getHailuoModelCatalog, type HailuoModelCatalog } from "@/services/videoProviderAPI";
+import { resolveSeedance25OmniReferenceTaskType } from "@/services/seedance25TaskType";
 import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
@@ -1014,6 +1015,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     : isHailuoModel
     ? hailuoMode
     : undefined;
+  const seedance25OmniReferenceTaskType =
+    provider === "doubao"
+      ? resolveSeedance25OmniReferenceTaskType({
+          seedanceModel,
+          seedanceMode,
+          referenceImageCount: imageInputCount,
+          referenceVideoCount: videoInputCount,
+          referenceAudioCount: audioInputCount,
+        })
+      : undefined;
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -1052,8 +1063,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     context.duration = duration;
     context.durationSec = duration;
     if (isSeedance20Model) {
-      const billingDurationSec = Number((duration + inputVideoDurationSec).toFixed(3));
-      context.outputDurationSec = duration;
+      const isSeedance25Editing = seedance25OmniReferenceTaskType === "edit";
+      const editingDurationSec =
+        inputVideoDurationSec > 0 ? inputVideoDurationSec : duration;
+      const billingDurationSec = Number(
+        (isSeedance25Editing
+          ? editingDurationSec
+          : duration + inputVideoDurationSec
+        ).toFixed(3)
+      );
+      context.outputDurationSec = isSeedance25Editing ? editingDurationSec : duration;
       context.inputVideoDurationSec = inputVideoDurationSec;
       context.billingDurationSec = billingDurationSec;
       context.duration = billingDurationSec;
@@ -1163,6 +1182,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     isViduNode,
     normalizedViduModelVariant,
     previewVideoMode,
+    seedance25OmniReferenceTaskType,
     seedanceMode,
     provider,
     viduModelForPreview,
@@ -1188,15 +1208,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
       seed2InputTier: (data as any).seed2InputTier,
-      // duration/durationSec 由 pricingContext 提供；Seedance 2.x 会在其中使用
-      // 输入参考视频总时长 + 输出时长，其他模型仍只使用输出时长。
+      // duration/durationSec 由 pricingContext 提供；Seedance 2.5 编辑任务按输入视频
+      // 时长计费，其他 Seedance 2.x 参考视频任务使用输入总时长 + 输出时长。
       resolution:
         typeof data.resolution === "string" && data.resolution.trim()
           ? data.resolution.trim().toUpperCase()
           : undefined,
-      aspectRatio: data.aspectRatio,
+      aspectRatio:
+        seedance25OmniReferenceTaskType === "edit" ||
+        seedance25OmniReferenceTaskType === "extend"
+          ? "adaptive"
+          : data.aspectRatio,
       videoMode: previewVideoMode,
       generationMode: previewVideoMode,
+      omniReferenceTaskType: seedance25OmniReferenceTaskType,
       generateAudio: data.generateAudio,
       watermark: data.watermark,
       offPeak: isViduNode ? false : undefined,
@@ -1226,6 +1251,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       normalizedViduModelVariant,
       pricingContext,
       previewVideoMode,
+      seedance25OmniReferenceTaskType,
       selectedManagedRoute?.vendorKey,
       selectedManagedRoute?.platformKey,
       selectedManagedRoute?.provider,
@@ -1785,7 +1811,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return isContiguous ? { min, max } : null;
   }, [durationOptionValues]);
   const shouldShowAspectSelector =
-    provider === "doubao" && seedanceModel === "seedance-2.5" && seedanceMode === "video_editing"
+    provider === "doubao" &&
+    seedanceModel === "seedance-2.5" &&
+    (seedanceMode === "video_editing" || seedanceMode === "video_extend")
       ? false
       : isHailuoModel
       ? true
@@ -1937,10 +1965,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             {
               value: "reference_images",
               label: lt("全能参考", "Omni reference"),
-              description: lt(
-                "文不限，图≤9，视频≤3（每条 2–15 秒），音频≤3（每条 2–5 秒）",
-                "Text unlimited, image<=9, video<=3 (2–15s each), audio<=3 (2–5s each)"
-              ),
+              description:
+                seedanceModel === "seedance-2.5"
+                  ? lt(
+                      "参考生成新视频：图≤30、视频≤10、音频≤10；提示词说明各素材用途",
+                      "Generate a new video from references: image<=30, video<=10, audio<=10; describe each asset's role"
+                    )
+                  : lt(
+                      "文不限，图≤9，视频≤3（每条 2–15 秒），音频≤3（每条 2–5 秒）",
+                      "Text unlimited, image<=9, video<=3 (2–15s each), audio<=3 (2–5s each)"
+                    ),
             },
             ...(seedanceModel === "seedance-2.5" && videoInputCount === 1
               ? [
@@ -1948,24 +1982,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                     value: "video_editing",
                     label: lt("视频编辑", "Video editing"),
                     description: lt(
-                      "单个视频：保持人物/动作，编辑环境或画面；时长跟随参考视频",
-                      "One video: edit the scene while preserving subjects/actions; duration follows the input"
+                      "明确写“修改/替换”对象和保留项；比例与时长自动跟随参考视频",
+                      "State what to modify/replace and what to preserve; ratio and duration follow the input"
                     ),
                   },
                   {
                     value: "video_extend",
                     label: lt("视频延长", "Video extension"),
                     description: lt(
-                      "单个视频：延续原视频内容并生成后续镜头",
-                      "One video: continue the input video with new footage"
+                      "明确写“向前/向后延长”及延长内容；比例自动跟随参考视频",
+                      "State whether to extend before/after and what to continue; ratio follows the input"
                     ),
                   },
                   {
                     value: "video_reference",
                     label: lt("多模态参考", "Multimodal reference"),
                     description: lt(
-                      "单个视频作为动作、构图或运镜参考，生成新视频",
-                      "Use one video as motion, composition, or camera reference"
+                      "说明仅参考原视频的动作、构图或运镜，并生成全新视频",
+                      "Use the input only for motion, composition, or camera reference and generate a new video"
                     ),
                   },
                 ]
@@ -2030,6 +2064,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [clipDuration, id, inputVideoDurationSec, provider, seedanceMode, seedanceModel, videoInputCount]);
+
+  React.useEffect(() => {
+    if (!["video_editing", "video_extend", "video_reference"].includes(seedanceMode)) {
+      return;
+    }
+    if (
+      provider === "doubao" &&
+      seedanceModel === "seedance-2.5" &&
+      videoInputCount === 1
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { seedanceMode: "reference_images" } },
+      })
+    );
+  }, [id, provider, seedanceMode, seedanceModel, videoInputCount]);
 
   React.useEffect(() => {
     if (!shouldShowAspectSelector) {

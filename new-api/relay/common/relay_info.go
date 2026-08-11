@@ -694,14 +694,17 @@ type TaskSubmitReq struct {
 	// LastFrame is the tail keyframe for first/last-frame (首尾帧) generation. It is
 	// kept OUT of the Images merge in normalizeTaskSubmitReq so the doubao adaptor can
 	// emit it with role="last_frame" instead of folding it into the reference_image set.
-	LastFrame      string                 `json:"lastFrame,omitempty"`
-	Size           string                 `json:"size,omitempty"`
-	Resolution     string                 `json:"resolution,omitempty"`
-	AspectRatio    string                 `json:"aspect_ratio,omitempty"`
-	Duration       int                    `json:"duration,omitempty"`
-	Seconds        string                 `json:"seconds,omitempty"`
-	InputReference string                 `json:"input_reference,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	LastFrame   string `json:"lastFrame,omitempty"`
+	Size        string `json:"size,omitempty"`
+	Resolution  string `json:"resolution,omitempty"`
+	AspectRatio string `json:"aspect_ratio,omitempty"`
+	Duration    int    `json:"duration,omitempty"`
+	// OmniReferenceTaskType guides Seedance 2.5 omni-reference classification.
+	// It is only a hint: Ark still checks whether the prompt semantics match.
+	OmniReferenceTaskType string                 `json:"omni_reference_task_type,omitempty"`
+	Seconds               string                 `json:"seconds,omitempty"`
+	InputReference        string                 `json:"input_reference,omitempty"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 	// ProviderOptions carries vendor-specific options from the unified /v1/videos
 	// endpoint. Seedance uses videoMode to distinguish editing from generation;
 	// keeping this field prevents the relay from dropping that mode before the

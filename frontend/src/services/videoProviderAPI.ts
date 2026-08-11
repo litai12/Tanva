@@ -8,6 +8,9 @@ import {
   extractVideoProviderErrorMessage,
   validateVideoGenerationResponse,
 } from "./videoProviderResponse";
+import type { Seedance25OmniReferenceTaskType } from "./seedance25TaskType";
+
+export type { Seedance25OmniReferenceTaskType } from "./seedance25TaskType";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7" | "hailuo";
 
@@ -56,6 +59,7 @@ export interface VideoGenerationRequest {
   audioUrls?: string[];
   referenceVideos?: string[];
   videoMode?: string;
+  omniReferenceTaskType?: Seedance25OmniReferenceTaskType;
   managedModelKey?: string;
   vendorKey?: string;
   platformKey?: string;

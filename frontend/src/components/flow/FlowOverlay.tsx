@@ -212,6 +212,10 @@ import {
   type VideoProvider,
 } from "@/services/videoProviderAPI";
 import {
+  resolveSeedance25OmniReferenceTaskType,
+  type Seedance25OmniReferenceTaskType,
+} from "@/services/seedance25TaskType";
+import {
   buildViduRequestSemantics,
   getEffectiveViduProvider,
   isViduQ3FamilyModel,
@@ -21550,6 +21554,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               ? "first_frame"
               : seedanceMode === "smart_frames"
               ? "smart_frames"
+              : normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5" &&
+                (seedanceMode === "video_editing" ||
+                  seedanceMode === "video_extend" ||
+                  seedanceMode === "video_reference")
+              ? seedanceMode
               : seedanceMode === "start_end"
               ? imageCount >= 2
                 ? "start_end"
@@ -21562,12 +21571,35 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               ? "start-end2video"
               : "img2video"
             : "img2video";
+        const seedance25OmniReferenceTaskType: Seedance25OmniReferenceTaskType | undefined =
+          isSeedance20Request
+            ? resolveSeedance25OmniReferenceTaskType({
+                seedanceModel: rawNodeData.seedanceModel,
+                seedanceMode,
+                referenceImageCount: referenceImageUrls.length,
+                referenceVideoCount: referenceVideoUrls.length,
+                referenceAudioCount: seedanceAudioUrlsForAPI?.length || 0,
+              })
+            : undefined;
+        if (
+          seedance25OmniReferenceTaskType &&
+          ["video_editing", "video_extend", "video_reference"].includes(String(seedanceMode)) &&
+          referenceVideoUrls.length !== 1
+        ) {
+          failCurrentVideoNode(
+            seedance25OmniReferenceTaskType === "edit"
+              ? "Seedance 2.5 视频编辑模式需要且仅支持 1 条参考视频"
+              : seedance25OmniReferenceTaskType === "extend"
+              ? "Seedance 2.5 视频延长模式需要且仅支持 1 条参考视频"
+              : "Seedance 2.5 视频参考模式需要且仅支持 1 条参考视频"
+          );
+          return;
+        }
         const isSeedanceVideoEditing =
-          isSeedance20Request &&
-          normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5" &&
-          seedanceMode === "video_editing" &&
-          referenceVideoUrls.length === 1;
-        const seedanceRequestAspectRatio = isSeedanceVideoEditing
+          seedance25OmniReferenceTaskType === "edit";
+        const seedanceRequestAspectRatio =
+          seedance25OmniReferenceTaskType === "edit" ||
+          seedance25OmniReferenceTaskType === "extend"
           ? "adaptive"
           : aspectRatioForAPI;
         const seedanceRequestDuration = isSeedanceVideoEditing
@@ -21772,6 +21804,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                       : undefined,
                   seedanceModel: seedanceModelForRequest,
                   seed2InputTier,
+                  omniReferenceTaskType: seedance25OmniReferenceTaskType,
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {

@@ -20,6 +20,7 @@
     "test:project-history": "node --test src/stores/projectContentHistoryState.test.ts",
     "test:video-provider-response": "node --test src/services/videoProviderResponse.test.ts",
     "test:video-provider-params": "node --test src/services/videoProviderParams.test.ts",
+    "test:seedance25-task-type": "node --test src/services/seedance25TaskType.test.ts",
     "test:managed-video-routing": "node --test src/components/flow/managedRoutePricing.test.ts",
     "test:xiaot-patch-contract": "node --test src/services/xiaotImagePatchContract.test.ts",
     "test:canvas-auto-layout": "node --test src/utils/canvasAutoLayout.test.ts",

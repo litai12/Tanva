@@ -49,6 +49,7 @@ type requestPayload struct {
 	ServiceTier           string         `json:"service_tier,omitempty"`
 	ExecutionExpiresAfter *dto.IntValue  `json:"execution_expires_after,omitempty"`
 	GenerateAudio         *dto.BoolValue `json:"generate_audio,omitempty"`
+	OmniReferenceTaskType string         `json:"omni_reference_task_type,omitempty"`
 	Draft                 *dto.BoolValue `json:"draft,omitempty"`
 	Tools                 []struct {
 		Type string `json:"type,omitempty"`
@@ -339,8 +340,13 @@ func gcdInt(a, b int) int {
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
 	r := requestPayload{
-		Model:   req.Model,
-		Content: []ContentItem{},
+		Model:                 req.Model,
+		Content:               []ContentItem{},
+		OmniReferenceTaskType: strings.ToLower(strings.TrimSpace(req.OmniReferenceTaskType)),
+	}
+
+	if err := validateSeedance25OmniReferenceTaskType(req, r.OmniReferenceTaskType); err != nil {
+		return nil, err
 	}
 
 	// Add images if present.
@@ -483,6 +489,9 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 }
 
 func isVideoEditing(req *relaycommon.TaskSubmitReq) bool {
+	if req != nil && strings.EqualFold(strings.TrimSpace(req.OmniReferenceTaskType), "edit") {
+		return true
+	}
 	if req == nil || req.ProviderOptions == nil {
 		return false
 	}
@@ -492,6 +501,45 @@ func isVideoEditing(req *relaycommon.TaskSubmitReq) bool {
 		}
 	}
 	return false
+}
+
+func validateSeedance25OmniReferenceTaskType(req *relaycommon.TaskSubmitReq, taskType string) error {
+	if taskType == "" {
+		return nil
+	}
+	if req == nil || req.Model != "doubao-seedance-2-5-260628" {
+		return fmt.Errorf("omni_reference_task_type is only supported by doubao-seedance-2-5-260628")
+	}
+	switch taskType {
+	case "auto":
+		return nil
+	case "reference":
+		if len(req.ReferenceImages) == 0 && len(req.ReferenceVideos) == 0 && len(req.ReferenceAudios) == 0 {
+			return fmt.Errorf("Seedance 2.5 reference task requires at least one reference media item")
+		}
+		return nil
+	case "edit":
+		if len(req.ReferenceVideos) == 0 {
+			return fmt.Errorf("Seedance 2.5 edit task requires at least one reference_video")
+		}
+		if !strings.EqualFold(strings.TrimSpace(req.AspectRatio), "adaptive") {
+			return fmt.Errorf("Seedance 2.5 edit task requires aspect_ratio=adaptive")
+		}
+		if req.Duration != -1 {
+			return fmt.Errorf("Seedance 2.5 edit task requires duration=-1")
+		}
+		return nil
+	case "extend":
+		if len(req.ReferenceVideos) == 0 {
+			return fmt.Errorf("Seedance 2.5 extend task requires at least one reference_video")
+		}
+		if !strings.EqualFold(strings.TrimSpace(req.AspectRatio), "adaptive") {
+			return fmt.Errorf("Seedance 2.5 extend task requires aspect_ratio=adaptive")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported omni_reference_task_type %q", taskType)
+	}
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

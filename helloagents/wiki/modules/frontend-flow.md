@@ -3,6 +3,12 @@
 - `FlowOverlay` 根容器同时使用 `translate="no"` 和 `notranslate`，Prompt 的 `@` 候选 Portal 也沿用同一标记。Chrome 网页翻译或翻译扩展不得改写 React 管理的动态节点文本；界面语言仍由应用自己的 i18n 控制。
 - 所有 React Flow 自定义节点注册时由 `FlowNodeErrorBoundary` 包裹。单个节点发生渲染异常时只替换该节点并提供重试，同时上报节点 ID、节点类型和 component stack；不再让工作流级 `RuntimeErrorBoundary` 卸载整张画布。
 
+## 2026-08-11 Seedance 2.5 全模态任务类型
+
+- Seedance 2.5 在连接单条参考视频后提供“视频编辑 / 视频延长 / 多模态参考”三种明确模式，运行时分别发送 `omni_reference_task_type=edit/extend/reference`；普通全能参考在至少存在一个图片、视频或音频输入时发送 `reference`，纯文生和首尾帧不发送该字段。
+- 视频编辑隐藏宽高比选择并固定 `adaptive`，输出时长使用 Ark 协议值 `-1` 跟随 4–30 秒输入视频；价格预览按输入视频处理时长计费，不再把输入与跟随时长重复相加。视频延长同样固定 `adaptive`，但保留用户选择的 4–30 秒生成时长。
+- 模式说明明确提示词职责：编辑写清“修改/替换”与“保留”内容，延长写清向前或向后延长及新增内容，参考模式说明只借用动作、构图或运镜并生成新视频。删除参考视频后，专用模式自动回退到“全能参考”，避免保存不可执行的旧状态。
+
 ## 2026-08-10 画布报价与实际执行参数对齐
 
 - GPT Image 2 Run 报价携带与执行相同的 `quality + imageSize + bananaImageRoute`；腾讯尊享路线的 `auto` 显示 low 档价格，4K 只改变输出分辨率，不再把执行版本提升为 high。

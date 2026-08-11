@@ -1,5 +1,7 @@
 # Changelog
 
+- Flow/Backend/new-api/Seedance 2.5：接入方舟 `omni_reference_task_type`。单视频“多模态参考 / 视频编辑 / 视频延长”分别前置引导为 `reference/edit/extend`；编辑固定 `ratio=adaptive,duration=-1` 且输入视频校验 4–30 秒，延长固定 `ratio=adaptive`，纯文生与首尾帧不误传。Tanva DTO、计费审计、直连/V2 Ark 请求、new-api 统一请求与 Doubao adapter 全链路透传并重复校验；节点补充任务一致的提示词写法，编辑价格预览修复为仅按输入视频处理时长。
+
 - Flow/Runtime/Video：修复开启浏览器网页翻译后删减 Prompt 会让整张工作流显示“加载失败”的问题。Flow 动态区域及 Prompt Portal 禁止第三方 DOM 翻译，所有自定义节点增加节点级错误边界，单节点异常只在局部展示并上报节点上下文。视频任务来源补充 `files.toapis.com` 服务端白名单并逐跳校验重定向，查询成功后强制转存 Tanva OSS；前端检测到已托管 URL 时直接复用，避免浏览器跨域下载和重复上传。
 
 - Runtime Stability/Flow：React `RuntimeErrorBoundary` 捕获的渲染异常现在以 `react-render-error` 上报 `/api/telemetry/frontend-error`，携带 JS stack、React component stack、边界、用户/项目、内容版本、Flow 节点/边数量与水合/缓存状态；后端直接写入结构化 PM2 error 日志并限制超长载荷，此入口不依赖已卸载的 OpenObserve。工作流边界随项目/内容版本变化自动复位，避免一次错误后永久停在白屏 fallback。Flow 节点报价新增共享请求池：完全相同的 `/api/credits/preview` 共用 in-flight 请求并缓存成功结果 60 秒，不同报价最多并发 6 个、12 秒超时、失败不缓存，消除大项目水合时的百级报价请求风暴且不改变后端权威价格。

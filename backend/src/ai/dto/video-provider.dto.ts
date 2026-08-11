@@ -22,6 +22,12 @@ export type ReferenceImageItem =
       volcAssetKind?: 'bio-auth';
     };
 
+export type Seedance25OmniReferenceTaskType =
+  | 'auto'
+  | 'reference'
+  | 'edit'
+  | 'extend';
+
 export class VideoProviderRequestDto {
   @ApiProperty({ description: 'Provider' })
   @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao', 'wan2.7', 'hailuo'])
@@ -151,6 +157,16 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsString()
   seedanceModel?: string;
+
+  @ApiProperty({
+    description:
+      'Seedance 2.5 omni-reference task type hint. The model still verifies prompt intent asynchronously.',
+    required: false,
+    enum: ['auto', 'reference', 'edit', 'extend'],
+  })
+  @IsOptional()
+  @IsEnum(['auto', 'reference', 'edit', 'extend'])
+  omniReferenceTaskType?: Seedance25OmniReferenceTaskType;
 
   @ApiProperty({
     description: 'Seed2 token pricing tier for input context window (le32k/gt32k_le128k/gt128k_le256k)',

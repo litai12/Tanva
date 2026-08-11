@@ -64,12 +64,14 @@ func TestTaskSubmitReqUnmarshalPreservesProviderOptions(t *testing.T) {
 		"model":"doubao-seedance-2-5-260628",
 		"prompt":"替换成写实风格",
 		"duration":-1,
+		"omni_reference_task_type":"edit",
 		"provider_options":{"videoMode":"video_editing","sourceProvider":"doubao"}
 	}`)
 
 	var req TaskSubmitReq
 	require.NoError(t, tanvasMartcommon.Unmarshal(raw, &req))
 	require.Equal(t, -1, req.Duration)
+	require.Equal(t, "edit", req.OmniReferenceTaskType)
 	require.Equal(t, "video_editing", req.ProviderOptions["videoMode"])
 	require.Equal(t, "doubao", req.ProviderOptions["sourceProvider"])
 }

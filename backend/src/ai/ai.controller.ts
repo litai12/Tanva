@@ -72,7 +72,10 @@ import {
   getAsyncTaskResult,
 } from './services/async-video-task.store';
 import { GenerationTaskService } from './services/generation-task.service';
-import { VideoProviderRequestDto } from './dto/video-provider.dto';
+import {
+  type Seedance25OmniReferenceTaskType,
+  VideoProviderRequestDto,
+} from './dto/video-provider.dto';
 import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { VolcEnhanceVideoDto } from './dto/volc-enhance-video.dto';
 import { OssService } from '../oss/oss.service';
@@ -660,6 +663,75 @@ export class AiController {
     this.logger.warn(
       `[Seedance2] normalize deprecated lite alias to mini: input=${raw}, normalized=${dto.seedanceModel}`,
     );
+  }
+
+  private normalizeSeedance25OmniReferenceTaskType(
+    dto: VideoProviderRequestDto,
+  ): void {
+    const rawTaskType =
+      typeof dto.omniReferenceTaskType === 'string'
+        ? dto.omniReferenceTaskType.trim().toLowerCase()
+        : '';
+    const allowedTaskTypes = new Set<Seedance25OmniReferenceTaskType>([
+      'auto',
+      'reference',
+      'edit',
+      'extend',
+    ]);
+
+    if (rawTaskType && !allowedTaskTypes.has(rawTaskType as Seedance25OmniReferenceTaskType)) {
+      throw new BadRequestException(
+        'omniReferenceTaskType 仅支持 auto / reference / edit / extend',
+      );
+    }
+
+    if (!this.isSeedance25Model(dto.seedanceModel)) {
+      if (rawTaskType) {
+        throw new BadRequestException(
+          'omniReferenceTaskType 仅适用于 Seedance 2.5 全模态参考任务',
+        );
+      }
+      return;
+    }
+
+    const videoMode = String(dto.videoMode || '').trim().toLowerCase();
+    const explicitModeTaskType: Seedance25OmniReferenceTaskType | undefined =
+      videoMode === 'video_editing'
+        ? 'edit'
+        : videoMode === 'video_extend'
+          ? 'extend'
+          : videoMode === 'video_reference'
+            ? 'reference'
+            : undefined;
+    const normalizedTaskType = rawTaskType as Seedance25OmniReferenceTaskType | '';
+
+    if (
+      normalizedTaskType &&
+      normalizedTaskType !== 'auto' &&
+      explicitModeTaskType &&
+      normalizedTaskType !== explicitModeTaskType
+    ) {
+      throw new BadRequestException(
+        `Seedance 2.5 任务类型 ${normalizedTaskType} 与当前视频模式 ${videoMode} 冲突`,
+      );
+    }
+
+    if (normalizedTaskType) {
+      dto.omniReferenceTaskType = normalizedTaskType;
+      return;
+    }
+    if (explicitModeTaskType) {
+      dto.omniReferenceTaskType = explicitModeTaskType;
+      return;
+    }
+    const hasReferenceMedia =
+      (dto.referenceImages?.length || 0) > 0 ||
+      (dto.referenceVideos?.length || 0) > 0 ||
+      Boolean(dto.referenceVideo) ||
+      (dto.audioUrls?.length || 0) > 0;
+    if (hasReferenceMedia && ['reference', 'reference_images', 'smart_frames'].includes(videoMode)) {
+      dto.omniReferenceTaskType = 'reference';
+    }
   }
 
   private async resolveSeedance2CombinedAccess(
@@ -1371,6 +1443,10 @@ export class AiController {
       params.generationMode = normalizedVideoMode;
     }
 
+    if (typeof dto.omniReferenceTaskType === 'string') {
+      params.omniReferenceTaskType = dto.omniReferenceTaskType;
+    }
+
     if (typeof dto.klingStoryboardMode === 'string' && dto.klingStoryboardMode.trim().length > 0) {
       params.klingStoryboardMode = dto.klingStoryboardMode.trim().toLowerCase();
     }
@@ -1505,6 +1581,7 @@ export class AiController {
       }
 
       const isVideoEditing =
+        dto.omniReferenceTaskType === 'edit' ||
         String(dto.videoMode || '').trim().toLowerCase() === 'video_editing';
       const requestedDurationSec = Number(params.duration ?? params.durationSec);
       if (!isVideoEditing && (!Number.isFinite(requestedDurationSec) || requestedDurationSec <= 0)) {
@@ -1654,8 +1731,40 @@ export class AiController {
         );
       }
       const duration = Number(dto.duration);
-      const isVideoEditing =
-        String(dto.videoMode || '').trim().toLowerCase() === 'video_editing';
+      const taskType = dto.omniReferenceTaskType;
+      const videoMode = String(dto.videoMode || '').trim().toLowerCase();
+      const isVideoEditing = taskType === 'edit' || videoMode === 'video_editing';
+      const isVideoExtension = taskType === 'extend' || videoMode === 'video_extend';
+      const aspectRatio = String(dto.aspectRatio || '').trim().toLowerCase();
+      const referenceVideoCount = new Set(
+        [
+          ...(Array.isArray(dto.referenceVideos) ? dto.referenceVideos : []),
+          dto.referenceVideo,
+        ]
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ).size;
+      const hasAnyReferenceMedia =
+        referenceVideoCount > 0 ||
+        (dto.referenceImages?.length || 0) > 0 ||
+        (dto.audioUrls?.length || 0) > 0;
+
+      if ((isVideoEditing || isVideoExtension) && referenceVideoCount === 0) {
+        throw new BadRequestException(
+          `Seedance 2.5 ${isVideoEditing ? '视频编辑' : '视频延长'}任务至少需要 1 条参考视频`,
+        );
+      }
+      if (taskType === 'reference' && !hasAnyReferenceMedia) {
+        throw new BadRequestException(
+          'Seedance 2.5 参考生视频任务至少需要 1 个参考图片、视频或音频',
+        );
+      }
+      if ((isVideoEditing || isVideoExtension) && aspectRatio !== 'adaptive') {
+        throw new BadRequestException(
+          `Seedance 2.5 ${isVideoEditing ? '视频编辑' : '视频延长'}任务的 ratio 必须为 adaptive`,
+        );
+      }
       if (
         !isVideoEditing &&
         (!Number.isFinite(duration) || duration < 4 || duration > 30 || !Number.isInteger(duration))
@@ -1688,6 +1797,10 @@ export class AiController {
     );
 
     const isSeedance25 = this.isSeedance25Model(dto.seedanceModel);
+    const isSeedance25VideoEditing =
+      isSeedance25 &&
+      (dto.omniReferenceTaskType === 'edit' ||
+        String(dto.videoMode || '').trim().toLowerCase() === 'video_editing');
     const maxReferenceMedia = isSeedance25 ? 10 : 3;
     const maxReferenceMediaDuration = isSeedance25 ? 30 : 15;
     if (referenceVideos.length > maxReferenceMedia) {
@@ -1707,9 +1820,10 @@ export class AiController {
     let totalVideoDuration = 0;
     for (const [index, url] of referenceVideos.entries()) {
       const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考视频`);
-      if (duration < 2 || duration > maxReferenceMediaDuration) {
+      const minDuration = isSeedance25VideoEditing ? 4 : 2;
+      if (duration < minDuration || duration > maxReferenceMediaDuration) {
         throw new BadRequestException(
-          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 单条需在 2–${maxReferenceMediaDuration} 秒之间`,
+          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'}${isSeedance25VideoEditing ? ' 视频编辑任务' : ''}单条需在 ${minDuration}–${maxReferenceMediaDuration} 秒之间`,
         );
       }
       totalVideoDuration += duration;
@@ -6030,6 +6144,7 @@ export class AiController {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
     this.normalizeSeedanceModelAlias(effectiveDto);
+    this.normalizeSeedance25OmniReferenceTaskType(effectiveDto);
     if (
       effectiveDto.provider === 'doubao' &&
       this.isSeedance25Model(effectiveDto.seedanceModel)
