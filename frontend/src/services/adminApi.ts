@@ -1603,6 +1603,7 @@ export async function upsertWhitelistUser(
 ): Promise<WhitelistUser> {
   const response = await request(`/api/admin/whitelist/${userId}`, {
     method: "POST",
+    headers: JSON_HEADERS,
     body: JSON.stringify(entitlements),
   });
   return response.json();

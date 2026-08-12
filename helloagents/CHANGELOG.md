@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-12：修复管理后台白名单权益保存误报“至少选择一项白名单权益”。统一白名单提交接口现在显式使用 `application/json`，NestJS 可正确解析已开启的“去水印 / 最高档年卡权益 / 充值到账 120%”开关，不再把非空选择误判为空。
+
 - 2026-08-12：修复小T生图只显示“持久异步执行器受理”却不向 Tanvas 交付结果的问题。TapCanvas 的 `flow_patch` 现在只表示宿主命令交接，不再伪报 `applied/accepted_async`，OpenAI facade 在存在工具调用时使用 `finish_reason=tool_calls` 并拒绝空或缺参 patch。Tanva 画布执行器改为等待 `addNode → connectEdge → runNode` 的真实回执；预期图片节点必须产生 HTTP(S) 资产 URL 才完成聊天，并把真实图片写入消息媒体卡。节点、连线、生成或资产验收失败会原样终止该消息，不再显示虚假完成。
 
 - Flow/Credits/Image Pricing：按两张 Tanvas 对照表将普通与腾讯尊享图片线路统一切到 1.5 倍积分定价。普通 Fast/Pro/Nano Banana 2 分别为 `20`、`60/70/85`、`40/40/50/70`；尊享分别为 `40`、`130/130/240`、`45/65/100/155`。GPT Image 2 普通保持 `20/30/40`，尊享 Low/Medium/High 调整为 `30/40/50`、`60/120/190`、`230/460/760`，参考图仍为 `10/张`。生成、编辑、融合、preview、实际预扣、节点兜底和后台默认目录同步。极速线路入口暂停开放，preferences v7 与图片请求边界把历史 `ultra/beqlee` 迁回普通线路；新增 `verify:image-pricing` 覆盖全部规格。
