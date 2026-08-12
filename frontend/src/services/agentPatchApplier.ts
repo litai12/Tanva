@@ -1,5 +1,5 @@
 // frontend/src/services/agentPatchApplier.ts
-// 把小T下发的 flow_patch 翻译成画布 window 事件桥。乐观应用，失败仅 toast。
+// 把小T下发的 flow_patch 翻译成画布 window 事件桥，并收集宿主真实执行回执。
 // 事件接线（FlowOverlay 侧监听）：
 //   flow:agent-add-node / flow:agent-connect-edge / flow:agent-run-node（本文件新增约定）
 //   flow:updateNodeData / flow:focus-node / triggerQuickImageUpload（画布既有事件，直接复用）
@@ -8,6 +8,11 @@ import {
   NODE_FORCED_DATA,
   NODE_DEFAULT_DATA,
 } from "./agentCanvasProtocol";
+import {
+  buildAgentPatchExecutionReport,
+  type AgentPatchExecutionReport,
+  type AgentPatchExecutionResult,
+} from "./agentPatchExecution";
 
 const toast = (message: string, type: "error" | "warning" | "success" = "error") => {
   try {
@@ -30,6 +35,18 @@ const realId = (id: string): string => idMap.get(id) ?? id;
 // 无 rAF 环境（如测试）退化为 setTimeout 60ms。
 let chain: Promise<void> = Promise.resolve();
 let session = 0;
+let batchSequence = 0;
+let activeBatchId = 0;
+const batchResultsById = new Map<number, AgentPatchExecutionResult[]>();
+
+const appendBatchResult = (
+  batchId: number,
+  result: AgentPatchExecutionResult
+): void => {
+  const results = batchResultsById.get(batchId) ?? [];
+  results.push(result);
+  batchResultsById.set(batchId, results);
+};
 
 const yieldToRender = (): Promise<void> =>
   new Promise((resolve) => {
@@ -40,18 +57,28 @@ const yieldToRender = (): Promise<void> =>
     }
   });
 
-const enqueue = (task: () => void | Promise<void>): void => {
+const enqueue = (
+  op: AgentPatchExecutionResult["op"],
+  task: () => AgentPatchExecutionResult | Promise<AgentPatchExecutionResult>
+): void => {
   const taskSession = session;
+  const taskBatchId = activeBatchId;
   chain = chain
     .then(async () => {
       // 会话已重置（resetAgentPatchSession）则丢弃旧队列中未执行的操作
       if (taskSession !== session) return;
-      // task 可返回 promise（如 connectEdge 等监听器连线完成），await 之保证
-      // 真正串行化（connect 落地后再推进到 runNode）
-      await task();
+      const result = await task();
+      appendBatchResult(taskBatchId, result);
       await yieldToRender();
     })
     .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      appendBatchResult(taskBatchId, {
+        op,
+        ok: false,
+        assets: [],
+        error: message,
+      });
       console.warn("[agentPatchApplier] 队列任务执行失败:", err);
     });
 };
@@ -60,7 +87,17 @@ export function resetAgentPatchSession(): void {
   idMap.clear();
   session += 1;
   chain = Promise.resolve();
+  activeBatchId = 0;
+  batchResultsById.clear();
   sessionKey = null;
+}
+
+/** 保留会话级 agent id 映射，但为新一轮聊天清空执行回执。 */
+export function beginAgentPatchBatch(): number {
+  batchSequence += 1;
+  activeBatchId = batchSequence;
+  batchResultsById.set(activeBatchId, []);
+  return activeBatchId;
 }
 
 // idMap 生命周期跟随「聊天会话」而非「单轮运行」：小T第 2 轮可能继续引用它
@@ -82,8 +119,14 @@ export function resolveAgentNodeId(agentId: string): string {
 
 // 等待当前已入队的所有画布操作执行完（含 addNode 的 done 回调登记 idMap）。
 // 缺图对账须在队列 drain 后进行，否则 idMap 尚未填好、节点也未真正落地。
-export function flushAgentPatchQueue(): Promise<void> {
-  return chain;
+export async function flushAgentPatchQueue(
+  batchId: number
+): Promise<AgentPatchExecutionReport> {
+  const batchTail = chain;
+  await batchTail;
+  const report = buildAgentPatchExecutionReport(batchResultsById.get(batchId) ?? []);
+  batchResultsById.delete(batchId);
+  return report;
 }
 
 // 校验同步返回（false = patch 无法识别/缺参），实际画布操作串行入队异步执行。
@@ -108,34 +151,60 @@ export function applyAgentPatch(raw: unknown): boolean {
         hardForced || defaults
           ? { ...(defaults ?? {}), ...(node.data ?? {}), ...(hardForced ?? {}) }
           : node.data;
-      enqueue(() => {
-        window.dispatchEvent(
-          new CustomEvent("flow:agent-add-node", {
-            detail: {
-              type: node.type,
-              data: nodeData,
-              position: node.position,
-              done: (createdId: string | null) => {
-                if (createdId) {
-                  idMap.set(agentId, createdId);
-                } else {
-                  toast(`节点类型不可用：${node.type}`);
-                }
-              },
-            },
+      enqueue(
+        "addNode",
+        () =>
+          new Promise<AgentPatchExecutionResult>((resolve) => {
+            let settled = false;
+            const finish = (createdId: string | null) => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timer);
+              if (createdId) {
+                idMap.set(agentId, createdId);
+                resolve({
+                  op: "addNode",
+                  ok: true,
+                  agentNodeId: agentId,
+                  nodeId: createdId,
+                  assets: [],
+                });
+                return;
+              }
+              const error = `节点类型不可用：${node.type}`;
+              toast(error);
+              resolve({
+                op: "addNode",
+                ok: false,
+                agentNodeId: agentId,
+                assets: [],
+                error,
+              });
+            };
+            const timer = window.setTimeout(() => finish(null), 3000);
+            window.dispatchEvent(
+              new CustomEvent("flow:agent-add-node", {
+                detail: {
+                  type: node.type,
+                  data: nodeData,
+                  position: node.position,
+                  done: finish,
+                },
+              })
+            );
           })
-        );
-      });
+      );
       return true;
     }
     case "updateNodeData": {
       const { id, patch } = p;
-      enqueue(() => {
+      enqueue("updateNodeData", () => {
         window.dispatchEvent(
           new CustomEvent("flow:updateNodeData", {
             detail: { id: realId(id!), patch },
           })
         );
+        return { op: "updateNodeData", ok: true, nodeId: realId(id!), assets: [] };
       });
       return true;
     }
@@ -143,18 +212,27 @@ export function applyAgentPatch(raw: unknown): boolean {
       const { source, target, sourceHandle, targetHandle } = p;
       // FlowOverlay.onAgentConnectEdge 是 async（连线前轮询等 handle ~1.5s）。
       // 用 done 回调让入队任务等到监听器真正连完再推进，避免 connect 还没落地
-      // 就跑 runNode。2s 超时兜底防死等（监听器异常/未接线时不卡队列）。
+      // 就跑 runNode。5s 超时兜底防死等（监听器异常/未接线时不卡队列）。
       enqueue(
+        "connectEdge",
         () =>
-          new Promise<void>((resolve) => {
+          new Promise<AgentPatchExecutionResult>((resolve) => {
             let settled = false;
-            const finish = () => {
+            const finish = (result?: { ok: boolean; error?: string }) => {
               if (settled) return;
               settled = true;
               window.clearTimeout(timer);
-              resolve();
+              resolve({
+                op: "connectEdge",
+                ok: result?.ok === true,
+                assets: [],
+                ...(result?.error ? { error: result.error } : {}),
+              });
             };
-            const timer = window.setTimeout(finish, 2000);
+            const timer = window.setTimeout(
+              () => finish({ ok: false, error: "画布连线执行超时" }),
+              5000
+            );
             window.dispatchEvent(
               new CustomEvent("flow:agent-connect-edge", {
                 detail: {
@@ -172,27 +250,53 @@ export function applyAgentPatch(raw: unknown): boolean {
     }
     case "focusNode": {
       const { id } = p;
-      enqueue(() => {
+      enqueue("focusNode", () => {
         window.dispatchEvent(
           new CustomEvent("flow:focus-node", { detail: { id: realId(id!) } })
         );
+        return { op: "focusNode", ok: true, nodeId: realId(id!), assets: [] };
       });
       return true;
     }
     case "runNode": {
       const { id } = p;
-      enqueue(() => {
-        window.dispatchEvent(
-          new CustomEvent("flow:agent-run-node", { detail: { id: realId(id!) } })
-        );
-      });
+      enqueue(
+        "runNode",
+        () =>
+          new Promise<AgentPatchExecutionResult>((resolve) => {
+            const nodeId = realId(id!);
+            let settled = false;
+            const finish = (result: AgentPatchExecutionResult) => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timer);
+              resolve({ ...result, agentNodeId: id!, nodeId });
+            };
+            const timer = window.setTimeout(
+              () =>
+                finish({
+                  op: "runNode",
+                  ok: false,
+                  nodeId,
+                  assets: [],
+                  error: "节点生成执行超时",
+                }),
+              16 * 60 * 1000
+            );
+            window.dispatchEvent(
+              new CustomEvent("flow:agent-run-node", {
+                detail: { id: nodeId, done: finish },
+              })
+            );
+          })
+      );
       return true;
     }
     case "placeImage": {
       const url = String(p.url || "").trim();
       if (!url) return false;
       const fileName = (p.name || "agent-image").trim() || "agent-image";
-      enqueue(() => {
+      enqueue("placeImage", () => {
         // detail 形状照素材库「应用到画布」惯例（MaterialLibraryPanel applyAssetToCanvas）：
         // imageData 传 payload 对象（url/src/remoteUrl），每次全新 placementId 防去重覆盖。
         const placementId = `agent-image-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -211,6 +315,7 @@ export function applyAgentPatch(raw: unknown): boolean {
             },
           })
         );
+        return { op: "placeImage", ok: true, assets: [{ kind: "image", url }] };
       });
       return true;
     }

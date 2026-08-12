@@ -227,6 +227,10 @@ import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { DEFAULT_NODE_HANDLES } from "@/services/agentCanvasProtocol";
 import {
+  collectAgentNodeAssets,
+  type AgentPatchExecutionResult,
+} from "@/services/agentPatchExecution";
+import {
   fetchNodeConfigs,
   getStatusBadge,
   NODE_CONFIG_SYNC_DOM_EVENT,
@@ -24770,20 +24774,20 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             target?: string;
             sourceHandle?: string | null;
             targetHandle?: string | null;
-            done?: () => void;
+            done?: (result: { ok: boolean; error?: string }) => void;
           }
         | undefined;
       // 通知 applier 串行队列本次连线已处理完（无论成败），让其推进到下一 op。
-      // 放在函数各返回/结束路径都触发，避免队列死等（applier 有 2s 兜底）。
-      const notifyDone = () => {
+      // 放在函数各返回/结束路径都触发，避免队列死等（applier 有 5s 兜底）。
+      const notifyDone = (result: { ok: boolean; error?: string }) => {
         try {
-          detail?.done?.();
+          detail?.done?.(result);
         } catch {
           /* ignore */
         }
       };
       if (!detail?.source || !detail?.target) {
-        notifyDone();
+        notifyDone({ ok: false, error: "画布连线缺少源节点或目标节点" });
         return;
       }
       const d = {
@@ -24867,50 +24871,132 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         onConnect(d as Connection);
       } catch (err) {
         console.warn("[agent-bridge] connect-edge failed:", err);
+        notifyDone({
+          ok: false,
+          error: err instanceof Error ? err.message : "画布连线执行失败",
+        });
+        return;
       }
-      // 连线已提交（onConnect 同步 setEdges），放行 applier 队列推进到下一 op；
-      // 下面的 350ms 落地核对仍独立进行（不阻塞队列）
-      notifyDone();
-      // isValidConnection/canAcceptConnection 静默拒绝时用户只看到"连线少了"——
-      // 等 handle 就绪 + onConnect 后再 +350ms（React 渲染+协作回声）核对边是否落进
-      // state，没有则可见化告警。放在 waitHandleReady 之后避免等待期误报。
-      window.setTimeout(() => {
-        const exists = rf
-          .getEdges()
-          .some(
-            (e) =>
-              e.source === d.source &&
-              e.target === d.target &&
-              (e.sourceHandle ?? null) === d.sourceHandle &&
-              (e.targetHandle ?? null) === d.targetHandle
-          );
-        if (exists) return;
+      // 等 React Flow 与协作状态真正出现该边后才回执；runNode 必须排在真实连线之后。
+      let exists = false;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        exists = rf.getEdges().some(
+          (edge) =>
+            edge.source === d.source &&
+            edge.target === d.target &&
+            (edge.sourceHandle ?? null) === d.sourceHandle &&
+            (edge.targetHandle ?? null) === d.targetHandle
+        );
+        if (exists) break;
+      }
+      if (!exists) {
+        const error = `小T连线未生效：${d.source}→${d.target}（handle 不匹配或节点不存在）`;
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: {
               type: "warning",
-              message: `小T连线未生效：${d.source}→${d.target}（handle 不匹配或节点不存在）`,
+              message: error,
             },
           })
         );
         console.warn("[xiaot] connectEdge rejected", d);
-      }, 350);
+        notifyDone({ ok: false, error });
+        return;
+      }
+      notifyDone({ ok: true });
     };
 
-    const onAgentRunNode = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { id?: string } | undefined;
+    const onAgentRunNode = async (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            id?: string;
+            done?: (result: AgentPatchExecutionResult) => void;
+          }
+        | undefined;
       const nodeId = detail?.id;
-      if (!nodeId) return;
+      const finish = (result: AgentPatchExecutionResult) => {
+        try {
+          detail?.done?.(result);
+        } catch {
+          /* ignore */
+        }
+      };
+      if (!nodeId) {
+        finish({ op: "runNode", ok: false, assets: [], error: "运行节点缺少 id" });
+        return;
+      }
       const node = rf.getNodes().find((n) => n.id === nodeId);
-      if (!node) return;
+      if (!node) {
+        finish({
+          op: "runNode",
+          ok: false,
+          nodeId,
+          assets: [],
+          error: `运行节点不存在：${nodeId}`,
+        });
+        return;
+      }
       const nodeType = String(node.type || "");
       if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
         // 文本类节点自监听 flow:run-node 本地执行
         window.dispatchEvent(
           new CustomEvent("flow:run-node", { detail: { id: nodeId } })
         );
-      } else {
-        void runNode(nodeId);
+        finish({ op: "runNode", ok: true, nodeId, assets: [] });
+        return;
+      }
+      try {
+        await runNode(nodeId);
+        let latestNode = rf.getNode(nodeId);
+        let latestStatus = "";
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const data =
+            latestNode?.data && typeof latestNode.data === "object"
+              ? (latestNode.data as Record<string, unknown>)
+              : {};
+          const status = typeof data.status === "string" ? data.status : "";
+          latestStatus = status;
+          const assets = collectAgentNodeAssets(data);
+          if (status === "failed") {
+            finish({
+              op: "runNode",
+              ok: false,
+              nodeId,
+              assets,
+              error:
+                typeof data.error === "string" && data.error.trim()
+                  ? data.error.trim()
+                  : "节点生成失败",
+            });
+            return;
+          }
+          if (assets.length > 0) {
+            finish({ op: "runNode", ok: true, nodeId, assets });
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+          latestNode = rf.getNode(nodeId);
+        }
+        finish(
+          latestStatus === "succeeded"
+            ? { op: "runNode", ok: true, nodeId, assets: [] }
+            : {
+                op: "runNode",
+                ok: false,
+                nodeId,
+                assets: [],
+                error: "节点运行结束后未产生可验证终态",
+              }
+        );
+      } catch (error) {
+        finish({
+          op: "runNode",
+          ok: false,
+          nodeId,
+          assets: [],
+          error: error instanceof Error ? error.message : "节点运行失败",
+        });
       }
     };
 

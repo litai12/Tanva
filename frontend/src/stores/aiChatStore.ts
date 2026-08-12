@@ -51,10 +51,15 @@ import {
 } from "@/services/agentCanvasProtocol";
 import {
   applyAgentPatch,
+  beginAgentPatchBatch,
   ensureAgentPatchSession,
   flushAgentPatchQueue,
   resolveAgentNodeId,
 } from "@/services/agentPatchApplier";
+import {
+  buildXiaotDeliveredContent,
+  verifyXiaotHostDelivery,
+} from "@/services/xiaotHostDelivery";
 import { XiaotImagePatchContract } from "@/services/xiaotImagePatchContract";
 import {
   resolveXiaotFinalText,
@@ -8550,6 +8555,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 3️⃣ patch 会话跟随聊天会话：同会话保留 agent 节点 id 映射
           //（小T下轮可继续引用上轮自造 id），仅聊天会话切换时才重置
           ensureAgentPatchSession(sessionId);
+          const patchBatchId = beginAgentPatchBatch();
 
           let assembled = "";
           let patchCount = 0;
@@ -8562,6 +8568,28 @@ export const useAIChatStore = create<AIChatState>()(
             kind: string;
             payload: unknown;
           }> = [];
+          const assetKindByNodeType = new Map<
+            string,
+            "image" | "video" | "audio"
+          >();
+          for (const nodeSpec of TANVA_CAPABILITY_MANIFEST.nodeSpecs) {
+            const kinds = Array.from(
+              new Set(
+                (nodeSpec.outputs || [])
+                  .map((output) => output.emits)
+                  .filter(
+                    (kind): kind is "image" | "video" | "audio" =>
+                      kind === "image" || kind === "video" || kind === "audio"
+                  )
+              )
+            );
+            if (kinds.length === 1) assetKindByNodeType.set(nodeSpec.type, kinds[0]);
+          }
+          const expectedAssetKindByAgentNodeId = new Map<
+            string,
+            "image" | "video" | "audio"
+          >();
+          const executedAgentNodeIds = new Set<string>();
           // 打字机流式渲染：小T facade 常把整段回复一次性大块下发（assistant_delta
           // 不是逐 token），直接写 content 会「唰」地整段冒出、毫无流式感。这里把
           // 「真值文本 typeTarget」与「已显示字符数 typeShown」解耦，用 rAF 每帧按
@@ -8906,6 +8934,16 @@ export const useAIChatStore = create<AIChatState>()(
                     }
                     if (admittedPatch.op === "runNode") {
                       firstRunNodeAt ??= performance.now();
+                      if (admittedPatch.id) executedAgentNodeIds.add(admittedPatch.id);
+                    }
+                    if (admittedPatch.op === "addNode" && admittedPatch.node) {
+                      const expectedKind = assetKindByNodeType.get(admittedPatch.node.type);
+                      if (expectedKind) {
+                        expectedAssetKindByAgentNodeId.set(
+                          admittedPatch.node.id,
+                          expectedKind
+                        );
+                      }
                     }
                     if (!applyAgentPatch(admittedPatch)) continue;
                     patchCount += 1;
@@ -9184,7 +9222,7 @@ export const useAIChatStore = create<AIChatState>()(
                 const errText = event.message || "小T处理失败";
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
-                  content: assembled || `处理失败: ${errText}`,
+                  content: `处理失败: ${errText}`,
                   generationStatus: {
                     ...(msg.generationStatus || {
                       isGenerating: true,
@@ -9212,7 +9250,41 @@ export const useAIChatStore = create<AIChatState>()(
 
             const imageContractStats = imagePatchContract.getStats();
             const acceptedImageAgentIds = imagePatchContract.getAcceptedImageIds();
-            await flushAgentPatchQueue();
+            if (patchCount > 0) {
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                generationStatus: {
+                  ...(msg.generationStatus || {}),
+                  isGenerating: true,
+                  progress: Math.max(msg.generationStatus?.progress ?? 0, 70),
+                  error: null,
+                  stage: "等待画布节点真实结果",
+                },
+              }));
+            }
+            const patchExecutionReport = await flushAgentPatchQueue(patchBatchId);
+            const expectedAssets = Array.from(executedAgentNodeIds)
+              .map((agentNodeId) => {
+                const kind = expectedAssetKindByAgentNodeId.get(agentNodeId);
+                return kind
+                  ? { nodeId: resolveAgentNodeId(agentNodeId), kind }
+                  : null;
+              })
+              .filter(
+                (
+                  expected
+                ): expected is {
+                  nodeId: string;
+                  kind: "image" | "video" | "audio";
+                } => expected !== null
+              );
+            const hostDelivery = verifyXiaotHostDelivery({
+              report: patchExecutionReport,
+              expectedAssets,
+            });
+            if (!hostDelivery.satisfied) {
+              throw new Error(hostDelivery.error || "画布操作没有形成可验证交付");
+            }
             const firstAcceptedImageId = acceptedImageAgentIds[0]
               ? resolveAgentNodeId(acceptedImageAgentIds[0])
               : null;
@@ -9235,6 +9307,45 @@ export const useAIChatStore = create<AIChatState>()(
                   },
                 };
               });
+            }
+            const renderableHostAssets = hostDelivery.assets.filter(
+              (asset) => asset.kind === "image" || asset.kind === "video"
+            );
+            if (renderableHostAssets.length > 0) {
+              const deliveredMediaCard = {
+                kind: "media",
+                payload: {
+                  layout: renderableHostAssets.length > 1 ? "grid" : "single",
+                  items: renderableHostAssets.map((asset, index) => ({
+                    kind: asset.kind,
+                    url: asset.url,
+                    title:
+                      asset.kind === "image"
+                        ? `小T图片 ${index + 1}`
+                        : `小T视频 ${index + 1}`,
+                  })),
+                },
+              };
+              get().updateMessage(aiMessage.id, (msg) => {
+                const previousCards = Array.isArray(msg.metadata?.xiaotCards)
+                  ? (msg.metadata.xiaotCards as Array<{
+                      kind: string;
+                      payload: unknown;
+                    }>)
+                  : [];
+                return {
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    xiaotCards: [...previousCards, deliveredMediaCard],
+                  },
+                };
+              });
+            }
+            if (hostDelivery.assets.length > 0) {
+              assembled = buildXiaotDeliveredContent(hostDelivery.assets, assembled);
+              typeTarget = assembled;
+              pumpTypewriter();
             }
             if (patchCount > 0) {
               window.dispatchEvent(
@@ -9270,6 +9381,11 @@ export const useAIChatStore = create<AIChatState>()(
                   imageContractStats.acceptedImageNodes > 0
                     ? pendingXiaotMediaCards.length
                     : 0,
+                xiaotHostExecution: {
+                  succeededCount: patchExecutionReport.succeededCount,
+                  failedCount: patchExecutionReport.failedCount,
+                  assets: hostDelivery.assets,
+                },
                 xiaotTimingMs: {
                   snapshot: Math.round(
                     (snapshotReadyAt ?? patchesFlushedAt) - timingStartedAt
@@ -9384,7 +9500,7 @@ export const useAIChatStore = create<AIChatState>()(
                 error instanceof Error ? error.message : "小T处理失败";
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
-                content: assembled || `处理失败: ${errorMessage}`,
+                content: `处理失败: ${errorMessage}`,
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,
