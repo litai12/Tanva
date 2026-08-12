@@ -10,6 +10,7 @@ import React, {
 import { cn } from "@/lib/utils";
 import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, RefreshCw, Pencil } from "lucide-react";
 import { useAIChatStore } from "@/stores/aiChatStore";
+import { useAuthStore } from "@/stores/authStore";
 import {
   createPaymentOrder,
   getPaymentStatus,
@@ -30,9 +31,6 @@ const showToast = (message: string, type: "success" | "error" | "info" = "info")
   );
 };
 
-// 产品暂不开放自定义积分充值；保留原实现，后续可直接恢复入口。
-const SHOW_CUSTOM_CREDIT_TOP_UP = false;
-
 export type PaymentPanelHandle = {
   openOrders: () => void;
   closeOrders: () => void;
@@ -52,6 +50,9 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   ref,
 ) {
   const { lt } = useLocaleText();
+  const canUseCustomCreditTopUp = useAuthStore(
+    (state) => state.user?.role?.toLowerCase() === "admin",
+  );
   const [packages, setPackages] = useState<RechargePackage[]>([]);
   const [creditsPerYuan, setCreditsPerYuan] = useState<number>(100);
   const [rechargeBonusEligible, setRechargeBonusEligible] = useState(false);
@@ -85,10 +86,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   }, []);
 
   const isWhite = useAIChatStore((s) => s.chatTheme === "white");
-  const isDark = !isWhite;
 
-  // 自定义积分解锁：历史累计已支付 ≥ ¥200 才显示该区域
-  const [customAmountEligible, setCustomAmountEligible] = useState(false);
   const [customAmountMode, setCustomAmountMode] = useState(false);
   const [customCreditsInput, setCustomCreditsInput] = useState("");
 
@@ -254,28 +252,6 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, []);
-
-  // 打开面板时根据历史已付金额判断是否显示自定义积分入口：累计已支付 ≥ ¥200 才解锁
-  useEffect(() => {
-    if (!SHOW_CUSTOM_CREDIT_TOP_UP) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await getPaymentOrders({ page: 1, pageSize: 200 });
-        if (cancelled) return;
-        const totalPaid = result.orders
-          .filter((o) => o.status === "paid")
-          .reduce((sum, o) => sum + o.amount, 0);
-        setCustomAmountEligible(totalPaid >= 200);
-      } catch (e) {
-        console.error("检查自定义充值资格失败:", e);
-      }
-    })();
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -689,8 +665,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
             })}
           </div>
 
-          {/* 自定义积分（历史累计已支付 ≥ ¥200 才显示该区域；金额由积分按汇率换算） */}
-          {SHOW_CUSTOM_CREDIT_TOP_UP && customAmountEligible && (
+          {/* 自定义积分仅对超级管理员开放；金额由积分按汇率换算。 */}
+          {canUseCustomCreditTopUp && (
             <div
               className={cn(
                 "rounded-xl border-2 transition-all",

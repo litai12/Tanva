@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
@@ -454,6 +454,22 @@ export class PaymentService implements OnModuleInit {
       const expectedAmount = this.normalizeMoneyAmount(baseCredits / CREDITS_PER_YUAN);
       if (Math.abs(expectedAmount - orderAmount) >= 0.01) {
         throw new BadRequestException('积分充值金额与积分数量不匹配');
+      }
+      if (orderType === 'recharge') {
+        const isFixedPackage = RECHARGE_PACKAGES.some(
+          (rechargePackage) =>
+            rechargePackage.credits === baseCredits &&
+            Math.abs(rechargePackage.price - orderAmount) < 0.01,
+        );
+        if (!isFixedPackage) {
+          const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true },
+          });
+          if (user?.role?.toLowerCase() !== 'admin') {
+            throw new ForbiddenException('仅超级管理员可以自定义积分充值金额');
+          }
+        }
       }
       const eligibility = await this.membershipService.getRechargeBonusEligibility(userId);
       const grant = calculateRechargeGrant(baseCredits, eligibility.eligible);
