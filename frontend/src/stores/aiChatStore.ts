@@ -59,6 +59,7 @@ import {
 import {
   buildXiaotDeliveredContent,
   verifyXiaotHostDelivery,
+  verifyXiaotTurnDelivery,
 } from "@/services/xiaotHostDelivery";
 import { XiaotImagePatchContract } from "@/services/xiaotImagePatchContract";
 import {
@@ -8561,6 +8562,7 @@ export const useAIChatStore = create<AIChatState>()(
           let patchCount = 0;
           let streamErrored = false;
           let hostToolHandled = false;
+          let hostUiCount = 0;
           const pendingHostTools: Promise<void>[] = [];
           let videoRewriteToasted = false;
           let imageRewriteToasted = false;
@@ -9168,6 +9170,7 @@ export const useAIChatStore = create<AIChatState>()(
                   typeof event.data?.kind === "string" ? event.data.kind : "";
                 const payload = event.data?.payload;
                 if (kind && payload) {
+                  hostUiCount += 1;
                   if (kind === "suggestions") {
                     const rawItems = (payload as { items?: unknown }).items;
                     const items = Array.isArray(rawItems)
@@ -9278,9 +9281,15 @@ export const useAIChatStore = create<AIChatState>()(
                   kind: "image" | "video" | "audio";
                 } => expected !== null
               );
-            const hostDelivery = verifyXiaotHostDelivery({
-              report: patchExecutionReport,
-              expectedAssets,
+            const hostDelivery = verifyXiaotTurnDelivery({
+              assistantText: assembled,
+              patchCount,
+              hostToolHandled,
+              hostUiCount,
+              hostDelivery: verifyXiaotHostDelivery({
+                report: patchExecutionReport,
+                expectedAssets,
+              }),
             });
             if (!hostDelivery.satisfied) {
               throw new Error(hostDelivery.error || "画布操作没有形成可验证交付");

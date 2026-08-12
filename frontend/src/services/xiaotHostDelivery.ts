@@ -14,6 +14,14 @@ export interface XiaotExpectedHostAsset {
   kind: AgentGeneratedAsset["kind"];
 }
 
+export interface XiaotTurnDeliveryEvidence {
+  assistantText: string;
+  patchCount: number;
+  hostToolHandled: boolean;
+  hostUiCount: number;
+  hostDelivery: XiaotHostDeliveryVerification;
+}
+
 export const verifyXiaotHostDelivery = (input: {
   report: AgentPatchExecutionReport;
   expectedAssets: XiaotExpectedHostAsset[];
@@ -50,6 +58,32 @@ export const verifyXiaotHostDelivery = (input: {
   }
 
   return { satisfied: true, assets: input.report.assets };
+};
+
+/**
+ * SSE completion is not delivery. Require at least one visible or executable
+ * output channel after the host-side patch verifier has accepted its evidence.
+ */
+export const verifyXiaotTurnDelivery = (
+  evidence: XiaotTurnDeliveryEvidence
+): XiaotHostDeliveryVerification => {
+  if (!evidence.hostDelivery.satisfied) return evidence.hostDelivery;
+
+  const hasDelivery =
+    evidence.assistantText.trim().length > 0 ||
+    evidence.patchCount > 0 ||
+    evidence.hostToolHandled ||
+    evidence.hostUiCount > 0;
+  if (!hasDelivery) {
+    return {
+      satisfied: false,
+      assets: evidence.hostDelivery.assets,
+      error:
+        "小T上游已结束，但没有返回正文、画布命令、宿主工具或可展示卡片",
+    };
+  }
+
+  return evidence.hostDelivery;
 };
 
 export const buildXiaotDeliveredContent = (

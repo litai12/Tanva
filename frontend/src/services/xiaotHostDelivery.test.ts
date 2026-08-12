@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import {
   buildXiaotDeliveredContent,
   verifyXiaotHostDelivery,
+  verifyXiaotTurnDelivery,
 } from "./xiaotHostDelivery.ts";
+import type { XiaotHostDeliveryVerification } from "./xiaotHostDelivery.ts";
 
 describe("verifyXiaotHostDelivery", () => {
   it("requires a real image URL for every expected image node", () => {
@@ -39,6 +41,52 @@ describe("verifyXiaotHostDelivery", () => {
     });
     assert.equal(result.satisfied, false);
     assert.match(result.error || "", /真实资产 URL/);
+  });
+});
+
+describe("verifyXiaotTurnDelivery", () => {
+  const emptyHostDelivery: XiaotHostDeliveryVerification = {
+    satisfied: true,
+    assets: [],
+  };
+
+  it("rejects a transport-complete turn with no delivery evidence", () => {
+    const result = verifyXiaotTurnDelivery({
+      assistantText: "",
+      patchCount: 0,
+      hostToolHandled: false,
+      hostUiCount: 0,
+      hostDelivery: emptyHostDelivery,
+    });
+    assert.equal(result.satisfied, false);
+    assert.match(result.error || "", /没有返回正文、画布命令、宿主工具或可展示卡片/);
+  });
+
+  it("accepts a real host patch report even when the assistant body is empty", () => {
+    const result = verifyXiaotTurnDelivery({
+      assistantText: "",
+      patchCount: 2,
+      hostToolHandled: false,
+      hostUiCount: 0,
+      hostDelivery: emptyHostDelivery,
+    });
+    assert.equal(result.satisfied, true);
+  });
+
+  it("preserves a host execution failure", () => {
+    const result = verifyXiaotTurnDelivery({
+      assistantText: "已创建图片节点",
+      patchCount: 1,
+      hostToolHandled: false,
+      hostUiCount: 0,
+      hostDelivery: {
+        satisfied: false,
+        assets: [],
+        error: "节点生成失败",
+      },
+    });
+    assert.equal(result.satisfied, false);
+    assert.equal(result.error, "节点生成失败");
   });
 });
 

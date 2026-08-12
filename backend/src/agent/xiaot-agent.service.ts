@@ -6,6 +6,7 @@ import { CreditsService } from '../credits/credits.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAgentRunDto } from './dto/agent-run.dto';
 import { AgentEventType } from './agent.types';
+import { assertXiaotUpstreamDelivery } from './xiaot-agent-delivery';
 
 type XiaotEmit = (
   type: AgentEventType,
@@ -195,6 +196,8 @@ export class XiaotAgentService {
       let buffer = '';
       let fullText = '';
       let patchCount = 0;
+      let hostToolCount = 0;
+      let hostUiCount = 0;
       let usageUnits = 0;
       // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
       // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
@@ -265,7 +268,8 @@ export class XiaotAgentService {
               });
             } else if (acc.name === 'host_tool') {
               const args = parsedArgs as Record<string, unknown>;
-              if (typeof args.name !== 'string') continue;
+              if (typeof args.name !== 'string' || !args.name.trim()) continue;
+              hostToolCount += 1;
               emit('host_tool', {
                 data: {
                   name: args.name,
@@ -278,7 +282,8 @@ export class XiaotAgentService {
             } else {
               // host_ui：协议 v1.1 富格式卡片，必须带 string 类型 kind（choices/suggestions/media）。
               const args = parsedArgs as Record<string, unknown>;
-              if (typeof args.kind !== 'string') continue;
+              if (typeof args.kind !== 'string' || !args.kind.trim()) continue;
+              hostUiCount += 1;
               emit('host_ui', {
                 data: { kind: args.kind, payload: args.payload },
               });
@@ -307,9 +312,19 @@ export class XiaotAgentService {
         handleLine(buffer);
       }
 
+      assertXiaotUpstreamDelivery({
+        text: fullText,
+        patchCount,
+        hostToolCount,
+        hostUiCount,
+        incompleteToolCallCount: toolCallBuffers.size,
+      });
+
       await this.settleCredits(userId, usageUnits, model, {
         textChars: fullText.length,
         patchCount,
+        hostToolCount,
+        hostUiCount,
       });
 
       emit('final', {
