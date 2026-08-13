@@ -162,6 +162,7 @@
 ## 2026-05-04 Update
 - `GenerationProgressBar` accepts `runKey`/`startedAt`; flow generation and video nodes pass their node id as `runKey` so simulated progress is calculated from a stable run start instead of resetting on rerender.
 - `FlowOverlay` maintains `progressStartedAt` as transient runtime state for running nodes and strips it from Flow copy/template export paths so it does not persist into design JSON.
+- Every `runNode` invocation now replaces any previous transient progress timestamp at click time; repeat runs therefore restart from the beginning instead of inheriting a stale 95% clock.
 - `NodeGroupNode` supports a stop state: when a group is running, the footer button switches from Play to Square and calls `FlowOverlay.stopGroupRun`; `FlowOverlay` marks the group as stopping and skips remaining queued child nodes after the current child run resolves.
 - Group nodes bypass the generic `nodesWithHandlers` cache so `groupRunning/groupStopping` and injected callbacks stay current while preserving the cache for normal nodes.
 - Global History has a shared `historyMedia.ts` helper for image/video detection, labels, media URLs, video thumbnails, and download names. The history page and detail modal now render video records with thumbnails/playback; AI Chat Seedance video success records remote video URL metadata through `recordVideoHistoryEntry`.

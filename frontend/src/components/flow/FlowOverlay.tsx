@@ -54,6 +54,7 @@ import {
   createEmptyStoryboardPromptTable,
   serializeStoryboardPromptTable,
 } from "./storyboardPromptTable";
+import { startFlowProgressRun } from "./flowProgressRuntime";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
@@ -16641,6 +16642,16 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const progressStartedAt = Date.now();
+      // Stamp the click synchronously for every run. This prevents a quick
+      // rerun from inheriting the previous session's already-completed clock.
+      setNodes((ns) =>
+        ns.map((item) =>
+          item.id === nodeId
+            ? { ...item, data: startFlowProgressRun(item.data, progressStartedAt) }
+            : item,
+        ),
+      );
       console.log('[runNode] 节点类型:', node.type);
 
       const currentEdges = rf.getEdges();
