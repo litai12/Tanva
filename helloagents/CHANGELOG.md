@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-15：根治 Tanva 小T简单任务空转到物理 token 预算并误显示“已完成”。TapCanvas 上游把 `referenceResolution` 改为与运行时一致的判别式 JSON Schema，向模型分别公开 gpt-5.4 的 272,000 最大上下文、258,400 有效窗口、64,000 任务工作集与 120,000 物理累计预算，并在模型调用前预留 token；OpenAI facade 不再把物理窗口暂停包装成正文 + `finish_reason=stop`，而是返回显式 `xiaot_turn_suspended`。Tanva 后端只接受匹配交付通道的 `finish_reason` + `[DONE]` + 非空交付，前端必须收到 `done` 且无 `error` 才能进入完成态；上游会话键硬切 `xiaot-v2:`，隔离旧会话中重复失败的工具历史而不删除数据。
+
 - 2026-08-12：修复管理后台白名单权益保存误报“至少选择一项白名单权益”。统一白名单提交接口现在显式使用 `application/json`，NestJS 可正确解析已开启的“去水印 / 最高档年卡权益 / 充值到账 120%”开关，不再把非空选择误判为空。
 
 - 2026-08-12：修复小T生图只显示“持久异步执行器受理”或“任务已完成”却不向 Tanvas 交付节点的问题。TapCanvas 宿主模式现在把原始、已校验的 `flow_patch` 参数交给 OpenAI facade，投影失败显式返回 `host_flow_patch_projection_failed`，不再静默丢命令并生成空 `stop`。Tanva 后端把 `[DONE]` 与业务交付分离：正文、patch、宿主工具、UI 卡全部为空或 tool-call JSON 截断时 run 失败且不扣成功回合积分；前端继续串行等待 `addNode → connectEdge → runNode` 与真实 HTTP(S) 资产，并新增空交付校验，禁止用传输完成冒充用户任务完成。

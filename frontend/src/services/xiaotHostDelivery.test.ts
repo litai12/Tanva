@@ -52,6 +52,7 @@ describe("verifyXiaotTurnDelivery", () => {
 
   it("rejects a transport-complete turn with no delivery evidence", () => {
     const result = verifyXiaotTurnDelivery({
+      streamCompletedSuccessfully: true,
       assistantText: "",
       patchCount: 0,
       hostToolHandled: false,
@@ -64,6 +65,7 @@ describe("verifyXiaotTurnDelivery", () => {
 
   it("accepts a real host patch report even when the assistant body is empty", () => {
     const result = verifyXiaotTurnDelivery({
+      streamCompletedSuccessfully: true,
       assistantText: "",
       patchCount: 2,
       hostToolHandled: false,
@@ -75,6 +77,7 @@ describe("verifyXiaotTurnDelivery", () => {
 
   it("preserves a host execution failure", () => {
     const result = verifyXiaotTurnDelivery({
+      streamCompletedSuccessfully: true,
       assistantText: "已创建图片节点",
       patchCount: 1,
       hostToolHandled: false,
@@ -87,6 +90,19 @@ describe("verifyXiaotTurnDelivery", () => {
     });
     assert.equal(result.satisfied, false);
     assert.equal(result.error, "节点生成失败");
+  });
+
+  it("rejects an upstream error even when partial assistant text exists", () => {
+    const result = verifyXiaotTurnDelivery({
+      streamCompletedSuccessfully: false,
+      assistantText: "上游暂停前已经输出的部分正文",
+      patchCount: 0,
+      hostToolHandled: false,
+      hostUiCount: 0,
+      hostDelivery: emptyHostDelivery,
+    });
+    assert.equal(result.satisfied, false);
+    assert.match(result.error || "", /错误终态/);
   });
 });
 

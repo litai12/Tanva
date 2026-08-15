@@ -173,6 +173,13 @@ export async function streamAgentRunEvents(
         }
       }
     }
+    buffer += decoder.decode();
+    const tailEvent = parseSseEvent(buffer);
+    if (tailEvent) {
+      onEvent(tailEvent);
+      if (tailEvent.type === "done") return;
+    }
+    throw new Error("Agent event stream ended without a done event");
   } finally {
     try {
       reader.releaseLock();

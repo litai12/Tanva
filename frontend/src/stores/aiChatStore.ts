@@ -9282,6 +9282,7 @@ export const useAIChatStore = create<AIChatState>()(
                 } => expected !== null
               );
             const hostDelivery = verifyXiaotTurnDelivery({
+              streamCompletedSuccessfully: !streamErrored,
               assistantText: assembled,
               patchCount,
               hostToolHandled,

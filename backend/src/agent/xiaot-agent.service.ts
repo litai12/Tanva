@@ -6,7 +6,10 @@ import { CreditsService } from '../credits/credits.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAgentRunDto } from './dto/agent-run.dto';
 import { AgentEventType } from './agent.types';
-import { assertXiaotUpstreamDelivery } from './xiaot-agent-delivery';
+import {
+  assertXiaotUpstreamDelivery,
+  buildXiaotUpstreamSessionUser,
+} from './xiaot-agent-delivery';
 
 type XiaotEmit = (
   type: AgentEventType,
@@ -26,6 +29,12 @@ export const XIAOT_CHAT_MODELS = [
   'xiaot-agent-deepseek-v4-flash',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 /** 小T 自身每个成功对话回合的 Tanva 固定积分。 */
 export const XIAOT_CHAT_CREDITS_PER_RUN = 2;
@@ -148,12 +157,14 @@ export class XiaotAgentService {
         stream: true,
         // OpenAI 流式 usage 惯例：请求终帧 usage 供运营审计，不参与固定对话计费。
         stream_options: { include_usage: true },
-        user: dto.sessionId || `tanva:${userId}`,
+        // v2 hard cutover: v1 upstream histories may contain repeated tool-schema
+        // failures. Keep those records intact but never feed them into a v2 turn.
+        user: buildXiaotUpstreamSessionUser(dto.sessionId, userId),
         metadata: { host_user_id: hostScopeId },
         host_user_id: hostScopeId,
         messages: this.buildMessages(dto),
       };
-      let response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -162,23 +173,6 @@ export class XiaotAgentService {
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
-
-      // 所选小T模型目录可能暂时缺失。自动回落到默认 Fast，
-      // 避免用户因为持久化的模型选择而整次创作失败；若 Fast 也不可用，继续返回原始错误。
-      if (response.status === 503 && model !== DEFAULT_XIAOT_CHAT_MODEL) {
-        const errorBody = await response.clone().text().catch(() => '');
-        if (errorBody.includes('model_not_found')) {
-          response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${this.apiKey}`,
-            },
-            body: JSON.stringify({ ...requestBody, model: DEFAULT_XIAOT_CHAT_MODEL }),
-            signal: controller.signal,
-          });
-        }
-      }
 
       if (!response.ok || !response.body) {
         let detail = '';
@@ -199,6 +193,8 @@ export class XiaotAgentService {
       let hostToolCount = 0;
       let hostUiCount = 0;
       let usageUnits = 0;
+      let finishReason: string | null = null;
+      let doneReceived = false;
       // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
       // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
       // 后续帧补齐后再试，成功即 emit 并清该 index——两种形态都覆盖。
@@ -208,42 +204,67 @@ export class XiaotAgentService {
         const line = rawLine.trim();
         if (!line.startsWith('data:')) return;
         const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') return;
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(payload);
-        } catch {
+        if (!payload) return;
+        if (payload === '[DONE]') {
+          doneReceived = true;
           return;
         }
-        if (parsed?.error) {
+        if (doneReceived) {
+          throw new Error('xiaot-agent protocol error: received data after [DONE]');
+        }
+
+        let parsedValue: unknown;
+        try {
+          parsedValue = JSON.parse(payload) as unknown;
+        } catch {
+          throw new Error('xiaot-agent protocol error: invalid JSON data frame');
+        }
+        const parsed = readRecord(parsedValue);
+        if (!parsed) {
+          throw new Error('xiaot-agent protocol error: data frame must be an object');
+        }
+        if (parsed.error) {
           throw new Error(
             `xiaot-agent stream error: ${JSON.stringify(parsed.error).slice(0, 300)}`,
           );
         }
 
-        const delta = parsed?.choices?.[0]?.delta;
-        if (delta?.content && typeof delta.content === 'string') {
+        const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+        const choice = readRecord(choices[0]);
+        const delta = readRecord(choice?.delta);
+        if (typeof delta?.content === 'string' && delta.content) {
           fullText += delta.content;
           emit('assistant_delta', { data: { delta: delta.content } });
         }
 
+        if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
         if (Array.isArray(delta?.tool_calls)) {
           for (const tc of delta.tool_calls) {
-            const index = typeof tc?.index === 'number' ? tc.index : 0;
+            const toolCall = readRecord(tc);
+            const toolFunction = readRecord(toolCall?.function);
+            const index = typeof toolCall?.index === 'number' ? toolCall.index : 0;
             let acc = toolCallBuffers.get(index);
             // 同 index 出现新 id 时视为新的一次 tool_call，重置累积器。
-            if (acc && tc?.id && acc.id && tc.id !== acc.id) {
+            if (
+              acc &&
+              typeof toolCall?.id === 'string' &&
+              toolCall.id &&
+              acc.id &&
+              toolCall.id !== acc.id
+            ) {
               acc = undefined;
             }
             if (!acc) {
               acc = { id: '', name: '', args: '' };
               toolCallBuffers.set(index, acc);
             }
-            if (tc?.id) acc.id = tc.id;
-            if (tc?.function?.name) acc.name += tc.function.name;
-            if (typeof tc?.function?.arguments === 'string') {
-              acc.args += tc.function.arguments;
+            if (typeof toolCall?.id === 'string' && toolCall.id) acc.id = toolCall.id;
+            if (typeof toolFunction?.name === 'string') acc.name += toolFunction.name;
+            if (typeof toolFunction?.arguments === 'string') {
+              acc.args += toolFunction.arguments;
             }
 
             // 累积对所有 name 通用，flush 时按 name 分派。
@@ -291,7 +312,7 @@ export class XiaotAgentService {
           }
         }
 
-        const totalTokens = parsed?.usage?.total_tokens;
+        const totalTokens = readRecord(parsed.usage)?.total_tokens;
         if (typeof totalTokens === 'number' && Number.isFinite(totalTokens)) {
           usageUnits = Math.max(usageUnits, totalTokens);
         }
@@ -318,6 +339,8 @@ export class XiaotAgentService {
         hostToolCount,
         hostUiCount,
         incompleteToolCallCount: toolCallBuffers.size,
+        finishReason,
+        doneReceived,
       });
 
       await this.settleCredits(userId, usageUnits, model, {

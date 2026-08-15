@@ -15,6 +15,7 @@ export interface XiaotExpectedHostAsset {
 }
 
 export interface XiaotTurnDeliveryEvidence {
+  streamCompletedSuccessfully: boolean;
   assistantText: string;
   patchCount: number;
   hostToolHandled: boolean;
@@ -67,6 +68,13 @@ export const verifyXiaotHostDelivery = (input: {
 export const verifyXiaotTurnDelivery = (
   evidence: XiaotTurnDeliveryEvidence
 ): XiaotHostDeliveryVerification => {
+  if (!evidence.streamCompletedSuccessfully) {
+    return {
+      satisfied: false,
+      assets: evidence.hostDelivery.assets,
+      error: "小T上游回合以错误终态结束，不能标记为已完成",
+    };
+  }
   if (!evidence.hostDelivery.satisfied) return evidence.hostDelivery;
 
   const hasDelivery =

@@ -4,6 +4,19 @@ export interface XiaotUpstreamDeliveryEvidence {
   hostToolCount: number;
   hostUiCount: number;
   incompleteToolCallCount: number;
+  finishReason: string | null;
+  doneReceived: boolean;
+}
+
+export const XIAOT_UPSTREAM_SESSION_PROTOCOL_VERSION = 'v2';
+
+export function buildXiaotUpstreamSessionUser(
+  sessionId: string | null | undefined,
+  userId: string,
+): string {
+  const stableSession = typeof sessionId === 'string' ? sessionId.trim() : '';
+  const identity = stableSession || `tanva:${userId}`;
+  return `xiaot-${XIAOT_UPSTREAM_SESSION_PROTOCOL_VERSION}:${identity}`;
 }
 
 /**
@@ -14,6 +27,20 @@ export interface XiaotUpstreamDeliveryEvidence {
 export function assertXiaotUpstreamDelivery(
   evidence: XiaotUpstreamDeliveryEvidence,
 ): void {
+  if (!evidence.doneReceived) {
+    throw new Error('xiaot-agent protocol error: upstream stream ended without [DONE]');
+  }
+
+  const expectedFinishReason =
+    evidence.patchCount + evidence.hostToolCount + evidence.hostUiCount > 0
+      ? 'tool_calls'
+      : 'stop';
+  if (evidence.finishReason !== expectedFinishReason) {
+    throw new Error(
+      `xiaot-agent protocol error: finish_reason=${evidence.finishReason ?? 'missing'}; expected=${expectedFinishReason}`,
+    );
+  }
+
   if (evidence.incompleteToolCallCount > 0) {
     throw new Error(
       `xiaot-agent protocol error: ${evidence.incompleteToolCallCount} incomplete tool call(s)`,
