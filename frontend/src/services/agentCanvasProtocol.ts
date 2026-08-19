@@ -25,6 +25,87 @@ export interface AgentFlowPatch {
   name?: string;
 }
 
+type CanvasSnapshot = {
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+};
+
+function sanitizeXiaotCanvasValue(value: unknown, depth = 0): unknown {
+  if (depth > 3) return undefined;
+  if (typeof value === "string") {
+    if (/^(data:|blob:)/i.test(value) || value.length > 1200) {
+      return `[内容已省略，原长度 ${value.length}]`;
+    }
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
+  if (Array.isArray(value)) return value.slice(0, 12).map((item) => sanitizeXiaotCanvasValue(item, depth + 1));
+  if (!value || typeof value !== "object") return undefined;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 30)
+      .map(([key, item]) => [key, sanitizeXiaotCanvasValue(item, depth + 1)])
+      .filter(([, item]) => item !== undefined)
+  );
+}
+
+/**
+ * 发送小T前在浏览器侧先做最小披露：完整 Flow 快照不会离开浏览器。
+ * 只保留当前选中节点，以及本轮文字明确命中的媒体/提示词类型节点。
+ */
+export function buildXiaotCanvasRequestContext(
+  snapshot: CanvasSnapshot,
+  prompt: string
+): Record<string, unknown> {
+  const counts = new Map<string, number>();
+  snapshot.nodes.forEach((node) => {
+    const type = typeof node.type === "string" && node.type ? node.type : "unknown";
+    counts.set(type, (counts.get(type) || 0) + 1);
+  });
+  const normalizedPrompt = prompt.toLowerCase();
+  const typeHints = [
+    ...(/提示词|prompt/.test(normalizedPrompt) ? ["prompt", "text"] : []),
+    ...(/图片|图像|image/.test(normalizedPrompt) ? ["image", "generate"] : []),
+    ...(/视频|video/.test(normalizedPrompt) ? ["video"] : []),
+    ...(/音频|声音|audio/.test(normalizedPrompt) ? ["audio"] : []),
+  ];
+  const selected = snapshot.nodes.filter((node) => node.selected === true);
+  const relevant = typeHints.length
+    ? snapshot.nodes.filter((node) => {
+        const type = typeof node.type === "string" ? node.type.toLowerCase() : "";
+        return typeHints.some((hint) => type.includes(hint));
+      })
+    : [];
+  const nodes = Array.from(
+    new Map(
+      [...selected, ...relevant]
+        .filter((node) => typeof node.id === "string" && node.id)
+        .map((node) => [node.id as string, node])
+    ).values()
+  ).slice(0, 8);
+  const includedIds = new Set(nodes.map((node) => String(node.id)));
+  const edges = snapshot.edges
+    .filter(
+      (edge) => includedIds.has(String(edge.source || "")) || includedIds.has(String(edge.target || ""))
+    )
+    .slice(0, 16)
+    .map((edge) => sanitizeXiaotCanvasValue(edge) as Record<string, unknown>);
+  return {
+    summary: {
+      nodeCount: snapshot.nodes.length,
+      edgeCount: snapshot.edges.length,
+      nodeTypes: Array.from(counts, ([type, count]) => ({ type, count })),
+      selectedNodeIds: selected
+        .map((node) => (typeof node.id === "string" ? node.id : ""))
+        .filter(Boolean)
+        .slice(0, 8),
+      includedNodeIds: Array.from(includedIds),
+    },
+    nodes: nodes.map((node) => sanitizeXiaotCanvasValue(node) as Record<string, unknown>),
+    edges,
+  };
+}
+
 export function parseAgentFlowPatch(raw: unknown): AgentFlowPatch | null {
   let obj: unknown = raw;
   if (typeof raw === "string") {
@@ -107,6 +188,36 @@ export const TANVA_CAPABILITY_MANIFEST = {
   // 小T单轨宿主工具：由小T判断何时调用，Tanva 在当前小T消息内执行并展示结果。
   // facade 通过 host_tool({name, arguments}) 发起调用。
   hostTools: [
+    {
+      name: "query_canvas",
+      description:
+        "按需查询当前画布的局部信息。默认上下文只有节点数量、类型和选中节点；只有完成用户请求确实需要节点正文、媒体 URL 或连线时才调用。禁止请求整张画布。",
+      parameters: {
+        scope: {
+          type: "string",
+          enum: ["summary", "selected", "ids", "neighbors", "search"],
+          description: "查询范围；优先 selected 或 ids，search 只用于按关键词找节点",
+        },
+        nodeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "ids/neighbors 查询的节点 ID，最多 12 个",
+        },
+        query: { type: "string", description: "search 查询关键词" },
+      },
+    },
+    {
+      name: "query_capabilities",
+      description:
+        "按需查询一组画布节点类型的完整参数、输入输出和执行规则。只有准备创建或修改这些节点时才调用。",
+      parameters: {
+        nodeTypes: {
+          type: "array",
+          items: { type: "string" },
+          description: "要查询的节点 type，最多 12 个",
+        },
+      },
+    },
     {
       name: "legacy_image_only",
       description:

@@ -3,6 +3,11 @@
 ## 作用
 - 提供图像生成/编辑/融合/分析、文本对话、背景移除�?D�?D、图片扩展、视频生成、Paper.js/向量化等能力�?
 
+## 2026-08-17 节点模型消费策略
+
+- `model-pricing-resolver` 在基础报价之外解析厂商 `pricing.consumerPolicies`，按条件、优先级和 `[startsAt, endsAt)` 时间窗分别选择可用性与积分折扣；该结果不写回 evaluator，不参与供应商路由或上游计价。
+- Seedance 默认定价模板只强制维护刊例维度、规则和 evaluator；一旦数据库存在 `consumerPolicies` 数组，运行时标准化会保留后台管理的策略，避免保存后的运营配置被代码默认值覆盖。
+
 ## 2026-08 Membership catalog
 - 数据库迁移 `202608070001_replace_legacy_membership_plans_with_monthly_installments` 会下架并保留旧套餐行（不删除，避免影响既有订阅、订单和积分 lot 的历史审计），将重复旧 code 改为 `legacy_<id>`，并恢复 `MembershipPlan.code` 的唯一索引。
 - 仅保留 6 个 `priceVersion="2026-08-v2"` 可售套餐：三档月卡和三档年卡。年卡元数据强制 `creditIssuanceMode="yearly_monthly_installments"`，年费额度由 `MembershipService` 在 12 个发放期均分到账；不要将年卡改回一次性发放。
@@ -17,7 +22,7 @@
 - `generate-video-provider` 接受内部子型号 `seedance-2.5`（兼容 `seedance-2-5`、`2.5` 与 Ark ID 别名），统一规范化后由 `VideoProviderService` 精确发送上游模型 ID `doubao-seedance-2-5-260628`。多模态参考模式按官方 2.5 规格开放：图片最多 30 张，视频/音频各最多 10 条，视频/音频每条及总时长均为 2–30 秒；2.5 允许仅以音频作为输入，2.0 系列继续使用原有 9/3/3 与 2–15 秒约束。
 - Seedance 2.5 全模态参考新增 `omniReferenceTaskType` DTO 字段，并在 Ark 请求中转换为 `omni_reference_task_type=reference|edit|extend|auto`。Controller 会从 `video_reference/video_editing/video_extend` 兼容推导，拒绝显式类型与具体模式冲突；`edit` 前置校验参考视频、4–30 秒输入、`adaptive/-1`，`extend` 前置校验参考视频和 `adaptive`。new-api 的统一 `TaskSubmitReq` 与 Doubao adapter 保留同一字段并重复校验，直连 Ark 与 V2 request profile 也使用相同参数。
 - 2.5 输出时长为 4–30 秒，继续复用 Seedance 2.x 的模式推导、一次性 Ark 图片/视频/音频素材组、任务轮询与参考视频真实时长探测；计费上下文仍使用“输出时长 + 所有唯一参考视频时长”，上游 DTO 只保留输出时长。Tanva 不再对 2.5 的提示词施加 5000 字符上限，原始文本与追加的 `@` 图片映射会完整透传至 Ark；上游自身的请求限制仍由其响应如实返回。
-- 2.5 只允许 `480P`、`720P`。Flow 会在型号切换时回落非法值，`AiController` 在积分预扣和上游提交之前再次校验，历史节点携带 `1080P/4K` 时返回 HTTP 400。
+- 2.5 支持 `480P`、`720P`、`1080P`、`4K`。Flow、`AiController` 与 new-api catalog 使用同一分辨率集合；后端在积分预扣和上游提交前仍会拒绝集合之外的值。
 - 2.5 仅走 `seedance_api/default` 普通通道；前端隐藏 Tencent VOD 尊享选项，后端会把历史节点残留的 VIP vendor/tier 强制归一为官方普通通道，避免静默执行成 2.0。Ark adapter model list 与 PostgreSQL ability 由 `new-api/patches/2026-07-31/001-add-doubao-seedance-2-5.sql` 注册；补丁只克隆已有 2.0 官渠，不创建或写入凭据。
 
 ## 图片生成输入边界
@@ -65,9 +70,10 @@
 - 状态查询先校验 `VideoTask.userId`，再合并内存状态与持久化结果；即使内存状态已过期或进程重启，已落库的成功/失败结果仍可查询。计费层使用同一个幂等键，记录 `provider=hunyuan-3d`、`model=3.1`。
 
 ## 2026-07-22 new-api GPT Text Routing
-- 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6-luna`，不得发送裸 `gpt-5.6`。图片识别/分析是独立的 Gemini 三档链路，不随文本模型切换。
+- 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、工具选择和 PDF 分析默认 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6-luna`。提示词优化按 `billingTag=prompt_optimize` 独立限制为 `gpt-5.6-luna`、`gpt-5.6-terra`、`deepseek-v4-flash`，默认 Luna，并忽略图片 provider 强制走 new-api。图片识别/分析是独立的 Gemini 三档链路，不随文本模型切换。
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
-- new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6-luna` abilities；小T专属 Fast/Pro/Ultra/DeepSeek facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
+- new-api 中令牌所属分组必须存在请求模型对应的 ability。提示词优化在产品与计费层使用 `gpt-5.6-luna`、`gpt-5.6-terra`、`deepseek-v4-flash`，发送 new-api 前分别转换为 `xiaot-agent-gpt-5-6-luna`、`xiaot-agent-gpt-5-6-terra`、`xiaot-agent-deepseek-v4-flash`，复用小T已配置的 OpenAI facade 渠道；不得直接请求本地没有 ability 的裸模型 ID。
+- 提示词优化虽然复用 facade 模型路由，但每次调用使用全新的临时会话标识、`mode=chat` 与 `executionToolPolicy.allowedTools=[]`，不得复用小T session、记忆、画布或工具执行环境。小T画布回合先在浏览器请求边界把完整快照投影为摘要、选中节点和按本轮文字类型命中的最多 8 个节点，完整快照不离开浏览器；`xiaot-host-context` 在后端再次执行同样的边界校验，去除内联/超长内容并限制最多 12 个节点、24 条相关连线。纯问候在进入上游前本地完成，usage 为 0 且不扣固定对话积分。
 - `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
 - 视频分析由 `resolveVideoAnalysisModel` 校验节点显式模型；默认豆包 Seed 2.0 Lite，也支持豆包 Mini/Pro 与 Gemini 三档。小T走独立 facade，可选 Fast 小T-5.4、Pro 小T-5.5、Ultra 小T-5.6 Luna 和小T-DeepSeek V4 Flash。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
@@ -110,7 +116,7 @@
 
 ## Agent Runtime
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.
-- 小T大脑使用专属门面模型：Fast=`xiaot-agent-gpt-5-4`、Pro=`xiaot-agent-gpt-5-5`、Ultra=`xiaot-agent-gpt-5-6-luna`、DeepSeek=`xiaot-agent-deepseek-v4-flash`，默认与非法值回退为 Fast。用户侧将 GPT 系门面统一外显为 `小T-5.4|5.5|5.6 Luna`，DeepSeek 外显为 `小T-DeepSeek V4 Flash`。Tanva new-api 的 `xiaot-agent` 渠道通过 `model_mapping` 翻译成 TapCanvas facade 真实模型；不能直接请求裸模型名，否则会绕过小T facade。生产 new-api 需执行幂等补丁 `new-api/patches/2026-08-02/001-add-xiaot-deepseek-v4-flash.sql`。
+- 小T大脑只使用三种专属门面：`xiaot-agent-gpt-5-6-luna`、`xiaot-agent-gpt-5-6-terra`、`xiaot-agent-deepseek-v4-flash`，默认与非法值回退 Luna；外显为 `小T-5.6 Luna`、`小T-5.6 Terra`、`小T-DeepSeek V4 Flash`。new-api 的 `xiaot-agent` 渠道通过 `model_mapping` 翻译成 TapCanvas facade 真实模型；生产需执行幂等补丁 `new-api/patches/2026-08-19/001-xiaot-luna-terra-deepseek-models.sql`，它为 `default`、`auto`、`vip`、`svip` 同步 facade abilities，执行后需重载渠道缓存。
 - 小T 对话计费为“成功回合固定 `2` 积分”，所有可选大脑同价。facade 终帧的 `usage.total_tokens` 仍写入 `requestParams.usageUnits` 供审计，但不再换算 Tanva 积分。`flow_patch/runNode`、`legacy_image_only`、`analyze_image` 等生成/分析任务继续由宿主 API 单独计费，不包含在这 `2` 积分中。可运行 `cd backend && npm run verify:xiaot-chat-pricing` 做无付费 mock 验证。
 - 小T facade 返回的 `flow_patch` 是待 Tanva 执行的宿主命令，不是节点已执行或异步供应商已受理的回执；含命令的 OpenAI-compatible 响应以 `finish_reason=tool_calls` 收口。前端必须串行执行节点创建、连线与 `runNode`，并以节点终态和 HTTP(S) 资产 URL 完成交付验收；没有真实资产时必须显式失败，不能把 facade 文案、tool success 或命令数量当成完成证据。
 - `XiaotAgentService` 要求 OpenAI-compatible 流同时满足三层终态证据：与交付通道一致的 `finish_reason`（纯正文=`stop`，任一宿主调用=`tool_calls`）、真实 `[DONE]`、以及正文/完整 `flow_patch`/`host_tool`/`host_ui` 至少一种。上游 `error`（包括 `xiaot_turn_suspended`）、缺终帧、工具参数截断、finish reason 冲突或空交付都会使 run 显式失败且不结算成功回合。稳定上游会话键硬切为 `xiaot-v2:<Tanva session>`；旧 v1 历史不删除，但不会进入 v2 模型上下文。所选模型不可用时原地返回错误，不允许静默改用 Fast。

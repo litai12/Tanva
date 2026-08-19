@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import { ConfigService } from '@nestjs/config';
+import {
+  DEFAULT_PROMPT_OPTIMIZATION_MODEL,
+  PROMPT_OPTIMIZATION_GATEWAY_MODELS,
+  PROMPT_OPTIMIZATION_MODELS,
+  resolvePromptOptimizationGatewayModel,
+  resolvePromptOptimizationModel,
+} from '../src/ai/prompt-optimization-models';
+import { NewApiProvider } from '../src/ai/providers/new-api.provider';
+
+const originalFetch = globalThis.fetch;
+const requestedModels: unknown[] = [];
+
+globalThis.fetch = async (_input, init) => {
+  const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+  requestedModels.push(body.model);
+  return new Response(
+    JSON.stringify({ choices: [{ message: { content: 'optimized' } }] }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+};
+
+async function main(): Promise<void> {
+  assert.deepEqual(PROMPT_OPTIMIZATION_MODELS, [
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'deepseek-v4-flash',
+  ]);
+  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'gpt-5.6-luna');
+  assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'gpt-5.6-luna');
+  assert.equal(resolvePromptOptimizationModel('GPT-5.6-TERRA'), 'gpt-5.6-terra');
+  assert.equal(
+    resolvePromptOptimizationGatewayModel('gpt-5.4'),
+    'xiaot-agent-gpt-5-6-luna',
+  );
+
+  const provider = new NewApiProvider(
+    new ConfigService({
+      NEW_API_BASE_URL: 'https://new-api.test',
+      NEW_API_KEY: 'test-key',
+    }),
+  );
+  await provider.initialize();
+
+  for (const model of PROMPT_OPTIMIZATION_MODELS) {
+    const result = await provider.generateText({
+      prompt: '优化这段提示词',
+      model: resolvePromptOptimizationGatewayModel(model),
+    });
+    assert.equal(result.success, true);
+  }
+
+  assert.deepEqual(
+    requestedModels,
+    PROMPT_OPTIMIZATION_MODELS.map(
+      (model) => PROMPT_OPTIMIZATION_GATEWAY_MODELS[model],
+    ),
+  );
+  console.log('prompt optimizer three-model routing verification passed');
+}
+
+main()
+  .finally(() => {
+    globalThis.fetch = originalFetch;
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

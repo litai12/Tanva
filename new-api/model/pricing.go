@@ -94,16 +94,18 @@ type fixedImagePricingRule struct {
 // uses RMB 1:1 rather than upstream USD conversion.
 var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 	// Seedance 2.5 is priced at 1.5x the matching Seedance 2.0 tier.
-	// The upstream currently exposes 480p and 720p only.
 	"doubao-seedance-2-5-260628": {
 		{resolution: "480p", cnyPerSecond: 1.5000},
 		{resolution: "720p", cnyPerSecond: 1.8000},
+		{resolution: "1080p", cnyPerSecond: 4.5000},
+		{resolution: "4k", cnyPerSecond: 9.0000},
 	},
 	// legacy model IDs (260128 snapshot) — same rates as 2.0 base
 	"doubao-seedance-2-0-260128": {
 		{resolution: "480p", cnyPerSecond: 1.0000},
 		{resolution: "720p", cnyPerSecond: 1.2000},
 		{resolution: "1080p", cnyPerSecond: 3.0000},
+		{resolution: "4k", cnyPerSecond: 6.0000},
 	},
 	"doubao-seedance-2-0-fast-260128": {
 		{resolution: "480p", cnyPerSecond: 0.8060},
@@ -113,11 +115,13 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "480p", cnyPerSecond: 1.0000},
 		{resolution: "720p", cnyPerSecond: 1.2000},
 		{resolution: "1080p", cnyPerSecond: 3.0000},
+		{resolution: "4k", cnyPerSecond: 6.0000},
 	},
 	"doubao-seedance-2.0-apimart": {
 		{resolution: "480p", cnyPerSecond: 1.0000},
 		{resolution: "720p", cnyPerSecond: 1.2000},
 		{resolution: "1080p", cnyPerSecond: 3.0000},
+		{resolution: "4k", cnyPerSecond: 6.0000},
 	},
 	"doubao-seedance-2.0-fast": {
 		{resolution: "480p", cnyPerSecond: 0.8060},

@@ -39,6 +39,7 @@ import {
 import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
+  resolveManagedRouteConsumerPolicy,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
@@ -312,7 +313,7 @@ const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
 const SEEDANCE15_DOC_RESOLUTIONS = ["720P", "1080P"] as const;
 // Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
 const SEEDANCE20_BASE_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
-const SEEDANCE25_DOC_RESOLUTIONS = ["480P", "720P"] as const;
+const SEEDANCE25_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
 const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 const SEED20_MINI_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
@@ -867,8 +868,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isSeed2FamilyNode = isSeedanceModel && seedFamily === "seed2";
   const seedance2AccessEnabled = data.seedance2AccessEnabled === true;
   const seedance2AccessResolved = data.seedance2AccessResolved === true;
-  const seedance20AvailableForCurrentUser =
-    isSeedanceModel && seedance2AccessResolved && seedance2AccessEnabled;
   const seedance20RestrictedForCurrentUser =
     isSeedanceModel && seedance2AccessResolved && !seedance2AccessEnabled;
   const isSeedance20LockedOption = React.useCallback(
@@ -1667,12 +1666,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         : viduModelOptions,
     [supportedModels, viduModelOptions]
   );
-  const filteredSeedanceModelOptions = React.useMemo(
+  const seedanceModelOptionsWithStatus = React.useMemo(
     () => {
-      if (seedance20AvailableForCurrentUser || seedance20RestrictedForCurrentUser) {
-        return availableSeedModelOptions;
-      }
-      if (supportedModels.length === 0) return availableSeedModelOptions;
       const normalized = new Set(
         supportedModels.map((item) => String(item).trim().toLowerCase())
       );
@@ -1695,44 +1690,87 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         normalized.add("seed-2.0-lite");
         normalized.add("seed-2.0-mini");
       }
-      const filtered = availableSeedModelOptions.filter((opt) => normalized.has(opt.value));
-      return filtered.length > 0 ? filtered : availableSeedModelOptions;
+      return availableSeedModelOptions.map((option) => {
+        const disabledByModelConfig =
+          supportedModels.length > 0 && !normalized.has(option.value);
+        const optionManagedModelKey =
+          option.value === "seedance-1.5-pro" ? "seedance-1.5" : "seedance-2.0";
+        const consumerPolicy =
+          !disabledByModelConfig && managedRoutesMetadata?.modelKey === optionManagedModelKey
+            ? resolveManagedRouteConsumerPolicy(
+                nodeConfigMetadata,
+                sanitizedVendorKey,
+                { seedanceModel: option.value }
+              )
+            : null;
+        const disabledByConsumerPolicy =
+          consumerPolicy?.availability?.available === false;
+        const discountPercent = consumerPolicy?.discount
+          ? Math.round(consumerPolicy.discount.multiplier * 100)
+          : null;
+        return {
+          ...option,
+          disabledByModelConfig,
+          disabledByConsumerPolicy,
+          unavailableMessage: disabledByModelConfig
+            ? lt("已下线", "Offline")
+            : consumerPolicy?.availability?.message,
+          discountPercent,
+        };
+      });
     },
     [
-      seedance20AvailableForCurrentUser,
-      seedance20RestrictedForCurrentUser,
       availableSeedModelOptions,
+      lt,
+      managedRoutesMetadata?.modelKey,
+      nodeConfigMetadata,
+      sanitizedVendorKey,
       supportedModels,
     ]
   );
-  React.useEffect(() => {
-    if (!isSeedanceModel) return;
-    if (filteredSeedanceModelOptions.some((opt) => opt.value === seedanceModel)) return;
-    const fallbackModel = filteredSeedanceModelOptions[0]?.value;
-    if (!fallbackModel) return;
-    window.dispatchEvent(
-      new CustomEvent("flow:updateNodeData", {
-        detail: {
-          id,
-          patch: {
-            seedanceModel: fallbackModel,
-            seedanceMode: isSeedance20ModelValue(fallbackModel)
-              ? "reference_images"
-              : "text",
-            resolution: isSeedance20ModelValue(fallbackModel)
-              ? getSeedance20ResolutionList(fallbackModel).includes(
-                  String(data.resolution || "").trim().toUpperCase()
-                )
-                ? data.resolution
-                : "720P"
-              : "720P",
-          },
-        },
-      })
-    );
-  }, [data.resolution, filteredSeedanceModelOptions, id, isSeedanceModel, seedanceModel]);
+  const currentSeedanceModelOption = React.useMemo(
+    () =>
+      seedanceModelOptionsWithStatus.find((option) => option.value === seedanceModel),
+    [seedanceModel, seedanceModelOptionsWithStatus]
+  );
+  const currentSeedanceConsumerPolicy = React.useMemo(
+    () =>
+      !isSeedanceModel
+        ? null
+        : resolveManagedRouteConsumerPolicy(
+            nodeConfigMetadata,
+            sanitizedVendorKey,
+            {
+              seedanceModel,
+              resolution: String(data.resolution || "720P").trim().toUpperCase(),
+              duration: Number(data.clipDuration) || 5,
+            }
+          ),
+    [
+      data.clipDuration,
+      data.resolution,
+      isSeedanceModel,
+      nodeConfigMetadata,
+      sanitizedVendorKey,
+      seedanceModel,
+    ]
+  );
+  const seedanceGenerationUnavailableMessage = !isSeedanceModel
+    ? undefined
+    : currentSeedanceModelOption?.disabledByModelConfig
+    ? lt("当前模型已下线", "The selected model is offline")
+    : currentSeedanceModelOption?.disabledByConsumerPolicy
+    ? currentSeedanceModelOption.unavailableMessage || lt("当前模型暂未开放", "The selected model is not available yet")
+    : currentSeedanceConsumerPolicy?.availability?.available === false
+    ? currentSeedanceConsumerPolicy.availability.message || lt("当前规格暂未开放", "The selected specification is not available yet")
+    : undefined;
   React.useEffect(() => {
     if (!seedance20RestrictedForCurrentUser || !isSeedance20Model) return;
+    const seedance15Option = seedanceModelOptionsWithStatus.find(
+      (option) => option.value === "seedance-1.5-pro"
+    );
+    // 1.5 已被后台单独下线时，不得把受限的 2.x 节点静默改写到一个同样不可用的型号。
+    if (!seedance15Option || seedance15Option.disabledByModelConfig) return;
     // Forced fallback to Seedance 1.5-pro: clamp to its 4–12s range.
     const nextDuration =
       clipDuration && clipDuration >= 4 && clipDuration <= 12 ? clipDuration : 5;
@@ -1748,7 +1786,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         },
       })
     );
-  }, [clipDuration, id, isSeedance20Model, seedance20RestrictedForCurrentUser]);
+  }, [
+    clipDuration,
+    id,
+    isSeedance20Model,
+    seedance20RestrictedForCurrentUser,
+    seedanceModelOptionsWithStatus,
+  ]);
   const durationOptions = React.useMemo(() => {
     if (
       provider === "doubao" &&
@@ -1915,10 +1959,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (!isSeedanceModel) return [] as string[];
     if (isSeedance20Model) {
       const resolutionTip =
-        seedanceModel === "seedance-2.5" ||
-        seedanceModel === "seedance-2.0-fast" ||
-        seedanceModel === "seed-2.0-lite" ||
-        seedanceModel === "seed-2.0-mini"
+        seedanceModel === "seedance-2.5"
+          ? lt(
+              "分辨率/尺寸：480P、720P、1080P、4K；21:9、16:9、4:3、1:1、3:4、9:16",
+              "Resolution/ratio: 480P, 720P, 1080P, 4K; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
+            )
+          : seedanceModel === "seedance-2.0"
+          ? lt(
+              "分辨率/尺寸：480P、720P、1080P、4K；21:9、16:9、4:3、1:1、3:4、9:16",
+              "Resolution/ratio: 480P, 720P, 1080P, 4K; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
+            )
+          : seedanceModel === "seedance-2.0-fast" ||
+            seedanceModel === "seed-2.0-lite" ||
+            seedanceModel === "seed-2.0-mini"
           ? lt(
               "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
               "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
@@ -2357,6 +2410,25 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const handleSeedanceModelChange = React.useCallback(
     (value: SeedanceModel) => {
       if (value === seedanceModel) return;
+      const targetOption = seedanceModelOptionsWithStatus.find(
+        (option) => option.value === value
+      );
+      if (
+        targetOption?.disabledByModelConfig ||
+        targetOption?.disabledByConsumerPolicy
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              type: "info",
+              message:
+                targetOption.unavailableMessage ||
+                lt("当前模型暂不可用", "The selected model is currently unavailable"),
+            },
+          })
+        );
+        return;
+      }
       if (isSeedance20LockedOption(value)) {
         window.dispatchEvent(
           new CustomEvent("toast", {
@@ -2396,7 +2468,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         ? getSeedance20ResolutionList(value)
         : [...SEEDANCE15_DOC_RESOLUTIONS];
       // Switching from a wider-capability model must not retain an unsupported
-      // resolution (Seedance 2.5/Fast/Lite/Mini currently expose 480P/720P only).
+      // resolution (Fast/Lite/Mini currently expose 480P/720P only).
       const nextResolution =
         currentResolution && !supportedResolutions.includes(currentResolution)
           ? "720P"
@@ -2430,6 +2502,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       lt,
       seedanceMode,
       seedanceModel,
+      seedanceModelOptionsWithStatus,
     ]
   );
 
@@ -3280,6 +3353,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
               onClick={onRun}
               onMouseDown={handleButtonMouseDown}
+              disabled={Boolean(seedanceGenerationUnavailableMessage)}
+              title={seedanceGenerationUnavailableMessage}
               style={{
                 width: showRunCredits ? "auto" : 36,
                 minWidth: showRunCredits ? 64 : 36,
@@ -3287,12 +3362,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 height: 32,
                 borderRadius: 8,
                 border: "none",
-                background: "#111827",
+                background: seedanceGenerationUnavailableMessage ? "#9ca3af" : "#111827",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                cursor: "pointer",
+                cursor: seedanceGenerationUnavailableMessage ? "not-allowed" : "pointer",
                 fontSize: 12,
                 gap: 0,
               }}
@@ -3538,7 +3613,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 : provider === "hailuo"
                 ? hailuoModelOptions.find((opt) => opt.value === (data.hailuoModel || "h3"))?.label || lt("加载模型规格…", "Loading model spec…")
                 : provider === "doubao"
-                ? filteredSeedanceModelOptions.find((opt) => opt.value === seedanceModel)?.label || "Seedance 1.5-Pro"
+                ? (() => {
+                    const option = seedanceModelOptionsWithStatus.find(
+                      (item) => item.value === seedanceModel
+                    );
+                    if (!option) return "Seedance 1.5-Pro";
+                    if (option.disabledByModelConfig || option.disabledByConsumerPolicy) {
+                      return `${option.label} · ${option.unavailableMessage || lt("暂未开放", "Not available yet")}`;
+                    }
+                    return option.discountPercent
+                      ? `${option.label} · ${option.discountPercent / 10} 折`
+                      : option.label;
+                  })()
                 : filteredViduModelOptions.find((opt) => opt.value === viduModelSelectionValue)?.label ||
                   "Vidu Q2"}
             </span>
@@ -3569,7 +3655,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   : provider === "hailuo"
                   ? hailuoModelOptions
                   : provider === "doubao"
-                  ? filteredSeedanceModelOptions
+                  ? seedanceModelOptionsWithStatus
                   : filteredViduModelOptions).map((opt) => {
                   const selectedValue = isUnifiedKlingNode
                     ? klingModel
@@ -3582,13 +3668,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   const isSeedanceLocked =
                     provider === "doubao" &&
                     isSeedance20LockedOption(opt.value as SeedanceModel);
-                  const isModelOptionDisabled = isSeedanceLocked;
+                  const seedanceOptionStatus =
+                    provider === "doubao"
+                      ? (opt as typeof seedanceModelOptionsWithStatus[number])
+                      : undefined;
+                  const isSeedanceUnavailable =
+                    Boolean(seedanceOptionStatus?.disabledByModelConfig) ||
+                    Boolean(seedanceOptionStatus?.disabledByConsumerPolicy);
+                  const seedanceUnavailableMessage = seedanceOptionStatus?.unavailableMessage;
+                  const seedanceDiscountPercent = seedanceOptionStatus?.discountPercent ?? null;
+                  const isModelOptionDisabled = isSeedanceLocked || isSeedanceUnavailable;
                   return (
                     <button
                       key={opt.value}
                       type='button'
                       title={
-                        isSeedanceLocked
+                        isSeedanceUnavailable
+                          ? seedanceUnavailableMessage || lt("当前模型暂不可用", "The selected model is currently unavailable")
+                          : isSeedanceLocked
                           ? lt(
                               "需开通 VIP 权益或配置对应白名单权益后才能选择",
                               "Requires VIP access or watermark whitelist access",
@@ -3627,6 +3724,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       disabled={isModelOptionDisabled}
                     >
                       {opt.label}
+                      {isSeedanceUnavailable
+                        ? ` · ${seedanceUnavailableMessage || lt("暂未开放", "Not available yet")}`
+                        : seedanceDiscountPercent
+                        ? ` · ${seedanceDiscountPercent / 10} 折`
+                        : ""}
                     </button>
                   );
                 })}
@@ -4195,9 +4297,30 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             value={String(data.resolution || resolutionOptions[0] || "720P").toUpperCase()}
             options={resolutionOptions.map((option) => {
               const normalizedOption = String(option).toUpperCase();
+              const consumerPolicy = resolveManagedRouteConsumerPolicy(
+                nodeConfigMetadata,
+                sanitizedVendorKey,
+                {
+                  seedanceModel,
+                  resolution: normalizedOption,
+                  duration: Number(data.clipDuration) || 5,
+                }
+              );
+              const unavailable = consumerPolicy?.availability?.available === false;
+              const discountPercent = consumerPolicy?.discount
+                ? Math.round(consumerPolicy.discount.multiplier * 100)
+                : null;
               return {
                 value: normalizedOption,
-                label: normalizedOption,
+                label: unavailable
+                  ? `${normalizedOption} · ${consumerPolicy?.availability?.message || lt("暂未开放", "Not available yet")}`
+                  : discountPercent
+                  ? `${normalizedOption} · ${discountPercent / 10} 折`
+                  : normalizedOption,
+                description: unavailable
+                  ? consumerPolicy?.availability?.message || lt("暂未开放", "Not available yet")
+                  : consumerPolicy?.discount?.label,
+                disabled: unavailable,
               };
             })}
             onChange={(value) =>

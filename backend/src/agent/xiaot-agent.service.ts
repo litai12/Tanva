@@ -10,6 +10,13 @@ import {
   assertXiaotUpstreamDelivery,
   buildXiaotUpstreamSessionUser,
 } from './xiaot-agent-delivery';
+import {
+  buildCanvasContextSummary,
+  buildCapabilityManifestSummary,
+  queryCanvasContext,
+  queryCapabilityManifest,
+  resolveLocalGreeting,
+} from './xiaot-host-context';
 
 type XiaotEmit = (
   type: AgentEventType,
@@ -20,12 +27,25 @@ type ChatMessage = { role: 'system' | 'user'; content: string };
 
 /** 按 tool_call index 累积的分片缓冲（兼容 arguments 跨帧分片的 OpenAI 协议形态）。 */
 type ToolCallAccumulator = { id: string; name: string; args: string };
+type ContextQueryRequest = {
+  name: 'query_canvas' | 'query_capabilities';
+  arguments: Record<string, unknown>;
+};
+type RunContinuation = {
+  depth: number;
+  usageUnits: number;
+  text: string;
+  patchCount: number;
+  hostToolCount: number;
+  hostUiCount: number;
+  model: string;
+  hostScopeId: string;
+};
 
 /** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
 export const XIAOT_CHAT_MODELS = [
-  'xiaot-agent-gpt-5-4',
-  'xiaot-agent-gpt-5-5',
   'xiaot-agent-gpt-5-6-luna',
+  'xiaot-agent-gpt-5-6-terra',
   'xiaot-agent-deepseek-v4-flash',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
@@ -79,21 +99,25 @@ export class XiaotAgentService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 900000;
   }
 
-  private buildMessages(dto: CreateAgentRunDto): ChatMessage[] {
+  private buildMessages(dto: CreateAgentRunDto, includeHostContext: boolean): ChatMessage[] {
     const messages: ChatMessage[] = [];
-    if (dto.capabilityManifest) {
+    if (includeHostContext && dto.capabilityManifest) {
       messages.push({
         role: 'system',
-        content: `<capability_manifest>${JSON.stringify(dto.capabilityManifest)}</capability_manifest>`,
+        content: `<capability_manifest>${JSON.stringify(
+          buildCapabilityManifestSummary(dto.capabilityManifest),
+        )}</capability_manifest>`,
       });
     }
-    if (dto.canvasContext) {
+    if (includeHostContext && dto.canvasContext) {
       messages.push({
         role: 'system',
-        content: `<canvas_context>${JSON.stringify(dto.canvasContext)}</canvas_context>`,
+        content: `<canvas_context>${JSON.stringify(
+          buildCanvasContextSummary(dto.canvasContext, dto.prompt),
+        )}</canvas_context>`,
       });
     }
-    if (dto.generationContract) {
+    if (includeHostContext && dto.generationContract) {
       messages.push({
         role: 'system',
         content: `<generation_contract>${JSON.stringify(dto.generationContract)}</generation_contract>`,
@@ -131,21 +155,36 @@ export class XiaotAgentService {
     userId: string,
     emit: XiaotEmit,
     teamId?: string,
+    continuation?: RunContinuation,
   ): Promise<void> {
     // 模型透传：仅白名单内的 dto.model 生效，其余一律回落默认模型。
-    const model =
-      dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
+    const model = continuation?.model ||
+      (dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
         ? dto.model
-        : this.model;
+        : this.model);
+
+    if (!continuation) {
+      const localGreeting = resolveLocalGreeting(dto.prompt);
+      if (localGreeting) {
+        emit('run_started', { title: '小T已接入', data: { model, route: 'local-greeting' } });
+        emit('assistant_delta', { data: { delta: localGreeting } });
+        emit('final', { message: localGreeting, data: { text: localGreeting, patchCount: 0, usageUnits: 0 } });
+        emit('done', {});
+        return;
+      }
+    }
 
     // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
     // 前缀防 team/user id 命名空间相撞。
-    const realTeamId = await this.resolveRealTeamId(teamId);
-    const hostScopeId = realTeamId ? `team:${realTeamId}` : `user:${userId}`;
-    emit('run_started', {
-      title: '小T已接入',
-      data: { model },
-    });
+    const realTeamId = continuation ? null : await this.resolveRealTeamId(teamId);
+    const hostScopeId = continuation?.hostScopeId ||
+      (realTeamId ? `team:${realTeamId}` : `user:${userId}`);
+    if (!continuation) {
+      emit('run_started', {
+        title: '小T已接入',
+        data: { model },
+      });
+    }
 
     // 流式总时长上限：超时 abort fetch/reader，异常沿现有 catch 路径转成 error+done 事件。
     const controller = new AbortController();
@@ -162,7 +201,7 @@ export class XiaotAgentService {
         user: buildXiaotUpstreamSessionUser(dto.sessionId, userId),
         metadata: { host_user_id: hostScopeId },
         host_user_id: hostScopeId,
-        messages: this.buildMessages(dto),
+        messages: this.buildMessages(dto, !continuation),
       };
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
@@ -195,6 +234,7 @@ export class XiaotAgentService {
       let usageUnits = 0;
       let finishReason: string | null = null;
       let doneReceived = false;
+      const contextQueries: ContextQueryRequest[] = [];
       // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
       // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
       // 后续帧补齐后再试，成功即 emit 并清该 index——两种形态都覆盖。
@@ -290,6 +330,13 @@ export class XiaotAgentService {
             } else if (acc.name === 'host_tool') {
               const args = parsedArgs as Record<string, unknown>;
               if (typeof args.name !== 'string' || !args.name.trim()) continue;
+              if (args.name === 'query_canvas' || args.name === 'query_capabilities') {
+                contextQueries.push({
+                  name: args.name,
+                  arguments: readRecord(args.arguments) || {},
+                });
+                continue;
+              }
               hostToolCount += 1;
               emit('host_tool', {
                 data: {
@@ -333,6 +380,51 @@ export class XiaotAgentService {
         handleLine(buffer);
       }
 
+      const nextUsageUnits = (continuation?.usageUnits || 0) + usageUnits;
+      const nextText = `${continuation?.text || ''}${fullText}`;
+      const nextPatchCount = (continuation?.patchCount || 0) + patchCount;
+      const nextHostToolCount = (continuation?.hostToolCount || 0) + hostToolCount;
+      const nextHostUiCount = (continuation?.hostUiCount || 0) + hostUiCount;
+
+      if (contextQueries.length > 0) {
+        if (!doneReceived || toolCallBuffers.size > 0 || finishReason !== 'tool_calls') {
+          throw new Error('xiaot-agent context query ended with an invalid tool-call state');
+        }
+        const depth = continuation?.depth || 0;
+        if (depth >= 2) {
+          throw new Error('xiaot-agent exceeded the maximum number of context queries');
+        }
+        const results = contextQueries.slice(0, 3).map((query) => ({
+          name: query.name,
+          result:
+            query.name === 'query_canvas'
+              ? queryCanvasContext(dto.canvasContext, query.arguments)
+              : queryCapabilityManifest(dto.capabilityManifest, query.arguments),
+        }));
+        await this.run(
+          {
+            ...dto,
+            prompt:
+              `<host_tool_results>${JSON.stringify(results)}</host_tool_results>\n` +
+              '以上是宿主按你刚才的请求返回的局部结果。请继续完成上一条用户请求；如信息仍不足，只能再次发起范围更小的查询。',
+          },
+          userId,
+          emit,
+          teamId,
+          {
+            depth: depth + 1,
+            usageUnits: nextUsageUnits,
+            text: nextText,
+            patchCount: nextPatchCount,
+            hostToolCount: nextHostToolCount,
+            hostUiCount: nextHostUiCount,
+            model,
+            hostScopeId,
+          },
+        );
+        return;
+      }
+
       assertXiaotUpstreamDelivery({
         text: fullText,
         patchCount,
@@ -343,16 +435,17 @@ export class XiaotAgentService {
         doneReceived,
       });
 
-      await this.settleCredits(userId, usageUnits, model, {
-        textChars: fullText.length,
-        patchCount,
-        hostToolCount,
-        hostUiCount,
+      await this.settleCredits(userId, nextUsageUnits, model, {
+        textChars: nextText.length,
+        patchCount: nextPatchCount,
+        hostToolCount: nextHostToolCount,
+        hostUiCount: nextHostUiCount,
+        contextQueryCount: continuation?.depth || 0,
       });
 
       emit('final', {
-        message: fullText,
-        data: { text: fullText, patchCount, usageUnits },
+        message: nextText,
+        data: { text: nextText, patchCount: nextPatchCount, usageUnits: nextUsageUnits },
       });
       emit('done', {});
     } finally {

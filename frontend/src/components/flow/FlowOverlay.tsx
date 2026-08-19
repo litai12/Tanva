@@ -26458,6 +26458,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         bananaImageRoute,
         imageSize || "",
         imageModel || "",
+        JSON.stringify(Array.from(managedRuntimeByType.entries())),
         isFlowBlackTheme ? "dark" : "light",
       ].join("|");
 
@@ -26499,8 +26500,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           (typeof n.data?.platformKey !== "string" || !n.data.platformKey.trim())
             ? { platformKey: managedRuntime.platformKey }
             : {}),
-          ...(managedRuntime?.nodeConfigMetadata &&
-          (!n.data?.nodeConfigMetadata || typeof n.data.nodeConfigMetadata !== "object")
+          // 节点目录、模型启停和消费运营策略都是运行时配置，不能继续使用画布保存时的
+          // metadata 快照；否则已打开/历史画布看不到模型下线、折扣到期等最新状态。
+          ...(managedRuntime?.nodeConfigMetadata
             ? { nodeConfigMetadata: managedRuntime.nodeConfigMetadata }
             : {}),
         } as Record<string, any>;

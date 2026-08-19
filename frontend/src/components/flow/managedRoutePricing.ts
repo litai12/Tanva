@@ -80,6 +80,28 @@ export interface ManagedRouteOption {
         }>;
       };
     }>;
+    consumerPolicies?: Array<{
+      policyKey?: string;
+      label?: string;
+      enabled?: boolean;
+      priority?: number;
+      startsAt?: string;
+      endsAt?: string;
+      conditions?: {
+        all?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+        any?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+      };
+      availability?: { available?: boolean; message?: string };
+      discount?: { multiplier?: number };
+    }>;
     evaluators?: Record<
       string,
       {
@@ -305,7 +327,7 @@ const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined
 };
 
 const matchesCondition = (
-  context: Record<string, any>,
+  context: Record<string, unknown>,
   condition?: {
     field?: string;
     op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
@@ -341,6 +363,86 @@ const matchesCondition = (
   if (op === "lt") return actual < expectedNumber;
   if (op === "lte") return actual <= expectedNumber;
   return false;
+};
+
+export type ResolvedManagedRouteConsumerPolicy = {
+  availability?: {
+    available: boolean;
+    message?: string;
+    policyKey: string;
+  };
+  discount?: {
+    multiplier: number;
+    label?: string;
+    policyKey: string;
+    startsAt?: string;
+    endsAt?: string;
+  };
+};
+
+export const resolveManagedRouteConsumerPolicy = (
+  metadata: Record<string, unknown> | null | undefined,
+  vendorKey: string | null | undefined,
+  pricingContext: Record<string, unknown>,
+  now: Date | number = Date.now()
+): ResolvedManagedRouteConsumerPolicy | null => {
+  const pricing = getManagedRouteOption(metadata, vendorKey)?.pricing;
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  if (!Number.isFinite(nowMs)) return null;
+  const policies = Array.isArray(pricing?.consumerPolicies)
+    ? [...pricing.consumerPolicies]
+    : [];
+  const active = policies
+    .filter((policy) => {
+      if (!policy || policy.enabled === false || !String(policy.policyKey || "").trim()) {
+        return false;
+      }
+      const startsAt = policy.startsAt ? Date.parse(policy.startsAt) : NaN;
+      const endsAt = policy.endsAt ? Date.parse(policy.endsAt) : NaN;
+      if (policy.startsAt && !Number.isFinite(startsAt)) return false;
+      if (policy.endsAt && !Number.isFinite(endsAt)) return false;
+      if (Number.isFinite(startsAt) && nowMs < startsAt) return false;
+      if (Number.isFinite(endsAt) && nowMs >= endsAt) return false;
+      const all = Array.isArray(policy.conditions?.all) ? policy.conditions.all : [];
+      const any = Array.isArray(policy.conditions?.any) ? policy.conditions.any : [];
+      return (
+        all.every((condition) => matchesCondition(pricingContext, condition)) &&
+        (any.length === 0 || any.some((condition) => matchesCondition(pricingContext, condition)))
+      );
+    })
+    .sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0));
+  const availabilityPolicy = active.find(
+    (policy) => typeof policy.availability?.available === "boolean"
+  );
+  const discountPolicy = active.find((policy) => {
+    const multiplier = Number(policy.discount?.multiplier);
+    return Number.isFinite(multiplier) && multiplier > 0 && multiplier <= 1;
+  });
+  if (!availabilityPolicy && !discountPolicy) return null;
+  return {
+    ...(availabilityPolicy
+      ? {
+          availability: {
+            available: availabilityPolicy.availability!.available === true,
+            ...(availabilityPolicy.availability?.message
+              ? { message: availabilityPolicy.availability.message }
+              : {}),
+            policyKey: String(availabilityPolicy.policyKey),
+          },
+        }
+      : {}),
+    ...(discountPolicy
+      ? {
+          discount: {
+            multiplier: Number(discountPolicy.discount?.multiplier),
+            ...(discountPolicy.label ? { label: discountPolicy.label } : {}),
+            policyKey: String(discountPolicy.policyKey),
+            ...(discountPolicy.startsAt ? { startsAt: discountPolicy.startsAt } : {}),
+            ...(discountPolicy.endsAt ? { endsAt: discountPolicy.endsAt } : {}),
+          },
+        }
+      : {}),
+  };
 };
 
 const resolveLookupMatrixValue = (

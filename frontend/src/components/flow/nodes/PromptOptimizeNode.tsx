@@ -2,9 +2,21 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from '@xyflow/react';
 // no Button/Textarea components needed here
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
-import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import {
+  getPromptOptimizationModelLabel,
+  PROMPT_OPTIMIZATION_MODEL_OPTIONS,
+  resolvePromptOptimizationModel,
+  type PromptOptimizationModel,
+} from '@/services/promptOptimizationModels';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { usePromptSiblingImages } from '../hooks/usePromptSiblingImages';
@@ -22,6 +34,7 @@ type Props = {
     boxW?: number;
     boxH?: number;
     modelProvider?: FlowModelProvider;
+    promptOptimizationModel?: PromptOptimizationModel;
     creditsPerCall?: number;
   };
   selected?: boolean;
@@ -49,8 +62,8 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     [aiProvider, data.modelProvider]
   );
   const textModel = React.useMemo(
-    () => getTextModelForProvider(effectiveProvider),
-    [effectiveProvider]
+    () => resolvePromptOptimizationModel(data.promptOptimizationModel),
+    [data.promptOptimizationModel]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
     serviceType: 'gemini-prompt-optimize',
@@ -137,6 +150,20 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     updateNodeData({ modelProvider: effectiveProvider });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.modelProvider, effectiveProvider, id]);
+
+  React.useEffect(() => {
+    if (data.promptOptimizationModel === textModel) return;
+    updateNodeData({ promptOptimizationModel: textModel });
+  }, [data.promptOptimizationModel, textModel, updateNodeData]);
+
+  const handleModelChange = React.useCallback(
+    (value: PromptOptimizationModel) => {
+      const model = resolvePromptOptimizationModel(value);
+      updateNodeData({ promptOptimizationModel: model });
+      reset();
+    },
+    [reset, updateNodeData]
+  );
 
   // 监听上游输入节点文本变化
   React.useEffect(() => {
@@ -274,26 +301,68 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         alignItems: 'center', 
         justifyContent: 'space-between' 
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className='tanva-flow-node-title'>Prompt Optimizer</span>
-          <span
-            className='tanva-flow-provider-mode-badge'
-            title='new-api · 小T-5.4'
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '1px 8px',
-              borderRadius: 50,
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#475569',
-              background: '#f1f5f9',
-              border: '1px solid #e2e8f0',
-            }}
-          >
-            小T-5.4
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span className='tanva-flow-node-title' style={{ whiteSpace: 'nowrap' }}>
+            Prompt Optimizer
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type='button'
+                className='nodrag nopan tanva-flow-provider-mode-badge'
+                onPointerDownCapture={(event) => event.stopPropagation()}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                title={lt(
+                  `当前：${getPromptOptimizationModelLabel(textModel)}，点击切换`,
+                  `Current: ${getPromptOptimizationModelLabel(textModel)}. Click to switch`,
+                )}
+                aria-label={lt('切换提示词优化模型', 'Switch prompt optimization model')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flex: '0 0 auto',
+                  padding: '1px 8px',
+                  borderRadius: 50,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  lineHeight: 1.5,
+                  color: '#475569',
+                  background: '#f1f5f9',
+                  border: '1px solid #e2e8f0',
+                  cursor: 'pointer',
+                }}
+              >
+                {getPromptOptimizationModelLabel(textModel)}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align='start'
+              sideOffset={6}
+              className='nodrag nopan min-w-[190px] rounded-lg border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+            >
+              {PROMPT_OPTIMIZATION_MODEL_OPTIONS.map((option) => {
+                const active = option.value === textModel;
+                return (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={() => handleModelChange(option.value)}
+                    className={active
+                      ? 'cursor-pointer bg-slate-100 text-slate-900'
+                      : 'cursor-pointer text-slate-600'}
+                  >
+                    <span className='flex-1 text-xs font-medium'>{option.label}</span>
+                    {active ? (
+                      <span className='ml-2 h-1.5 w-1.5 rounded-full bg-slate-900' />
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button

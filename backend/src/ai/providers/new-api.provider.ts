@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Agent } from 'undici';
+import { randomUUID } from 'node:crypto';
 import {
   AIProviderResponse,
   AnalysisResult,
@@ -115,6 +116,11 @@ export class NewApiProvider implements IAIProvider {
         'gemini',
         'gpt-5.4',
         'gpt-5.6-luna',
+        'gpt-5.6-terra',
+        'deepseek-v4-flash',
+        'xiaot-agent-gpt-5-6-luna',
+        'xiaot-agent-gpt-5-6-terra',
+        'xiaot-agent-deepseek-v4-flash',
         'gpt-image-2',
         'sora-2',
         'kling-v3',
@@ -381,10 +387,20 @@ export class NewApiProvider implements IAIProvider {
           ]
         : request.prompt;
 
+    const isAgentFacade = model.startsWith('xiaot-agent-');
     const payload = {
       model,
       messages: [{ role: 'user', content }],
       ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
+      ...(isAgentFacade
+        ? {
+            // 提示词优化器复用 facade 的模型路由，但不能复用小T会话、记忆或工具。
+            // 每次请求使用独立身份，并明确进入无工具 chat 模式。
+            user: `prompt-optimizer:${randomUUID()}`,
+            mode: 'chat',
+            executionToolPolicy: { mode: 'restricted', allowedTools: [] },
+          }
+        : {}),
     };
 
     if (!request.enableWebSearch) {

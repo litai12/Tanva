@@ -802,6 +802,17 @@ export interface ManagedPricingPreviewResponse {
     priceYuan?: number;
     costYuan?: number;
   };
+  effectiveCredits?: number;
+  available?: boolean;
+  unavailableMessage?: string;
+  consumerPolicy?: Record<string, any>;
+  consumerCharge?: {
+    listCredits: number;
+    chargedCredits: number;
+    multiplier: number;
+    policyKey: string;
+    label?: string;
+  };
   calcTrace?: Record<string, any>;
   source: string;
 }

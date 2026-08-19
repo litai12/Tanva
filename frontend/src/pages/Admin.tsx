@@ -8,6 +8,10 @@ import { Switch } from "@/components/ui/switch";
 import ApiModelStatsTab from "@/components/admin/ApiModelStatsTab";
 import SystemMonitorPanel from "@/components/admin/SystemMonitorPanel";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
+import {
+  ConsumerPolicyEditor,
+  type ConsumerPolicy,
+} from "@/components/admin/pricing-builder/ConsumerPolicyEditor";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
 import {
@@ -396,6 +400,7 @@ interface ManagedModelVendorConfig {
         }>;
       };
     }>;
+    consumerPolicies?: ConsumerPolicy[];
     evaluators?: Record<
       string,
       {
@@ -530,6 +535,7 @@ type ManagedPricingV2View = {
   version: string;
   dimensions: ManagedPricingDimensionDefinition[];
   matchingRules: ManagedPricingMatchingRule[];
+  consumerPolicies: ConsumerPolicy[];
   evaluators: Record<string, ManagedPricingEvaluator>;
   displayConfig: {
     specAxes: string[];
@@ -1046,6 +1052,7 @@ const buildLegacyPricingV2FromRules = (
     version: "v2",
     dimensions,
     matchingRules,
+    consumerPolicies: [],
     evaluators,
     displayConfig: {
       specAxes: dimensions.map((dimension) => dimension.key),
@@ -1195,6 +1202,7 @@ const buildLegacyPricingV2FromFormula = (pricing: Record<string, any>): ManagedP
     version: "v2",
     dimensions,
     matchingRules,
+    consumerPolicies: [],
     evaluators,
     displayConfig: {
       specAxes: dimensions.map((dimension) => dimension.key),
@@ -1296,6 +1304,49 @@ const getVendorPricingV2 = (vendor?: ManagedModelVendorConfig): ManagedPricingV2
           },
         })) as ManagedPricingMatchingRule[]
       : [],
+    consumerPolicies: Array.isArray(pricing?.consumerPolicies)
+      ? pricing.consumerPolicies.map((policy: Record<string, any>, index: number) => ({
+          policyKey: String(policy.policyKey || `consumer_policy_${index + 1}`),
+          label: String(policy.label || "消费运营策略"),
+          enabled: policy.enabled !== false,
+          priority: typeof policy.priority === "number" ? policy.priority : 100,
+          ...(typeof policy.startsAt === "string" && policy.startsAt
+            ? { startsAt: policy.startsAt }
+            : {}),
+          ...(typeof policy.endsAt === "string" && policy.endsAt
+            ? { endsAt: policy.endsAt }
+            : {}),
+          conditions: {
+            all: Array.isArray(policy.conditions?.all)
+              ? policy.conditions.all.map((row: Record<string, any>) => ({
+                  field: String(row.field || ""),
+                  op: row.op || "eq",
+                  value: row.value ?? "",
+                }))
+              : [],
+            any: Array.isArray(policy.conditions?.any)
+              ? policy.conditions.any.map((row: Record<string, any>) => ({
+                  field: String(row.field || ""),
+                  op: row.op || "eq",
+                  value: row.value ?? "",
+                }))
+              : [],
+          },
+          ...(typeof policy.availability?.available === "boolean"
+            ? {
+                availability: {
+                  available: policy.availability.available,
+                  ...(policy.availability.message
+                    ? { message: String(policy.availability.message) }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(Number.isFinite(Number(policy.discount?.multiplier))
+            ? { discount: { multiplier: Number(policy.discount.multiplier) } }
+            : {}),
+        }))
+      : [],
     evaluators:
       pricing?.evaluators && typeof pricing.evaluators === "object"
         ? ({ ...pricing.evaluators } as Record<string, ManagedPricingEvaluator>)
@@ -1373,6 +1424,46 @@ const writeVendorPricingV2 = (
       .filter(([key, value]) => key && value && typeof value === "object" && typeof (value as any).type === "string")
   );
 
+  const consumerPolicies = next.consumerPolicies
+    .map((policy, index) => ({
+      policyKey: String(policy.policyKey || "").trim() || `consumer_policy_${index + 1}`,
+      label: String(policy.label || "").trim() || "消费运营策略",
+      enabled: policy.enabled !== false,
+      priority: Number.isFinite(Number(policy.priority)) ? Number(policy.priority) : 100,
+      ...(policy.startsAt ? { startsAt: policy.startsAt } : {}),
+      ...(policy.endsAt ? { endsAt: policy.endsAt } : {}),
+      conditions: {
+        all: (policy.conditions?.all || [])
+          .map((row) => ({
+            field: String(row.field || "").trim(),
+            op: row.op || "eq",
+            value: row.value,
+          }))
+          .filter((row) => row.field),
+        any: (policy.conditions?.any || [])
+          .map((row) => ({
+            field: String(row.field || "").trim(),
+            op: row.op || "eq",
+            value: row.value,
+          }))
+          .filter((row) => row.field),
+      },
+      ...(policy.availability
+        ? {
+            availability: {
+              available: policy.availability.available,
+              ...(policy.availability.message
+                ? { message: String(policy.availability.message).trim() }
+                : {}),
+            },
+          }
+        : {}),
+      ...(policy.discount
+        ? { discount: { multiplier: Number(policy.discount.multiplier) } }
+        : {}),
+    }))
+    .filter((policy) => policy.availability || policy.discount);
+
   return {
     ...vendor,
     pricing: {
@@ -1380,6 +1471,7 @@ const writeVendorPricingV2 = (
       version: "v2",
       dimensions,
       matchingRules,
+      consumerPolicies,
       evaluators,
       displayConfig: {
         specAxes: (next.displayConfig.specAxes || []).filter(Boolean),
@@ -1504,6 +1596,37 @@ const validatePricingV2 = (pricing: ReturnType<typeof getVendorPricingV2>) => {
           level: "error",
           message: `规则 ${rule.ruleKey || `#${index + 1}`} 使用了未定义维度 ${condition.field}`,
         });
+      }
+    });
+  });
+
+  pricing.consumerPolicies.forEach((policy, index) => {
+    const name = policy.label || policy.policyKey || `#${index + 1}`;
+    if (!policy.availability && !policy.discount) {
+      issues.push({ level: "error", message: `消费策略 ${name} 未配置折扣或禁用动作` });
+    }
+    if (
+      policy.discount &&
+      (!Number.isFinite(policy.discount.multiplier) ||
+        policy.discount.multiplier <= 0 ||
+        policy.discount.multiplier > 1)
+    ) {
+      issues.push({ level: "error", message: `消费策略 ${name} 的折扣比例必须大于 0 且不超过 100%` });
+    }
+    const startsAt = policy.startsAt ? Date.parse(policy.startsAt) : NaN;
+    const endsAt = policy.endsAt ? Date.parse(policy.endsAt) : NaN;
+    if (policy.startsAt && !Number.isFinite(startsAt)) {
+      issues.push({ level: "error", message: `消费策略 ${name} 的开始时间无效` });
+    }
+    if (policy.endsAt && !Number.isFinite(endsAt)) {
+      issues.push({ level: "error", message: `消费策略 ${name} 的结束时间无效` });
+    }
+    if (Number.isFinite(startsAt) && Number.isFinite(endsAt) && startsAt >= endsAt) {
+      issues.push({ level: "error", message: `消费策略 ${name} 的结束时间必须晚于开始时间` });
+    }
+    [...policy.conditions.all, ...policy.conditions.any].forEach((condition) => {
+      if (!condition.field || !dimensionKeySet.has(condition.field)) {
+        issues.push({ level: "error", message: `消费策略 ${name} 使用了未定义的规格字段` });
       }
     });
   });
@@ -1643,6 +1766,7 @@ const createKling26PricingTemplate = () => ({
       labels: { "5": "5 秒", "10": "10 秒" },
     }),
   ],
+  consumerPolicies: [] as ConsumerPolicy[],
   matchingRules: [
     {
       ruleKey: "kling26_i2v_rule",
@@ -1727,6 +1851,7 @@ const createKling30PricingTemplate = () => ({
       labels: { "5": "5 秒", "10": "10 秒" },
     }),
   ],
+  consumerPolicies: [] as ConsumerPolicy[],
   matchingRules: [
     {
       ruleKey: "kling30_common_rule",
@@ -1818,6 +1943,7 @@ const createQ3TurboPricingTemplate = () => ({
       description: "按秒线性计费",
     }),
   ],
+  consumerPolicies: [] as ConsumerPolicy[],
   matchingRules: [
     {
       ruleKey: "q3_turbo_540p_rule",
@@ -1934,6 +2060,7 @@ const createWanPricingTemplate = (
       description: "按秒线性计费",
     }),
   ],
+  consumerPolicies: [] as ConsumerPolicy[],
   matchingRules: [
     {
       ruleKey: "wan_720p_linear",
@@ -2022,12 +2149,13 @@ const createSeedance20PricingTemplate = () => ({
         },
       }
     ),
-    createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], {
+    createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P", "4K"], {
       required: true,
       labels: {
         "480P": "480P",
         "720P": "720P",
         "1080P": "1080P",
+        "4K": "4K",
       },
     }),
     createNumberDimension("duration", "时长(秒)", {
@@ -2035,6 +2163,38 @@ const createSeedance20PricingTemplate = () => ({
       description: "按秒线性计费",
     }),
   ],
+  consumerPolicies: [
+    {
+      policyKey: "seedance25_1080p_72_campaign",
+      label: "Seedance 2.5 1080P 限时 7.2 折（72%）",
+      enabled: true,
+      priority: 200,
+      startsAt: "2026-08-14T14:00:00+08:00",
+      endsAt: "2026-09-17T14:00:00+08:00",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "1080P" },
+        ],
+        any: [],
+      },
+      discount: { multiplier: 0.72 },
+    },
+    {
+      policyKey: "seedance25_4k_unavailable",
+      label: "Seedance 2.5 4K 暂未开放",
+      enabled: true,
+      priority: 210,
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "4K" },
+        ],
+        any: [],
+      },
+      availability: { available: false, message: "暂未开放" },
+    },
+  ] satisfies ConsumerPolicy[],
   matchingRules: [
     {
       ruleKey: "seedance25_480p",
@@ -2060,6 +2220,34 @@ const createSeedance20PricingTemplate = () => ({
         all: [
           { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
           { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance25_1080p",
+      label: "Seedance 2.5 1080P",
+      enabled: true,
+      priority: 130,
+      evaluatorKey: "seedance25_1080p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "1080P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance25_4k",
+      label: "Seedance 2.5 4K",
+      enabled: true,
+      priority: 130,
+      evaluatorKey: "seedance25_4k_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.5" },
+          { field: "resolution", op: "eq" as const, value: "4K" },
         ],
         any: [],
       },
@@ -2162,6 +2350,20 @@ const createSeedance20PricingTemplate = () => ({
         any: [],
       },
     },
+    {
+      ruleKey: "seedance20_4k",
+      label: "Seedance 2.0 4K",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "seedance20_4k_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0" },
+          { field: "resolution", op: "eq" as const, value: "4K" },
+        ],
+        any: [],
+      },
+    },
   ],
   evaluators: {
     seedance25_480p_eval: {
@@ -2173,6 +2375,16 @@ const createSeedance20PricingTemplate = () => ({
       type: "linear" as const,
       unitField: "duration",
       unitPriceYuan: applySeedance25Price(1.2),
+    },
+    seedance25_1080p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: applySeedance25Price(3.0),
+    },
+    seedance25_4k_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: applySeedance25Price(6.0),
     },
     seedance20_fast_480p_eval: {
       type: "linear" as const,
@@ -2199,6 +2411,11 @@ const createSeedance20PricingTemplate = () => ({
       unitField: "duration",
       unitPriceYuan: applySeedance20Discount(3.0),
     },
+    seedance20_4k_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: applySeedance20Discount(6.0),
+    },
   },
   displayConfig: {
     specAxes: ["seedanceModel", "resolution", "duration"],
@@ -2210,6 +2427,7 @@ const createSeedance20PricingTemplate = () => ({
       "resolution.480P": "480P",
       "resolution.720P": "720P",
       "resolution.1080P": "1080P",
+      "resolution.4K": "4K",
     },
     defaultSelections: {
       seedanceModel: "seedance-2.0",
@@ -2220,8 +2438,11 @@ const createSeedance20PricingTemplate = () => ({
       { seedanceModel: "seedance-2.0", resolution: "720P", duration: 5 },
       { seedanceModel: "seedance-2.0", resolution: "720P", duration: 10 },
       { seedanceModel: "seedance-2.0", resolution: "1080P", duration: 5 },
+      { seedanceModel: "seedance-2.0", resolution: "4K", duration: 5 },
       { seedanceModel: "seedance-2.5", resolution: "480P", duration: 5 },
       { seedanceModel: "seedance-2.5", resolution: "720P", duration: 5 },
+      { seedanceModel: "seedance-2.5", resolution: "1080P", duration: 5 },
+      { seedanceModel: "seedance-2.5", resolution: "4K", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "480P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "720P", duration: 5 },
       { seedanceModel: "seed-2.0-mini", resolution: "480P", duration: 5 },
@@ -2466,7 +2687,6 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
 } as const;
 
 const SEEDANCE20_SUPPORTED_MODELS = [
-  "seedance-1.5-pro",
   "seedance-2.0",
   "seedance-2.5",
   "seedance-2.0-fast",
@@ -2475,7 +2695,7 @@ const SEEDANCE20_VOD_METADATA = {
   outputConfig: {
     aspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    resolutions: ["480P", "720P", "1080P"],
+    resolutions: ["480P", "720P", "1080P", "4K"],
     audioGeneration: true,
   },
   inputModes: [
@@ -2495,7 +2715,7 @@ const SEEDANCE20_VOD_METADATA = {
   ],
   notes: [
     "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5-260628 / doubao-seed-2-0-lite-260428",
-    "Seedance 2.5 仅支持 480P / 720P，按 Seedance 2.0 当前每秒单价的 1.5 倍计费",
+    "Seedance 2.5 支持 480P / 720P / 1080P / 4K，按 Seedance 2.0 同规格当前每秒单价的 1.5 倍计费",
     "Seedance 2.5 全模态参考显式发送 reference/edit/extend；编辑固定 adaptive/-1，延长固定 adaptive，提示词需与任务类型一致",
     "2.5 多模态参考支持 30 图/10 视频/10 音频；2.0 多图参考支持 1-9 张图片，首尾帧固定 1-2 张，智能多帧支持 2-10 张图片",
     "在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10",
@@ -4314,6 +4534,12 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
 
       const existingVendor =
         (model.vendors || []).find((vendor) => vendor.vendorKey === "seedance_api") || null;
+      const seedancePricingTemplate = createSeedance20PricingTemplate();
+      const existingConsumerPolicies = Array.isArray(
+        existingVendor?.pricing?.consumerPolicies
+      )
+        ? existingVendor.pricing.consumerPolicies
+        : seedancePricingTemplate.consumerPolicies;
 
       return ensureModelDefaultVendor({
         ...model,
@@ -4337,10 +4563,10 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
               typeof existingVendor?.priceYuan === "number" && Number.isFinite(existingVendor.priceYuan)
                 ? existingVendor.priceYuan
                 : undefined,
-            pricing:
-              existingVendor?.pricing && typeof existingVendor.pricing === "object"
-                ? existingVendor.pricing
-                : undefined,
+            pricing: {
+              ...seedancePricingTemplate,
+              consumerPolicies: existingConsumerPolicies,
+            },
             metadata:
               existingVendor?.metadata && typeof existingVendor.metadata === "object"
                 ? existingVendor.metadata
@@ -13765,6 +13991,17 @@ function UnifiedModelManagementTab() {
                                     </div>
                                   )}
 
+                                  <ConsumerPolicyEditor
+                                    dimensions={pricingV2.dimensions}
+                                    policies={pricingV2.consumerPolicies}
+                                    onChange={(consumerPolicies) =>
+                                      updateVendorPricingV2(vendorIndex, (current) => ({
+                                        ...current,
+                                        consumerPolicies,
+                                      }))
+                                    }
+                                  />
+
                                   <div className='hidden rounded-lg border bg-white p-3'>
                                     <div className='mb-3 flex items-center justify-between'>
                                       <div className='font-medium text-gray-800'>1. 维度定义</div>
@@ -14909,7 +15146,7 @@ function UnifiedModelManagementTab() {
                                         点击“试算 v2”后，这里会显示命中的规则、evaluator 和最终积分。
                                       </div>
                                     ) : (
-                                      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-sm'>
+                                      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-5 text-sm'>
                                         <div className='rounded border bg-gray-50 p-3'>
                                           <div className='text-xs text-gray-500'>matchedRuleKey</div>
                                           <div className='font-medium'>{previewResult.matchedRuleKey || "-"}</div>
@@ -14925,8 +15162,21 @@ function UnifiedModelManagementTab() {
                                           <div className='font-medium'>{previewResult.price?.priceYuan ?? "-"}</div>
                                         </div>
                                         <div className='rounded border bg-gray-50 p-3'>
-                                          <div className='text-xs text-gray-500'>credits</div>
+                                          <div className='text-xs text-gray-500'>刊例积分</div>
                                           <div className='font-medium'>{previewResult.price?.credits ?? "-"}</div>
+                                        </div>
+                                        <div className='rounded border bg-violet-50 p-3'>
+                                          <div className='text-xs text-violet-700'>用户实扣积分</div>
+                                          <div className='font-medium text-violet-950'>
+                                            {previewResult.available === false
+                                              ? previewResult.unavailableMessage || "暂未开放"
+                                              : previewResult.effectiveCredits ?? previewResult.price?.credits ?? "-"}
+                                          </div>
+                                          {previewResult.consumerCharge && (
+                                            <div className='mt-1 text-xs text-violet-700'>
+                                              刊例的 {Math.round(previewResult.consumerCharge.multiplier * 100)}%
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     )}

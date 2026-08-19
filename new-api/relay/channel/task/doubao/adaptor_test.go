@@ -205,6 +205,29 @@ func TestConvertReferenceTaskForwardsTaskTypeWithoutSpecialOverrides(t *testing.
 	}
 }
 
+func TestConvertSeedance25ForwardsHighResolutions(t *testing.T) {
+	a := &TaskAdaptor{}
+	for _, resolution := range []string{"1080p", "4k"} {
+		t.Run(resolution, func(t *testing.T) {
+			req := &relaycommon.TaskSubmitReq{
+				Model:       "doubao-seedance-2-5-260628",
+				Prompt:      "生成一个高分辨率视频",
+				Duration:    5,
+				AspectRatio: "16:9",
+				Resolution:  resolution,
+			}
+
+			r, err := a.convertToRequestPayload(req)
+			if err != nil {
+				t.Fatalf("convertToRequestPayload error: %v", err)
+			}
+			if r.Resolution != resolution {
+				t.Fatalf("resolution = %q, want %q", r.Resolution, resolution)
+			}
+		})
+	}
+}
+
 func TestConvertTaskTypeRejectsIncompatibleParameters(t *testing.T) {
 	a := &TaskAdaptor{}
 	tests := []struct {

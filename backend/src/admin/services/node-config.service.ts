@@ -7,10 +7,12 @@ import {
 } from '../../ai/services/model-routing.service';
 import {
   resolveManagedModelPricingV2,
+  resolveManagedConsumerPolicy,
   resolveManagedVendorDefaultPricing,
   resolveManagedVendorPricingV2,
   type ManagedPricingVendorLike,
 } from '../../ai/services/model-pricing-resolver';
+import { applyConsumerCreditDiscount } from '../../credits/consumer-credit-operation';
 import {
   SEEDANCE20_DISCOUNT_CREDITS,
   SEEDANCE20_DISCOUNT_PRICE_YUAN,
@@ -153,9 +155,9 @@ const buildAudioStudioNodeMetadata = (): Record<string, any> => ({
 });
 
 const SEEDANCE20_SUPPORTED_MODELS = [
-  'seedance-1.5-pro',
   'seedance-2.0',
   'seedance-2.5',
+  'seedance-2.0-fast',
 ];
 const SEED20_SUPPORTED_MODELS = ['seed-2.0-pro', 'seed-2.0-lite', 'seed-2.0-mini'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
@@ -181,7 +183,7 @@ const SEEDANCE20_INPUT_MODES = [
 ];
 const SEEDANCE20_NOTES = [
   '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-5-260628',
-  'Seedance 2.5：输出时长 4–30 秒，仅支持 480P / 720P，按 Seedance 2.0 当前每秒单价的 1.5 倍计费',
+  'Seedance 2.5：输出时长 4–30 秒，支持 480P / 720P / 1080P / 4K，按 Seedance 2.0 同规格当前每秒单价的 1.5 倍计费',
   'Seedance 2.5 全模态参考按 UI 模式显式发送 omni_reference_task_type=reference/edit/extend；编辑固定 adaptive/-1，延长固定 adaptive；提示词语义仍须与任务类型一致',
   'Seedance 2.5 的多模态参考最多支持 30 张图片、10 路视频、10 路音频（视频/音频单条及总时长均不超过 30 秒）；2.0 系列保持 9/3/3 限制',
   '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
@@ -337,6 +339,17 @@ export class NodeConfigService {
       );
     }
 
+    const consumerPolicy =
+      resolved.consumerPolicy ||
+      resolveManagedConsumerPolicy(input.pricing, pricingContext);
+    const consumerCharge = applyConsumerCreditDiscount({
+      listCredits: Number(resolved.price?.credits) || 0,
+      ...(Number.isFinite(Number(resolved.price?.priceYuan))
+        ? { catalogPriceYuan: Number(resolved.price.priceYuan) }
+        : {}),
+      consumerPolicy,
+    });
+
     return {
       modelKey,
       vendorKey,
@@ -347,6 +360,11 @@ export class NodeConfigService {
       evaluatorType: resolved.evaluatorType,
       pricingVersion: resolved.pricingVersion,
       price: resolved.price,
+      consumerPolicy,
+      consumerCharge,
+      effectiveCredits: consumerCharge?.chargedCredits ?? resolved.price?.credits,
+      available: consumerPolicy?.availability?.available !== false,
+      unavailableMessage: consumerPolicy?.availability?.message,
       calcTrace: resolved.calcTrace,
       source: resolved.source,
     };
@@ -843,7 +861,7 @@ export class NodeConfigService {
     });
 
     const dbConfigs = sorted
-      .map((config) => {
+      .flatMap((config) => {
         const normalizedConfig = this.normalizeNodeConfigOutput({
           nodeKey: config.nodeKey,
           nameZh: config.nameZh,
@@ -859,6 +877,18 @@ export class NodeConfigService {
           metadata: config.metadata,
         });
 
+        // 必须在 normalizeManagedNodeMetadata 清理禁用 modelKeys 之前判定可见性。
+        // 否则一个仅绑定已禁用模型的节点会被清成 modelKeys=[]，继而被误判为
+        // “非模型节点”而继续返回给前端。
+        if (
+          !this.hasAvailableManagedModel(
+            normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
+            enabledManagedModelKeys,
+          )
+        ) {
+          return [];
+        }
+
         const normalizedMetadata = this.normalizeManagedNodeMetadata(
           normalizedConfig.nodeKey,
           normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
@@ -870,7 +900,7 @@ export class NodeConfigService {
           managedRoutes?.vendors?.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
           managedRoutes?.vendors?.[0];
 
-        return {
+        return [{
           ...normalizedConfig,
           creditsPerCall:
             typeof selectedVendor?.creditsPerCall === 'number'
@@ -881,14 +911,8 @@ export class NodeConfigService {
               ? selectedVendor.priceYuan
               : normalizedConfig.priceYuan,
           metadata: normalizedMetadata,
-        };
-      })
-      .filter((config) =>
-        this.hasAvailableManagedModel(
-          config.metadata as NodeConfigMetadataLike | undefined,
-          enabledManagedModelKeys,
-        ),
-      );
+        }];
+      });
 
     return dbConfigs;
   }

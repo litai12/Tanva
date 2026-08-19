@@ -27,6 +27,7 @@
     "test:xiaot-host-delivery": "node --test src/services/xiaotHostDelivery.test.ts",
     "test:canvas-auto-layout": "node --test src/utils/canvasAutoLayout.test.ts",
     "test:shared-request-pool": "node --test src/utils/sharedRequestPool.test.ts",
+    "test:prompt-optimization-models": "node --test src/services/promptOptimizationModels.test.ts",
     "test:flow-progress-runtime": "node --test src/components/flow/flowProgressRuntime.test.ts",
     "test:storyboard-prompt-table": "node --test src/components/flow/storyboardPromptTable.test.ts",
     "lint": "eslint .",

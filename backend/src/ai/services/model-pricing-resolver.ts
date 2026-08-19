@@ -36,8 +36,43 @@ export interface ManagedPricingBook {
     }>;
   };
   matchingRules?: ManagedPricingMatchingRule[];
+  consumerPolicies?: ManagedConsumerPolicy[];
   evaluators?: Record<string, ManagedPricingEvaluator>;
   displayConfig?: Record<string, unknown>;
+}
+
+export interface ManagedConsumerPolicy {
+  policyKey: string;
+  label?: string;
+  enabled?: boolean;
+  priority?: number;
+  startsAt?: string;
+  endsAt?: string;
+  conditions?: ManagedPricingConditionGroup;
+  availability?: {
+    available: boolean;
+    message?: string;
+  };
+  discount?: {
+    multiplier: number;
+  };
+}
+
+export interface ResolvedManagedConsumerPolicy {
+  matchedPolicyKeys: string[];
+  availability?: {
+    available: boolean;
+    message?: string;
+    policyKey: string;
+    label?: string;
+  };
+  discount?: {
+    multiplier: number;
+    policyKey: string;
+    label?: string;
+    startsAt?: string;
+    endsAt?: string;
+  };
 }
 
 export interface ManagedPricingDimensionOption {
@@ -137,6 +172,7 @@ export interface ResolvedManagedPricing {
   evaluatorType?: string;
   pricingVersion?: string;
   calcTrace?: Record<string, unknown>;
+  consumerPolicy?: ResolvedManagedConsumerPolicy;
 }
 
 const CREDITS_PER_YUAN = 100;
@@ -260,6 +296,97 @@ const matchesManagedCondition = (
   if (op === 'lt') return actual < expectedNumber;
   if (op === 'lte') return actual <= expectedNumber;
   return false;
+};
+
+const isConsumerPolicyWithinWindow = (
+  policy: ManagedConsumerPolicy,
+  nowMs: number,
+): boolean => {
+  const startsAt = typeof policy.startsAt === 'string' ? Date.parse(policy.startsAt) : NaN;
+  const endsAt = typeof policy.endsAt === 'string' ? Date.parse(policy.endsAt) : NaN;
+  if (policy.startsAt && !Number.isFinite(startsAt)) return false;
+  if (policy.endsAt && !Number.isFinite(endsAt)) return false;
+  // Time windows are [startsAt, endsAt): active at the start and restored at the end.
+  if (Number.isFinite(startsAt) && nowMs < startsAt) return false;
+  if (Number.isFinite(endsAt) && nowMs >= endsAt) return false;
+  return true;
+};
+
+const matchesManagedConditionGroup = (
+  pricingContext: Record<string, any>,
+  conditions?: ManagedPricingConditionGroup,
+): boolean => {
+  const all = Array.isArray(conditions?.all) ? conditions.all : [];
+  const any = Array.isArray(conditions?.any) ? conditions.any : [];
+  if (!all.every((condition) => matchesManagedCondition(pricingContext, condition))) {
+    return false;
+  }
+  return any.length === 0 || any.some((condition) => matchesManagedCondition(pricingContext, condition));
+};
+
+/**
+ * Resolves user-consumption operations independently from catalog pricing.
+ * The highest-priority matching policy wins for availability and discount
+ * separately, so a model-wide campaign can be overridden by a spec policy.
+ */
+export const resolveManagedConsumerPolicy = (
+  pricing: Pick<ManagedPricingBook, 'consumerPolicies'> | null | undefined,
+  pricingContext: Record<string, any>,
+  now: Date | number = Date.now(),
+): ResolvedManagedConsumerPolicy | undefined => {
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  if (!Number.isFinite(nowMs)) return undefined;
+  const activePolicies = (Array.isArray(pricing?.consumerPolicies)
+    ? pricing.consumerPolicies
+    : []
+  )
+    .filter(
+      (policy) =>
+        policy &&
+        policy.enabled !== false &&
+        String(policy.policyKey || '').trim() &&
+        isConsumerPolicyWithinWindow(policy, nowMs) &&
+        matchesManagedConditionGroup(pricingContext, policy.conditions),
+    )
+    .sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0));
+
+  if (activePolicies.length === 0) return undefined;
+
+  const availabilityPolicy = activePolicies.find(
+    (policy) => typeof policy.availability?.available === 'boolean',
+  );
+  const discountPolicy = activePolicies.find((policy) => {
+    const multiplier = Number(policy.discount?.multiplier);
+    return Number.isFinite(multiplier) && multiplier > 0 && multiplier <= 1;
+  });
+  if (!availabilityPolicy && !discountPolicy) return undefined;
+
+  return {
+    matchedPolicyKeys: activePolicies.map((policy) => policy.policyKey),
+    ...(availabilityPolicy
+      ? {
+          availability: {
+            available: availabilityPolicy.availability!.available,
+            ...(availabilityPolicy.availability?.message
+              ? { message: availabilityPolicy.availability.message }
+              : {}),
+            policyKey: availabilityPolicy.policyKey,
+            ...(availabilityPolicy.label ? { label: availabilityPolicy.label } : {}),
+          },
+        }
+      : {}),
+    ...(discountPolicy
+      ? {
+          discount: {
+            multiplier: Number(discountPolicy.discount!.multiplier),
+            policyKey: discountPolicy.policyKey,
+            ...(discountPolicy.label ? { label: discountPolicy.label } : {}),
+            ...(discountPolicy.startsAt ? { startsAt: discountPolicy.startsAt } : {}),
+            ...(discountPolicy.endsAt ? { endsAt: discountPolicy.endsAt } : {}),
+          },
+        }
+      : {}),
+  };
 };
 
 const toFiniteNumber = (value: unknown): number | undefined => {
@@ -924,5 +1051,10 @@ export const resolveManagedModelPricingV2 = async (
       )
     : undefined;
 
-  return resolveManagedVendorPricingV2(vendor, pricingContext);
+  const resolved = await resolveManagedVendorPricingV2(vendor, pricingContext);
+  const consumerPolicy = resolveManagedConsumerPolicy(
+    vendor?.pricing,
+    pricingContext,
+  );
+  return consumerPolicy ? { ...resolved, consumerPolicy } : resolved;
 };

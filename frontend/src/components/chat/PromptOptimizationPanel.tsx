@@ -13,10 +13,16 @@ import type { PromptOptimizationRequest } from '@/services/promptOptimizationSer
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { createPortal } from 'react-dom';
-import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
+import {
+  DEFAULT_PROMPT_OPTIMIZATION_MODEL,
+  PROMPT_OPTIMIZATION_MODEL_OPTIONS,
+  type PromptOptimizationModel,
+} from '@/services/promptOptimizationModels';
 import { useTranslation } from 'react-i18next';
 
 export interface PromptOptimizationSettings {
+  model: PromptOptimizationModel;
   language: '中文' | 'English';
   tone: string;
   focus: string;
@@ -53,7 +59,6 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
-  const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [formError, setFormError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -140,7 +145,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
       focus: settings.focus || undefined,
       lengthPreference: settings.lengthPreference,
       aiProvider,
-      model: textModel
+      model: settings.model
     } satisfies PromptOptimizationRequest);
   };
 
@@ -185,6 +190,26 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
     >
       <div className="px-4 pt-4 pb-3 space-y-4 text-sm text-slate-700">
         <div className="grid grid-cols-2 gap-3">
+          <label className="col-span-2 space-y-1 text-xs">
+            <span className="text-slate-500">{lt('优化模型', 'Optimization model')}</span>
+            <select
+              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={settings.model || DEFAULT_PROMPT_OPTIMIZATION_MODEL}
+              onChange={(event) =>
+                handleSettingsFieldChange(
+                  'model',
+                  event.target.value as PromptOptimizationModel,
+                )
+              }
+            >
+              {PROMPT_OPTIMIZATION_MODEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="space-y-1 text-xs">
             <span className="text-slate-500">{lt('输出语言', 'Output language')}</span>
             <select

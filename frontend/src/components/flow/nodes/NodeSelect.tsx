@@ -13,6 +13,7 @@ export type NodeSelectOption = {
   value: string;
   label: string;
   description?: string;
+  disabled?: boolean;
 };
 
 type NodeSelectProps = {
@@ -112,8 +113,13 @@ function NodeSelect({
           return (
             <DropdownMenuItem
               key={option.value}
+              disabled={option.disabled}
               onClick={(event) => {
                 event.stopPropagation();
+                if (option.disabled) {
+                  event.preventDefault();
+                  return;
+                }
                 onChange(option.value);
               }}
               onPointerDownCapture={(event) => {
@@ -121,6 +127,7 @@ function NodeSelect({
               }}
               className={cn(
                 "flex items-start gap-2 rounded-lg px-3 py-2 text-xs transition-colors",
+                option.disabled && "cursor-not-allowed opacity-50",
                 isFlowDark
                   ? isActive
                     ? "bg-blue-500/20 text-blue-100 hover:bg-blue-500/25"

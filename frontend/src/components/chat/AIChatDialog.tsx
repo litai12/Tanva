@@ -30,7 +30,7 @@ import {
 import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
 import SmartImage from "@/components/ui/SmartImage";
 import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
-import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
+import { useAIChatStore } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useUIStore } from "@/stores";
 import { useCommentStore } from "@/stores/commentStore";
@@ -74,6 +74,7 @@ import type {
 } from "@/types/ai";
 import PromptOptimizationPanel from "@/components/chat/PromptOptimizationPanel";
 import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimizationPanel";
+import { DEFAULT_PROMPT_OPTIMIZATION_MODEL } from "@/services/promptOptimizationModels";
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
@@ -402,10 +403,6 @@ const AIChatDialog: React.FC = () => {
   );
   const resizeBottomGapRef = useRef(0);
   const [autoOptimizing, setAutoOptimizing] = useState(false);
-  const textModel = useMemo(
-    () => getTextModelForProvider(aiProvider),
-    [aiProvider]
-  );
   const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
   const promptButtonRef = useRef<HTMLButtonElement>(null);
   const promptPanelRef = useRef<HTMLDivElement>(null);
@@ -465,6 +462,7 @@ const AIChatDialog: React.FC = () => {
   const [aspectReady, setAspectReady] = useState(false);
   const [promptSettings, setPromptSettings] =
     useState<PromptOptimizationSettings>({
+      model: DEFAULT_PROMPT_OPTIMIZATION_MODEL,
       language: "中文",
       tone: "",
       focus: "",
@@ -2757,7 +2755,7 @@ const AIChatDialog: React.FC = () => {
             focus: promptSettings.focus || undefined,
             lengthPreference: promptSettings.lengthPreference,
             aiProvider,
-            model: textModel,
+            model: promptSettings.model,
           });
 
           if (response.success && response.data) {

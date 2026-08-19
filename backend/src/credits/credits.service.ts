@@ -46,9 +46,11 @@ import {
   type ManagedPricingDimensionDefinition,
   type ManagedPricingEvaluator,
   type ManagedPricingMatchingRule,
+  type ResolvedManagedConsumerPolicy,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
 import { normalizeSeedance20DiscountPricing } from '../ai/services/seedance20-pricing';
+import { applyConsumerCreditDiscount } from './consumer-credit-operation';
 import {
   calculateDoubaoSeedVideoAnalysisDurationBilling,
   isDoubaoSeedDurationPricedModel,
@@ -294,6 +296,7 @@ interface CachedPreviewQuotePayload {
           priceYuan?: number;
           costYuan?: number;
         };
+        consumerPolicy?: ResolvedManagedConsumerPolicy;
       }
     | null;
   effectiveRequestParams: any;
@@ -736,7 +739,7 @@ export class CreditsService {
       creditsToDeduct = managedRoutePricing.price.credits;
     }
 
-    const effectiveRequestParams =
+    let effectiveRequestParams =
       managedRoutePricing &&
       normalizedRequestParams &&
       typeof normalizedRequestParams === 'object'
@@ -747,6 +750,9 @@ export class CreditsService {
               ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
               ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
               price: managedRoutePricing.price,
+              ...(managedRoutePricing.consumerPolicy
+                ? { consumerPolicy: managedRoutePricing.consumerPolicy }
+                : {}),
             },
           }
         : normalizedRequestParams;
@@ -845,6 +851,41 @@ export class CreditsService {
       creditsToDeduct *= outputImageCountMultiplier;
     }
 
+    const consumerPolicy = managedRoutePricing?.consumerPolicy;
+    if (consumerPolicy?.availability?.available === false) {
+      throw new BadRequestException(
+        consumerPolicy.availability.message || '暂未开放',
+      );
+    }
+
+    const managedCredits = Number(managedRoutePricing?.price?.credits);
+    const managedPriceYuan = Number(managedRoutePricing?.price?.priceYuan);
+    const canUseExactCatalogPrice =
+      Number.isFinite(managedCredits) &&
+      managedCredits === creditsToDeduct &&
+      Number.isFinite(managedPriceYuan);
+    const consumerCharge = applyConsumerCreditDiscount({
+      listCredits: creditsToDeduct,
+      ...(canUseExactCatalogPrice ? { catalogPriceYuan: managedPriceYuan } : {}),
+      consumerPolicy,
+    });
+    if (consumerCharge) {
+      creditsToDeduct = consumerCharge.chargedCredits;
+      if (
+        effectiveRequestParams &&
+        typeof effectiveRequestParams === 'object' &&
+        !Array.isArray(effectiveRequestParams)
+      ) {
+        effectiveRequestParams = {
+          ...effectiveRequestParams,
+          pricingSnapshot: {
+            ...(effectiveRequestParams.pricingSnapshot || {}),
+            consumerCharge,
+          },
+        };
+      }
+    }
+
     // ??????????? Kling, Sora, Seedance?
     let serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
@@ -883,7 +924,11 @@ export class CreditsService {
     model?: string,
   ): number {
     const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
-    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6-luna') {
+    if (
+      normalizedModel === 'gpt-5.4' ||
+      normalizedModel === 'gpt-5.6-luna' ||
+      normalizedModel === 'gpt-5.6-terra'
+    ) {
       return currentCredits;
     }
     const candidates = [
@@ -2121,7 +2166,11 @@ export class CreditsService {
     }
 
     const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
-    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6-luna') {
+    if (
+      normalizedModel === 'gpt-5.4' ||
+      normalizedModel === 'gpt-5.6-luna' ||
+      normalizedModel === 'gpt-5.6-terra'
+    ) {
       return defaultCredits;
     }
 
@@ -4865,6 +4914,7 @@ export class CreditsService {
                 evaluatorType: quote.managedRoutePricing.evaluatorType,
                 pricingVersion: quote.managedRoutePricing.pricingVersion,
                 price: quote.managedRoutePricing.price,
+                consumerPolicy: quote.managedRoutePricing.consumerPolicy,
               }
             : null,
         effectiveRequestParams: quote.effectiveRequestParams ?? null,

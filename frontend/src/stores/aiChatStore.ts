@@ -43,6 +43,7 @@ import {
   detectVideoDuration,
   getVideoModelLabel,
   externalizeInlinePrompt,
+  buildXiaotCanvasRequestContext,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
   rewritePatchToImageType,
@@ -144,8 +145,8 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 7;
-const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
+const AI_CHAT_PREFERENCES_VERSION = 8;
+const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-luna";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
 
@@ -3655,7 +3656,7 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
         xiaotMode: false, // 默认使用旧图片编辑 / Auto；用户主动选择后进入小T Beta
-        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认使用小T-5.4 门面
+        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认使用小T-5.6 Luna 门面
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
         xiaotStyleAnchor: null, // 小T风格锚定默认无
@@ -8752,10 +8753,7 @@ export const useAIChatStore = create<AIChatState>()(
               model: state.xiaotModel,
               sessionId,
               projectId,
-              canvasContext: {
-                nodes: snapshot.nodes,
-                edges: snapshot.edges,
-              },
+              canvasContext: buildXiaotCanvasRequestContext(snapshot, input),
               capabilityManifest:
                 capabilityManifest as unknown as Record<string, unknown>,
               ...(generationContract ? { generationContract } : {}),
@@ -10641,7 +10639,7 @@ export const useAIChatStore = create<AIChatState>()(
           // v7：极速线路暂停使用，历史 ultra/beqlee 偏好统一迁回普通线路。
           // v6：小T Beta 改为用户主动选择，旧版本曾强制写入 true，统一迁回旧入口。
           xiaotMode: false,
-          // 小T大脑支持 Fast/Pro/Ultra/DeepSeek；旧值或未知值统一回落 Fast。
+          // v8：小T大脑仅保留 Luna/Terra/DeepSeek；旧值或未知值统一迁移到 Luna。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
             ? (state.xiaotModel as XiaotChatModel)
             : DEFAULT_XIAOT_CHAT_MODEL,

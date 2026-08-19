@@ -11,9 +11,8 @@ const API_BASE_URL =
 // 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
 // （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。
 export const XIAOT_CHAT_MODELS = [
-  "xiaot-agent-gpt-5-4",
-  "xiaot-agent-gpt-5-5",
   "xiaot-agent-gpt-5-6-luna",
+  "xiaot-agent-gpt-5-6-terra",
   "xiaot-agent-deepseek-v4-flash",
 ] as const;
 export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
@@ -23,9 +22,8 @@ export const XIAOT_CHAT_MODEL_OPTIONS: ReadonlyArray<{
   label: string;
   value: XiaotChatModel;
 }> = [
-  { label: "Fast · 小T-5.4", value: "xiaot-agent-gpt-5-4" },
-  { label: "Pro · 小T-5.5", value: "xiaot-agent-gpt-5-5" },
-  { label: "Ultra · 小T-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  { label: "小T-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
+  { label: "小T-5.6 Terra", value: "xiaot-agent-gpt-5-6-terra" },
   {
     label: "小T-DeepSeek V4 Flash",
     value: "xiaot-agent-deepseek-v4-flash",

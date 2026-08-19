@@ -397,6 +397,7 @@ const attachBananaRouteToProviderOptions = <T extends {
 const MAX_IMAGE_GENERATION_ATTEMPTS = 1;
 const NO_IMAGE_RETRY_DELAY_MS = 800;
 const TEXT_CHAT_TIMEOUT_MS = 60_000;
+const MAX_TEXT_CHAT_TIMEOUT_MS = 3 * 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1690,16 +1691,21 @@ export async function analyzeImageViaAPI(
  * 文本对话 - 通过后端 API
  */
 export async function generateTextResponseViaAPI(
-  request: AITextChatRequest
+  request: AITextChatRequest,
+  options?: { timeoutMs?: number },
 ): Promise<AIServiceResponse<AITextChatResult>> {
   const startedAt = getTimestamp();
+  const requestedTimeoutMs = Number(options?.timeoutMs);
+  const requestTimeoutMs = Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
+    ? Math.min(MAX_TEXT_CHAT_TIMEOUT_MS, Math.max(5_000, Math.floor(requestedTimeoutMs)))
+    : TEXT_CHAT_TIMEOUT_MS;
   const { request: requestWithRoute, bananaImageRoute } =
     attachBananaRouteToProviderOptions(request);
   const controller = new AbortController();
   const timeoutId =
     typeof window !== "undefined"
-      ? window.setTimeout(() => controller.abort(), TEXT_CHAT_TIMEOUT_MS)
-      : setTimeout(() => controller.abort(), TEXT_CHAT_TIMEOUT_MS);
+      ? window.setTimeout(() => controller.abort(), requestTimeoutMs)
+      : setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/text-chat`, {
       method: "POST",
@@ -1711,6 +1717,7 @@ export async function generateTextResponseViaAPI(
       },
       body: JSON.stringify(requestWithRoute),
       signal: controller.signal,
+      timeoutMs: requestTimeoutMs,
     });
 
     if (!response.ok) {
@@ -1756,7 +1763,7 @@ export async function generateTextResponseViaAPI(
       provider: requestWithRoute.aiProvider,
       model: requestWithRoute.model,
       error: isTimeout
-        ? `Request timeout (${TEXT_CHAT_TIMEOUT_MS}ms)`
+        ? `Request timeout (${requestTimeoutMs}ms)`
         : error instanceof Error
         ? error.message
         : "Unknown error",
@@ -1766,7 +1773,7 @@ export async function generateTextResponseViaAPI(
       error: {
         code: isTimeout ? "TIMEOUT_ERROR" : "NETWORK_ERROR",
         message: isTimeout
-          ? `文本请求超时（${Math.floor(TEXT_CHAT_TIMEOUT_MS / 1000)}秒）`
+          ? `文本请求超时（${Math.floor(requestTimeoutMs / 1000)}秒）`
           : error instanceof Error
           ? error.message
           : "Network error",

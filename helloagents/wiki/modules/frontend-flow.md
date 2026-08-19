@@ -1,3 +1,10 @@
+## 2026-08-17 模型消费策略展示
+
+- Flow 从节点 `managedRoutes` 的厂商定价书读取当前有效的 `consumerPolicies`，只用于规格可用性和运营提示；Run 积分仍以认证后的 `/api/credits/preview` 为唯一权威值。
+- Seedance 2.5 1080P 活动期在分辨率菜单显示 `7.2 折`；4K 保留在能力列表中但以禁用项显示“暂未开放”。历史已保存为 4K 的节点不会静默换成其他分辨率，运行时由后端再次拦截。
+- 后台模型定价页新增“用户消费运营”编辑器，可选择整条节点线路或按定价维度指定规格，配置优先级、扣费百分比、禁用提示及台北时区开始/结束时间。
+- Seedance 型号菜单的文字目录仍由前端维护，但可选状态来自后台节点配置：`seedance-1.5` 只控制 1.5 Pro，`seedance-2.0` 控制 2.0/2.5/Fast。Flow 会用最新运行时 metadata 覆盖画布旧快照；已保存的下线型号保留原值并显示“已下线”，Run 禁用，不会自动换成另一型号。
+
 ## 2026-08-11 Tanvas 图片积分与线路收敛
 
 - Flow 图片节点的普通/尊享短暂兜底价同步后端 Tanvas 1.5 倍积分矩阵；后端 `/credits/preview` 返回后仍无条件覆盖兜底值。
@@ -36,12 +43,12 @@
 
 ## 2026-07-31 Seedance 2.5
 - Generic Seedance video nodes expose `Seedance 2.5` as `seedanceModel=seedance-2.5`; request assembly preserves that selector instead of collapsing it to 2.0, allowing the backend to route the exact Ark model `doubao-seedance-2-5`.
-- The 2.5 resolution list is strictly `480P/720P`. Switching from 2.0 with a stored `1080P` or `4K` value automatically falls back to `720P`, and the help copy reflects the same capability.
+- The Seedance 2.5 resolution list is `480P/720P/1080P/4K`, matching the standard 2.0 model. Switching to Fast/Lite/Mini still falls back from unsupported `1080P/4K` values to `720P`; the help copy reflects each concrete model's capability.
 - 2.5 is currently an Ark default-route-only model. Its node hides Tencent VOD/Premium routes and ignores a stale VIP selection from an older saved node; the backend independently enforces the same route.
 - Price badges continue to use authenticated `/api/credits/preview` only. The frontend supplies the selected model, resolution, output duration, and connected reference-video durations; it does not carry a second runtime price table.
 
-## 2026-08-02 XiaoT Text Model Display
-- Flow Text Chat and Prompt Optimizer continue to execute internally with `gpt-5.4` through new-api. Their user-visible badges now show `小T-5.4`, and the model tooltip identifies the managed route as `new-api · 小T-5.4`; the internal request model remains unchanged.
+## 2026-08-19 Prompt Optimizer Model Selection
+- Flow Prompt Optimizer 标题栏使用原有紧凑胶囊标签，点击后在浮层中切换 `小T-5.6 Luna`、`小T-5.6 Terra`、`小T-DeepSeek V4 Flash`；节点字段 `promptOptimizationModel` 同时驱动标签、积分预览和实际请求，旧/非法值回退 Luna。AI Chat 长按扩写面板复用同一组选项，自动扩写使用当前面板模型。Flow Text Chat 仍保持其独立默认文本模型。
 
 ## 2026-07-21 Backend-only Video Credit Display
 - Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.

@@ -101,6 +101,10 @@ import {
   isDoubaoSeedDurationPricedModel,
   isDoubaoSeedVideoAnalysisModel,
 } from './services/doubao-seed-video-analysis-pricing';
+import {
+  resolvePromptOptimizationGatewayModel,
+  resolvePromptOptimizationModel,
+} from './prompt-optimization-models';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -1065,7 +1069,10 @@ export class AiController {
     const requestModel =
       typeof extraParams?.model === 'string' ? extraParams.model.trim().toLowerCase() : '';
     const isGatewayGptTextRequest =
-      requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6-luna';
+      requestModel === 'gpt-5.4' ||
+      requestModel === 'gpt-5.6-luna' ||
+      requestModel === 'gpt-5.6-terra' ||
+      requestModel === 'deepseek-v4-flash';
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
@@ -1676,9 +1683,10 @@ export class AiController {
     if (this.isSeedance25Model(dto.seedanceModel)) {
       const resolution =
         typeof dto.resolution === 'string' ? dto.resolution.trim().toUpperCase() : '';
-      if (resolution && resolution !== '480P' && resolution !== '720P') {
+      const supportedResolutions = new Set(['480P', '720P', '1080P', '4K']);
+      if (resolution && !supportedResolutions.has(resolution)) {
         throw new BadRequestException(
-          `Seedance 2.5 仅支持 480P / 720P，当前为 ${resolution}`,
+          `Seedance 2.5 仅支持 480P / 720P / 1080P / 4K，当前为 ${resolution}`,
         );
       }
       const duration = Number(dto.duration);
@@ -4863,9 +4871,23 @@ export class AiController {
 
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveTextModel(providerName, dto.model);
     const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
+    // 提示词优化固定走 new-api 文本模型；不能被当前图片 provider（如
+    // RunningHub/Midjourney）带到其原生实现。
+    const providerName =
+      billingTag === 'prompt_optimize'
+        ? null
+        : dto.aiProvider && dto.aiProvider !== 'gemini'
+          ? dto.aiProvider
+          : null;
+    const model =
+      billingTag === 'prompt_optimize'
+        ? resolvePromptOptimizationModel(dto.model)
+        : this.resolveTextModel(providerName, dto.model);
+    const gatewayModel =
+      billingTag === 'prompt_optimize'
+        ? resolvePromptOptimizationGatewayModel(model)
+        : model;
     const serviceType: ServiceType =
       billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
@@ -4885,10 +4907,10 @@ export class AiController {
 
     return this.withCredits(req, serviceType, model, async () => {
       if (!customApiKey) {
-        const provider = this.factory.getProvider(model, providerName || 'new-api');
+        const provider = this.factory.getProvider(gatewayModel, providerName || 'new-api');
         const result = await provider.generateText({
           prompt: dto.prompt,
-          model,
+          model: gatewayModel,
           imageUrls: imageUrls.length ? imageUrls : undefined,
           enableWebSearch: dto.enableWebSearch,
           providerOptions: dto.providerOptions,

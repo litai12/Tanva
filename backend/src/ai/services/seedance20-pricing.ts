@@ -7,6 +7,9 @@ export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 7.5;
 // means scaling every existing per-second price by 1.5 / 1.2 = 1.25.
 export const SEEDANCE20_PRICE_SCALE = 1.5 / 1.2;
 export const SEEDANCE25_PRICE_MULTIPLIER = 1.5;
+export const SEEDANCE25_1080P_DISCOUNT_MULTIPLIER = 0.72;
+export const SEEDANCE25_1080P_DISCOUNT_STARTS_AT = '2026-08-14T14:00:00+08:00';
+export const SEEDANCE25_1080P_DISCOUNT_ENDS_AT = '2026-09-17T14:00:00+08:00';
 
 // Standard paid retail price. Keep this independent from the temporary
 // SEEDANCE20_FREE generation campaign: other products may reference the
@@ -140,6 +143,32 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       },
     },
     {
+      ruleKey: 'seedance25_1080p',
+      label: 'Seedance 2.5 1080P',
+      enabled: true,
+      priority: 130,
+      evaluatorKey: 'seedance25_1080p_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '1080P' },
+        ],
+      },
+    },
+    {
+      ruleKey: 'seedance25_4k',
+      label: 'Seedance 2.5 4K',
+      enabled: true,
+      priority: 130,
+      evaluatorKey: 'seedance25_4k_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '4K' },
+        ],
+      },
+    },
+    {
       ruleKey: 'seedance20_fast_480p',
       label: 'Seedance 2.0 Fast 480P',
       enabled: true,
@@ -244,6 +273,41 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       },
     },
   ],
+  consumerPolicies: [
+    {
+      policyKey: 'seedance25_1080p_72_campaign',
+      label: 'Seedance 2.5 1080P 限时 7.2 折（72%）',
+      enabled: true,
+      priority: 200,
+      startsAt: SEEDANCE25_1080P_DISCOUNT_STARTS_AT,
+      endsAt: SEEDANCE25_1080P_DISCOUNT_ENDS_AT,
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '1080P' },
+        ],
+      },
+      discount: {
+        multiplier: SEEDANCE25_1080P_DISCOUNT_MULTIPLIER,
+      },
+    },
+    {
+      policyKey: 'seedance25_4k_unavailable',
+      label: 'Seedance 2.5 4K 暂未开放',
+      enabled: true,
+      priority: 210,
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.5' },
+          { field: 'resolution', op: 'eq', value: '4K' },
+        ],
+      },
+      availability: {
+        available: false,
+        message: '暂未开放',
+      },
+    },
+  ],
   evaluators: {
     seedance25_480p_eval: {
       type: 'linear',
@@ -254,6 +318,16 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       type: 'linear',
       unitField: 'duration',
       unitPriceYuan: applySeedance25Price(1.2),
+    },
+    seedance25_1080p_eval: {
+      type: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: applySeedance25Price(3.0),
+    },
+    seedance25_4k_eval: {
+      type: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: applySeedance25Price(6.0),
     },
     seedance20_fast_480p_eval: {
       type: 'linear',
@@ -310,6 +384,8 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       { seedanceModel: 'seedance-2.0', resolution: '4K', duration: 5 },
       { seedanceModel: 'seedance-2.5', resolution: '480P', duration: 5 },
       { seedanceModel: 'seedance-2.5', resolution: '720P', duration: 5 },
+      { seedanceModel: 'seedance-2.5', resolution: '1080P', duration: 5 },
+      { seedanceModel: 'seedance-2.5', resolution: '4K', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '480P', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '720P', duration: 5 },
       { seedanceModel: 'seed-2.0-mini', resolution: '480P', duration: 5 },
@@ -322,6 +398,16 @@ export const applySeedance20DiscountVendorPricing = <T>(
   vendor: T,
 ): T => {
   const current = vendor && typeof vendor === 'object' ? (vendor as Record<string, any>) : {};
+  const template = createSeedance20DiscountPricingTemplate();
+  const currentPricing =
+    current.pricing && typeof current.pricing === 'object' && !Array.isArray(current.pricing)
+      ? current.pricing
+      : null;
+  // Catalog rates remain code-owned, while user-consumption operations are
+  // persisted/admin-owned once configured. Missing policies receive defaults.
+  if (currentPricing && Array.isArray(currentPricing.consumerPolicies)) {
+    template.consumerPolicies = currentPricing.consumerPolicies;
+  }
   return {
     ...current,
     vendorKey: current.vendorKey || 'seedance_api',
@@ -334,7 +420,7 @@ export const applySeedance20DiscountVendorPricing = <T>(
     modelVersion: '2.0',
     creditsPerCall: seedance20EffectiveCredits(),
     priceYuan: seedance20EffectivePriceYuan(),
-    pricing: createSeedance20DiscountPricingTemplate(),
+    pricing: template,
   } as T;
 };
 

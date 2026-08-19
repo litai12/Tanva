@@ -9,10 +9,11 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
-- `aiChatStore` 的非小T模型按任务固定分层：普通 Text、Flow Text Chat、提示词优化、工具选择和 PDF 分析使用 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6-luna`。图片识别使用 Gemini 三档并只提交上传后的远程 URL；小T模型偏好保持独立，但 Luna 大脑识图也必须调用 Gemini `analyze_image` 宿主工具。视频分析不再从 `aiChatStore.aiProvider` 推导模型，模型值由每个 `videoAnalyze` 节点的 `analysisModel` 独立持久化。
+- `aiChatStore` 的普通 Text、Flow Text Chat、工具选择和 PDF 分析默认使用 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6-luna`。提示词优化独立支持 Luna/Terra/DeepSeek V4 Flash 三模型，不再读取全局图片 provider 推导模型。小T偏好 v8 仅接受对应三种 facade ID，旧 5.4/5.5 或未知值迁移到 Luna。图片识别继续使用 Gemini 三档并只提交远程 URL；视频分析由节点的 `analysisModel` 独立持久化。
 - AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接对话历史。迭代计数与上下文依赖检测独立，Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
 - AI Chat Auto/Generate 的多图输出数量默认来自 `autoModeMultiplier`，但会先解析本次输入里的明确输出数量（如“画两张”“生成 3 张”“多张方案”）并覆盖默认倍数；“用两张参考图/把两张图融合”等输入素材数量不应触发输出倍数。明确数量触发并行时，每个 slot 会使用拆分后的单张 prompt，强调“本次只生成 1 张完整图片”，避免把总张数画成单图拼图或同图多主体。
 - 小T模式不使用上述自然语言覆盖逻辑：`autoModeMultiplier` 直接写入 `imageOutputCount`，同时由 `XiaotImagePatchContract` 限制实际落板的单输出图片节点、prompt、连线和 `runNode`。`gptImage2` 的宿主能力声明包含 `text/img` 输入与单个 `img:image` 输出，用于节点选择与连线，但 `runNode` tool call 只代表命令到达 Tanva。`agentPatchApplier` 为每轮建立结构化执行回执，严格串行等待节点创建、真实连线和节点运行；`runNode` 必须由 Flow 返回成功/失败和远程资产 URL，队列完成后才自动布局并聚焦首个图片生成节点。
+- 前端在请求边界先把当前 Flow 投影为节点数量/类型摘要、选中节点和由本轮文字明确命中的最多 8 个节点；完整快照不离开浏览器，未命中的节点正文、媒体 URL 和连线不会发送给 Tanva 后端或小T上游。纯问候由后端本地即时完成，前端仍消费同一套 `run_started → assistant_delta → final → done` 事件，不需要分叉 UI。
 - 小T画布任务的聊天占位文案只在运行中显示；终帧正文兼容读取 `message` 与 `data.text`，并继续通过 AI Chat 的 Markdown 渲染器展示。只要本轮存在图片生成节点，必须等每个预期图片节点产生真实 HTTP(S) URL 后才显示“已完成”，并将这些 URL 作为 `media` 卡写入同一消息；facade 的等待文案或命令发出不能覆盖宿主事实。节点执行失败、连线失败或成功节点缺少真实 URL 时消息显式进入失败终态并保留画布节点状态。前端 SSE 客户端必须收到真实 `done` 才允许返回成功；`verifyXiaotTurnDelivery` 会拒绝上游 `error`（即使已有部分正文）以及正文、patch、宿主工具和 UI 卡全部为空的回合，因此传输层关闭或部分内容不再自动生成“任务已完成”。
 - AI Chat 图片生成任务前端轮询上限为 15 分钟；消息写入错误态时会派发画布占位框 remove 事件，画布 `useQuickImageUpload` 还会定时清理过期或孤儿 AI 预测占位框，避免 95% 等待框残留。
 - AI Chat 工具选择兜底会把缓存图上的 `改文字` / `改成` / `替换文字` 等编辑意图路由到 `editImage`，避免尊享路线工具选择不稳定时退成 `chatResponse`。

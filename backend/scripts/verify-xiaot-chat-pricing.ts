@@ -34,8 +34,14 @@ const makeSseResponse = (usageUnits?: number): Response => {
   if (usageUnits !== undefined) {
     frames.push(
       `data: ${JSON.stringify({
-        choices: [{ delta: {} }],
+        choices: [{ delta: {}, finish_reason: 'stop' }],
         usage: { total_tokens: usageUnits },
+      })}\n\n`,
+    );
+  } else {
+    frames.push(
+      `data: ${JSON.stringify({
+        choices: [{ delta: {}, finish_reason: 'stop' }],
       })}\n\n`,
     );
   }
@@ -91,7 +97,16 @@ async function main(): Promise<void> {
     () => undefined,
   );
   await service.run(
-    { prompt: '只回复一句话', mode: 'canvasAgent' },
+    {
+      prompt: '只回复一句话',
+      mode: 'canvasAgent',
+      model: 'xiaot-agent-gpt-5-6-terra',
+    },
+    'user-1',
+    () => undefined,
+  );
+  await service.run(
+    { prompt: '默认模型回复一句话', mode: 'canvasAgent' },
     'user-1',
     () => undefined,
   );
@@ -102,11 +117,20 @@ async function main(): Promise<void> {
     'xiaot-agent-deepseek-v4-flash',
     'DeepSeek V4 Flash 必须通过小T专属门面名转发',
   );
-  assert.equal(requestedModels[1], 'xiaot-agent-gpt-5-4');
-  assert.equal(charges.length, 2);
+  assert.equal(
+    requestedModels[1],
+    'xiaot-agent-gpt-5-6-terra',
+    'Terra 必须通过小T专属门面名转发',
+  );
+  assert.equal(
+    requestedModels[2],
+    'xiaot-agent-gpt-5-6-luna',
+    '未指定模型时必须回落到小T-5.6 Luna',
+  );
+  assert.equal(charges.length, 3);
   assert.deepEqual(
     charges.map((charge) => charge.amount),
-    [2, 2],
+    [2, 2, 2],
     '有大额 usage 和无 usage 的成功对话都必须只扣 2 积分',
   );
   assert.equal(charges[0]?.meta.serviceType, 'agent-chat');
@@ -119,6 +143,7 @@ async function main(): Promise<void> {
     '上游 usage 只应留作审计字段',
   );
   assert.equal(charges[1]?.meta.requestParams?.usageUnits, 0);
+  assert.equal(charges[2]?.meta.requestParams?.usageUnits, 0);
 
   console.log('xiaot fixed 2-credit chat pricing verification passed');
 }

@@ -15,7 +15,7 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 			   {"value":6,"label":"6s"}
 			 ]},
 			{"key":"resolution","type":"enum","label":"分辨率","default":"480p",
-			 "options":[{"value":"480p","label":"480p"},{"value":"720p","label":"720p"}]}
+			 "options":[{"value":"480p","label":"480p"},{"value":"720p","label":"720p"},{"value":"1080p","label":"1080p"},{"value":"4k","label":"4K"}]}
 		]`,
 	}
 
@@ -29,7 +29,7 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 	if pricing.BillingMode != "linear_by_duration_and_resolution" {
 		t.Fatalf("billing mode = %q", pricing.BillingMode)
 	}
-	if len(pricing.Results) != 6 {
+	if len(pricing.Results) != 8 {
 		t.Fatalf("len(results) = %d", len(pricing.Results))
 	}
 
@@ -53,6 +53,8 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 	assertSpecPriceCNY("video:720p:6s", 1.2*6)
 	assertSpecPriceCNY("video:1080p:4s", 3.0*4)
 	assertSpecPriceCNY("video:1080p:6s", 3.0*6)
+	assertSpecPriceCNY("video:4k:4s", 6.0*4)
+	assertSpecPriceCNY("video:4k:6s", 6.0*6)
 }
 
 func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testing.T) {
@@ -62,7 +64,7 @@ func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testin
 			{"key":"duration","type":"enum","label":"时长","default":4,
 			 "options":[{"value":4,"label":"4s"},{"value":6,"label":"6s"}]},
 			{"key":"resolution","type":"enum","label":"分辨率","default":"720p",
-			 "options":[{"value":"480p","label":"480p"},{"value":"720p","label":"720p"}]}
+			 "options":[{"value":"480p","label":"480p"},{"value":"720p","label":"720p"},{"value":"1080p","label":"1080p"},{"value":"4k","label":"4K"}]}
 		]`,
 	}
 
@@ -70,8 +72,8 @@ func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testin
 	if pricing == nil {
 		t.Fatal("expected param pricing")
 	}
-	if len(pricing.Results) != 4 {
-		t.Fatalf("len(results) = %d, want 4", len(pricing.Results))
+	if len(pricing.Results) != 8 {
+		t.Fatalf("len(results) = %d, want 8", len(pricing.Results))
 	}
 
 	assertSpecPriceCNY := func(specKey string, want float64) {
@@ -92,6 +94,10 @@ func TestBuildParamPricingForSeedance25UsesOnePointFiveTimesSeedance20(t *testin
 	assertSpecPriceCNY("video:480p:6s", 1.5*6)
 	assertSpecPriceCNY("video:720p:4s", 1.8*4)
 	assertSpecPriceCNY("video:720p:6s", 1.8*6)
+	assertSpecPriceCNY("video:1080p:4s", 4.5*4)
+	assertSpecPriceCNY("video:1080p:6s", 4.5*6)
+	assertSpecPriceCNY("video:4k:4s", 9.0*4)
+	assertSpecPriceCNY("video:4k:6s", 9.0*6)
 }
 
 func TestBuildParamPricingForSeedanceFaceAddsTenPercent(t *testing.T) {
