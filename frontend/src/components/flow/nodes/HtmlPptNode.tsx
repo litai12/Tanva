@@ -14,6 +14,7 @@ import {
   Code2,
   Copy,
   Download,
+  FileDown,
   FilePlus2,
   Loader2,
   Monitor,
@@ -28,7 +29,9 @@ import type {
 import { aiImageService } from "@/services/aiImageService";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
+  getAnalyzeModelForProvider,
   getAdvancedTextModelForProvider,
+  getTextModelForProvider,
   useAIChatStore,
 } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -48,7 +51,9 @@ import {
   type HtmlPptSlideTemplateKey,
 } from "@/utils/htmlPptDeck";
 import {
+  HTML_PPT_STYLE_PRESETS,
   findHtmlPptStylePreset,
+  getHtmlPptStylePreset,
   type HtmlPptStylePresetKey,
 } from "@/utils/htmlPptStylePresets";
 import {
@@ -112,6 +117,8 @@ const HTML_PPT_DESIGN_WIDTH_4_3 = 1440;
 const HTML_PPT_DESIGN_HEIGHT_4_3 = 1080;
 const HTML_PPT_PREVIEW_FIT_INSET = 0.92;
 const MAX_SLIDES = 24;
+const AI_DECK_BATCH_SIZE = 3;
+const COMPATIBLE_PPT_TEXT_MODEL = "gemini-2.5-pro";
 const MAX_CODE_LENGTH = 120_000;
 const MAX_IMAGE_INPUTS = 6;
 
@@ -888,7 +895,8 @@ const normalizeAiSlidePatch = (
 
 const normalizeAiDeckPatch = (
   parsed: Record<string, unknown>,
-  currentDeck: HtmlPptDeck
+  currentDeck: HtmlPptDeck,
+  expectedSlideCount = currentDeck.slides.length
 ): HtmlPptDeck => {
   const deckRecord =
     parsed.deck && typeof parsed.deck === "object"
@@ -908,6 +916,11 @@ const normalizeAiDeckPatch = (
       ? convertHtmlDocumentToDeck(rawDeckHtml, currentDeck)
       : null;
     if (convertedDeck) {
+      if (convertedDeck.slides.length !== expectedSlideCount) {
+        throw new Error(
+          `Deck patch returned ${convertedDeck.slides.length} slides; expected exactly ${expectedSlideCount}.`
+        );
+      }
       const themeCss = convertedDeck.themeCss || currentDeck.themeCss;
       assertSafeHtmlPptCode(themeCss, "Deck theme CSS");
       convertedDeck.slides.forEach((slide) => {
@@ -929,6 +942,12 @@ const normalizeAiDeckPatch = (
       };
     }
     throw new Error("Ultra JSON patch did not include deck slides.");
+  }
+
+  if (rawSlides.length !== expectedSlideCount) {
+    throw new Error(
+      `Deck patch returned ${rawSlides.length} slides; expected exactly ${expectedSlideCount}.`
+    );
   }
 
   const seenSlideIds = new Set<string>();
@@ -1049,8 +1068,15 @@ const buildAiDeckPrompt = (
   instruction: string,
   deck: HtmlPptDeck,
   incomingContext: string,
-  stylePreset?: HtmlPptAiStyleGuide | null
+  stylePreset?: HtmlPptAiStyleGuide | null,
+  batch?: {
+    startIndex: number;
+    totalSlideCount: number;
+  }
 ): string => {
+  const batchStart = batch?.startIndex ?? 0;
+  const batchEnd = batchStart + deck.slides.length;
+  const totalSlideCount = batch?.totalSlideCount ?? deck.slides.length;
   const payload = JSON.stringify(
     {
       aspectRatio: deck.aspectRatio,
@@ -1087,6 +1113,8 @@ const buildAiDeckPrompt = (
 
 硬性规则:
 - 最多 ${MAX_SLIDES} 页。
+- 当前任务总计 ${totalSlideCount} 页；本次只生成第 ${batchStart + 1}-${batchEnd} 页，并且 slides 数组必须严格返回 ${deck.slides.length} 页，不能增页、减页、合并页面或省略页面。
+- 返回页面必须与“当前 deck”逐页一一对应并沿用原 slide id；每页都要形成可直接评审的完整 HTML/CSS，不能返回占位内容。
 - 页面必须适合 ${deck.aspectRatio} PPT 展示，视觉风格要统一。
 - 不要输出 <script>、事件属性、iframe、object、embed、base、javascript:。
 - 不要使用 data:、blob:、base64 图片；如需图片，只能使用远程 http(s) URL 或项目路径。
@@ -1135,6 +1163,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const [stylePreviewOpen, setStylePreviewOpen] = React.useState(false);
   const [promptDraft, setPromptDraft] = React.useState(data.promptDraft || "");
   const [isRunning, setIsRunning] = React.useState(false);
+  const [exportingFormat, setExportingFormat] = React.useState<"pptx" | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
   const [statusText, setStatusText] = React.useState("");
   const previewFrameRef = React.useRef<HTMLDivElement | null>(null);
@@ -1149,6 +1178,14 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   );
   const textModel = React.useMemo(
     () => getAdvancedTextModelForProvider(effectiveProvider),
+    [effectiveProvider]
+  );
+  const fallbackTextModel = React.useMemo(
+    () => getTextModelForProvider(effectiveProvider),
+    [effectiveProvider]
+  );
+  const providerTextModel = React.useMemo(
+    () => getAnalyzeModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -1349,6 +1386,27 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     [commitDeck, currentSlide.id, deck, lt]
   );
 
+  const applyStylePreset = React.useCallback(
+    (key: HtmlPptStylePresetKey) => {
+      const preset = getHtmlPptStylePreset(key);
+      commitDeck(
+        { ...deck, themeCss: preset.themeCss },
+        currentSlide.id,
+        {
+          historyLabel: "apply-style-preset",
+          patch: {
+            stylePresetKey: preset.key,
+            boldTemplateSlug: undefined,
+            status: "idle",
+            error: undefined,
+          },
+        }
+      );
+      setStatusText(lt("已应用 Tanva 风格", "Tanva style applied"));
+    },
+    [commitDeck, currentSlide.id, deck, lt]
+  );
+
   const addSlide = React.useCallback((template: HtmlPptSlideTemplateKey = "content") => {
     if (deck.slides.length >= MAX_SLIDES) return;
     const nextSlide = createHtmlPptSlide(deck.slides.length + 1, template);
@@ -1400,7 +1458,10 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     });
   }, [data.revisionHistory, updateNodeData]);
 
-  const runAiEdit = React.useCallback(async () => {
+  const runAiEdit = React.useCallback(async (): Promise<{
+    ok: boolean;
+    error?: string;
+  }> => {
     const instruction = promptDraft.trim();
     const latestIncomingTexts = readIncomingTexts();
     const latestIncomingImageRefs = readIncomingImageRefs();
@@ -1417,7 +1478,10 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         status: "failed",
         error: lt("请输入修改要求", "Enter an edit request"),
       });
-      return;
+      return {
+        ok: false,
+        error: lt("请输入修改要求", "Enter an edit request"),
+      };
     }
 
     setIsRunning(true);
@@ -1440,27 +1504,95 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       const imageUrls = preparedImages
         .map((image) => image.visionRef)
         .slice(0, MAX_IMAGE_INPUTS);
-      setStatusText(lt("正在生成 PPT", "Generating PPT"));
-      const result = await aiImageService.generateTextResponse({
-        prompt:
-          editScope === "deck"
-            ? buildAiDeckPrompt(finalInstruction, deck, incomingContext, activeStyleGuide)
-            : buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext, activeStyleGuide),
-        imageUrls: imageUrls.length ? imageUrls : undefined,
-        aiProvider: effectiveProvider,
-        model: textModel,
-        enableWebSearch: false,
-        billingTag: "text_chat",
-        providerOptions: buildBananaProviderOptions(bananaImageRoute),
-      });
+      const generateDeckText = async (prompt: string) => {
+        const candidateModels = Array.from(
+          new Set([
+            textModel,
+            fallbackTextModel,
+            providerTextModel,
+            COMPATIBLE_PPT_TEXT_MODEL,
+          ])
+        );
+        let lastError = lt("HTML PPT 生成失败", "HTML PPT generation failed");
+        for (const model of candidateModels) {
+          const result = await aiImageService.generateTextResponse({
+            prompt,
+            imageUrls: imageUrls.length ? imageUrls : undefined,
+            aiProvider: effectiveProvider,
+            model,
+            enableWebSearch: false,
+            billingTag: "text_chat",
+            providerOptions:
+              model === providerTextModel
+                ? undefined
+                : buildBananaProviderOptions(bananaImageRoute),
+          });
+          if (result.success && result.data?.text) return result.data.text;
+          lastError = result.error?.message || lastError;
+          const channelUnavailable =
+            /no available channel|HTTP[_ ]?503|temporarily unavailable/i.test(lastError);
+          if (!channelUnavailable) break;
+        }
+        throw new Error(lastError);
+      };
 
-      if (!result.success || !result.data?.text) {
-        throw new Error(result.error?.message || lt("HTML PPT 生成失败", "HTML PPT generation failed"));
-      }
-
-      const parsed = extractJsonPayload(result.data.text);
       if (editScope === "deck") {
-        const nextDeck = normalizeAiDeckPatch(parsed, deck);
+        const batches = Array.from(
+          { length: Math.ceil(deck.slides.length / AI_DECK_BATCH_SIZE) },
+          (_, batchIndex) => {
+            const startIndex = batchIndex * AI_DECK_BATCH_SIZE;
+            return {
+              startIndex,
+              slides: deck.slides.slice(startIndex, startIndex + AI_DECK_BATCH_SIZE),
+            };
+          }
+        );
+        const generatedSlides: HtmlPptSlide[] = [];
+        const rawResponses: string[] = [];
+        let generatedThemeCss = deck.themeCss;
+        let generatedAspectRatio = deck.aspectRatio;
+
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+          const batch = batches[batchIndex];
+          const pageStart = batch.startIndex + 1;
+          const pageEnd = batch.startIndex + batch.slides.length;
+          setStatusText(
+            lt(
+              `正在生成第 ${pageStart}-${pageEnd}/${deck.slides.length} 页`,
+              `Generating slides ${pageStart}-${pageEnd} of ${deck.slides.length}`
+            )
+          );
+          const batchDeck: HtmlPptDeck = {
+            ...deck,
+            themeCss: generatedThemeCss,
+            slides: batch.slides,
+          };
+          const text = await generateDeckText(
+            buildAiDeckPrompt(finalInstruction, batchDeck, incomingContext, activeStyleGuide, {
+              startIndex: batch.startIndex,
+              totalSlideCount: deck.slides.length,
+            })
+          );
+          const parsed = extractJsonPayload(text);
+          const generatedBatch = normalizeAiDeckPatch(
+            parsed,
+            batchDeck,
+            batch.slides.length
+          );
+          if (batchIndex === 0) {
+            generatedThemeCss = generatedBatch.themeCss;
+            generatedAspectRatio = generatedBatch.aspectRatio;
+          }
+          generatedSlides.push(...generatedBatch.slides);
+          rawResponses.push(text);
+        }
+
+        const nextDeck: HtmlPptDeck = {
+          version: 1,
+          aspectRatio: generatedAspectRatio,
+          themeCss: generatedThemeCss,
+          slides: generatedSlides,
+        };
         const nextSlideId =
           nextDeck.slides.find((slide) => slide.id === currentSlide.id)?.id ||
           nextDeck.slides[0]?.id ||
@@ -1470,11 +1602,19 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           patch: {
             status: "succeeded",
             error: undefined,
-            lastResponse: result.data.text,
+            lastResponse:
+              rawResponses.length === 1
+                ? rawResponses[0]
+                : JSON.stringify({ batches: rawResponses }),
           },
         });
         setStatusText(lt("已更新整套 PPT", "Deck updated"));
       } else {
+        setStatusText(lt("正在生成 PPT", "Generating PPT"));
+        const text = await generateDeckText(
+          buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext, activeStyleGuide)
+        );
+        const parsed = extractJsonPayload(text);
         const patch = normalizeAiSlidePatch(parsed, currentSlide.id);
         const nextDeck: HtmlPptDeck = {
           ...deck,
@@ -1487,16 +1627,18 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           patch: {
             status: "succeeded",
             error: undefined,
-            lastResponse: result.data.text,
+            lastResponse: text,
           },
         });
         setStatusText(lt("已更新当前页", "Slide updated"));
       }
       setViewMode("preview");
+      return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       updateNodeData({ status: "failed", error: message });
       setStatusText(message);
+      return { ok: false, error: message };
     } finally {
       setIsRunning(false);
     }
@@ -1508,9 +1650,11 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     deck,
     editScope,
     effectiveProvider,
+    fallbackTextModel,
     lt,
     promptDraft,
     projectId,
+    providerTextModel,
     readIncomingImageRefs,
     readIncomingTexts,
     textModel,
@@ -1520,15 +1664,21 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+        event as CustomEvent<{
+          id?: string;
+          done?: (result?: boolean, error?: string) => void;
+        }>
       ).detail;
       if (!detail || detail.id !== id) return;
       void (async () => {
         try {
-          await runAiEdit();
-          detail.done?.(true);
-        } catch {
-          detail.done?.(false);
+          const result = await runAiEdit();
+          detail.done?.(result.ok, result.error);
+        } catch (error) {
+          detail.done?.(
+            false,
+            error instanceof Error ? error.message : String(error)
+          );
         }
       })();
     };
@@ -1549,6 +1699,76 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 500);
   }, [deck, title]);
+
+  const exportPptx = React.useCallback(async (): Promise<{
+    ok: boolean;
+    fileName?: string;
+    error?: string;
+  }> => {
+    if (exportingFormat) {
+      return { ok: false, error: lt("正在导出 PPTX", "PPTX export is already running") };
+    }
+    setExportingFormat("pptx");
+    try {
+      const { exportHtmlPptDeckAsPptx } = await import("@/utils/htmlPptExport");
+      const fileName = await exportHtmlPptDeckAsPptx({
+        deck,
+        title,
+        onProgress: ({ current, total, stage }) => {
+          setStatusText(
+            stage === "package"
+              ? lt("正在封装 PPTX", "Packaging PPTX")
+              : lt(
+                  `正在渲染第 ${current}/${total} 页`,
+                  `Rendering slide ${current}/${total}`
+                )
+          );
+        },
+      });
+      setStatusText(lt("PPTX 已导出", "PPTX exported"));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { type: "success", message: lt("PPTX 已下载", "PPTX downloaded") },
+        })
+      );
+      return { ok: true, fileName };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(message);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { type: "error", message },
+        })
+      );
+      return { ok: false, error: message };
+    } finally {
+      setExportingFormat(null);
+    }
+  }, [deck, exportingFormat, lt, title]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          id?: string;
+          format?: "html" | "pptx";
+          done?: (result: { ok: boolean; fileName?: string; error?: string }) => void;
+        }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      if (detail.format === "html") {
+        exportHtml();
+        detail.done?.({ ok: true });
+        return;
+      }
+      if (detail.format === "pptx") {
+        void exportPptx().then((result) => detail.done?.(result));
+      }
+    };
+    window.addEventListener("flow:html-ppt-export", handler as EventListener);
+    return () =>
+      window.removeEventListener("flow:html-ppt-export", handler as EventListener);
+  }, [exportHtml, exportPptx, id]);
 
   const copyHtml = React.useCallback(async () => {
     try {
@@ -1956,6 +2176,19 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           <button type="button" title={lt("导出 HTML", "Export HTML")} onClick={exportHtml} style={iconButtonStyle(palette, false)}>
             <Download size={14} />
           </button>
+          <button
+            type="button"
+            title={lt("导出高保真 PPTX", "Export high-fidelity PPTX")}
+            onClick={() => void exportPptx()}
+            disabled={Boolean(exportingFormat)}
+            style={iconButtonStyle(palette, Boolean(exportingFormat))}
+          >
+            {exportingFormat === "pptx" ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <FileDown size={14} />
+            )}
+          </button>
         </div>
       </div>
 
@@ -1981,7 +2214,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ color: palette.text, fontSize: 12, fontWeight: 800 }}>
-                Beautiful templates
+                Tanva + Beautiful HTML templates
               </div>
               <div
                 style={{
@@ -2005,7 +2238,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
                 fontWeight: 800,
               }}
             >
-              Bold 34
+              Tanva / OSS 34
             </div>
           </div>
           <div
@@ -2018,6 +2251,27 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
               paddingRight: 2,
             }}
           >
+            {HTML_PPT_STYLE_PRESETS.filter(
+              (preset) => preset.key === "tanva_studio"
+            ).map((preset) => (
+              <StylePreviewTile
+                key={preset.key}
+                item={{
+                  id: preset.key,
+                  label: preset.label,
+                  description: preset.description,
+                  colors: preset.colors,
+                  themeCss: preset.themeCss,
+                  previewSlide: preset.previewSlide,
+                  author: "Tanva",
+                }}
+                aspectRatio={deck.aspectRatio}
+                active={activeStylePreset?.key === preset.key}
+                palette={palette}
+                isDarkTheme={isDarkTheme}
+                onClick={() => applyStylePreset(preset.key)}
+              />
+            ))}
             {HTML_PPT_BOLD_TEMPLATES.map((template) => (
               <StylePreviewTile
                 key={template.slug}

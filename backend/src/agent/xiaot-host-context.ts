@@ -89,6 +89,9 @@ export function buildCanvasContextSummary(
     ...(/图片|图像|image/.test(normalizedPrompt) ? ['image', 'generate'] : []),
     ...(/视频|video/.test(normalizedPrompt) ? ['video'] : []),
     ...(/音频|声音|audio/.test(normalizedPrompt) ? ['audio'] : []),
+    ...(/ppt|演示|幻灯片|汇报|presentation|deck/.test(normalizedPrompt)
+      ? ['htmlppt']
+      : []),
   ];
   const relevantNodes = inferredTypeHints.length
     ? nodes
@@ -188,6 +191,9 @@ export function queryCanvasContext(
 
 export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord {
   const value = asRecord(manifest) || {};
+  const hostTools = Array.isArray(value.hostTools)
+    ? value.hostTools.map(asRecord).filter((item): item is UnknownRecord => !!item)
+    : [];
   const specs = Array.isArray(value.nodeSpecs)
     ? value.nodeSpecs.map(asRecord).filter((item): item is UnknownRecord => !!item)
     : [];
@@ -196,6 +202,13 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
     host: value.host,
     patchOps: value.patchOps,
     ui: value.ui,
+    // 宿主工具必须首轮可见，小T才能选择 create_presentation 等高层工具；
+    // 仅保留调用所需的名称、说明和参数形状。
+    hostTools: hostTools.slice(0, 12).map((tool) => ({
+      name: tool.name,
+      ...(tool.description ? { description: safeValue(tool.description) } : {}),
+      ...(tool.parameters ? { parameters: safeValue(tool.parameters) } : {}),
+    })),
     // nodeSpecs 是宿主协议必填项。保留执行所需的结构字段，去掉长篇 purpose；
     // 这样创建节点不需要再拉完整 40KB 清单。
     nodeSpecs: specs.map((spec) => ({

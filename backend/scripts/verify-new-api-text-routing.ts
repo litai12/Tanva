@@ -19,7 +19,8 @@ const originalEnv = {
 };
 
 globalThis.fetch = async (input, init) => {
-  if (String(input).startsWith('https://assets.test/')) {
+  const requestUrl = String(input);
+  if (requestUrl.startsWith('https://assets.test/')) {
     return new Response(Uint8Array.from([137, 80, 78, 71]), {
       status: 200,
       headers: {
@@ -30,12 +31,16 @@ globalThis.fetch = async (input, init) => {
   }
   const headers = new Headers(init?.headers);
   captured.push({
-    url: String(input),
+    url: requestUrl,
     authorization: headers.get('authorization'),
     body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
   });
   return new Response(
-    JSON.stringify({ choices: [{ message: { content: 'verified' } }] }),
+    JSON.stringify(
+      requestUrl.endsWith('/v1/images/generations')
+        ? { data: [{ url: 'https://assets.test/generated-gift-box.png' }] }
+        : { choices: [{ message: { content: 'verified' } }] },
+    ),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 };
@@ -64,22 +69,23 @@ async function main(): Promise<void> {
 
   const textResult = await provider.generateText({
     prompt: 'find public sources',
+    model: 'gpt-5.6-luna',
     enableWebSearch: true,
     thinkingLevel: 'high',
     imageUrls: ['https://assets.test/reference.png'],
   });
   assert.equal(textResult.success, true);
   assert.equal(textResult.data?.metadata?.provider, 'new-api');
-  assert.equal(captured[0]?.url, 'https://new-api.test/v1/chat/completions');
+  assert.equal(captured[0]?.url, 'https://new-api.test/v1/responses');
   assert.equal(captured[0]?.authorization, 'Bearer new-api-key');
-  assert.equal(captured[0]?.body.model, 'gpt-5.4');
-  assert.deepEqual(captured[0]?.body.tools, [{ type: 'web_search_preview' }]);
-  assert.equal(captured[0]?.body.thinking_level, 'high');
+  assert.equal(captured[0]?.body.model, 'gpt-5.6-luna');
+  assert.deepEqual(captured[0]?.body.tools, [{ type: 'web_search' }]);
+  assert.deepEqual(captured[0]?.body.reasoning, { effort: 'high' });
   assert.deepEqual(
-    (captured[0]?.body.messages as Array<{ content?: unknown }> | undefined)?.[0]?.content,
+    (captured[0]?.body.input as Array<{ content?: unknown }> | undefined)?.[0]?.content,
     [
-      { type: 'text', text: 'find public sources' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw==' } },
+      { type: 'input_text', text: 'find public sources' },
+      { type: 'input_image', image_url: 'https://assets.test/reference.png' },
     ],
   );
 
@@ -87,15 +93,15 @@ async function main(): Promise<void> {
     sourceImage: 'https://assets.test/source.png',
   });
   assert.equal(analysisResult.success, true);
-  assert.equal(captured[1]?.body.model, 'gpt-5.6-luna');
+  assert.equal(captured[1]?.body.model, 'gemini-2.5-flash');
   assert.equal(captured[1]?.url, 'https://new-api.test/v1/chat/completions');
   assert.equal(captured[1]?.authorization, 'Bearer new-api-key');
   const analysisContent = (
     captured[1]?.body.messages as Array<{ content?: Array<Record<string, any>> }> | undefined
   )?.[0]?.content;
-  assert.match(
+  assert.equal(
     String(analysisContent?.[1]?.image_url?.url || ''),
-    /^data:image\/png;base64,/,
+    'https://assets.test/source.png',
   );
 
   const legacyResult = await provider.generateText({
@@ -105,6 +111,27 @@ async function main(): Promise<void> {
   assert.equal(legacyResult.success, true);
   assert.equal(captured[2]?.url, 'https://new-api.test/v1/chat/completions');
   assert.equal(captured[2]?.authorization, 'Bearer new-api-key');
+
+  const giftBoxResult = await provider.blendImages({
+    prompt:
+      '参考图1的构图和内容，给图2礼盒生成一张手提礼盒的展示图，背景是图2的类似红色渐变的感觉',
+    sourceImages: [
+      'https://assets.test/composition-reference.png',
+      'https://assets.test/gift-box-reference.png',
+    ],
+    model: 'gpt-image-2',
+    imageSize: '2K',
+  });
+  assert.equal(giftBoxResult.success, true);
+  assert.equal(giftBoxResult.data?.imageUrl, 'https://assets.test/generated-gift-box.png');
+  assert.equal(captured[3]?.url, 'https://new-api.test/v1/images/generations');
+  assert.equal(captured[3]?.body.model, 'gpt-image-2');
+  assert.equal(captured[3]?.body.resolution, '2K');
+  assert.deepEqual(captured[3]?.body.image_urls, [
+    'https://assets.test/composition-reference.png',
+    'https://assets.test/gift-box-reference.png',
+  ]);
+  assert.equal(captured[3]?.body.tools, undefined);
 
   delete process.env.NEW_API_KEY;
   delete process.env.NEW_API_TOKEN;

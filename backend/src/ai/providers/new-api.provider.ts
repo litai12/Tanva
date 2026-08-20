@@ -407,30 +407,13 @@ export class NewApiProvider implements IAIProvider {
       return this.chat(payload, request.providerOptions);
     }
 
-    const result = await this.chat(
+    return this.responses(
       {
         ...payload,
-        tools: [{ type: 'web_search_preview' }],
+        tools: [{ type: 'web_search' }],
       },
       request.providerOptions,
     );
-
-    if (result.success || !this.shouldRetryTextWithoutWebSearch(result.error?.message)) {
-      return result;
-    }
-
-    this.logger.warn(
-      `text chat web search failed, retrying without web search: ${result.error?.message || 'unknown error'}`,
-    );
-    const fallback = await this.chat(payload, request.providerOptions);
-    if (fallback.success && fallback.data) {
-      fallback.data.metadata = {
-        ...(fallback.data.metadata || {}),
-        webSearchFallback: true,
-        webSearchFallbackReason: result.error?.message,
-      };
-    }
-    return fallback;
   }
 
   async selectTool(
@@ -804,6 +787,12 @@ export class NewApiProvider implements IAIProvider {
 
   private toResponsesPayload(payload: Record<string, unknown>): Record<string, unknown> {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const reasoningEffort =
+      typeof payload.thinking_level === 'string' && payload.thinking_level.trim()
+        ? payload.thinking_level.trim()
+        : typeof payload.reasoning_effort === 'string' && payload.reasoning_effort.trim()
+          ? payload.reasoning_effort.trim()
+          : undefined;
     return {
       model: payload.model,
       stream: false,
@@ -815,6 +804,7 @@ export class NewApiProvider implements IAIProvider {
       temperature: payload.temperature,
       top_p: payload.top_p,
       max_output_tokens: payload.max_tokens || payload.max_completion_tokens,
+      reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
     };
   }
 
@@ -822,8 +812,8 @@ export class NewApiProvider implements IAIProvider {
     if (!Array.isArray(value) || value.length === 0) return undefined;
     return value.map((tool) => {
       const type = String((tool as any)?.type || '').trim();
-      if (type === 'web_search_preview' || type === 'web_search') {
-        return { type: 'web_search', max_keyword: 3 };
+      if (type === 'web_search') {
+        return { type: 'web_search' };
       }
       return tool as Record<string, unknown>;
     });
@@ -924,26 +914,6 @@ export class NewApiProvider implements IAIProvider {
         details: error,
       },
     };
-  }
-
-  private shouldRetryTextWithoutWebSearch(message?: string): boolean {
-    const lower = String(message || '').toLowerCase();
-    if (!lower) return false;
-    return (
-      lower.includes('web_search_preview') ||
-      lower.includes('web search') ||
-      lower.includes('tool') ||
-      lower.includes('tools') ||
-      lower.includes('unsupported') ||
-      lower.includes('not supported') ||
-      lower.includes('invalid') ||
-      lower.includes('new-api http 500') ||
-      lower.includes('new-api http 520') ||
-      lower.includes('openai_error') ||
-      lower.includes('internal server error') ||
-      lower.includes('bad gateway') ||
-      lower.includes('service unavailable')
-    );
   }
 
   private extractText(result: any): string {

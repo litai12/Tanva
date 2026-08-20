@@ -1,5 +1,5 @@
 import type { HtmlPptSlide } from "./htmlPptDeck";
-import { findHtmlPptBeautifulTemplateDeck } from "./htmlPptBeautifulTemplateDecks";
+import { findHtmlPptBeautifulTemplateDeck } from "./htmlPptBeautifulTemplateDecks.ts";
 
 export type HtmlPptBoldTemplateSlug =
   | "8-bit-orbit"

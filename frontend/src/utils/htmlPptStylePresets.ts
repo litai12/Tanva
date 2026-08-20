@@ -1,6 +1,7 @@
 import type { HtmlPptSlide } from "./htmlPptDeck";
 
 export type HtmlPptStylePresetKey =
+  | "tanva_studio"
   | "editorial_studio"
   | "command_room"
   | "venture_system"
@@ -64,6 +65,104 @@ const sharedPreviewCss = `.preset-preview {
 }`;
 
 export const HTML_PPT_STYLE_PRESETS: HtmlPptStylePreset[] = [
+  {
+    key: "tanva_studio",
+    label: "Tanva Studio",
+    shortLabel: "Tanva",
+    description: "Tanva 的黑白高级感视觉系统，适合建筑、设计与创意提案。",
+    tags: ["tanva", "architecture", "design", "proposal"],
+    colors: {
+      background: "#111111",
+      text: "#f5f5f2",
+      accent: "#ffffff",
+      secondary: "#8c8c87",
+    },
+    themeCss: `
+.slide-root {
+  padding: 72px 80px;
+  background: #111111;
+  color: #f5f5f2;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.slide-root::before {
+  content: "";
+  position: absolute;
+  left: 80px;
+  right: 80px;
+  top: 40px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+.slide-root::after {
+  content: "TANVA / PRESENTATION";
+  position: absolute;
+  right: 80px;
+  bottom: 38px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.slide-root h1 {
+  margin: 0;
+  max-width: 1080px;
+  color: #f5f5f2;
+  font-size: 64px;
+  line-height: 1.02;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+.slide-root h2 {
+  margin: 0;
+  color: #f5f5f2;
+  font-size: 36px;
+  line-height: 1.12;
+  font-weight: 720;
+}
+.slide-root p {
+  margin: 0;
+  max-width: 820px;
+  color: #b8b8b2;
+  font-size: 22px;
+  line-height: 1.46;
+}
+.slide-root .ppt-kicker {
+  width: fit-content;
+  color: #f5f5f2;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.slide-root .ppt-lede {
+  max-width: 760px;
+}
+.slide-root .ppt-stat-row > div {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #161616;
+}
+.slide-root .ppt-stat-row strong {
+  color: #ffffff;
+  font-size: 34px;
+  line-height: 1;
+}
+.slide-root .ppt-stat-row span {
+  margin-top: 10px;
+  color: #a9a9a4;
+  font-size: 15px;
+  font-weight: 680;
+}
+`.trim(),
+    promptGuidance:
+      "Use Tanva's premium monochrome studio language: Base #111111, Elevated #161616, quiet white rules, disciplined architectural grids, large confident typography, generous negative space, and one clear composition per slide. Avoid colorful gradients, UI dashboards, excessive pills, and decorative card collections.",
+    imagePrompt:
+      "Premium monochrome architecture and design presentation visual, precise material lighting, disciplined grid, generous negative space, black and warm white palette, no text.",
+    previewSlide: {
+      title: "Tanva Studio",
+      html: sharedPreviewHtml,
+      css: sharedPreviewCss,
+    },
+  },
   {
     key: "editorial_studio",
     label: "Editorial Studio",
@@ -553,7 +652,7 @@ export const HTML_PPT_STYLE_PRESETS: HtmlPptStylePreset[] = [
 ];
 
 export const DEFAULT_HTML_PPT_STYLE_PRESET_KEY: HtmlPptStylePresetKey =
-  "editorial_studio";
+  "tanva_studio";
 
 export const findHtmlPptStylePreset = (
   key?: string | null

@@ -28,3 +28,22 @@ test("a greeting sends only the summary when nothing is selected", () => {
   assert.deepEqual(result.nodes, []);
   assert.doesNotMatch(JSON.stringify(result), /private/);
 });
+
+test("a presentation request includes the relevant htmlPpt node", () => {
+  const result = buildXiaotCanvasRequestContext(
+    {
+      nodes: [
+        { id: "deck-1", type: "htmlPpt", title: "建筑设计汇报", slideCount: 12 },
+        { id: "private-note", type: "textNote", text: "not relevant" },
+      ],
+      edges: [],
+    },
+    "继续修改这套 PPT"
+  );
+
+  assert.deepEqual(
+    (result.nodes as Array<Record<string, unknown>>).map((node) => node.id),
+    ["deck-1"]
+  );
+  assert.doesNotMatch(JSON.stringify(result), /not relevant/);
+});

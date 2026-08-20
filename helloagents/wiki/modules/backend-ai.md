@@ -74,7 +74,7 @@
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
 - new-api 中令牌所属分组必须存在请求模型对应的 ability。提示词优化在产品与计费层使用 `gpt-5.6-luna`、`gpt-5.6-terra`、`deepseek-v4-flash`，发送 new-api 前分别转换为 `xiaot-agent-gpt-5-6-luna`、`xiaot-agent-gpt-5-6-terra`、`xiaot-agent-deepseek-v4-flash`，复用小T已配置的 OpenAI facade 渠道；不得直接请求本地没有 ability 的裸模型 ID。
 - 提示词优化虽然复用 facade 模型路由，但每次调用使用全新的临时会话标识、`mode=chat` 与 `executionToolPolicy.allowedTools=[]`，不得复用小T session、记忆、画布或工具执行环境。小T画布回合先在浏览器请求边界把完整快照投影为摘要、选中节点和按本轮文字类型命中的最多 8 个节点，完整快照不离开浏览器；`xiaot-host-context` 在后端再次执行同样的边界校验，去除内联/超长内容并限制最多 12 个节点、24 条相关连线。纯问候在进入上游前本地完成，usage 为 0 且不扣固定对话积分。
-- `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
+- 普通文本与 `image_url` 继续按 OpenAI-compatible Chat payload 交给 new-api；显式联网文本请求改走 `/v1/responses`，使用当前 `web_search` 工具，并把 `thinking_level` 转换为 `reasoning.effort`。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
 - 视频分析由 `resolveVideoAnalysisModel` 校验节点显式模型；默认豆包 Seed 2.0 Lite，也支持豆包 Mini/Pro 与 Gemini 三档。小T走独立 facade，可选 Fast 小T-5.4、Pro 小T-5.5、Ultra 小T-5.6 Luna 和小T-DeepSeek V4 Flash。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
 
@@ -127,7 +127,7 @@
 ## 注意事项
 - `NewApiProvider` image generate/edit/blend only sends the upstream `size` field when callers provide an explicit `aspectRatio`; omitted/Auto aspect ratio stays omitted instead of falling back to `1:1`.
 - `NewApiProvider` normalizes Gemini image `aspectRatio` before calling new-api: Gemini 2.5/Pro use the base supported set (`1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`), while Gemini 3.1 Flash additionally allows `1:4`, `4:1`, `1:8`, and `8:1`; unsupported values such as `2:1`, `1:2`, or `9:21` snap to the nearest supported ratio instead of failing upstream.
-- `NewApiProvider` text chat retries once without `web_search_preview` when an enabled web-search tools request fails with an upstream tools/5xx-style error, including `HTTP 520: openai_error`. Successful fallback responses carry `metadata.webSearchFallback = true`, and `POST /api/ai/text-chat` returns readable `503` provider failures instead of a generic Nest 500.
+- `NewApiProvider` 的显式联网文本请求固定走 Responses API 的 `web_search`。上游拒绝工具或返回 5xx 时原样失败并由 `POST /api/ai/text-chat` 返回可读的 `503`，禁止移除搜索后静默重试。前端不再根据“参考/案例”等词自动开启联网；是否联网只服从用户开关或小T的真实工具决策，带图片的参考生成请求优先进入图片编辑/融合链路。
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - `generate-image` / `generate-image-async` 第一版支持纯文生图复用缓存：仅无参考图、无联网搜索、单张输出的请求会构造 `imageReuseCacheSignature`；默认 `IMAGE_REUSE_CACHE_SCOPE=global`，同签名且当前用户尚未取用的全站 active 资产池达到 `IMAGE_REUSE_CACHE_MIN_POOL_SIZE`（默认 3）后，才会命中 `GenerationImageAsset` 并直接返回缓存 OSS URL；如需退回单用户隔离，可设置 `IMAGE_REUSE_CACHE_SCOPE=user`。已被当前用户取用的资产不会继续计入该用户的命中门槛，避免缓存用完后出现“新生成一张、下一次立刻复用一张”的循环；缓存命中仍通过原 `withCredits` / `preDeductCredits` 计费，并在返回前等待 `IMAGE_REUSE_CACHE_HIT_DELAY_MS`（默认 8000ms，0 可关闭）让 Flow 进度条保持自然运行。真实生成成功后会写入 `GenerationImageAsset`，资产仍保留原生成者 `userId`，`GenerationImageReuse.userId` 记录领取者。
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?

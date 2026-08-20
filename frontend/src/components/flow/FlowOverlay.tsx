@@ -1365,6 +1365,7 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "analysis",
   "videoAnalyze",
   "videoToGif",
+  "htmlPpt",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7;
@@ -15925,8 +15926,22 @@ function FlowInner() {
           type: typeof n.type === "string" ? n.type : "",
           selected: !!n.selected,
           label: data.label,
+          title: data.title,
           name: data.name,
           kind: data.kind,
+          status: data.status,
+          currentSlideId: n.type === "htmlPpt" ? data.currentSlideId : undefined,
+          slideCount:
+            n.type === "htmlPpt" &&
+            data.deck &&
+            typeof data.deck === "object" &&
+            Array.isArray((data.deck as { slides?: unknown }).slides)
+              ? (data.deck as { slides: unknown[] }).slides.length
+              : undefined,
+          aspectRatio:
+            n.type === "htmlPpt" && data.deck && typeof data.deck === "object"
+              ? (data.deck as { aspectRatio?: unknown }).aspectRatio
+              : undefined,
           imageUrl: data.imageUrl,
           videoUrl: data.videoUrl,
           audioUrl: data.audioUrl,
@@ -15969,10 +15984,24 @@ function FlowInner() {
             id: n.id,
             type: typeof n.type === "string" ? n.type : "",
             selected: !!n.selected,
-            label: data.label,
-            name: data.name,
-            kind: data.kind,
-            imageUrl: data.imageUrl,
+              label: data.label,
+              title: data.title,
+              name: data.name,
+              kind: data.kind,
+              status: data.status,
+              currentSlideId: n.type === "htmlPpt" ? data.currentSlideId : undefined,
+              slideCount:
+                n.type === "htmlPpt" &&
+                data.deck &&
+                typeof data.deck === "object" &&
+                Array.isArray((data.deck as { slides?: unknown }).slides)
+                  ? (data.deck as { slides: unknown[] }).slides.length
+                  : undefined,
+              aspectRatio:
+                n.type === "htmlPpt" && data.deck && typeof data.deck === "object"
+                  ? (data.deck as { aspectRatio?: unknown }).aspectRatio
+                  : undefined,
+              imageUrl: data.imageUrl,
             videoUrl: data.videoUrl,
             audioUrl: data.audioUrl,
             text: typeof data.text === "string" ? data.text.slice(0, 80) : undefined,
@@ -24950,11 +24979,28 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       }
       const nodeType = String(node.type || "");
       if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
-        // 文本类节点自监听 flow:run-node 本地执行
+        // 浏览器本地节点自监听 flow:run-node 执行；等待节点真实回执，避免
+        // 小T在生成尚未结束时就把 runNode 标记为成功。
         window.dispatchEvent(
-          new CustomEvent("flow:run-node", { detail: { id: nodeId } })
+          new CustomEvent("flow:run-node", {
+            detail: {
+              id: nodeId,
+              done: (ok?: boolean, error?: string) => {
+                finish(
+                  ok === false
+                    ? {
+                        op: "runNode",
+                        ok: false,
+                        nodeId,
+                        assets: [],
+                        error: error || "节点运行失败",
+                      }
+                    : { op: "runNode", ok: true, nodeId, assets: [] }
+                );
+              },
+            },
+          })
         );
-        finish({ op: "runNode", ok: true, nodeId, assets: [] });
         return;
       }
       try {

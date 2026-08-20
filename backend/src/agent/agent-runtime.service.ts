@@ -399,6 +399,7 @@ export class AgentRuntimeService {
       available.size === 0 || available.has(preferred) ? preferred : fallback;
 
     if (
+      !hasImages &&
       hasAny(['案例', '参考', '资料', '找', '搜', 'research', 'case', 'precedent', '教堂', '建筑'])
     ) {
       return {
@@ -477,15 +478,33 @@ export class AgentRuntimeService {
     }
 
     if (hasImages) {
+      const hasMultipleImages = (dto.imageCount ?? 0) > 1;
       return {
-        intent: 'edit_image',
-        selectedTool: pickTool('editImage', 'chatResponse'),
-        workflow: 'image_edit',
+        intent: hasMultipleImages ? 'blend_images' : 'edit_image',
+        selectedTool: pickTool(hasMultipleImages ? 'blendImages' : 'editImage', 'chatResponse'),
+        workflow: hasMultipleImages ? 'image_blend' : 'image_edit',
         shouldEnableWebSearch: Boolean(dto.enableWebSearch),
         steps: [
-          { id: 'understand_edit', title: '理解编辑目标', detail: '识别要修改的区域、风格和保留元素。' },
-          { id: 'prompt', title: '整理编辑提示词', detail: '把自然语言转成更明确的图像编辑 brief。' },
-          { id: 'execute', title: '准备编辑图像', detail: '后续交给现有图像编辑工具。', tool: 'editImage' },
+          {
+            id: 'understand_edit',
+            title: hasMultipleImages ? '理解参考图关系' : '理解编辑目标',
+            detail: hasMultipleImages
+              ? '识别多张参考图分别提供的构图、主体和风格信息。'
+              : '识别要修改的区域、风格和保留元素。',
+          },
+          {
+            id: 'prompt',
+            title: hasMultipleImages ? '整理融合提示词' : '整理编辑提示词',
+            detail: '把自然语言转成更明确的图像生成 brief。',
+          },
+          {
+            id: 'execute',
+            title: hasMultipleImages ? '准备融合图像' : '准备编辑图像',
+            detail: hasMultipleImages
+              ? '后续交给现有多图融合工具。'
+              : '后续交给现有图像编辑工具。',
+            tool: hasMultipleImages ? 'blendImages' : 'editImage',
+          },
         ],
       };
     }

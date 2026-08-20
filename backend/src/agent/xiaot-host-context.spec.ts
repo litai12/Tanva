@@ -43,9 +43,19 @@ assert.deepEqual(
 );
 
 const manifest = {
+  hostTools: [
+    {
+      name: 'create_presentation',
+      description: '在浏览器画布创建 PPT',
+      parameters: { title: { type: 'string' }, slideCount: { type: 'number' } },
+    },
+  ],
   nodeSpecs: [{ type: 'generatePro', label: '生图', params: { size: '4K' } }],
 };
-assert.match(JSON.stringify(buildCapabilityManifestSummary(manifest)), /4K/);
+const manifestSummary = JSON.stringify(buildCapabilityManifestSummary(manifest));
+assert.match(manifestSummary, /4K/);
+assert.match(manifestSummary, /create_presentation/);
+assert.match(manifestSummary, /slideCount/);
 assert.match(
   JSON.stringify(queryCapabilityManifest(manifest, { nodeTypes: ['generatePro'] })),
   /4K/,

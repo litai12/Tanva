@@ -68,6 +68,9 @@ export function buildXiaotCanvasRequestContext(
     ...(/图片|图像|image/.test(normalizedPrompt) ? ["image", "generate"] : []),
     ...(/视频|video/.test(normalizedPrompt) ? ["video"] : []),
     ...(/音频|声音|audio/.test(normalizedPrompt) ? ["audio"] : []),
+    ...(/ppt|演示|幻灯片|汇报|presentation|deck/.test(normalizedPrompt)
+      ? ["htmlppt"]
+      : []),
   ];
   const selected = snapshot.nodes.filter((node) => node.selected === true);
   const relevant = typeHints.length
@@ -161,6 +164,7 @@ export const DEFAULT_NODE_HANDLES: Record<
   audioStudio: { textIn: "text" },
   storyboardSplit: { textIn: "text" },
   videoCompose: { videoOut: "video" },
+  htmlPpt: { textIn: "text", imageIn: "img" },
 };
 
 // 暴露给小T的节点能力清单（分层：第一层完整 spec，第二层 stub 只报型号；
@@ -219,6 +223,55 @@ export const TANVA_CAPABILITY_MANIFEST = {
       },
     },
     {
+      name: "create_presentation",
+      description:
+        "在 Tanva 浏览器画布中创建并生成演示文稿/PPT。用户要求制作 PPT、幻灯片、提案、汇报或建筑设计汇报时优先调用；宿主会创建安全的 HTML PPT 节点、连接选中素材或附件、等待真实生成完成，并提供 HTML/PPTX 下载。不要用 flow_patch 直接拼 htmlPpt 的 deck/HTML。",
+      parameters: {
+        title: { type: "string", description: "演示文稿标题" },
+        instruction: { type: "string", description: "完整内容与设计要求" },
+        audience: { type: "string", description: "目标受众，可选" },
+        purpose: { type: "string", description: "演示目标，可选" },
+        slideCount: { type: "number", description: "页数，3-24，默认 10" },
+        aspectRatio: { type: "string", enum: ["16:9", "4:3"] },
+        style: {
+          type: "string",
+          enum: ["tanva", "architectural", "editorial", "professional", "bold"],
+          description: "默认 tanva；建筑/室内/景观汇报使用 architectural",
+        },
+        outline: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选的逐页标题/结构，最多 24 项",
+        },
+        assetNodeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "要引用的画布素材节点 ID；省略时使用当前选中素材",
+        },
+        autoRun: { type: "boolean", description: "是否立即生成，默认 true" },
+      },
+    },
+    {
+      name: "edit_presentation",
+      description:
+        "修改画布中已有的 Tanva HTML PPT，可重做整套叙事或只改当前/指定页面，并可接入新的画布素材或消息附件。用户说继续改、重排、换风格、补页、精简某套 PPT 时调用；不要用 flow_patch 直接覆盖 deck HTML。",
+      parameters: {
+        nodeId: {
+          type: "string",
+          description: "目标 htmlPpt 节点 ID；省略时优先当前选中、否则最近创建的演示文稿",
+        },
+        instruction: { type: "string", description: "要执行的修改要求" },
+        scope: { type: "string", enum: ["slide", "deck"], description: "默认 deck" },
+        slideId: { type: "string", description: "scope=slide 时的目标页面 ID，可选" },
+        assetNodeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "本次新增引用的画布素材节点 ID",
+        },
+        autoRun: { type: "boolean", description: "是否立即生成，默认 true" },
+      },
+    },
+    {
       name: "legacy_image_only",
       description:
         "沿用 AI Chat 原生只出图链路。适用于用户明确要求只要图片、不要解释/文字，或明确点名“只出图”。",
@@ -267,6 +320,27 @@ export const TANVA_CAPABILITY_MANIFEST = {
       purpose: "调用 LLM 生成/改写文本；data.prompt 为输入；也是给生成类节点供 prompt 的文本源（输出 handle text）",
       params: { prompt: { type: "string" } },
       outputs: [{ handle: "text", emits: "text" }],
+    },
+    {
+      type: "htmlPpt",
+      label: "Tanva 演示文稿",
+      purpose:
+        "浏览器内创建、预览、逐页/整套 AI 改写并导出 HTML 或高保真 PPTX 的演示文稿节点",
+      params: {
+        title: { type: "string" },
+        aspectRatio: { type: "string", enum: ["16:9", "4:3"] },
+        stylePresetKey: { type: "string" },
+        promptDraft: { type: "string" },
+        editScope: { type: "string", enum: ["slide", "deck"] },
+      },
+      inputs: [
+        { handle: "text", accepts: "text" },
+        { handle: "img", accepts: "image" },
+      ],
+      constraints: [
+        "新建必须调用 create_presentation，修改必须调用 edit_presentation；禁止用 flow_patch 直接写 deck、slide HTML 或 CSS",
+        "最多 24 页，图片输入最多 6 张；持久化内容只允许远程 URL/路径引用",
+      ],
     },
     {
       type: "textPrompt",
@@ -525,7 +599,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [
-    "宿主工具调用规则：用户明确要求“只出图/不要文字”时调用 host_tool{name:'legacy_image_only',arguments:{prompt}}，不要再创建生图 flow_patch；用户要求找案例/案例搜索/参考资料/建筑先例时调用 host_tool{name:'case_search',arguments:{query}}；用户要求识图、描述图片、提取图片提示词、比较图片或分析画布/附件图片时调用 host_tool{name:'analyze_image',arguments:{prompt,imageUrls?,tier?}}，不要仅凭语言模型猜图。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
+    "宿主工具调用规则：用户要求制作 PPT/幻灯片/提案/汇报时调用 host_tool{name:'create_presentation',arguments:{...}}；继续修改已有 PPT 时调用 edit_presentation，禁止用 flow_patch 直接写 htmlPpt 的 deck/HTML/CSS。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",

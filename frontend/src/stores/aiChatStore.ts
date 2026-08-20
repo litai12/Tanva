@@ -64,6 +64,12 @@ import {
 } from "@/services/xiaotHostDelivery";
 import { XiaotImagePatchContract } from "@/services/xiaotImagePatchContract";
 import {
+  createPresentationFromXiaot,
+  editPresentationFromXiaot,
+  type CreatePresentationArguments,
+  type EditPresentationArguments,
+} from "@/services/xiaotPresentationTool";
+import {
   resolveXiaotFinalText,
   resolveXiaotTerminalContent,
   XIAOT_THINKING_CONTENT,
@@ -673,18 +679,6 @@ const applyAgentEventToTrace = (
   }
 
   return { ...trace, steps };
-};
-
-const shouldAutoEnableWebSearch = (input: string): boolean => {
-  const value = String(input || "").trim();
-  if (!value) return false;
-  return /案例|资料|参考|检索|搜索|找一些|找一|帮我找|research|case|precedent|architecture|建筑|教堂|chapel|church/i.test(
-    value
-  );
-};
-
-const shouldUseAgentResearchOnly = (input: string): boolean => {
-  return shouldAutoEnableWebSearch(input);
 };
 
 const formatResearchResultAsText = (research: any): string => {
@@ -7008,8 +7002,7 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: requestPrompt,
               model: modelToUse,
               aiProvider: state.aiProvider,
-              enableWebSearch:
-                state.enableWebSearch || shouldAutoEnableWebSearch(prompt),
+              enableWebSearch: state.enableWebSearch,
               thinkingLevel: state.thinkingLevel || undefined,
               providerOptions,
             });
@@ -8747,6 +8740,51 @@ export const useAIChatStore = create<AIChatState>()(
                 styleReferenceUrl = styleAnchor.imageUrl;
               }
             }
+            let presentationAttachmentUrlsPromise: Promise<string[]> | null = null;
+            const preparePresentationAttachmentUrls = (): Promise<string[]> => {
+              if (presentationAttachmentUrlsPromise) {
+                return presentationAttachmentUrlsPromise;
+              }
+              const messageSources = Array.from(
+                new Set(
+                  [
+                    xiaotUserMessage?.imageRemoteUrl,
+                    xiaotUserMessage?.sourceImageData,
+                    ...(xiaotUserMessage?.sourceImagesData || []),
+                    xiaotUserMessage?.imageData,
+                    xiaotUserMessage?.thumbnail,
+                  ]
+                    .filter(
+                      (value): value is string =>
+                        typeof value === "string" && value.trim().length > 0
+                    )
+                    .map((value) => value.trim())
+                )
+              ).slice(0, 6);
+              presentationAttachmentUrlsPromise = (async () => {
+                if (messageSources.length === 0) return [];
+                const uploaded = await mapWithLimit(
+                  messageSources,
+                  2,
+                  async (source) => {
+                    const remoteUrl = normalizeRemoteUrl(source);
+                    if (remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)) {
+                      return remoteUrl;
+                    }
+                    return uploadImageToOSS(source, projectId);
+                  }
+                );
+                const remoteUrls = uploaded.filter(
+                  (value): value is string =>
+                    typeof value === "string" && /^https?:\/\//i.test(value.trim())
+                );
+                if (remoteUrls.length !== messageSources.length) {
+                  throw new Error("PPT 素材上传失败，请重新上传后重试。");
+                }
+                return remoteUrls;
+              })();
+              return presentationAttachmentUrlsPromise;
+            };
             const run = await createAgentRunViaAPI({
               prompt: input,
               mode: "canvasAgent",
@@ -8973,7 +9011,82 @@ export const useAIChatStore = create<AIChatState>()(
                   event.data?.arguments && typeof event.data.arguments === "object"
                     ? (event.data.arguments as Record<string, unknown>)
                     : {};
-                if (toolName === "legacy_image_only") {
+                if (
+                  toolName === "create_presentation" ||
+                  toolName === "edit_presentation"
+                ) {
+                  hostToolHandled = true;
+                  pendingHostTools.push(
+                    (async () => {
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        generationStatus: {
+                          isGenerating: true,
+                          progress: 55,
+                          error: null,
+                          stage:
+                            toolName === "create_presentation"
+                              ? "小T正在制作演示文稿"
+                              : "小T正在修改演示文稿",
+                        },
+                      }));
+                      const attachmentUrls =
+                        await preparePresentationAttachmentUrls();
+                      const result =
+                        toolName === "create_presentation"
+                          ? await createPresentationFromXiaot({
+                              args: toolArgs as CreatePresentationArguments,
+                              fallbackPrompt: input,
+                              snapshot,
+                              attachmentUrls,
+                            })
+                          : await editPresentationFromXiaot({
+                              args: toolArgs as EditPresentationArguments,
+                              fallbackPrompt: input,
+                              snapshot,
+                              attachmentUrls,
+                            });
+                      const actionText =
+                        toolName === "create_presentation" ? "已完成" : "已更新";
+                      const completionText = `${actionText}《${result.title}》：${result.slideCount} 页，${result.aspectRatio}。演示文稿已放到画布，可继续逐页修改，也可以直接下载 HTML 或高保真 PPTX。`;
+                      typeTarget = completionText;
+                      typeShown = 0;
+                      pumpTypewriter();
+                      await drainTypewriter();
+                      get().updateMessage(aiMessage.id, (msg) => {
+                        const previousCards = Array.isArray(msg.metadata?.xiaotCards)
+                          ? (msg.metadata.xiaotCards as Array<{
+                              kind: string;
+                              payload: unknown;
+                            }>)
+                          : [];
+                        return {
+                          ...msg,
+                          content: completionText,
+                          metadata: {
+                            ...(msg.metadata || {}),
+                            xiaotHostTool: toolName,
+                            xiaotPresentationNodeId: result.nodeId,
+                            xiaotCards: [
+                              ...previousCards,
+                              {
+                                kind: "artifact",
+                                payload: {
+                                  artifactKind: "presentation",
+                                  title: result.title,
+                                  summary: `${result.slideCount} 页 · ${result.aspectRatio} · 已添加到画布`,
+                                  markdown: `这套演示文稿已在 Tanva 画布中生成。已连接 ${result.connectedImageCount} 个图片素材和 ${result.connectedTextCount} 个文字素材，可在节点中逐页预览、改写和调整模板。`,
+                                  nodeId: result.nodeId,
+                                  formats: ["html", "pptx"],
+                                },
+                              },
+                            ],
+                          },
+                        };
+                      });
+                    })()
+                  );
+                } else if (toolName === "legacy_image_only") {
                   hostToolHandled = true;
                   const prompt =
                     typeof toolArgs.prompt === "string" && toolArgs.prompt.trim()
@@ -9643,7 +9756,7 @@ export const useAIChatStore = create<AIChatState>()(
             state.manualAIMode === "auto" &&
             !state.sourcePdfForAnalysis &&
             traceImageCountForAgent === 0 &&
-            shouldUseAgentResearchOnly(input);
+            state.enableWebSearch;
 
           if (state.manualAIMode === "auto") {
             const traceImageCount = traceImageCountForAgent;
@@ -9742,8 +9855,7 @@ export const useAIChatStore = create<AIChatState>()(
                   availableTools: [...traceAvailableTools] as AgentToolName[],
                   hasImages: traceImageCount > 0,
                   imageCount: traceImageCount,
-                  enableWebSearch:
-                    state.enableWebSearch || shouldAutoEnableWebSearch(input),
+                  enableWebSearch: state.enableWebSearch,
                   context: buildAgentRunContext(input),
                 });
 

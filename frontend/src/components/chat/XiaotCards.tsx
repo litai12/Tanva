@@ -13,6 +13,7 @@ import {
   Copy,
   Download,
   FileText,
+  Presentation,
   Plus,
   Sparkles,
   Volume2,
@@ -315,11 +316,51 @@ function ArtifactCard({ payload }: { payload: unknown }) {
   const record = asRecord(payload);
   const [expanded, setExpanded] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const [exporting, setExporting] = React.useState<"html" | "pptx" | null>(null);
+  const [exportError, setExportError] = React.useState("");
   const title = typeof record?.title === "string" ? record.title.trim() : "";
   const markdown =
     typeof record?.markdown === "string" ? record.markdown.trim() : "";
   const summaryRaw = record?.summary ?? record?.timestamp;
   const summary = typeof summaryRaw === "string" ? summaryRaw.trim() : "";
+  const artifactKind =
+    typeof record?.artifactKind === "string" ? record.artifactKind.trim() : "";
+  const isPresentation = artifactKind === "presentation";
+  const nodeId = typeof record?.nodeId === "string" ? record.nodeId.trim() : "";
+  const formats = Array.isArray(record?.formats)
+    ? record.formats.filter(
+        (item): item is "html" | "pptx" => item === "html" || item === "pptx"
+      )
+    : [];
+  const exportPresentation = (format: "html" | "pptx") => {
+    if (!nodeId || exporting) return;
+    setExporting(format);
+    setExportError("");
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setExporting(null);
+      setExportError("导出未响应，请在演示文稿节点中重试。");
+    }, 5 * 60 * 1000);
+    window.dispatchEvent(
+      new CustomEvent("flow:html-ppt-export", {
+        detail: {
+          id: resolveAgentNodeId(nodeId),
+          format,
+          done: (result?: { ok?: boolean; error?: string }) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            setExporting(null);
+            if (result?.ok === false) {
+              setExportError(result.error || "导出失败，请稍后重试。");
+            }
+          },
+        },
+      })
+    );
+  };
   if (!title && !markdown) return null;
   return (
     <div className={cardShellClass}>
@@ -328,7 +369,11 @@ function ArtifactCard({ payload }: { payload: unknown }) {
         onClick={() => setExpanded((prev) => !prev)}
         className='flex w-full items-center gap-1.5 text-left'
       >
-        <FileText className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
+        {isPresentation ? (
+          <Presentation className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
+        ) : (
+          <FileText className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
+        )}
         <span className='min-w-0 flex-1'>
           <span className='block truncate font-medium text-slate-800 dark:text-slate-100'>
             {title || "策划文档"}
@@ -339,25 +384,27 @@ function ArtifactCard({ payload }: { payload: unknown }) {
             </span>
           )}
         </span>
-        <span
-          role='button'
-          tabIndex={0}
-          aria-label='复制文档'
-          title={copied ? "已复制" : "复制文档"}
-          onClick={(e) => {
-            e.stopPropagation();
-            void navigator.clipboard
-              ?.writeText(markdown)
-              .then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1500);
-              })
-              .catch(() => undefined);
-          }}
-          className='shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200'
-        >
-          <Copy className='h-3.5 w-3.5' />
-        </span>
+        {markdown && (
+          <span
+            role='button'
+            tabIndex={0}
+            aria-label='复制文档'
+            title={copied ? "已复制" : "复制文档"}
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigator.clipboard
+                ?.writeText(markdown)
+                .then(() => {
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 1500);
+                })
+                .catch(() => undefined);
+            }}
+            className='shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200'
+          >
+            <Copy className='h-3.5 w-3.5' />
+          </span>
+        )}
         <ChevronDown
           className={cn(
             "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform",
@@ -365,6 +412,42 @@ function ArtifactCard({ payload }: { payload: unknown }) {
           )}
         />
       </button>
+      {isPresentation && nodeId && (
+        <div className='mt-2 flex flex-wrap items-center gap-1.5 border-t border-solid border-slate-200 pt-2 dark:border-white/15'>
+          <button
+            type='button'
+            onClick={() => focusCanvasNode(nodeId)}
+            className='rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-slate-200'
+          >
+            在画布打开
+          </button>
+          {formats.includes("html") && (
+            <button
+              type='button'
+              disabled={Boolean(exporting)}
+              onClick={() => exportPresentation("html")}
+              className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
+            >
+              <Download className='h-3 w-3' />
+              {exporting === "html" ? "正在导出" : "HTML"}
+            </button>
+          )}
+          {formats.includes("pptx") && (
+            <button
+              type='button'
+              disabled={Boolean(exporting)}
+              onClick={() => exportPresentation("pptx")}
+              className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
+            >
+              <Download className='h-3 w-3' />
+              {exporting === "pptx" ? "正在生成" : "PPTX"}
+            </button>
+          )}
+          {exportError && (
+            <span className='basis-full text-[11px] text-rose-500'>{exportError}</span>
+          )}
+        </div>
+      )}
       {expanded && markdown && (
         <div className='mt-2 border-t border-solid border-slate-200 pt-2 dark:border-white/15'>
           <CardMarkdown markdown={markdown} />
