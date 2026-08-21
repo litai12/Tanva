@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EXECUTABLE_MEDIA_NODE_TYPES,
   externalizeInlinePrompt,
+  rewritePatchToImageType,
   TANVA_CAPABILITY_MANIFEST,
   type AgentFlowPatch,
 } from "./agentCanvasProtocol.ts";
@@ -144,4 +146,27 @@ test("gptImage2 presetPrompt is externalized into its executable text input", ()
     sourceHandle: "text",
     targetHandle: "text",
   });
+});
+
+test("image model rewrite preserves an explicit deferred execution contract", () => {
+  const rewritten = rewritePatchToImageType(
+    {
+      op: "addNode",
+      node: {
+        id: "image-1",
+        type: "seedream5",
+        data: { deferExecution: true, prompt: "只搭工作流" },
+      },
+    },
+    "generatePro",
+    "banana"
+  );
+
+  assert.equal(rewritten.node?.data?.deferExecution, true);
+});
+
+test("existing image carrier nodes are not auto-run generators", () => {
+  assert.equal(EXECUTABLE_MEDIA_NODE_TYPES.has("image"), false);
+  assert.equal(EXECUTABLE_MEDIA_NODE_TYPES.has("imagePro"), false);
+  assert.equal(EXECUTABLE_MEDIA_NODE_TYPES.has("generatePro"), true);
 });

@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils';
 import { requestDesktopSurface } from '../surfaceEvents';
 import { TANVA_CANVAS_PLUGIN_ID } from '../pluginIds';
 import { useDesktopArtifactStore } from '../../artifacts/artifactState';
+import { downloadTextArtifact, exportPresentationArtifact } from '../../artifacts/artifactExport';
 import { downloadSpreadsheetWorkbook } from '../../artifacts/spreadsheetExport';
+import { downloadFile } from '@/utils/downloadHelper';
 import type { DesktopPluginComponentProps } from '../types';
 import type { HtmlPptDeck, HtmlPptSlide } from '@/utils/htmlPptDeck';
 
@@ -93,6 +95,8 @@ export default function ArtifactWorkspaceSurface(_props: DesktopPluginComponentP
   const active = artifacts.find((artifact) => artifact.id === activeArtifactId) ?? artifacts[0];
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  const [exporting, setExporting] = useState<'html' | 'pptx' | null>(null);
+  const [exportMessage, setExportMessage] = useState('');
 
   if (!active) {
     return (
@@ -106,12 +110,60 @@ export default function ArtifactWorkspaceSurface(_props: DesktopPluginComponentP
   const sheet = active.sheets?.[activeSheetIndex] ?? active.sheets?.[0];
   const presentationDeck = active.deck;
   const activeSlide = presentationDeck?.slides[activeSlideIndex] ?? presentationDeck?.slides[0];
+  const downloadNativeFile = () => {
+    if (!active.fileUrl) return;
+    const extension = active.kind === 'presentation' ? 'pptx' : active.kind === 'spreadsheet' ? 'xlsx' : 'bin';
+    void downloadFile(active.fileUrl, active.fileName || `${active.title}.${extension}`);
+  };
 
-  const exportPresentation = (format: 'html' | 'pptx') => {
-    if (!active.nodeId) return;
+  const exportPresentation = async (format: 'html' | 'pptx') => {
+    if (exporting) return;
+    setExporting(format);
+    setExportMessage('');
+    if (active.deck) {
+      try {
+        const fileName = await exportPresentationArtifact({
+          title: active.title,
+          deck: active.deck,
+          format,
+        });
+        setExportMessage(`已下载 ${fileName}`);
+      } catch (error) {
+        setExportMessage(error instanceof Error ? error.message : String(error));
+      } finally {
+        setExporting(null);
+      }
+      return;
+    }
+    if (!active.nodeId) {
+      setExportMessage('当前文件缺少可导出的演示文稿内容');
+      setExporting(null);
+      return;
+    }
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setExporting(null);
+      setExportMessage('导出未响应，请在画布中的演示文稿节点重试');
+    }, 5 * 60 * 1000);
     window.dispatchEvent(
       new CustomEvent('flow:html-ppt-export', {
-        detail: { id: active.nodeId, format },
+        detail: {
+          id: active.nodeId,
+          format,
+          done: (result?: { ok?: boolean; fileName?: string; error?: string }) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            setExporting(null);
+            setExportMessage(
+              result?.ok === false
+                ? result.error || '导出失败'
+                : `已下载 ${result?.fileName || format.toUpperCase()}`
+            );
+          },
+        },
       })
     );
   };
@@ -164,25 +216,47 @@ export default function ArtifactWorkspaceSurface(_props: DesktopPluginComponentP
           <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
             {active.title}
           </div>
+          {active.fileUrl && (
+            <button
+              type="button"
+              onClick={downloadNativeFile}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Download className="h-3.5 w-3.5" />
+              下载 {active.kind === 'presentation' ? 'PPTX' : active.kind === 'spreadsheet' ? 'XLSX' : '文件'}
+            </button>
+          )}
           {active.kind === 'spreadsheet' && active.sheets && (
             <button
               type="button"
               onClick={() => downloadSpreadsheetWorkbook(active.title, active.sheets || [])}
-              className="h-8 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
-              下载 XLSX
+              <Download className="h-3.5 w-3.5" />下载 XLSX
             </button>
           )}
-          {active.kind === 'presentation' && active.nodeId && (
+          {active.kind === 'document' && active.markdown && (
+            <button
+              type="button"
+              onClick={() => {
+                const fileName = downloadTextArtifact(active.title, active.markdown || '');
+                setExportMessage(`已下载 ${fileName}`);
+              }}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Download className="h-3.5 w-3.5" />下载文档
+            </button>
+          )}
+          {active.kind === 'presentation' && (active.deck || active.nodeId) && (
             <>
-              {active.formats?.includes('html') && (
-                <button type="button" onClick={() => exportPresentation('html')} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                  <Download className="h-3.5 w-3.5" />HTML
+              {(active.formats?.includes('html') ?? true) && (
+                <button type="button" disabled={Boolean(exporting)} onClick={() => void exportPresentation('html')} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50">
+                  <Download className="h-3.5 w-3.5" />{exporting === 'html' ? '正在导出' : 'HTML'}
                 </button>
               )}
-              {active.formats?.includes('pptx') && (
-                <button type="button" onClick={() => exportPresentation('pptx')} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                  <Download className="h-3.5 w-3.5" />PPTX
+              {(active.formats?.includes('pptx') ?? true) && (
+                <button type="button" disabled={Boolean(exporting)} onClick={() => void exportPresentation('pptx')} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50">
+                  <Download className="h-3.5 w-3.5" />{exporting === 'pptx' ? '正在生成' : 'PPTX'}
                 </button>
               )}
             </>
@@ -209,9 +283,32 @@ export default function ArtifactWorkspaceSurface(_props: DesktopPluginComponentP
               <PanelRightOpen className="h-3.5 w-3.5" />
             </button>
           )}
+          {exportMessage && (
+            <span className="max-w-48 truncate text-[11px] text-slate-500" title={exportMessage}>
+              {exportMessage}
+            </span>
+          )}
         </header>
 
-        {active.kind === 'presentation' && presentationDeck && activeSlide ? (
+        {active.fileUrl && !presentationDeck && !sheet ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 p-6">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <Icon className="mx-auto h-10 w-10 text-blue-600" />
+              <h2 className="mt-4 truncate text-base font-semibold text-slate-900">{active.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                这是由小T Skill生成的原生{active.kind === 'presentation' ? ' PowerPoint' : active.kind === 'spreadsheet' ? ' Excel' : ''}文件，不使用固定画布模板。
+              </p>
+              <button
+                type="button"
+                onClick={downloadNativeFile}
+                className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-medium text-white hover:bg-black"
+              >
+                <Download className="h-4 w-4" />
+                下载 {active.fileName || (active.kind === 'presentation' ? 'PPTX' : active.kind === 'spreadsheet' ? 'XLSX' : '文件')}
+              </button>
+            </div>
+          </div>
+        ) : active.kind === 'presentation' && presentationDeck && activeSlide ? (
           <div className="flex min-h-0 flex-1 bg-slate-100">
             <aside className="w-36 flex-none overflow-y-auto border-r border-slate-200 bg-slate-50 p-2">
               <div className="space-y-2">

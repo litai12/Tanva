@@ -9,6 +9,7 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import {
+  Check,
   ChevronDown,
   Copy,
   Download,
@@ -30,6 +31,11 @@ import {
   openDesktopArtifact,
   type DesktopArtifactSheet,
 } from "@/desktop/artifacts/artifactState";
+import { downloadTextArtifact, exportPresentationArtifact } from "@/desktop/artifacts/artifactExport";
+import { downloadSpreadsheetWorkbook } from "@/desktop/artifacts/spreadsheetExport";
+import { writeClipboardText } from "@/utils/clipboardText";
+import type { HtmlPptDeck } from "@/utils/htmlPptDeck";
+import { openDesktopMediaPreview } from "@/desktop/media/mediaPreviewState";
 
 export interface XiaotCard {
   kind: string;
@@ -226,12 +232,36 @@ function MediaCard({ payload }: { payload: unknown }) {
     .map((item, idx) => ({ item, idx }))
     .filter(({ item }) => item.kind === "image");
   const collection: ImageItem[] = imageItems.map(({ item, idx }) => ({
-    id: `${item.url}-${idx}`,
+    id: `media-${idx}`,
     src: item.url,
     title: item.title,
   }));
   const [previewId, setPreviewId] = React.useState<string | null>(null);
   const activePreview = collection.find((c) => c.id === previewId) || null;
+
+  const openImagePreview = React.useCallback(
+    (item: MediaItem, idx: number) => {
+      const currentItemId = `media-${idx}`;
+      if (window.tanvaDesktop?.isElectron) {
+        openDesktopMediaPreview({
+          id: `xiaot-media-${Date.now()}`,
+          title: item.title || "小T图片",
+          items: imageItems.map(({ item: image, idx: imageIndex }) => ({
+            id: `media-${imageIndex}`,
+            url: image.url,
+            thumbnailUrl: image.thumbnailUrl,
+            title: image.title || `小T图片 ${imageIndex + 1}`,
+            downloadName: `${(image.title || `小T图片_${imageIndex + 1}`).replace(/[\\/:*?"<>|]+/g, "_")}.png`,
+          })),
+          currentItemId,
+          createdAt: new Date().toISOString(),
+        });
+        return;
+      }
+      setPreviewId(currentItemId);
+    },
+    [imageItems]
+  );
 
   const handleDownload = React.useCallback(
     (item: MediaItem, idx: number) => {
@@ -247,7 +277,14 @@ function MediaCard({ payload }: { payload: unknown }) {
 
   if (items.length === 0) return null;
   return (
-    <div className={cardShellClass}>
+    <div
+      data-xiaot-media-card='true'
+      className={cn(
+        cardShellClass,
+        "w-fit max-w-full p-1.5",
+        items.length > 1 ? "max-w-[272px]" : "max-w-[148px]"
+      )}
+    >
       <div
         className={cn(
           layout === "grid" && items.length > 1
@@ -263,7 +300,7 @@ function MediaCard({ payload }: { payload: unknown }) {
                 preload='metadata'
                 src={item.url}
                 poster={item.thumbnailUrl}
-                className='w-full max-w-full rounded-md border border-solid border-slate-200 dark:border-white/15'
+                className='h-24 w-32 max-w-full rounded-md border border-solid border-slate-200 object-cover dark:border-white/15'
               />
             ) : (
               <div className='group relative'>
@@ -271,8 +308,8 @@ function MediaCard({ payload }: { payload: unknown }) {
                   src={item.thumbnailUrl || item.url}
                   alt={item.title || "小T媒体"}
                   loading='lazy'
-                  className='w-full max-w-full cursor-zoom-in rounded-md border border-solid border-slate-200 dark:border-white/15 object-cover'
-                  onClick={() => setPreviewId(`${item.url}-${idx}`)}
+                  className='h-32 w-32 max-w-full cursor-zoom-in rounded-md border border-solid border-slate-200 object-cover dark:border-white/15'
+                  onClick={() => openImagePreview(item, idx)}
                 />
                 {/* 右下角下载按钮：hover 显示，走同源资产代理下载原图 */}
                 <button
@@ -298,7 +335,7 @@ function MediaCard({ payload }: { payload: unknown }) {
         ))}
       </div>
 
-      {activePreview && (
+      {!window.tanvaDesktop?.isElectron && activePreview && (
         <ImagePreviewModal
           isOpen={true}
           imageSrc={activePreview.src}
@@ -320,7 +357,7 @@ function MediaCard({ payload }: { payload: unknown }) {
 function ArtifactCard({ payload }: { payload: unknown }) {
   const record = asRecord(payload);
   const [expanded, setExpanded] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
+  const [copyState, setCopyState] = React.useState<"idle" | "copied" | "error">("idle");
   const [exporting, setExporting] = React.useState<"html" | "pptx" | null>(null);
   const [exportError, setExportError] = React.useState("");
   const title = typeof record?.title === "string" ? record.title.trim() : "";
@@ -332,6 +369,9 @@ function ArtifactCard({ payload }: { payload: unknown }) {
     typeof record?.artifactKind === "string" ? record.artifactKind.trim() : "";
   const isPresentation = artifactKind === "presentation";
   const isSpreadsheet = artifactKind === "spreadsheet";
+  const fileUrl = typeof record?.url === "string" ? record.url.trim() : "";
+  const fileName = typeof record?.fileName === "string" ? record.fileName.trim() : "";
+  const mimeType = typeof record?.mimeType === "string" ? record.mimeType.trim() : "";
   const nodeId = typeof record?.nodeId === "string" ? record.nodeId.trim() : "";
   const artifactId =
     typeof record?.artifactId === "string" && record.artifactId.trim()
@@ -343,6 +383,13 @@ function ArtifactCard({ payload }: { payload: unknown }) {
           item === "html" || item === "pptx" || item === "xlsx"
       )
     : [];
+  const sheets = Array.isArray(record?.sheets)
+    ? (record.sheets as DesktopArtifactSheet[])
+    : [];
+  const deckRecord = asRecord(record?.deck);
+  const deck = deckRecord && Array.isArray(deckRecord.slides)
+    ? (record?.deck as HtmlPptDeck)
+    : undefined;
   const openArtifactWorkspace = () => {
     openDesktopArtifact({
       id: artifactId,
@@ -356,16 +403,33 @@ function ArtifactCard({ payload }: { payload: unknown }) {
       markdown,
       nodeId: nodeId || undefined,
       formats,
-      sheets: Array.isArray(record?.sheets)
-        ? (record.sheets as DesktopArtifactSheet[])
-        : undefined,
+      sheets: sheets.length ? sheets : undefined,
+      deck,
+      fileUrl: fileUrl || undefined,
+      fileName: fileName || undefined,
+      mimeType: mimeType || undefined,
       createdAt: new Date().toISOString(),
     });
   };
-  const exportPresentation = (format: "html" | "pptx") => {
-    if (!nodeId || exporting) return;
+  const exportPresentation = async (format: "html" | "pptx") => {
+    if (exporting) return;
     setExporting(format);
     setExportError("");
+    if (deck) {
+      try {
+        await exportPresentationArtifact({ title: title || "演示文稿", deck, format });
+      } catch (error) {
+        setExportError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setExporting(null);
+      }
+      return;
+    }
+    if (!nodeId) {
+      setExporting(null);
+      setExportError("当前文件缺少可导出的演示文稿内容。");
+      return;
+    }
     let settled = false;
     const timer = window.setTimeout(() => {
       if (settled) return;
@@ -417,25 +481,34 @@ function ArtifactCard({ payload }: { payload: unknown }) {
           )}
         </span>
         {markdown && (
-          <span
-            role='button'
-            tabIndex={0}
+          <button
+            type='button'
             aria-label='复制文档'
-            title={copied ? "已复制" : "复制文档"}
+            title={copyState === "copied" ? "已复制" : copyState === "error" ? "复制失败" : "复制文档"}
             onClick={(e) => {
               e.stopPropagation();
-              void navigator.clipboard
-                ?.writeText(markdown)
+              setCopyState("idle");
+              void writeClipboardText(markdown)
                 .then(() => {
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1500);
+                  setCopyState("copied");
+                  window.setTimeout(() => setCopyState("idle"), 1500);
                 })
-                .catch(() => undefined);
+                .catch(() => {
+                  setCopyState("error");
+                  window.setTimeout(() => setCopyState("idle"), 2500);
+                });
             }}
-            className='shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200'
+            className={cn(
+              'shrink-0 rounded p-0.5 hover:bg-slate-200 dark:hover:bg-white/10',
+              copyState === 'copied'
+                ? 'text-emerald-600'
+                : copyState === 'error'
+                  ? 'text-rose-500'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+            )}
           >
-            <Copy className='h-3.5 w-3.5' />
-          </span>
+            {copyState === 'copied' ? <Check className='h-3.5 w-3.5' /> : <Copy className='h-3.5 w-3.5' />}
+          </button>
         )}
         <ChevronDown
           className={cn(
@@ -453,22 +526,55 @@ function ArtifactCard({ payload }: { payload: unknown }) {
           >
             打开文件
           </button>
-          {isPresentation && nodeId && formats.includes("html") && (
+          {fileUrl && (isPresentation || isSpreadsheet) && (
+            <button
+              type='button'
+              onClick={() => void downloadFile(
+                fileUrl,
+                fileName || `${title || "小T文件"}.${isPresentation ? "pptx" : "xlsx"}`
+              )}
+              className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
+            >
+              <Download className='h-3 w-3' />
+              下载 {isPresentation ? "PPTX" : "XLSX"}
+            </button>
+          )}
+          {isSpreadsheet && sheets.length > 0 && formats.includes("xlsx") && (
+            <button
+              type='button'
+              onClick={() => downloadSpreadsheetWorkbook(title || "小T工作簿", sheets)}
+              className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
+            >
+              <Download className='h-3 w-3' />
+              下载 XLSX
+            </button>
+          )}
+          {!isPresentation && !isSpreadsheet && markdown && (
+            <button
+              type='button'
+              onClick={() => downloadTextArtifact(title || "小T文档", markdown)}
+              className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
+            >
+              <Download className='h-3 w-3' />
+              下载文档
+            </button>
+          )}
+          {isPresentation && (nodeId || deck) && formats.includes("html") && (
             <button
               type='button'
               disabled={Boolean(exporting)}
-              onClick={() => exportPresentation("html")}
+              onClick={() => void exportPresentation("html")}
               className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
             >
               <Download className='h-3 w-3' />
               {exporting === "html" ? "正在导出" : "HTML"}
             </button>
           )}
-          {isPresentation && nodeId && formats.includes("pptx") && (
+          {isPresentation && (nodeId || deck) && formats.includes("pptx") && (
             <button
               type='button'
               disabled={Boolean(exporting)}
-              onClick={() => exportPresentation("pptx")}
+              onClick={() => void exportPresentation("pptx")}
               className='inline-flex items-center gap-1 rounded-md border border-solid border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15'
             >
               <Download className='h-3 w-3' />

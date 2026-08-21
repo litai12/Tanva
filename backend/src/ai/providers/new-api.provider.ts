@@ -60,6 +60,10 @@ const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
   '1:8',
   '8:1',
 ] as const;
+const URL_ONLY_IMAGE_RESPONSE_MODELS = new Set([
+  'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview',
+]);
 
 @Injectable()
 export class NewApiProvider implements IAIProvider {
@@ -140,6 +144,7 @@ export class NewApiProvider implements IAIProvider {
     );
     const payload: Record<string, unknown> = {
       model,
+      ...this.resolveImageResponseFields(model, request.outputFormat),
       prompt: request.prompt,
       n: this.resolveImageCount(request),
       size: this.resolveImageSizeParam(request.aspectRatio, model),
@@ -150,7 +155,6 @@ export class NewApiProvider implements IAIProvider {
       quality: request.quality,
       background: request.background,
       moderation: request.moderation,
-      output_format: request.outputFormat,
       output_compression: request.outputCompression,
       google_search: request.googleSearch ?? request.enableWebSearch,
       google_image_search: request.googleImageSearch ?? request.enableWebSearch,
@@ -167,12 +171,12 @@ export class NewApiProvider implements IAIProvider {
     );
     const payload: Record<string, unknown> = {
       model,
+      ...this.resolveImageResponseFields(model, request.outputFormat),
       prompt: request.prompt,
       n: 1,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: [this.requireRemoteImageReference(request.sourceImage, 'image_urls[0]')],
-      output_format: request.outputFormat,
     };
 
     return this.callImageEndpoint(payload, 'IMAGE_EDIT_FAILED', request.providerOptions);
@@ -185,6 +189,7 @@ export class NewApiProvider implements IAIProvider {
     );
     const payload: Record<string, unknown> = {
       model,
+      ...this.resolveImageResponseFields(model, request.outputFormat),
       prompt: request.prompt,
       n: 1,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
@@ -192,7 +197,6 @@ export class NewApiProvider implements IAIProvider {
       image_urls: request.sourceImages.map((item, index) =>
         this.requireRemoteImageReference(item, `image_urls[${index}]`),
       ),
-      output_format: request.outputFormat,
     };
 
     return this.callImageEndpoint(payload, 'IMAGE_BLEND_FAILED', request.providerOptions);
@@ -617,6 +621,21 @@ export class NewApiProvider implements IAIProvider {
   // 上游始终发真模型名；vip / svip 路线通过 API key 切到 new-api 对应分组
   private resolveUltraModel(model: string, _providerOptions?: ProviderOptionsPayload): string {
     return this.normalizeUpstreamModel(model);
+  }
+
+  private resolveImageResponseFields(
+    model: string,
+    outputFormat?: ImageGenerationRequest['outputFormat'],
+  ): Record<string, unknown> {
+    // new-api 的 Gemini 3 图片通道只支持 URL 响应。把 png/jpeg/webp 放进
+    // output_format 会被该通道解释为响应模式并直接返回 400。这里保持其他
+    // 图片模型原有的文件格式能力，仅对已确认的 URL-only 模型改用标准
+    // OpenAI Images response_format=url；最终资产仍由宿主按远程 URL 交付。
+    if (URL_ONLY_IMAGE_RESPONSE_MODELS.has(model)) {
+      return { response_format: 'url' };
+    }
+
+    return { output_format: outputFormat };
   }
 
   private isRetryableImageError(error: unknown): boolean {

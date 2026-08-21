@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-08-21：新建 Office 文件从 Tanva 固定模板切换为小T原生 Skill。PPT/PPTX 使用 `pptx-generator`，Excel/XLSX 使用 `minimax-xlsx`，在小T工作区生成并校验真实文件后通过 `present_file` 上传；OpenAI facade 将文件投影成 `artifact` 卡，消息与右侧文件工作台都可直接下载原始 PPTX/XLSX。桌面能力清单移除 `create_presentation` / `create_spreadsheet` 模板入口，仅保留已有 HTML 演示节点的编辑兼容路径，避免再次出现永远相同的三页黑底占位稿。
+
+- 2026-08-21：桌面小T生图链路去重并收紧预览尺寸。同一回合同时返回旧版直接生图工具与画布生成节点时只执行画布节点，旧版工具仅在没有可执行画布生图节点时回退，避免重复生成和双重扣费；聊天图片改为 `128px` 紧凑缩略图，点击继续在右侧预览；Electron 画布工具栏恢复唯一的普通/稳定线路切换入口。
+
+- 2026-08-21：修复小T把生成节点添加到画布后停在“等待生成”却仍判定任务完成。宿主现在把本轮新增、具有单一图片或视频资产输出的节点登记为待执行交付；若小T漏发 `runNode`，会在新增与连线全部落地后自动补齐一次，并以真实远程资产 URL 验收。明确只搭工作流时使用结构化 `data.deferExecution=true`，不依赖用户文案关键词，也不会重复运行已经执行过的节点。同步修复 Gemini 3 Pro / 3.1 Flash 图片通道错误发送 `output_format=png` 导致 new-api 400：这两个 URL-only 模型改用 `response_format=url`，其他图片模型继续保留原输出格式。
+
+- 2026-08-21：桌面图片查看与画布导航进一步对齐 Codex。Electron 中点击聊天图片不再打开全屏模态框，而是激活无最大化入口的 `tanva.media-preview` 右侧工具面，保留任务侧栏和当前会话，并支持原图下载及多图切换；网页端继续使用原预览。Flow 节点 MiniMap 改为常驻能力，在低细节、拖动、缩放和大图交互期间也不卸载。
+
+- 2026-08-21：修复 Electron 文件交付操作与小T宿主挂起尾帧稳定性。消息复制改由 Electron 主进程系统剪贴板承接，并提供成功/失败反馈；PPT、Excel、普通文档在消息卡和文件工作台均可直接下载，演示文稿卡持久化完整 deck，关闭画布或重启后仍可导出 HTML/PPTX。小T收到 `xiaot_turn_suspended` 时只记录逻辑宿主交接，不再提前冒充真实 `[DONE]`；允许上游在挂起信封与真实 `[DONE]` 之间发送 usage 审计尾帧，同时继续严格拒绝真实 `[DONE]` 后的数据。
+
+- 2026-08-21：会员购买页与管理后台的权益说明明确补充 Seedance 2.5。原有 `seedance2Access` 继续统一控制 Seedance 2.x 权益，展示文案由“Seedance 2”统一为“Seedance 2.0 / 2.5”，不新增重复权限开关。
+
 - 2026-08-21：修复 Electron 右侧画布已收到小T节点补丁却视觉空白。经真实桌面运行确认，节点数据与 Prompt 内容已经写入当前项目，但插件面板挂载竞态使 React Flow 的 ResizeObserver 未及时回写尺寸，节点外壳长期停在 `visibility: hidden`。所有从添加面板和小T `flow_patch` 创建的节点现在同步写入 `initialWidth/initialHeight`，首帧即可见，后续仍由真实测量尺寸接管。
 
 - 2026-08-21：修复小T无法可靠操作当前选中项目画布。桌面 Work 会话在采集快照和执行补丁前硬绑定所属 `projectId`，只接受该项目完成水合后的快照；建节点、连线、运行事件均携带并校验项目身份，切换画布后旧队列不会落入新项目。同步修复 GPT Image 2/Nano2 节点“面板已有预设提示词，运行仍报缺少提示词”：新节点自动外置为 `textPrompt → 生成节点`，历史节点可直接消费 `presetPrompt` 重跑。浏览器验收新增当前项目接收、异项目拒绝断言。

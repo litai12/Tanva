@@ -28,6 +28,9 @@ declare global {
         }) => Promise<boolean>;
         clear: () => Promise<boolean>;
       }>;
+      clipboard: Readonly<{
+        writeText: (text: string) => Promise<boolean>;
+      }>;
       connectors: Readonly<{
         list: () => Promise<DesktopConnectorStatus[]>;
         configure: (connectorId: string) => Promise<boolean | null>;

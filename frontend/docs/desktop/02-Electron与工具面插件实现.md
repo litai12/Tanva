@@ -22,6 +22,8 @@
 - 画布的 `embeddedDesktop` 模式不渲染网页项目头、账号/积分导航、Focus 全局模式或第二套小T，fixed 画布工具浮层全部锚定插件容器；
 - 本机应用连接中心以 `tanva.desktop-connectors` 第二个第一方内置插件注册；
 - PPT、Excel 和文档以 `tanva.artifacts` 文件工作台注册；PPT 支持逐页缩略图、大页预览、HTML/PPTX 导出并可交接回画布编辑，Excel 支持多工作表预览与 XLSX 导出；
+- 聊天图片以 `tanva.media-preview` 右侧工具面预览；点击图片不再打开全屏模态框，任务线程继续可见，并支持原图下载和同组图片切换；
+- React Flow 节点 MiniMap 属于画布基础导航，在 Electron 嵌入模式及低细节、拖动、缩放期间均保持挂载；
 - 左下角账号区统一显示个人/团队、余额和团队切换，团队变化会刷新项目与计费上下文；
 - 登录后由 Electron `safeStorage` 加密保存设备令牌；下次启动先恢复本地用户与令牌，再后台续期，不闪回登录页。旧 localStorage 令牌会自动迁移；显式退出只撤销当前设备会话，不影响同账号其他网页/桌面设备；
 - Capability Host 使用官方 MCP TypeScript Client，通过 stdio 启动用户导入的本机服务、完成握手、发现工具和断开；
@@ -65,6 +67,7 @@ flowchart LR
 | `src/desktop/plugins/builtins/TanvaCanvasPlugin.ts` | `tanva.canvas` manifest |
 | `src/desktop/plugins/builtins/TanvaCanvasSurface.tsx` | 现有 Canvas 的插件适配层 |
 | `src/desktop/plugins/builtins/ArtifactWorkspaceSurface.tsx` | PPT、Excel、文档的独立文件工作台 |
+| `src/desktop/plugins/builtins/MediaPreviewSurface.tsx` | 聊天图片的右侧预览、下载和组内切换 |
 | `src/desktop/artifacts/spreadsheetExport.ts` | 浏览器内生成真实 XLSX 包 |
 | `src/desktop/plugins/builtins/DesktopConnectorsPlugin.ts` | 本机应用连接插件 manifest |
 | `src/desktop/plugins/builtins/DesktopConnectorsSurface.tsx` | 检测、配置和启动专业应用的管理面 |

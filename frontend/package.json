@@ -37,7 +37,7 @@
     "test:prompt-optimization-models": "node --test src/services/promptOptimizationModels.test.ts",
     "test:flow-progress-runtime": "node --test src/components/flow/flowProgressRuntime.test.ts",
     "test:storyboard-prompt-table": "node --test src/components/flow/storyboardPromptTable.test.ts",
-    "test:desktop-plugins": "tsx --test src/desktop/plugins/registry.test.ts src/desktop/plugins/surfaceState.test.ts src/desktop/taskContextState.test.ts src/services/authTokenStorage.test.ts src/utils/publicAssetUrl.test.ts",
+    "test:desktop-plugins": "tsx --test src/desktop/plugins/registry.test.ts src/desktop/plugins/surfaceState.test.ts src/desktop/taskContextState.test.ts src/desktop/media/mediaPreviewState.test.ts src/services/authTokenStorage.test.ts src/utils/clipboardText.test.ts src/utils/publicAssetUrl.test.ts",
     "verify:desktop": "node --check electron/main.mjs && node --check electron/preload.cjs && node --check electron/verify-renderer-build.mjs && node --test electron/capability-host.test.mjs && npm run test:desktop-plugins && npm run test:xiaot-host-delivery",
     "verify:desktop-shell": "concurrently -k -s command-1 \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && node scripts/verifyDesktopShellBrowser.mjs\"",
     "verify:desktop-packaged": "node scripts/verifyPackagedDesktop.mjs",

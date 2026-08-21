@@ -18,6 +18,9 @@ export interface DesktopArtifact {
   sheets?: DesktopArtifactSheet[];
   deck?: HtmlPptDeck;
   markdown?: string;
+  fileUrl?: string;
+  fileName?: string;
+  mimeType?: string;
   createdAt: string;
 }
 
@@ -41,6 +44,9 @@ export const useDesktopArtifactStore = create<DesktopArtifactState>((set) => ({
             deck: artifact.deck ?? previous.deck,
             sheets: artifact.sheets ?? previous.sheets,
             markdown: artifact.markdown ?? previous.markdown,
+            fileUrl: artifact.fileUrl ?? previous.fileUrl,
+            fileName: artifact.fileName ?? previous.fileName,
+            mimeType: artifact.mimeType ?? previous.mimeType,
           }
         : artifact;
       return {

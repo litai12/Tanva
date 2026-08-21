@@ -2,6 +2,7 @@ import type {
   AgentGeneratedAsset,
   AgentPatchExecutionReport,
 } from "./agentPatchExecution";
+import type { AgentFlowPatch } from "./agentCanvasProtocol";
 
 export interface XiaotHostDeliveryVerification {
   satisfied: boolean;
@@ -22,6 +23,35 @@ export interface XiaotTurnDeliveryEvidence {
   hostUiCount: number;
   hostDelivery: XiaotHostDeliveryVerification;
 }
+
+/**
+ * A newly added executable media node is a pending side effect, not a completed
+ * delivery. XiaoT normally emits runNode itself; the host deterministically
+ * closes that protocol gap once when the model omitted it. Workflow-only
+ * requests must opt out structurally through data.deferExecution=true on the
+ * added node instead of relying on natural-language guesses in the host.
+ */
+export const buildMissingExecutableRunPatches = (input: {
+  addedExecutableNodeIds: Iterable<string>;
+  executedNodeIds: ReadonlySet<string>;
+  deferredNodeIds: ReadonlySet<string>;
+}): AgentFlowPatch[] =>
+  Array.from(new Set(input.addedExecutableNodeIds))
+    .filter(
+      (nodeId) =>
+        !input.executedNodeIds.has(nodeId) && !input.deferredNodeIds.has(nodeId)
+    )
+    .map((id) => ({ op: "runNode", id }));
+
+/**
+ * legacy_image_only is a compatibility fallback for turns that do not create
+ * an executable canvas image node. Once the turn owns a canvas generator, the
+ * generator is the single delivery path; running both would charge twice and
+ * render duplicate chat media.
+ */
+export const shouldExecuteLegacyImageOnlyHostTool = (
+  executableImageNodeIds: Iterable<string>
+): boolean => executableImageNodeIds[Symbol.iterator]().next().done === true;
 
 const stringifyXiaotEvidence = (value: unknown): string => {
   if (typeof value === "string") return value;

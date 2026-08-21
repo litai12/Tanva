@@ -258,7 +258,7 @@ const buildSlideSrcDoc = (
 </html>`;
 };
 
-const buildFullDeckHtml = (deck: HtmlPptDeck, title: string): string => {
+export const buildFullDeckHtml = (deck: HtmlPptDeck, title: string): string => {
   const ratio = getRatioParts(deck.aspectRatio);
   const design = getDesignSize(deck.aspectRatio);
   const slides = deck.slides

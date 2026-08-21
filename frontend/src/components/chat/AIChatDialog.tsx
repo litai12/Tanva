@@ -79,6 +79,7 @@ import { DEFAULT_PROMPT_OPTIMIZATION_MODEL } from "@/services/promptOptimization
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { writeClipboardText } from "@/utils/clipboardText";
 import {
   DOC_MAX_TEXT_BYTES,
   DOC_TEXT_ACCEPT,
@@ -107,6 +108,7 @@ import {
 } from "@/services/agentCanvasProtocol";
 import XiaotCards from "@/components/chat/XiaotCards";
 import XiaotStyleAnchorButton from "@/components/chat/XiaotStyleAnchorButton";
+import { openDesktopMediaPreview } from "@/desktop/media/mediaPreviewState";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -1901,23 +1903,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
         return;
       }
       try {
-        const canUseClipboardAPI =
-          typeof navigator !== "undefined" &&
-          Boolean(navigator?.clipboard?.writeText);
-        if (canUseClipboardAPI) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const textArea = document.createElement("textarea");
-          textArea.value = text;
-          textArea.style.position = "fixed";
-          textArea.style.left = "-9999px";
-          textArea.style.top = "-9999px";
-          document.body.appendChild(textArea);
-          textArea.focus();
-          textArea.select();
-          document.execCommand("copy");
-          document.body.removeChild(textArea);
-        }
+        await writeClipboardText(text);
         showToast("已复制消息内容");
       } catch (error) {
         console.error("复制消息失败", error);
@@ -2833,6 +2819,17 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
 
   // 处理图片预览
   const handleImagePreview = (src: string, title: string) => {
+    if (window.tanvaDesktop?.isElectron) {
+      const itemId = `chat-image-${Date.now()}`;
+      openDesktopMediaPreview({
+        id: itemId,
+        title: title || "图片预览",
+        items: [{ id: itemId, url: src, title: title || "图片预览" }],
+        currentItemId: itemId,
+        createdAt: new Date().toISOString(),
+      });
+      return;
+    }
     setPreviewImage({ src, title });
   };
 
@@ -5135,7 +5132,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                             e.stopPropagation();
                             handleImagePreview(imageSrc, "AI生成的图像");
                           }}
-                          title={lt("点击全屏预览", "Click to preview fullscreen")}
+                          title={lt("点击预览", "Click to preview")}
                         />
                       );
                     }
@@ -6071,8 +6068,8 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                             );
                                                           }}
                                                           title={lt(
-                                                            "点击全屏预览",
-                                                            "Click to preview fullscreen"
+                                                            "点击预览",
+                                                            "Click to preview"
                                                           )}
                                                         />
                                                       );
@@ -6121,8 +6118,8 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                           );
                                                         }}
                                                         title={lt(
-                                                          "点击全屏预览",
-                                                          "Click to preview fullscreen"
+                                                          "点击预览",
+                                                          "Click to preview"
                                                         )}
                                                       />
                                                     </div>
@@ -6162,12 +6159,12 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                                     );
                                                                   }}
                                                                   title={lt(
-                                                                    `点击全屏预览融合图像 ${
+                                                                    `点击预览融合图像 ${
                                                                       index + 1
                                                                     }`,
                                                                     `Click to preview blended image ${
                                                                       index + 1
-                                                                    } fullscreen`
+                                                                    }`
                                                                   )}
                                                                 />
                                                                 <div
@@ -6218,8 +6215,8 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                     );
                                                   }}
                                                   title={lt(
-                                                    "点击全屏预览",
-                                                    "Click to preview fullscreen"
+                                                    "点击预览",
+                                                    "Click to preview"
                                                   )}
                                                 />
                                               </div>
@@ -6251,12 +6248,12 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                               );
                                                             }}
                                                             title={lt(
-                                                              `点击全屏预览融合图像 ${
+                                                              `点击预览融合图像 ${
                                                                 index + 1
                                                               }`,
                                                               `Click to preview blended image ${
                                                                 index + 1
-                                                              } fullscreen`
+                                                              }`
                                                             )}
                                                           />
                                                           <div

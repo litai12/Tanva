@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld(
       write: (tokens) => ipcRenderer.invoke('tanva:auth:write', tokens),
       clear: () => ipcRenderer.invoke('tanva:auth:clear'),
     }),
+    clipboard: Object.freeze({
+      writeText: (text) => ipcRenderer.invoke('tanva:clipboard:write-text', text),
+    }),
     connectors: Object.freeze({
       list: () => ipcRenderer.invoke('tanva:connectors:list'),
       configure: (connectorId) => ipcRenderer.invoke('tanva:connectors:configure', connectorId),

@@ -56,6 +56,10 @@ try {
   await page.getByRole('button', { name: '画布', exact: true }).click();
   const canvasSurface = page.getByRole('region', { name: 'Tanva 画布工具面' });
   await canvasSurface.waitFor({ timeout: 20_000 });
+  await canvasSurface.locator('.react-flow__minimap').waitFor({ timeout: 20_000 });
+  await canvasSurface
+    .getByRole('button', { name: /切换生图线路，当前：/ })
+    .waitFor({ timeout: 20_000 });
   const canvasProjectBinding = await page.evaluate(async (expectedProjectId) => {
     const snapshot = await new Promise((resolveSnapshot, rejectSnapshot) => {
       const timer = window.setTimeout(
@@ -114,6 +118,28 @@ try {
     window.dispatchEvent(new Event('tanva:desktop-surface-auto-open-reset'));
   });
 
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('tanva:desktop-open-media-preview', {
+      detail: {
+        id: 'packaged-media-preview',
+        title: '打包图片预览',
+        items: [{ id: 'packaged-logo', url: './Logo.svg', title: '打包图片预览' }],
+        currentItemId: 'packaged-logo',
+        createdAt: new Date().toISOString(),
+      },
+    }));
+  });
+  const mediaSurface = page.getByRole('region', { name: '媒体预览工具面' });
+  await mediaSurface.waitFor({ timeout: 20_000 });
+  if (
+    (await mediaSurface.getByRole('button', { name: '下载', exact: true }).count()) !== 1 ||
+    (await mediaSurface.locator('button[title="最大化工具面"]').count()) !== 0
+  ) {
+    throw new Error('Packaged media preview did not remain a docked, downloadable side surface');
+  }
+  await mediaSurface.locator('button[title="关闭工具面"]').click();
+  await mediaSurface.waitFor({ state: 'hidden' });
+
   await page.keyboard.press('Meta+b');
   await page.locator('aside').waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '展开侧栏' }).click();
@@ -143,6 +169,9 @@ try {
     canvasVisibility: true,
     manualHidePriority: true,
     currentCanvasOperations: true,
+    canvasMiniMap: true,
+    canvasImageRouteSwitch: true,
+    mediaSidePreview: true,
     projectName,
     sidebarToggle: true,
     cleanup: true,

@@ -43,6 +43,10 @@ async function verifyHandoff(reason: (typeof suspensionReasons)[number]) {
         },
       },
     })}`,
+    // Tanva new-api may append an audit-only usage chunk after the logical
+    // suspension and before the actual SSE terminator. This is not data after
+    // [DONE] and must not turn a completed host delivery into a failed run.
+    `data: ${JSON.stringify({ choices: [], usage: { total_tokens: 42 } })}`,
     'data: [DONE]',
     '',
   ].join('\n');

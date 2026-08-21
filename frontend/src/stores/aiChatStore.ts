@@ -34,6 +34,7 @@ import {
   TANVA_CAPABILITY_MANIFEST,
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
+  IMAGE_GEN_NODE_TYPES,
   VIDEO_TYPES_REQUIRE_IMAGE,
   VIDEO_NODE_TYPES,
   VIDEO_MAX_DURATION,
@@ -43,6 +44,7 @@ import {
   detectVideoDuration,
   getVideoModelLabel,
   externalizeInlinePrompt,
+  EXECUTABLE_MEDIA_NODE_TYPES,
   buildXiaotCanvasRequestContext,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
@@ -58,10 +60,12 @@ import {
   resolveAgentNodeId,
 } from "@/services/agentPatchApplier";
 import {
+  buildMissingExecutableRunPatches,
   buildXiaotDeliveredContent,
   isXiaotHostExecutionSuspensionMessage,
   isXiaotModelRouteCreditsError,
   resolveXiaotAgentErrorMessage,
+  shouldExecuteLegacyImageOnlyHostTool,
   verifyXiaotHostDelivery,
   verifyXiaotTurnDelivery,
 } from "@/services/xiaotHostDelivery";
@@ -8700,6 +8704,10 @@ export const useAIChatStore = create<AIChatState>()(
           let hostToolHandled = false;
           let hostUiCount = 0;
           const pendingHostTools: Promise<void>[] = [];
+          const deferredLegacyImageOnlyTools: Array<{
+            prompt: string;
+            userMessageId: string;
+          }> = [];
           let videoRewriteToasted = false;
           let imageRewriteToasted = false;
           const pendingXiaotMediaCards: Array<{
@@ -8723,11 +8731,21 @@ export const useAIChatStore = create<AIChatState>()(
             );
             if (kinds.length === 1) assetKindByNodeType.set(nodeSpec.type, kinds[0]);
           }
+          // 兼容 manifest 中只做能力占位、尚未声明 outputs 的旧生成节点。
+          // 图片/视频生成集合本身就是单一资产类型的权威定义，不能因为缺少
+          // outputs 元数据而跳过运行补齐和真实资产验收。
+          for (const nodeType of IMAGE_GEN_NODE_TYPES) {
+            assetKindByNodeType.set(nodeType, "image");
+          }
+          for (const nodeType of VIDEO_NODE_TYPES) {
+            assetKindByNodeType.set(nodeType, "video");
+          }
           const expectedAssetKindByAgentNodeId = new Map<
             string,
             "image" | "video" | "audio"
           >();
           const executedAgentNodeIds = new Set<string>();
+          const deferredAgentNodeIds = new Set<string>();
           // 打字机流式渲染：小T facade 常把整段回复一次性大块下发（assistant_delta
           // 不是逐 token），直接写 content 会「唰」地整段冒出、毫无流式感。这里把
           // 「真值文本 typeTarget」与「已显示字符数 typeShown」解耦，用 rAF 每帧按
@@ -9224,11 +9242,17 @@ export const useAIChatStore = create<AIChatState>()(
                     }
                     if (admittedPatch.op === "addNode" && admittedPatch.node) {
                       const expectedKind = assetKindByNodeType.get(admittedPatch.node.type);
-                      if (expectedKind) {
+                      if (
+                        expectedKind &&
+                        EXECUTABLE_MEDIA_NODE_TYPES.has(admittedPatch.node.type)
+                      ) {
                         expectedAssetKindByAgentNodeId.set(
                           admittedPatch.node.id,
                           expectedKind
                         );
+                        if (admittedPatch.node.data?.deferExecution === true) {
+                          deferredAgentNodeIds.add(admittedPatch.node.id);
+                        }
                       }
                     }
                     if (!applyAgentPatch(admittedPatch)) continue;
@@ -9399,6 +9423,7 @@ export const useAIChatStore = create<AIChatState>()(
                                   summary: `${result.slideCount} 页 · ${result.aspectRatio} · 已添加到画布`,
                                   markdown: `这套演示文稿已在 Tanva 画布中生成。已连接 ${result.connectedImageCount} 个图片素材和 ${result.connectedTextCount} 个文字素材，可在节点中逐页预览、改写和调整模板。`,
                                   nodeId: result.nodeId,
+                                  deck: result.deck,
                                   formats: ["html", "pptx"],
                                 },
                               },
@@ -9481,17 +9506,13 @@ export const useAIChatStore = create<AIChatState>()(
                     typeof toolArgs.prompt === "string" && toolArgs.prompt.trim()
                       ? toolArgs.prompt.trim()
                       : input;
-                  pendingHostTools.push(
-                    get().generateImage(prompt, {
-                      override: {
-                        userMessageId:
-                          options?.override?.userMessageId ??
-                          xiaotUserMessage?.id ??
-                          "",
-                        aiMessageId: aiMessage.id,
-                      },
-                    })
-                  );
+                  deferredLegacyImageOnlyTools.push({
+                    prompt,
+                    userMessageId:
+                      options?.override?.userMessageId ??
+                      xiaotUserMessage?.id ??
+                      "",
+                  });
                 } else if (toolName === "case_search") {
                   hostToolHandled = true;
                   const query =
@@ -9783,6 +9804,56 @@ export const useAIChatStore = create<AIChatState>()(
               if (applyAgentPatch(remainingPatch)) patchCount += 1;
             }
 
+            // A turn may contain both the old direct-image host tool and the
+            // current canvas workflow. The canvas generator is authoritative:
+            // direct image generation remains only as a no-canvas fallback so
+            // one request never creates two paid generations or two chat cards.
+            const executableImageNodeIds = Array.from(
+              expectedAssetKindByAgentNodeId.entries()
+            )
+              .filter(([, kind]) => kind === "image")
+              .map(([nodeId]) => nodeId);
+            const deferredLegacyImageOnly =
+              deferredLegacyImageOnlyTools.at(-1);
+            if (deferredLegacyImageOnly) {
+              if (
+                shouldExecuteLegacyImageOnlyHostTool(executableImageNodeIds)
+              ) {
+                await get().generateImage(deferredLegacyImageOnly.prompt, {
+                  override: {
+                    userMessageId: deferredLegacyImageOnly.userMessageId,
+                    aiMessageId: aiMessage.id,
+                  },
+                });
+              } else {
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    xiaotSuppressedLegacyImageOnly: true,
+                  },
+                }));
+              }
+            }
+
+            // addNode 只代表把可执行节点放进工作流，不代表媒体已经生成。
+            // 小T漏发 runNode 时由宿主在所有 add/connect patch 之后补齐一次，
+            // 让“生成并添加”必然进入真实执行；显式 deferExecution 的纯搭建
+            // 工作流请求保持不运行。补发仍进入同一串行队列和真实资产验收，
+            // 不会用 patch 数量冒充交付，也不会重复运行模型已执行的节点。
+            const missingRunPatches = buildMissingExecutableRunPatches({
+              addedExecutableNodeIds: expectedAssetKindByAgentNodeId.keys(),
+              executedNodeIds: executedAgentNodeIds,
+              deferredNodeIds: deferredAgentNodeIds,
+            });
+            for (const missingRunPatch of missingRunPatches) {
+              for (const admittedPatch of imagePatchContract.accept(missingRunPatch)) {
+                if (admittedPatch.id) executedAgentNodeIds.add(admittedPatch.id);
+                firstRunNodeAt ??= performance.now();
+                if (applyAgentPatch(admittedPatch)) patchCount += 1;
+              }
+            }
+
             const imageContractStats = imagePatchContract.getStats();
             const acceptedImageAgentIds = imagePatchContract.getAcceptedImageIds();
             if (patchCount > 0) {
@@ -9798,21 +9869,12 @@ export const useAIChatStore = create<AIChatState>()(
               }));
             }
             const patchExecutionReport = await flushAgentPatchQueue(patchBatchId);
-            const expectedAssets = Array.from(executedAgentNodeIds)
-              .map((agentNodeId) => {
-                const kind = expectedAssetKindByAgentNodeId.get(agentNodeId);
-                return kind
-                  ? { nodeId: resolveAgentNodeId(agentNodeId), kind }
-                  : null;
-              })
-              .filter(
-                (
-                  expected
-                ): expected is {
-                  nodeId: string;
-                  kind: "image" | "video" | "audio";
-                } => expected !== null
-              );
+            const expectedAssets = Array.from(expectedAssetKindByAgentNodeId)
+              .filter(([agentNodeId]) => !deferredAgentNodeIds.has(agentNodeId))
+              .map(([agentNodeId, kind]) => ({
+                nodeId: resolveAgentNodeId(agentNodeId),
+                kind,
+              }));
             const hostDelivery = verifyXiaotTurnDelivery({
               streamCompletedSuccessfully: !streamErrored,
               assistantText: assembled,

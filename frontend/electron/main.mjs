@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -133,6 +133,16 @@ const installAuthSessionIpc = () => {
   ipcMain.handle('tanva:auth:clear', async (event) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted auth session request');
     return clearEncryptedAuthSession();
+  });
+};
+
+const installClipboardIpc = () => {
+  ipcMain.handle('tanva:clipboard:write-text', async (event, value) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted clipboard request');
+    if (typeof value !== 'string') throw new Error('Clipboard text must be a string');
+    if (value.length > 5 * 1024 * 1024) throw new Error('Clipboard text is too large');
+    clipboard.writeText(value);
+    return clipboard.readText() === value;
   });
 };
 
@@ -505,6 +515,7 @@ app.whenReady().then(async () => {
   installWindowIpc();
   installConnectorIpc();
   installAuthSessionIpc();
+  installClipboardIpc();
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const trusted = isTrustedAppUrl(webContents.getURL());

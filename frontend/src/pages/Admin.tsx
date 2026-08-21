@@ -11723,7 +11723,7 @@ function VipManagementTab() {
                       : `每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
                   </div>
                   <div className='mb-1 text-xs text-gray-500'>
-                    {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
+                    {`Seedance 2.0 / 2.5 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
                   </div>
                   <div className='mb-1 text-xs text-gray-500'>快乐马权益：不支持</div>
                   <div className='mb-1 text-xs text-gray-500'>无水印权益：不支持</div>
@@ -11762,7 +11762,7 @@ function VipManagementTab() {
                   <td className='px-3 py-3'>
                     <div className='mb-1 text-xs text-gray-500'>{getPlanCoreBenefits(plan.metadata) || "-"}</div>
                     <div className='mb-1 text-xs text-gray-500'>
-                      {`Seedance 2 权益：${getPlanSeedance2Access(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
+                      {`Seedance 2.0 / 2.5 权益：${getPlanSeedance2Access(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
                     </div>
                     <div className='mb-1 text-xs text-gray-500'>
                       {`快乐马权益：${getPlanHappyhorseAccess(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
@@ -11893,7 +11893,7 @@ function VipManagementTab() {
                   onChange={(e) =>
                     setPlanForm((current) => ({ ...current, coreBenefits: e.target.value }))
                   }
-                  placeholder='去水印、Seedance 2 / 快乐马权益、积分不衰减，每日签到 50 积分'
+                  placeholder='去水印、Seedance 2.0 / 2.5、快乐马权益、积分不衰减，每日签到 50 积分'
                 />
               </div>
               <div>
@@ -11916,7 +11916,7 @@ function VipManagementTab() {
                 </select>
               </div>
               <div>
-                <div className='mb-1 text-sm text-gray-600'>Seedance 2 权益</div>
+                <div className='mb-1 text-sm text-gray-600'>Seedance 2.0 / 2.5 权益</div>
                 <select
                   value={planForm.seedance2Access}
                   onChange={(e) =>

@@ -2,14 +2,53 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  buildMissingExecutableRunPatches,
   buildXiaotDeliveredContent,
   isXiaotHostExecutionSuspensionMessage,
   isXiaotModelRouteCreditsError,
   resolveXiaotAgentErrorMessage,
+  shouldExecuteLegacyImageOnlyHostTool,
   verifyXiaotHostDelivery,
   verifyXiaotTurnDelivery,
 } from "./xiaotHostDelivery.ts";
 import type { XiaotHostDeliveryVerification } from "./xiaotHostDelivery.ts";
+
+describe("buildMissingExecutableRunPatches", () => {
+  it("runs every newly added executable node that XiaoT did not run", () => {
+    assert.deepEqual(
+      buildMissingExecutableRunPatches({
+        addedExecutableNodeIds: ["image-1", "video-1", "image-1"],
+        executedNodeIds: new Set(["video-1"]),
+        deferredNodeIds: new Set(),
+      }),
+      [{ op: "runNode", id: "image-1" }]
+    );
+  });
+
+  it("preserves an explicit workflow-only deferExecution decision", () => {
+    assert.deepEqual(
+      buildMissingExecutableRunPatches({
+        addedExecutableNodeIds: ["image-1"],
+        executedNodeIds: new Set(),
+        deferredNodeIds: new Set(["image-1"]),
+      }),
+      []
+    );
+  });
+});
+
+describe("shouldExecuteLegacyImageOnlyHostTool", () => {
+  it("keeps direct chat generation as a fallback when no canvas generator exists", () => {
+    assert.equal(shouldExecuteLegacyImageOnlyHostTool([]), true);
+  });
+
+  it("suppresses direct chat generation when the turn already owns a canvas generator", () => {
+    assert.equal(
+      shouldExecuteLegacyImageOnlyHostTool(["generatePro-1"]),
+      false
+    );
+  });
+});
 
 describe("verifyXiaotHostDelivery", () => {
   it("requires a real image URL for every expected image node", () => {

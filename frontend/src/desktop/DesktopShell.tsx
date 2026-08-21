@@ -7,6 +7,7 @@ import {
   registerBuiltinDesktopPlugins,
   TANVA_ARTIFACTS_PLUGIN_ID,
   TANVA_CANVAS_PLUGIN_ID,
+  TANVA_MEDIA_PREVIEW_PLUGIN_ID,
 } from './plugins/builtins';
 import {
   DESKTOP_ARTIFACT_OPEN_EVENT,
@@ -23,6 +24,11 @@ import {
 import { desktopPluginRegistry } from './plugins/registry';
 import { useDesktopSurfaceStore } from './plugins/surfaceState';
 import { useDesktopTaskContextStore } from './taskContextState';
+import {
+  DESKTOP_MEDIA_PREVIEW_OPEN_EVENT,
+  useDesktopMediaPreviewStore,
+  type DesktopMediaPreview,
+} from './media/mediaPreviewState';
 
 registerBuiltinDesktopPlugins();
 
@@ -110,6 +116,18 @@ export default function DesktopShell() {
     };
     window.addEventListener(DESKTOP_ARTIFACT_OPEN_EVENT, openArtifact);
     return () => window.removeEventListener(DESKTOP_ARTIFACT_OPEN_EVENT, openArtifact);
+  }, [openSurface]);
+
+  useEffect(() => {
+    const openMediaPreview = (event: Event) => {
+      const preview = (event as CustomEvent<DesktopMediaPreview>).detail;
+      if (!preview?.id || !preview.title || preview.items.length === 0) return;
+      useDesktopMediaPreviewStore.getState().open(preview);
+      openSurface(TANVA_MEDIA_PREVIEW_PLUGIN_ID, 'docked');
+    };
+    window.addEventListener(DESKTOP_MEDIA_PREVIEW_OPEN_EVENT, openMediaPreview);
+    return () =>
+      window.removeEventListener(DESKTOP_MEDIA_PREVIEW_OPEN_EVENT, openMediaPreview);
   }, [openSurface]);
 
   return (

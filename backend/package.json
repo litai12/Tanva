@@ -13,6 +13,7 @@
     "verify:recharge-discount-policy": "npm run verify:recharge-bonus-policy",
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
+    "test:new-api-image-response-format": "ts-node --transpile-only src/ai/providers/new-api.provider.spec.ts",
     "verify:agent-image-routing": "ts-node --transpile-only scripts/verify-agent-image-routing.ts",
     "verify:prompt-optimizer-models": "ts-node --transpile-only scripts/verify-prompt-optimizer-models.ts",
     "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",

@@ -317,10 +317,12 @@ export class XiaotAgentService {
         if (parsed.error) {
           if (isXiaotHostExecutionSuspension(parsed.error)) {
             // The flow_patch/host_tool frames emitted before this terminal are
-            // now owned by Tanva's host executor. Normalize the structured
-            // suspension into the delivery boundary expected below.
+            // now owned by Tanva's host executor. Normalize the logical finish
+            // reason, but do not mark the SSE transport as done yet: new-api may
+            // legally append its usage audit chunk before the real [DONE] frame.
+            // Conflating the suspension with [DONE] made successful Excel/PPT
+            // deliveries fail with "received data after [DONE]".
             finishReason = 'tool_calls';
-            doneReceived = true;
             return;
           }
           throw new Error(

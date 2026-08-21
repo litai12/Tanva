@@ -376,7 +376,6 @@ const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
-const FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD = 80;
 // 低缩放硬降级先默认关闭：它会牺牲节点可读性，当前只保留代码兜底。
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.22;
@@ -8428,8 +8427,6 @@ function FlowInner() {
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
-  const shouldHideMiniMapDuringViewportInteraction =
-    nodes.length > FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
@@ -8704,12 +8701,6 @@ function FlowInner() {
     }),
     [effectiveFlowLowDetailMode]
   );
-  const shouldRenderMiniMap =
-    !effectiveFlowLowDetailMode &&
-    !(
-      shouldHideMiniMapDuringViewportInteraction &&
-      isFlowViewportInteracting
-    );
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -27545,7 +27536,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         )}
         {effectiveFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
-            低缩放已隐藏连线与 MiniMap，并使用轻量节点
+            低缩放已隐藏连线并使用轻量节点，MiniMap 保持可见
           </span>
         )}
         {effectiveFlowInteractionSoftDetailMode && (
@@ -27553,13 +27544,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             大图交互中已隐藏连接句柄圆点
           </span>
         )}
-        {!effectiveFlowLowDetailMode &&
-          shouldHideMiniMapDuringViewportInteraction &&
-          isFlowViewportInteracting && (
-            <span style={{ fontSize: 12, color: "#4b5563" }}>
-              超过 80 节点，移动/缩放中已临时隐藏 MiniMap
-            </span>
-          )}
         <label
           style={{
             display: "flex",
@@ -28600,13 +28584,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {shouldRenderMiniMap && (
-          <>
-            {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
-            <MiniMap pannable={false} zoomable={false} />
-            <MiniMapImageOverlay />
-          </>
-        )}
+        {/* MiniMap 是节点画布的基础导航能力；低细节、拖动和缩放期间也保持挂载。 */}
+        <MiniMap pannable={false} zoomable={false} />
+        <MiniMapImageOverlay />
       </ReactFlow>
 
       {/* 节点评论浮层：气泡角标随节点(Flow 坐标)移动，团队模式下经 WS 实时刷新 */}
