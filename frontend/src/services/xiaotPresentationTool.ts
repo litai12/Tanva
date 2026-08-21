@@ -76,6 +76,7 @@ export type XiaotPresentationResult = {
   status: "ready" | "succeeded";
   connectedImageCount: number;
   connectedTextCount: number;
+  deck: HtmlPptDeck;
 };
 
 const readString = (value: unknown, maxLength: number): string =>
@@ -214,7 +215,10 @@ export function buildPresentationInstruction(
   return sections.filter(Boolean).join("\n\n").slice(0, 12000);
 }
 
-export async function requestFlowSnapshot(timeoutMs = 1000): Promise<FlowSnapshot> {
+export async function requestFlowSnapshot(
+  timeoutMs = 1000,
+  options: { includePresentationDecks?: boolean } = {}
+): Promise<FlowSnapshot> {
   if (typeof window === "undefined") return { nodes: [], edges: [] };
   return new Promise((resolve) => {
     let settled = false;
@@ -234,9 +238,27 @@ export async function requestFlowSnapshot(timeoutMs = 1000): Promise<FlowSnapsho
     };
     const timer = window.setTimeout(() => finish({ nodes: [], edges: [] }), timeoutMs);
     window.addEventListener("flow:nodes-snapshot", handler);
-    window.dispatchEvent(new CustomEvent("flow:request-nodes-snapshot"));
+    window.dispatchEvent(
+      new CustomEvent("flow:request-nodes-snapshot", { detail: options })
+    );
   });
 }
+
+const presentationDeckFromNode = (
+  node: Record<string, unknown> | undefined,
+  fallback: HtmlPptDeck
+): HtmlPptDeck => {
+  const value = node?.deck;
+  if (!value || typeof value !== "object") return fallback;
+  const candidate = value as Partial<HtmlPptDeck>;
+  if (!Array.isArray(candidate.slides) || candidate.slides.length === 0) return fallback;
+  return {
+    version: 1,
+    aspectRatio: candidate.aspectRatio === "4:3" ? "4:3" : "16:9",
+    themeCss: typeof candidate.themeCss === "string" ? candidate.themeCss : fallback.themeCss,
+    slides: candidate.slides,
+  };
+};
 
 const waitForFlowPaint = (): Promise<void> =>
   new Promise((resolve) => {
@@ -484,6 +506,13 @@ export async function createPresentationFromXiaot(options: {
     attachmentUrls: options.attachmentUrls,
   });
   if (request.autoRun) await runPresentationNode(nodeId);
+  const refreshedSnapshot = await requestFlowSnapshot(1200, {
+    includePresentationDecks: true,
+  });
+  const renderedDeck = presentationDeckFromNode(
+    refreshedSnapshot.nodes.find((node) => String(node.id || "") === nodeId),
+    deck
+  );
   focusPresentation(nodeId);
   return {
     nodeId,
@@ -491,6 +520,7 @@ export async function createPresentationFromXiaot(options: {
     slideCount: request.slideCount,
     aspectRatio: request.aspectRatio,
     status: request.autoRun ? "succeeded" : "ready",
+    deck: renderedDeck,
     ...connected,
   };
 }
@@ -541,14 +571,32 @@ export async function editPresentationFromXiaot(options: {
   });
   const autoRun = options.args.autoRun !== false;
   if (autoRun) await runPresentationNode(nodeId);
+  const refreshedSnapshot = await requestFlowSnapshot(1200, {
+    includePresentationDecks: true,
+  });
+  const fallbackDeck = buildPresentationDeck(
+    normalizeCreatePresentationArguments(
+      {
+        title: readString(target.title, 120) || "HTML PPT",
+        slideCount: Math.max(3, Number(target.slideCount) || 3),
+        aspectRatio: target.aspectRatio,
+      },
+      instruction
+    )
+  );
+  const renderedDeck = presentationDeckFromNode(
+    refreshedSnapshot.nodes.find((node) => String(node.id || "") === nodeId),
+    fallbackDeck
+  );
   focusPresentation(nodeId);
 
   return {
     nodeId,
     title: readString(target.title, 120) || "HTML PPT",
-    slideCount: Math.max(0, Number(target.slideCount) || 0),
-    aspectRatio: target.aspectRatio === "4:3" ? "4:3" : "16:9",
+    slideCount: renderedDeck.slides.length,
+    aspectRatio: renderedDeck.aspectRatio,
     status: autoRun ? "succeeded" : "ready",
+    deck: renderedDeck,
     ...connected,
   };
 }

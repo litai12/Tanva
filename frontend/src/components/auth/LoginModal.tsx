@@ -8,6 +8,7 @@ import { Check, Eye, EyeOff, Loader2, RefreshCw, X } from 'lucide-react';
 import { authApi, type WechatOfficialLoginSession } from '@/services/authApi';
 import { validateInviteCode } from '@/services/referralApi';
 import { useTranslation } from 'react-i18next';
+import { publicAssetUrl } from '@/utils/publicAssetUrl';
 
 type LoginModalProps = {
   onSuccess?: () => void;
@@ -291,7 +292,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         {/* 头部 */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
-            <img src="/LogoText.svg" className="h-6 w-auto" alt="Tanva" />
+            <img src={publicAssetUrl('LogoText.svg')} className="h-6 w-auto" alt="Tanva" />
             <span className="text-sm text-slate-500">{t('auth.modal.expiredTitle')}</span>
           </div>
           <button

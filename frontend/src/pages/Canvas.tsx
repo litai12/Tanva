@@ -28,10 +28,16 @@ import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 import { CollabProvider } from '@/collab/CollabContext';
 import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
 import CommentDrawer from '@/components/comments/CommentDrawer';
+import { cn } from '@/lib/utils';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
-const Canvas: React.FC = () => {
+interface CanvasProps {
+    showAIChat?: boolean;
+    embeddedDesktop?: boolean;
+}
+
+const Canvas: React.FC<CanvasProps> = ({ showAIChat = true, embeddedDesktop = false }) => {
     const chatTheme = useAIChatStore((state) => state.chatTheme);
     const projectId = useProjectContentStore((state) => state.projectId);
     const contentVersion = useProjectContentStore((state) => state.version);
@@ -85,7 +91,13 @@ const Canvas: React.FC = () => {
     return (
         <CollabProvider>
         <CanvasCommentsProvider>
-        <div className="relative w-full h-full overflow-hidden">
+        <div
+            className={cn(
+                'relative h-full w-full overflow-hidden',
+                embeddedDesktop && 'tanva-canvas-embedded'
+            )}
+            data-canvas-mode={embeddedDesktop ? 'desktop-plugin' : 'standalone'}
+        >
             <GlobalEventCapture />
             <GlobalZoomCapture />
             <canvas
@@ -133,13 +145,13 @@ const Canvas: React.FC = () => {
             {/* <OriginCross canvasRef={canvasRef} /> */}
 
             {/* Floating header - hidden by component in focus mode */}
-            <FloatingHeader />
+            {!embeddedDesktop && <FloatingHeader />}
 
             {/* Toolbar */}
             <ToolBar />
 
             {/* Focus mode button between zoom and toolbar */}
-            <FocusModeButton />
+            {!embeddedDesktop && <FocusModeButton />}
 
             {/* Zoom indicator */}
             <ZoomIndicator />
@@ -157,9 +169,11 @@ const Canvas: React.FC = () => {
             <MaterialLibraryPanel />
 
             {/* AI chat dialog - hidden by component in focus mode */}
-            <RuntimeErrorBoundary label="小T对话" resetKeys={[chatTheme]}>
-                <AIChatDialog />
-            </RuntimeErrorBoundary>
+            {showAIChat && (
+                <RuntimeErrorBoundary label="小T对话" resetKeys={[chatTheme]}>
+                    <AIChatDialog />
+                </RuntimeErrorBoundary>
+            )}
 
             {/* 评论抽屉（Figma 式画布评论）——与对话框互斥，后开覆盖先开 */}
             <CommentDrawer />

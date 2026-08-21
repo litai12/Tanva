@@ -1,0 +1,37 @@
+appId: com.tanva.desktop
+productName: Tanva
+electronVersion: 43.4.1
+asar: true
+npmRebuild: false
+directories:
+  output: ../release
+files:
+  - main.mjs
+  - preload.cjs
+  - capability-host.mjs
+  - package.json
+extraResources:
+  - from: ../dist
+    to: renderer
+    filter:
+      - "**/*"
+extraMetadata:
+  main: main.mjs
+mac:
+  category: public.app-category.graphics-design
+  target:
+    - dmg
+    - zip
+  icon: ../public/logo.png
+win:
+  target:
+    - nsis
+  icon: ../public/logo.png
+linux:
+  category: Graphics
+  target:
+    - AppImage
+  icon: ../public/logo.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

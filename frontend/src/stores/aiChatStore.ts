@@ -59,6 +59,9 @@ import {
 } from "@/services/agentPatchApplier";
 import {
   buildXiaotDeliveredContent,
+  isXiaotHostExecutionSuspensionMessage,
+  isXiaotModelRouteCreditsError,
+  resolveXiaotAgentErrorMessage,
   verifyXiaotHostDelivery,
   verifyXiaotTurnDelivery,
 } from "@/services/xiaotHostDelivery";
@@ -69,6 +72,8 @@ import {
   type CreatePresentationArguments,
   type EditPresentationArguments,
 } from "@/services/xiaotPresentationTool";
+import { createSpreadsheetFromXiaot } from "@/services/xiaotSpreadsheetTool";
+import { openDesktopArtifact } from "@/desktop/artifacts/artifactState";
 import {
   resolveXiaotFinalText,
   resolveXiaotTerminalContent,
@@ -86,6 +91,7 @@ import {
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
@@ -144,6 +150,19 @@ import type {
   SerializedConversationContext,
   SerializedChatMessage,
 } from "@/types/context";
+import {
+  requestDesktopSurface,
+  requestDesktopSurfaceClose,
+  resetDesktopSurfaceAutoOpenSuppression,
+} from "@/desktop/plugins/surfaceEvents";
+import {
+  TANVA_CANVAS_PLUGIN_ID,
+  TANVA_DESKTOP_CONNECTORS_PLUGIN_ID,
+} from "@/desktop/plugins/pluginIds";
+import {
+  resolveDesktopTaskMode,
+  useDesktopTaskContextStore,
+} from "@/desktop/taskContextState";
 
 // 本地存储会话的读取工具（用于无项目或早期回退场景）
 const LOCAL_SESSIONS_KEY = "tanva_aiChat_sessions";
@@ -153,8 +172,41 @@ const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
 const AI_CHAT_PREFERENCES_VERSION = 8;
 const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-luna";
+const XIAOT_ROUTE_FALLBACK_MODELS: XiaotChatModel[] = [
+  "xiaot-agent-gpt-5-6-luna",
+  "xiaot-agent-gpt-5-6-terra",
+  "xiaot-agent-deepseek-v4-flash",
+];
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
+
+type DesktopCanvasLocalCommand = "open" | "close";
+
+const resolveDesktopCanvasLocalCommand = (
+  input: string
+): DesktopCanvasLocalCommand | null => {
+  if (typeof window === "undefined" || !window.tanvaDesktop?.isElectron) return null;
+  const normalized = input
+    .trim()
+    .replace(/[，。！？,.!?\s]+/g, "")
+    .toLowerCase();
+  const prefix = "(?:请|请帮我|帮我)?";
+  const project = "(?:当前项目(?:的)?)?";
+  const product = "(?:tanva|tanvas)?";
+  if (
+    new RegExp(`^${prefix}(?:打开|展开|显示|唤起)(?:一下)?${project}${product}画布(?:预览)?$`, "i")
+      .test(normalized)
+  ) {
+    return "open";
+  }
+  if (
+    new RegExp(`^${prefix}(?:关闭|收起|隐藏)(?:一下)?${project}${product}画布(?:预览)?$`, "i")
+      .test(normalized)
+  ) {
+    return "close";
+  }
+  return null;
+};
 
 type AIChatVideoDurationSeconds =
   (typeof AI_CHAT_VIDEO_DURATION_OPTIONS)[number];
@@ -3111,6 +3163,7 @@ interface AIChatState {
   }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
+  renameSession: (sessionId: string, name: string) => Promise<void>;
   renameCurrentSession: (name: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   hydratePersistedSessions: (
@@ -3118,6 +3171,9 @@ interface AIChatState {
     activeSessionId?: string | null,
     options?: { markProjectDirty?: boolean }
   ) => void;
+  mergePersistedSessions: (
+    sessions: SerializedConversationContext[]
+  ) => Promise<void>;
   resetSessions: () => void;
 
   // 图像生成
@@ -3204,6 +3260,7 @@ interface AIChatState {
     options?: {
       override?: MessageOverride;
       forceImageGeneration?: boolean;
+      attemptedModels?: XiaotChatModel[];
     }
   ) => Promise<void>;
   // 小T 是否正在流式运行（发送按钮据此在「发送/停止」间切换）
@@ -3881,6 +3938,14 @@ export const useAIChatStore = create<AIChatState>()(
               null;
 
             if (markProjectDirty) {
+              // Electron 的任务列表与项目画布是两个正交维度：任务可在项目间
+              // 拖动，但打开画布不能用 Project.content 里的旧会话覆盖全局任务。
+              // 桌面端始终把任务会话保存在本地任务存储中；网页端继续沿用
+              // 项目内 aiChatSessions 的既有合同。
+              if (window.tanvaDesktop?.isElectron) {
+                writeSessionsToIDB(serializedSessions, activeSessionId);
+                return;
+              }
               const projectStore = useProjectContentStore.getState();
               if (projectStore.projectId && projectStore.hydrated) {
                 const previousSessions =
@@ -3955,6 +4020,12 @@ export const useAIChatStore = create<AIChatState>()(
           });
           void rehydrateActiveSessionLocalVideos(sessionId);
           get().refreshSessions();
+        },
+
+        renameSession: async (sessionId, name) => {
+          if (contextManager.renameSession(sessionId, name)) {
+            await get().refreshSessions({ immediate: true });
+          }
         },
 
         renameCurrentSession: async (name) => {
@@ -4089,6 +4160,26 @@ export const useAIChatStore = create<AIChatState>()(
             // 🔥 水合完成后，执行一次refreshSessions
             get().refreshSessions({ markProjectDirty });
           }
+        },
+
+        mergePersistedSessions: async (sessions) => {
+          let imported = false;
+          for (const serialized of sessions) {
+            if (!serialized?.sessionId || contextManager.getSession(serialized.sessionId)) {
+              continue;
+            }
+            try {
+              contextManager.importSessionData(deserializeConversation(serialized));
+              imported = true;
+            } catch (error) {
+              console.error("❌ 合并桌面历史会话失败:", error);
+            }
+          }
+          if (!imported) return;
+          await get().refreshSessions({
+            markProjectDirty: true,
+            immediate: true,
+          });
         },
 
         resetSessions: () => {
@@ -8441,6 +8532,7 @@ export const useAIChatStore = create<AIChatState>()(
           options?: {
             override?: MessageOverride;
             forceImageGeneration?: boolean;
+            attemptedModels?: XiaotChatModel[];
           }
         ) => {
           const state = get();
@@ -8467,7 +8559,46 @@ export const useAIChatStore = create<AIChatState>()(
             set({ currentSessionId: sessionId });
           }
 
-          // 1️⃣ 采集画布快照：请求 FlowOverlay 重播 flow:nodes-snapshot，800ms 超时给空快照兜底
+          // 桌面 Work 会话必须硬绑定到它所属的项目画布。不能只读取“此刻全局
+          // 打开的项目”，因为切换任务/展开画布与 React 水合存在时间差，旧逻辑
+          // 会把快照或 patch 发给上一项目（甚至尚未加载的空白画布）。
+          const desktopRuntime = Boolean(window.tanvaDesktop?.isElectron);
+          const desktopTaskState = useDesktopTaskContextStore.getState();
+          const isDesktopChatTask = Boolean(
+            desktopRuntime &&
+              resolveDesktopTaskMode(sessionId, desktopTaskState) === "chat"
+          );
+          const boundTaskProjectId = desktopRuntime
+            ? desktopTaskState.projectBySessionId[sessionId]
+            : undefined;
+          const projectId = isDesktopChatTask
+            ? undefined
+            : boundTaskProjectId ||
+              useProjectContentStore.getState().projectId ||
+              useProjectStore.getState().currentProjectId ||
+              undefined;
+
+          if (desktopRuntime && !isDesktopChatTask && projectId) {
+            desktopTaskState.setMode(sessionId, "work");
+            desktopTaskState.bindProject(sessionId, projectId);
+            requestDesktopSurface({
+              pluginId: TANVA_CANVAS_PLUGIN_ID,
+              reason: "xiaot-current-project",
+            });
+            if (useProjectStore.getState().currentProjectId !== projectId) {
+              useProjectStore.getState().open(projectId);
+            }
+            // 给 ProjectAutosaveManager/FlowOverlay 一个很短的水合窗口；随后快照
+            // 仍会按 projectId 过滤，绝不会退回接受别的项目。
+            const readyDeadline = Date.now() + 2500;
+            while (!controller.signal.aborted && Date.now() < readyDeadline) {
+              const contentState = useProjectContentStore.getState();
+              if (contentState.projectId === projectId && contentState.hydrated) break;
+              await new Promise((resolve) => window.setTimeout(resolve, 80));
+            }
+          }
+
+          // 1️⃣ 采集画布快照：桌面 Work 任务只接受绑定项目的已水合快照。
           const snapshot = await new Promise<{
             nodes: Array<Record<string, unknown>>;
             edges: Array<Record<string, unknown>>;
@@ -8479,15 +8610,23 @@ export const useAIChatStore = create<AIChatState>()(
             let settled = false;
             const onSnapshot = (event: Event) => {
               if (settled) return;
+              const detail = (event as CustomEvent).detail as
+                  | {
+                    nodes?: Array<Record<string, unknown>>;
+                    edges?: Array<Record<string, unknown>>;
+                    projectId?: string | null;
+                    hydrated?: boolean;
+                  }
+                | undefined;
+              if (
+                projectId &&
+                (detail?.projectId !== projectId || detail?.hydrated !== true)
+              ) {
+                return;
+              }
               settled = true;
               window.clearTimeout(timer);
               window.removeEventListener("flow:nodes-snapshot", onSnapshot);
-              const detail = (event as CustomEvent).detail as
-                | {
-                    nodes?: Array<Record<string, unknown>>;
-                    edges?: Array<Record<string, unknown>>;
-                  }
-                | undefined;
               resolve({
                 nodes: detail?.nodes ?? [],
                 edges: detail?.edges ?? [],
@@ -8498,10 +8637,12 @@ export const useAIChatStore = create<AIChatState>()(
               settled = true;
               window.removeEventListener("flow:nodes-snapshot", onSnapshot);
               resolve({ nodes: [], edges: [] });
-            }, 800);
+            }, projectId ? 2200 : 800);
             window.addEventListener("flow:nodes-snapshot", onSnapshot);
             window.dispatchEvent(
-              new CustomEvent("flow:request-nodes-snapshot")
+              new CustomEvent("flow:request-nodes-snapshot", {
+                detail: { expectedProjectId: projectId ?? null },
+              })
             );
           });
           snapshotReadyAt = performance.now();
@@ -8549,12 +8690,13 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 3️⃣ patch 会话跟随聊天会话：同会话保留 agent 节点 id 映射
           //（小T下轮可继续引用上轮自造 id），仅聊天会话切换时才重置
-          ensureAgentPatchSession(sessionId);
+          ensureAgentPatchSession(sessionId, projectId);
           const patchBatchId = beginAgentPatchBatch();
 
           let assembled = "";
           let patchCount = 0;
           let streamErrored = false;
+          let streamErrorMessage: string | null = null;
           let hostToolHandled = false;
           let hostUiCount = 0;
           const pendingHostTools: Promise<void>[] = [];
@@ -8649,8 +8791,31 @@ export const useAIChatStore = create<AIChatState>()(
           const imageEdgeTargets = new Set<string>();
 
           try {
-            const projectId =
-              useProjectContentStore.getState().projectId || undefined;
+            const desktopMcpTools: Array<{
+              connectorId: string;
+              connectorName: string;
+              tools: DesktopMcpTool[];
+            }> = [];
+            if (window.tanvaDesktop?.connectors) {
+              try {
+                const connectors = await window.tanvaDesktop.connectors.list();
+                const connected = connectors.filter(
+                  (connector) => connector.transport === "connected"
+                );
+                const toolLists = await Promise.all(
+                  connected.map(async (connector) => ({
+                    connectorId: connector.id,
+                    connectorName: connector.name,
+                    tools: await window.tanvaDesktop!.connectors.listTools(
+                      connector.id
+                    ),
+                  }))
+                );
+                desktopMcpTools.push(...toolLists.filter((item) => item.tools.length > 0));
+              } catch (error) {
+                console.warn("[xiaot] 读取桌面 MCP 工具失败:", error);
+              }
+            }
             // 用户优选模型 → 每请求动态附加 note（优先级最高，压过画布惯性）。
             // 浅拷贝构造，不改 TANVA_CAPABILITY_MANIFEST 模块常量；
             // notes 上限 32 条/每条 1000 字符，当前 10+1 条，安全。
@@ -8664,6 +8829,71 @@ export const useAIChatStore = create<AIChatState>()(
               ) ?? XIAOT_PREFERRED_VIDEO_MODELS[0];
             const capabilityManifest = {
               ...TANVA_CAPABILITY_MANIFEST,
+              desktopTools: desktopMcpTools.map((connector) => ({
+                connectorId: connector.connectorId,
+                connectorName: connector.connectorName,
+                tools: connector.tools.slice(0, 80),
+              })),
+              hostTools: [
+                ...TANVA_CAPABILITY_MANIFEST.hostTools,
+                ...(window.tanvaDesktop?.isElectron
+                  ? [
+                      {
+                        name: "open_desktop_connectors",
+                        description:
+                          "打开 Tanva 桌面版的本机应用连接中心。用户要连接、检测、配置或启动 SketchUp、Rhino、Grasshopper、AutoCAD、Photoshop 时调用；宿主只打开受控管理界面，不自动启动外部应用。",
+                        parameters: {},
+                      },
+                      ...(desktopMcpTools.length > 0
+                        ? [
+                            {
+                              name: "query_desktop_tools",
+                              description:
+                                "查询已连接桌面连接器的 MCP 工具名称、说明、风险和参数 schema。准备调用本机工具时先按 connectorId 和关键词查询，不要猜工具名或参数。",
+                              parameters: {
+                                connectorId: {
+                                  type: "string",
+                                  enum: desktopMcpTools.map(
+                                    (connector) => connector.connectorId
+                                  ),
+                                },
+                                query: {
+                                  type: "string",
+                                  description: "按任务目标筛选工具的关键词",
+                                },
+                                toolNames: {
+                                  type: "array",
+                                  items: { type: "string" },
+                                  description: "已知精确名称时使用，最多 12 个",
+                                },
+                              },
+                            },
+                            {
+                              name: "call_desktop_tool",
+                              description:
+                                "调用已经通过 query_desktop_tools 查明的本机 MCP 工具。工具名和参数必须与查询结果一致；每次调用都由 Electron 主进程显示一次性用户确认，拒绝时不会执行。",
+                              parameters: {
+                                connectorId: {
+                                  type: "string",
+                                  enum: desktopMcpTools.map(
+                                    (connector) => connector.connectorId
+                                  ),
+                                },
+                                toolName: {
+                                  type: "string",
+                                  description: "必须精确使用当前工具目录中的名称",
+                                },
+                                arguments: {
+                                  type: "object",
+                                  description: "遵循该工具 inputSchema 的参数对象",
+                                },
+                              },
+                            },
+                          ]
+                        : []),
+                    ]
+                  : []),
+              ],
               imageOutputCount,
               notes: [
                 ...TANVA_CAPABILITY_MANIFEST.notes,
@@ -8791,7 +9021,9 @@ export const useAIChatStore = create<AIChatState>()(
               model: state.xiaotModel,
               sessionId,
               projectId,
-              canvasContext: buildXiaotCanvasRequestContext(snapshot, input),
+              ...(isDesktopChatTask
+                ? {}
+                : { canvasContext: buildXiaotCanvasRequestContext(snapshot, input) }),
               capabilityManifest:
                 capabilityManifest as unknown as Record<string, unknown>,
               ...(generationContract ? { generationContract } : {}),
@@ -8822,6 +9054,22 @@ export const useAIChatStore = create<AIChatState>()(
                   },
                 }));
               } else if (event.type === "flow_patch") {
+                if (window.tanvaDesktop?.isElectron) {
+                  const boundProjectId =
+                    projectId ||
+                    useProjectContentStore.getState().projectId ||
+                    undefined;
+                  useDesktopTaskContextStore.getState().setMode(sessionId, "work");
+                  if (boundProjectId) {
+                    useDesktopTaskContextStore
+                      .getState()
+                      .bindProject(sessionId, boundProjectId);
+                  }
+                }
+                requestDesktopSurface({
+                  pluginId: TANVA_CANVAS_PLUGIN_ID,
+                  reason: "xiaot-flow-patch",
+                });
                 // 确定性改写：用户明确选择（消息点名/优选选择器）= 强制指令，
                 // 高于小T自选。视频/图片对称——addNode 落画布前把生成节点类型
                 // 强制对齐到目标（视频=优选视频/点名，图片=优选图片/点名）。
@@ -9011,10 +9259,84 @@ export const useAIChatStore = create<AIChatState>()(
                   event.data?.arguments && typeof event.data.arguments === "object"
                     ? (event.data.arguments as Record<string, unknown>)
                     : {};
-                if (
+                if (toolName === "open_desktop_connectors") {
+                  hostToolHandled = true;
+                  requestDesktopSurface({
+                    pluginId: TANVA_DESKTOP_CONNECTORS_PLUGIN_ID,
+                    reason: "xiaot-host-tool:open_desktop_connectors",
+                  });
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content:
+                      "已打开本机应用连接中心。你可以在这里检测、指定并启动专业软件；MCP 控制通道会在真正连通后单独标记。",
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      xiaotHostTool: toolName,
+                    },
+                  }));
+                } else if (toolName === "call_desktop_tool") {
+                  hostToolHandled = true;
+                  pendingHostTools.push(
+                    (async () => {
+                      const connectorId =
+                        typeof toolArgs.connectorId === "string"
+                          ? toolArgs.connectorId
+                          : "";
+                      const desktopToolName =
+                        typeof toolArgs.toolName === "string"
+                          ? toolArgs.toolName
+                          : "";
+                      const desktopToolArgs =
+                        toolArgs.arguments &&
+                        typeof toolArgs.arguments === "object" &&
+                        !Array.isArray(toolArgs.arguments)
+                          ? (toolArgs.arguments as Record<string, unknown>)
+                          : {};
+                      const bridge = window.tanvaDesktop?.connectors;
+                      if (!bridge || !connectorId || !desktopToolName) {
+                        throw new Error("本机 MCP 工具参数不完整");
+                      }
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        content: `等待你确认本机工具 ${desktopToolName}…`,
+                        generationStatus: {
+                          isGenerating: true,
+                          progress: 65,
+                          error: null,
+                          stage: "等待本机工具授权",
+                        },
+                      }));
+                      const result = await bridge.callTool(
+                        connectorId,
+                        desktopToolName,
+                        desktopToolArgs
+                      );
+                      const completionText = result.cancelled
+                        ? `已取消本机工具 ${desktopToolName}，没有执行任何操作。`
+                        : result.isError
+                          ? `本机工具 ${desktopToolName} 执行失败：${result.text || "未返回错误详情"}`
+                          : `本机工具 ${desktopToolName} 已执行。${result.text ? `\n\n${result.text}` : ""}`;
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        content: completionText,
+                        metadata: {
+                          ...(msg.metadata || {}),
+                          xiaotHostTool: toolName,
+                          desktopConnectorId: connectorId,
+                          desktopToolName,
+                          desktopToolApproved: result.approved,
+                        },
+                      }));
+                    })()
+                  );
+                } else if (
                   toolName === "create_presentation" ||
                   toolName === "edit_presentation"
                 ) {
+                  requestDesktopSurface({
+                    pluginId: TANVA_CANVAS_PLUGIN_ID,
+                    reason: `xiaot-host-tool:${toolName}`,
+                  });
                   hostToolHandled = true;
                   pendingHostTools.push(
                     (async () => {
@@ -9078,6 +9400,73 @@ export const useAIChatStore = create<AIChatState>()(
                                   markdown: `这套演示文稿已在 Tanva 画布中生成。已连接 ${result.connectedImageCount} 个图片素材和 ${result.connectedTextCount} 个文字素材，可在节点中逐页预览、改写和调整模板。`,
                                   nodeId: result.nodeId,
                                   formats: ["html", "pptx"],
+                                },
+                              },
+                            ],
+                          },
+                        };
+                      });
+                      openDesktopArtifact({
+                        id: `presentation-${result.nodeId}`,
+                        kind: "presentation",
+                        title: result.title,
+                        summary: `${result.slideCount} 页 · ${result.aspectRatio}`,
+                        markdown: `演示文稿已生成。可在文件工作台查看交付信息，或进入画布逐页编辑并导出 PPTX。`,
+                        nodeId: result.nodeId,
+                        deck: result.deck,
+                        formats: ["html", "pptx"],
+                        createdAt: new Date().toISOString(),
+                      });
+                    })()
+                  );
+                } else if (toolName === "create_spreadsheet") {
+                  hostToolHandled = true;
+                  pendingHostTools.push(
+                    (async () => {
+                      get().updateMessage(aiMessage.id, (msg) => ({
+                        ...msg,
+                        generationStatus: {
+                          isGenerating: true,
+                          progress: 60,
+                          error: null,
+                          stage: "小T正在制作 Excel",
+                        },
+                      }));
+                      const artifact = createSpreadsheetFromXiaot(
+                        toolArgs,
+                        input.slice(0, 40) || "小T工作簿"
+                      );
+                      const completionText = `已完成《${artifact.title}》：${artifact.sheets?.length || 0} 个工作表。已在文件工作台打开，可预览并下载 XLSX。`;
+                      assembled = completionText;
+                      typeTarget = completionText;
+                      typeShown = 0;
+                      pumpTypewriter();
+                      await drainTypewriter();
+                      get().updateMessage(aiMessage.id, (msg) => {
+                        const previousCards = Array.isArray(msg.metadata?.xiaotCards)
+                          ? (msg.metadata.xiaotCards as Array<{
+                              kind: string;
+                              payload: unknown;
+                            }>)
+                          : [];
+                        return {
+                          ...msg,
+                          content: completionText,
+                          metadata: {
+                            ...(msg.metadata || {}),
+                            xiaotHostTool: toolName,
+                            xiaotCards: [
+                              ...previousCards,
+                              {
+                                kind: "artifact",
+                                payload: {
+                                  artifactKind: "spreadsheet",
+                                  artifactId: artifact.id,
+                                  title: artifact.title,
+                                  summary: artifact.summary,
+                                  markdown: "Excel 工作簿已生成，可在右侧文件工作台预览并导出 XLSX。",
+                                  formats: ["xlsx"],
+                                  sheets: artifact.sheets,
                                 },
                               },
                             ],
@@ -9332,8 +9721,33 @@ export const useAIChatStore = create<AIChatState>()(
                   pumpTypewriter();
                 }
               } else if (event.type === "error") {
+                const errorEvidence = {
+                  message: event.message || "小T处理失败",
+                  data: event.data,
+                };
+                const errText = resolveXiaotAgentErrorMessage(errorEvidence);
+                // TapCanvas 在输出 flow_patch 后会以 suspended /
+                // host_execution_required 结束物理上游回合，等待 Tanva 宿主
+                // 执行节点。这是交接边界，不是用户任务失败。
+                if (isXiaotHostExecutionSuspensionMessage(errorEvidence)) {
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    generationStatus: {
+                      ...(msg.generationStatus || {
+                        isGenerating: true,
+                        progress: 0,
+                        error: null,
+                      }),
+                      isGenerating: true,
+                      progress: Math.max(msg.generationStatus?.progress ?? 0, 65),
+                      error: null,
+                      stage: "正在执行画布操作",
+                    },
+                  }));
+                  return;
+                }
                 streamErrored = true;
-                const errText = event.message || "小T处理失败";
+                streamErrorMessage = errText;
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
                   content: `处理失败: ${errText}`,
@@ -9354,6 +9768,13 @@ export const useAIChatStore = create<AIChatState>()(
 
             if (pendingHostTools.length > 0) {
               await Promise.all(pendingHostTools);
+            }
+
+            // Preserve the concrete upstream reason. Letting the generic turn
+            // verifier run here would replace a useful 402/model error with
+            // “上游回合以错误终态结束”.
+            if (streamErrored) {
+              throw new Error(streamErrorMessage || "小T处理失败");
             }
 
             // 与生成节点无关的尾部提示词仍可落画布；属于超量图片工作流的
@@ -9596,6 +10017,42 @@ export const useAIChatStore = create<AIChatState>()(
               controller.signal.aborted ||
               (error instanceof DOMException && error.name === "AbortError") ||
               (error instanceof Error && error.name === "AbortError");
+            const rawErrorMessage =
+              error instanceof Error ? error.message : "小T处理失败";
+            const isRouteCreditsError =
+              !wasAborted && isXiaotModelRouteCreditsError(rawErrorMessage);
+            const attemptedModels = new Set<XiaotChatModel>([
+              ...(options?.attemptedModels ?? []),
+              state.xiaotModel,
+            ]);
+            const nextFallbackModel = isRouteCreditsError
+              ? XIAOT_ROUTE_FALLBACK_MODELS.find(
+                  (candidate) => !attemptedModels.has(candidate),
+                )
+              : undefined;
+            if (nextFallbackModel && xiaotUserMessage) {
+              set({ xiaotModel: nextFallbackModel });
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: XIAOT_THINKING_CONTENT,
+                generationStatus: {
+                  ...(msg.generationStatus || {}),
+                  isGenerating: true,
+                  progress: Math.max(msg.generationStatus?.progress ?? 0, 10),
+                  error: null,
+                  stage: "正在切换可用模型",
+                },
+              }));
+              await get().runXiaotAgent(input, {
+                ...options,
+                attemptedModels: Array.from(attemptedModels),
+                override: {
+                  userMessageId: xiaotUserMessage.id,
+                  aiMessageId: aiMessage.id,
+                },
+              });
+              return;
+            }
             if (wasAborted) {
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
@@ -9617,8 +10074,9 @@ export const useAIChatStore = create<AIChatState>()(
                 },
               }));
             } else {
-              const errorMessage =
-                error instanceof Error ? error.message : "小T处理失败";
+              const errorMessage = isRouteCreditsError
+                ? "小T模型线路暂时不可用，与你当前的 Tanva 积分余额无关，请稍后重试"
+                : resolveXiaotAgentErrorMessage(rawErrorMessage);
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
                 content: `处理失败: ${errorMessage}`,
@@ -9669,6 +10127,9 @@ export const useAIChatStore = create<AIChatState>()(
         // 智能工具选择功能 - 统一入口（支持并行生成）
         processUserInput: async (input: string) => {
           const state = get();
+          if (window.tanvaDesktop?.isElectron) {
+            resetDesktopSurfaceAutoOpenSuppression();
+          }
 
           // 🧠 确保有活跃的会话并同步状态
           let sessionId =
@@ -9685,6 +10146,56 @@ export const useAIChatStore = create<AIChatState>()(
               currentSessionId: sessionId,
               messages: context ? [...context.messages] : [],
             });
+          }
+
+          const desktopCanvasCommand = resolveDesktopCanvasLocalCommand(input);
+          const hasAttachment = Boolean(
+            state.sourceImagesForBlending.length > 0 ||
+            state.sourceImageForEditing ||
+            state.sourceImageForAnalysis ||
+            state.sourcePdfForAnalysis
+          );
+          if (desktopCanvasCommand && !hasAttachment) {
+            get().addMessage({ type: "user", content: input });
+            if (desktopCanvasCommand === "open") {
+              const currentProjectId =
+                useProjectContentStore.getState().projectId || undefined;
+              useDesktopTaskContextStore.getState().setMode(sessionId, "work");
+              if (currentProjectId) {
+                useDesktopTaskContextStore
+                  .getState()
+                  .bindProject(sessionId, currentProjectId);
+              }
+              requestDesktopSurface({
+                pluginId: TANVA_CANVAS_PLUGIN_ID,
+                mode: "docked",
+                reason: "desktop-local-command",
+              });
+            } else {
+              requestDesktopSurfaceClose({
+                pluginId: TANVA_CANVAS_PLUGIN_ID,
+                reason: "desktop-local-command",
+              });
+            }
+            get().addMessage({
+              type: "ai",
+              content:
+                desktopCanvasCommand === "open"
+                  ? "已展开当前项目画布。"
+                  : "已收起当前项目画布。",
+              generationStatus: {
+                isGenerating: false,
+                progress: 100,
+                error: null,
+                stage: "已完成",
+              },
+              metadata: {
+                xiaotHostTool: desktopCanvasCommand === "open" ? "open_canvas" : "close_canvas",
+                localDesktopCommand: true,
+              },
+            });
+            await get().refreshSessions({ immediate: true });
+            return;
           }
 
           get().refreshSessions();
@@ -10618,7 +11129,8 @@ export const useAIChatStore = create<AIChatState>()(
         // 🧠 上下文管理方法实现
         initializeContext: () => {
           const projectStore = useProjectContentStore.getState();
-          const hasProjectScope = !!projectStore.projectId;
+          const isDesktopTaskShell = Boolean(window.tanvaDesktop?.isElectron);
+          const hasProjectScope = !!projectStore.projectId && !isDesktopTaskShell;
 
           // 项目内会话只从 Project.content.aiChatSessions 恢复；全局本地会话
           // 仅用于无项目场景，防止切换/新建项目时串入旧对话。
@@ -10630,7 +11142,10 @@ export const useAIChatStore = create<AIChatState>()(
           // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
           if (!hasHydratedSessions && !hasProjectScope) {
             loadLocalSessions().then((stored) => {
-              if (useProjectContentStore.getState().projectId) {
+              if (
+                !isDesktopTaskShell &&
+                useProjectContentStore.getState().projectId
+              ) {
                 return;
               }
               if (stored && stored.sessions.length > 0) {

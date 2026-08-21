@@ -272,6 +272,34 @@ export const TANVA_CAPABILITY_MANIFEST = {
       },
     },
     {
+      name: "create_spreadsheet",
+      description:
+        "创建可预览、可下载为 XLSX 的 Excel 工作簿。用户要求制作 Excel、表格、清单、预算、排期、数据整理或多工作表时调用；默认在桌面文件工作台打开，不需要创建画布节点。",
+      parameters: {
+        title: { type: "string", description: "工作簿标题" },
+        sheets: {
+          type: "array",
+          description: "1-12 个工作表",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "工作表名称" },
+              columns: {
+                type: "array",
+                items: { type: "string" },
+                description: "列标题，最多 30 列",
+              },
+              rows: {
+                type: "array",
+                items: { type: "array" },
+                description: "二维行数据，顺序与 columns 对齐，最多 500 行",
+              },
+            },
+          },
+        },
+      },
+    },
+    {
       name: "legacy_image_only",
       description:
         "沿用 AI Chat 原生只出图链路。适用于用户明确要求只要图片、不要解释/文字，或明确点名“只出图”。",
@@ -599,7 +627,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [
-    "宿主工具调用规则：用户要求制作 PPT/幻灯片/提案/汇报时调用 host_tool{name:'create_presentation',arguments:{...}}；继续修改已有 PPT 时调用 edit_presentation，禁止用 flow_patch 直接写 htmlPpt 的 deck/HTML/CSS。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
+    "宿主工具调用规则：用户要求制作 PPT/幻灯片/提案/汇报时调用 host_tool{name:'create_presentation',arguments:{...}}；继续修改已有 PPT 时调用 edit_presentation；要求制作 Excel/表格/清单/预算/排期时调用 create_spreadsheet。禁止用 flow_patch 直接写 htmlPpt 的 deck/HTML/CSS。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",
@@ -980,9 +1008,23 @@ export function externalizeInlinePrompt(patch: AgentFlowPatch): AgentFlowPatch[]
     const v = data[key];
     if (typeof v === "string" && v.trim()) pieces.push(v.trim());
   }
+  // GPT-Image-2/Nano2 的节点面板把 presetPrompt 展示为“预设提示词”，
+  // 运行器历史上却只认外接 textPrompt。小T若只下发 presetPrompt，用户会
+  // 看到节点里明明有字，运行时仍报“缺少提示词输入”。对小T创建的这类节点，
+  // presetPrompt 就是实际执行提示词：同样外置成可见、可编辑、可连线的
+  // textPrompt，避免展示态与执行态分裂。
+  if (node.type === "gptImage2" || node.type === "nano2") {
+    const presetPrompt = data.presetPrompt;
+    if (typeof presetPrompt === "string" && presetPrompt.trim()) {
+      pieces.unshift(presetPrompt.trim());
+    }
+  }
   if (pieces.length === 0) return [patch];
   const strippedData: Record<string, unknown> = { ...data };
   for (const key of INLINE_PROMPT_KEYS) delete strippedData[key];
+  if (node.type === "gptImage2" || node.type === "nano2") {
+    delete strippedData.presetPrompt;
+  }
   // 合成 textPrompt：id 挂在生成节点 agent id 下（idMap 登记后 connectEdge 可解析）；
   // 生成节点给了 position 时放到其左侧，否则交给宿主自动排布
   const promptId = `${node.id}__prompt`;

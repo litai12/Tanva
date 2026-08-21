@@ -1,0 +1,12 @@
+{
+  "name": "tanva-desktop-runtime",
+  "version": "0.1.0",
+  "description": "Tanva desktop task shell and creative tool surfaces",
+  "author": "Tanva",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}

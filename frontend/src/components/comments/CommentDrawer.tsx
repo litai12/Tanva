@@ -58,7 +58,7 @@ const CommentDrawer: React.FC = () => {
   if (!active) return null;
 
   return (
-    <aside style={drawerStyle}>
+    <aside className="tanva-comment-drawer" style={drawerStyle}>
       <header style={headerStyle}>
         <span style={titleStyle}>评论</span>
         <button type="button" onClick={exit} title="关闭评论" style={headerCloseBtnStyle}>

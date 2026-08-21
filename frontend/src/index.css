@@ -76,6 +76,30 @@ html, body, #root {
   top: calc(50vh + var(--tanva-campaign-notice-half-height));
 }
 
+/* Electron plugin mode owns only the canvas workspace. Canvas overlays that
+   are viewport-fixed on the website must be anchored to the plugin container,
+   otherwise they cover the desktop task sidebar and Xiaot thread. */
+.tanva-canvas-embedded .tanva-toolbar-shell,
+.tanva-canvas-embedded .tanva-focus-mode-button,
+.tanva-canvas-embedded .tanva-zoom-shell,
+.tanva-canvas-embedded .tanva-layer-panel,
+.tanva-canvas-embedded .tanva-library-panel,
+.tanva-canvas-embedded .tanva-material-library-panel,
+.tanva-canvas-embedded .tanva-comment-drawer {
+  position: absolute !important;
+}
+
+.tanva-canvas-embedded .tanva-toolbar-shell {
+  top: 50% !important;
+}
+
+.tanva-canvas-embedded .tanva-layer-panel,
+.tanva-canvas-embedded .tanva-library-panel,
+.tanva-canvas-embedded .tanva-material-library-panel,
+.tanva-canvas-embedded .tanva-comment-drawer {
+  height: 100% !important;
+}
+
 /* ==================== 自定义光标系统 ==================== */
 /* 使用系统默认光标（移除自定义覆盖） */
 

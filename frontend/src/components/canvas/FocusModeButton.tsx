@@ -53,7 +53,7 @@ const FocusModeButton: React.FC = () => {
 
   return (
     <div
-      className="fixed bottom-[120px] z-[1000] transition-all duration-[50ms] ease-out"
+      className="tanva-focus-mode-button fixed bottom-[120px] z-[1000] transition-all duration-[50ms] ease-out"
       style={{ left: showLayerPanel ? '322px' : '8px' }}
     >
       {/* 外层容器模拟工具栏的 px-2 padding，使眼睛图标中心对齐 */}

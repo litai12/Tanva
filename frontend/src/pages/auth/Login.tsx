@@ -10,6 +10,7 @@ import { validateInviteCode } from "@/services/referralApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
 import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -298,7 +299,7 @@ export default function LoginPage() {
         playsInline
         className='absolute inset-0 w-full h-full object-cover z-[1]'
       >
-        <source src='/OpenVideo.mp4' type='video/mp4' />
+        <source src={publicAssetUrl('OpenVideo.mp4')} type='video/mp4' />
         {t("auth.videoUnsupported")}
       </video>
 
@@ -308,7 +309,7 @@ export default function LoginPage() {
       <Card className='relative z-10 my-auto w-full max-w-2xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
         <div className='mb-6 flex items-center justify-center sm:mb-10'>
           <img
-            src='/LogoText.svg'
+            src={publicAssetUrl('LogoText.svg')}
             className='h-7 w-auto brightness-0 invert drop-shadow-lg sm:h-8'
           />
         </div>

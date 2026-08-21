@@ -8,6 +8,9 @@ Tanva 是一个基于 Paper.js 的专业绘图应用，前端提供画布/流程
 - 后端：`cd backend && npm i && npm run dev`（默认 `http://localhost:4000`，API 前缀 `/api`）
 
 ## 模块索引
+### 桌面端规划
+- `wiki/desktop-app.md`：已实现的 Electron/Codex 式小T任务外壳、Tanva 画布内置插件与后续工具面插件架构
+
 ### 前端（`frontend/src`）
 - `wiki/modules/frontend-app.md`：应用入口与路由
 - `wiki/modules/frontend-canvas.md`：画布与 Paper.js 相关
@@ -30,4 +33,3 @@ Tanva 是一个基于 Paper.js 的专业绘图应用，前端提供画布/流程
 - `wiki/modules/backend-global-image-history.md`：全局图片历史
 - `wiki/modules/backend-templates.md`：公共模板
 - `wiki/modules/backend-prisma.md`：数据访问层（Prisma）
-

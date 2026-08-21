@@ -9,14 +9,15 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { TeamSwitcher } from "@/components/team/TeamSwitcher";
 import CampaignNoticeBar from "@/components/layout/CampaignNoticeBar";
 import { isCampaignNoticeAvailable } from "@/components/layout/campaignNoticeConfig";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [qrCodes, setQrCodes] = useState<{ officialAccount: string; wechatGroup: string }>({
-    officialAccount: '/qrcode-official.png',
-    wechatGroup: '/qrcode-group.png',
+    officialAccount: publicAssetUrl('qrcode-official.png'),
+    wechatGroup: publicAssetUrl('qrcode-group.png'),
   });
 
   // 从后端获取二维码配置
@@ -211,7 +212,7 @@ export default function Home() {
               onClick={() => navigate("/")}
             >
               <img
-                src='/LogoText.svg'
+                src={publicAssetUrl('LogoText.svg')}
                 alt='Tanvas'
                 draggable='false'
                 className='brightness-0 invert'
@@ -334,14 +335,14 @@ export default function Home() {
             playsInline
             className='absolute inset-0 w-full h-full object-cover z-[1]'
           >
-            <source src='/OpenVideo.mp4' type='video/mp4' />
+            <source src={publicAssetUrl('OpenVideo.mp4')} type='video/mp4' />
             {t("home.videoUnsupported")}
           </video>
 
           <div className='text-center relative z-10'>
             <h1 className='mb-10'>
               <img
-                src='/TanvasText.png'
+                src={publicAssetUrl('TanvasText.png')}
                 alt={t("home.hero.logoAlt")}
                 draggable='false'
                 className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'

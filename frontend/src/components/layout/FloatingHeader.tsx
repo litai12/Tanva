@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -447,8 +448,8 @@ const FloatingHeader: React.FC = () => {
     officialAccount: string;
     wechatGroup: string;
   }>({
-    officialAccount: "/qrcode-official.png",
-    wechatGroup: "/qrcode-group.png",
+    officialAccount: publicAssetUrl("qrcode-official.png"),
+    wechatGroup: publicAssetUrl("qrcode-group.png"),
   });
 
   useEffect(() => {
@@ -2587,7 +2588,7 @@ const FloatingHeader: React.FC = () => {
             title={t("workspace.header.backHome")}
           >
             <img
-              src={chatTheme === "black" ? "/tanvas_ai.png" : "/LogoText.svg"}
+              src={publicAssetUrl(chatTheme === "black" ? "tanvas_ai.png" : "LogoText.svg")}
               className='tanva-brand-logo-img'
               alt='Logo'
               draggable='false'

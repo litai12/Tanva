@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  externalizeInlinePrompt,
   TANVA_CAPABILITY_MANIFEST,
   type AgentFlowPatch,
 } from "./agentCanvasProtocol.ts";
@@ -108,4 +109,39 @@ test("gptImage2 manifest declares one asynchronous image output", () => {
     { handle: "img", accepts: "image" },
   ]);
   assert.deepEqual(spec.outputs, [{ handle: "img", emits: "image" }]);
+});
+
+test("gptImage2 presetPrompt is externalized into its executable text input", () => {
+  const expanded = externalizeInlinePrompt({
+    op: "addNode",
+    node: {
+      id: "gpt-1",
+      type: "gptImage2",
+      data: {
+        presetPrompt: "一只可爱的猫咪",
+        aspectRatio: "1:1",
+      },
+    },
+  });
+
+  assert.equal(expanded.length, 3);
+  assert.deepEqual(expanded[0], {
+    op: "addNode",
+    node: {
+      id: "gpt-1__prompt",
+      type: "textPrompt",
+      data: { text: "一只可爱的猫咪" },
+    },
+  });
+  assert.equal(expanded[1].op, "addNode");
+  assert.equal(expanded[1].node?.type, "gptImage2");
+  assert.equal(expanded[1].node?.data?.presetPrompt, undefined);
+  assert.equal(expanded[1].node?.data?.aspectRatio, "1:1");
+  assert.deepEqual(expanded[2], {
+    op: "connectEdge",
+    source: "gpt-1__prompt",
+    target: "gpt-1",
+    sourceHandle: "text",
+    targetHandle: "text",
+  });
 });

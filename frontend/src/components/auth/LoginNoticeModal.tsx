@@ -15,6 +15,7 @@ import {
 } from "@/utils/wechatQrPanel";
 import { CAMPAIGN_NOTICE_DETAIL_EVENT } from "@/utils/campaignNoticeDetail";
 import tanvasAiNoticeImage from "@/assets/TanvasAI.png";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 
 const DEFAULT_CONTEST_NOTICE_UPDATED_AT = "contest-default-2026-06-06";
 const ENABLE_DEFAULT_CONTEST_NOTICE = false;
@@ -309,7 +310,8 @@ export default function LoginNoticeModal() {
       </div>
     </div>
   ) : null;
-  const contestGroupQrUrl = noticeButtonQrUrl || wechatGroupQrUrl || "/qrcode-group.png";
+  const contestGroupQrUrl =
+    noticeButtonQrUrl || wechatGroupQrUrl || publicAssetUrl("qrcode-group.png");
   const contestQrItems = [
     { label: "赛事报名", url: contestRegistrationQrUrl },
     { label: "赛事交流群", url: contestGroupQrUrl },

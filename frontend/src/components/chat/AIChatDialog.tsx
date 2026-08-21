@@ -14,6 +14,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 import { fetchWithAuth } from "@/services/authFetch";
 import { ossUploadService } from "@/services/ossUploadService";
 import { Button } from "@/components/ui/button";
@@ -240,7 +241,14 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
   return null;
 };
 
-const AIChatDialog: React.FC = () => {
+interface AIChatDialogProps {
+  presentation?: "floating" | "embedded";
+}
+
+const AIChatDialog: React.FC<AIChatDialogProps> = ({
+  presentation = "floating",
+}) => {
+  const isEmbedded = presentation === "embedded";
   const { t, i18n } = useTranslation();
   const {
     isVisible,
@@ -315,7 +323,7 @@ const AIChatDialog: React.FC = () => {
   const focusMode = useUIStore((state) => state.focusMode);
   const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
   const isBlackTheme = chatTheme === "black";
-  const chatLogoSrc = isBlackTheme ? "/tanvas_ai.png" : "/Logo.svg";
+  const chatLogoSrc = publicAssetUrl(isBlackTheme ? "tanvas_ai.png" : "Logo.svg");
   const isZh = (i18n.resolvedLanguage || i18n.language || "")
     .toLowerCase()
     .startsWith("zh");
@@ -352,8 +360,15 @@ const AIChatDialog: React.FC = () => {
   const ownedObjectUrlsRef = useRef<Set<string>>(new Set());
   const historyRef = useRef<HTMLDivElement>(null);
   const historyInitialHeightRef = useRef<number | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(isEmbedded);
   const showHistoryRef = useRef(showHistory);
+
+  useEffect(() => {
+    if (!isEmbedded) return;
+    setShowHistory(true);
+    setIsMaximized(false);
+    showDialog();
+  }, [isEmbedded, setIsMaximized, showDialog]);
 
   // 右侧双抽屉互斥（后触发覆盖先触发）：
   //  - 评论模式开启 → 收起对话框右侧展开面板（回到底部紧凑栏，不隐藏）。
@@ -3200,7 +3215,7 @@ const AIChatDialog: React.FC = () => {
   );
 
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
-  if (!isVisible) return null;
+  if (!isVisible && !isEmbedded) return null;
 
   // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
   const canSend =
@@ -3294,30 +3309,31 @@ const AIChatDialog: React.FC = () => {
       data-prevent-add-panel
       aria-hidden={focusMode}
       className={cn(
-        "fixed transition-all ease-out",
+        isEmbedded ? "relative h-full min-h-0 w-full" : "fixed transition-all ease-out",
         isDragging || isResizing ? "select-none" : "select-text",
-        isMaximized
+        !isEmbedded && isMaximized
           ? "top-2 left-2 right-2 bottom-2 z-[9999]" // 最大化：接近全屏，最高 z-index 确保在所有元素之上
-          : "z-50",
-        !isMaximized && showHistory
+          : !isEmbedded ? "z-50" : "z-0",
+        !isEmbedded && !isMaximized && showHistory
           ? "top-4 bottom-4 max-w-[580px] w-[580px] px-4" // 展开模式：右侧全高，固定宽度（刚好容纳4张图）
-          : !isMaximized
+          : !isEmbedded && !isMaximized
           ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-[600px] px-4" // 紧凑模式：底部居中
           : "",
         !isDragging && !isResizing && "duration-300",
         (isDragging || isResizing) && "duration-0",
         focusMode && "hidden"
       )}
-      style={showHistory && !isMaximized ? getExpandedModeStyle() : undefined}
+      style={!isEmbedded && showHistory && !isMaximized ? getExpandedModeStyle() : undefined}
       onMouseDown={(e) => {
+        if (isEmbedded) return;
         // 先尝试调整高度，如果不是调整高度区域则尝试拖拽移动
         handleResizeStart(e);
         if (!isResizing) {
           handleDragStart(e);
         }
       }}
-      onDoubleClick={handleOuterDoubleClick}
-      onDoubleClickCapture={handleDoubleClickCapture}
+      onDoubleClick={isEmbedded ? undefined : handleOuterDoubleClick}
+      onDoubleClickCapture={isEmbedded ? undefined : handleDoubleClickCapture}
       >
         <div
         ref={dialogRef}
@@ -3350,18 +3366,22 @@ const AIChatDialog: React.FC = () => {
             (isBlackTheme
               ? "border border-[#1a1a1a] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
               : "bg-white shadow-xl"),
-          isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
-          showHistory && !isMaximized && "h-full flex flex-col -mr-4", // 展开模式：填满容器高度并贴合屏幕右侧
+          isEmbedded
+            ? "h-full min-h-0 w-full flex flex-col bg-white"
+            : isMaximized
+            ? "h-full flex flex-col rounded-2xl"
+            : "p-4 rounded-2xl",
+          !isEmbedded && showHistory && !isMaximized && "h-full flex flex-col -mr-4", // 展开模式：填满容器高度并贴合屏幕右侧
           isDragging || isResizing ? "duration-0" : "duration-300"
         )}
         style={
-          showHistory && !isMaximized && customHeight
+          !isEmbedded && showHistory && !isMaximized && customHeight
             ? { height: customHeight }
             : undefined
         }
-        onClick={handleHistorySurfaceClick}
-        onDoubleClick={handleOuterDoubleClick}
-        onDoubleClickCapture={handleDoubleClickCapture}
+        onClick={isEmbedded ? undefined : handleHistorySurfaceClick}
+        onDoubleClick={isEmbedded ? undefined : handleOuterDoubleClick}
+        onDoubleClickCapture={isEmbedded ? undefined : handleDoubleClickCapture}
       >
         {/* 文档拖入提示浮层：盖住整个对话框（落点即整个对话框）。
             pointer-events-none 必须有，否则浮层自己会吃掉 dragleave/drop。 */}
@@ -3379,7 +3399,7 @@ const AIChatDialog: React.FC = () => {
           </div>
         )}
 
-        <button
+        {!isEmbedded && <button
           type='button'
           onClick={() => setXiaotMode(!xiaotMode)}
           className={cn(
@@ -3394,9 +3414,9 @@ const AIChatDialog: React.FC = () => {
           )}
         >
           {xiaotMode ? "小T · Beta" : "小T"}
-        </button>
+        </button>}
 
-        {showHistoryHoverIndicator && (
+        {!isEmbedded && showHistoryHoverIndicator && (
           <button
             type='button'
             ref={collapseHandleRef}
@@ -3430,7 +3450,7 @@ const AIChatDialog: React.FC = () => {
             />
           </button>
         )}
-        {showAura && (
+        {!isEmbedded && showAura && (
           <div
             aria-hidden='true'
             className={cn(
@@ -3442,7 +3462,7 @@ const AIChatDialog: React.FC = () => {
             )}
           />
         )}
-        {shouldShowLockButton && (
+        {!isEmbedded && shouldShowLockButton && (
           <button
             type='button'
             data-history-ignore-toggle

@@ -5557,7 +5557,11 @@ function FlowInner() {
 
   // collab: snapshot-required — trigger full project reload if possible
   React.useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      const includePresentationDecks = Boolean(
+        (event as CustomEvent<{ includePresentationDecks?: boolean }>).detail
+          ?.includePresentationDecks
+      );
       // TODO: trigger full project content reload when a clean hook is available from this file.
       // Currently the reload is owned by the layer above (CollabProvider → window 'collab:snapshot-required').
       // This handler is a no-op placeholder; the upper layer already dispatches the event.
@@ -11555,7 +11559,18 @@ function FlowInner() {
         boxW: nodeSize.w,
         boxH: nodeSize.h,
       };
-      setNodes((ns) => ns.concat([{ id, type, position: pos, data } as any]));
+      const node: RFNode = {
+        id,
+        type,
+        position: pos,
+        data,
+        // Agent patches can arrive while the Electron canvas panel is being
+        // mounted. Give React Flow a real first-frame size so the node is not
+        // kept at `visibility: hidden` while waiting for ResizeObserver.
+        initialWidth: nodeSize.w,
+        initialHeight: nodeSize.h,
+      };
+      setNodes((ns) => ns.concat([node]));
       try {
         historyService.commit("flow-add-node").catch(() => {});
       } catch {}
@@ -15958,17 +15973,37 @@ function FlowInner() {
     try {
       window.dispatchEvent(
         new CustomEvent("flow:nodes-snapshot", {
-          detail: { nodes: summary, edges: edgesSummary },
+          detail: {
+            nodes: summary,
+            edges: edgesSummary,
+            projectId,
+            hydrated,
+          },
         })
       );
     } catch {
       /* ignore */
     }
-  }, [nodes, rf]);
+  }, [hydrated, nodes, projectId, rf]);
 
   // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
   React.useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      const request = (event as CustomEvent<{
+        includePresentationDecks?: boolean;
+        expectedProjectId?: string | null;
+      }>).detail;
+      const includePresentationDecks = Boolean(
+        request?.includePresentationDecks
+      );
+      // 请求方点名项目时，只允许该项目且已完成水合的画布响应。这样切项目
+      // 期间不会把上一项目的空/旧快照交给小T。
+      if (
+        request?.expectedProjectId &&
+        (request.expectedProjectId !== projectId || !hydrated)
+      ) {
+        return;
+      }
       const summary = rf
         .getNodes()
         .filter(
@@ -16001,6 +16036,13 @@ function FlowInner() {
                 n.type === "htmlPpt" && data.deck && typeof data.deck === "object"
                   ? (data.deck as { aspectRatio?: unknown }).aspectRatio
                   : undefined,
+              deck:
+                includePresentationDecks &&
+                n.type === "htmlPpt" &&
+                data.deck &&
+                typeof data.deck === "object"
+                  ? data.deck
+                  : undefined,
               imageUrl: data.imageUrl,
             videoUrl: data.videoUrl,
             audioUrl: data.audioUrl,
@@ -16017,7 +16059,12 @@ function FlowInner() {
       try {
         window.dispatchEvent(
           new CustomEvent("flow:nodes-snapshot", {
-            detail: { nodes: summary, edges: edgesSummary },
+            detail: {
+              nodes: summary,
+              edges: edgesSummary,
+              projectId,
+              hydrated,
+            },
           })
         );
       } catch {
@@ -16033,7 +16080,7 @@ function FlowInner() {
         "flow:request-nodes-snapshot",
         handler as EventListener
       );
-  }, [rf]);
+  }, [hydrated, projectId, rf]);
 
   // @ 引用自动接线：建 image 节点 / 建 generate 节点 / 连线
   React.useEffect(() => {
@@ -23008,8 +23055,19 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           (node.type === "gptImage2"
             ? "gpt-image-2"
             : "gemini-3.1-flash-image-preview");
-        const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
-        if (!hasText || !promptText) {
+        const { text: connectedPromptText } = getTextPromptForNode(nodeId);
+        // 兼容已经落盘的旧节点：旧版小T会把实际提示词写在
+        // presetPrompt，面板能显示但运行器只认外接 textPrompt，造成“有字却
+        // 缺少提示词”。新节点会在协议层外置；旧节点在这里仍可直接重跑。
+        const presetPromptText = (() => {
+          const raw = nodeData.presetPrompt ?? defaultData?.presetPrompt;
+          return typeof raw === "string" ? raw.trim() : "";
+        })();
+        const promptText = [presetPromptText, connectedPromptText]
+          .filter((value) => typeof value === "string" && value.trim())
+          .join("\n\n")
+          .trim();
+        if (!promptText) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -24757,15 +24815,33 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
   // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
   React.useEffect(() => {
+    const getProjectScopeError = (targetProjectId?: string | null) => {
+      if (!targetProjectId) return null;
+      if (!hydrated || !projectId) {
+        return "当前项目画布尚未加载完成，请稍后重试";
+      }
+      if (targetProjectId !== projectId) {
+        return "当前画布已切换，小T已停止向旧项目写入";
+      }
+      return null;
+    };
     const onAgentAddNode = (event: Event) => {
       const detail = (event as CustomEvent).detail as
         | {
             type?: string;
             data?: Record<string, any>;
             position?: { x?: number; y?: number };
-            done?: (createdId: string | null) => void;
+            projectId?: string | null;
+            done?: (createdId: string | null, error?: string) => void;
           }
         | undefined;
+      const projectScopeError = getProjectScopeError(detail?.projectId);
+      if (projectScopeError) {
+        try {
+          detail?.done?.(null, projectScopeError);
+        } catch {}
+        return;
+      }
       if (!detail?.type) {
         try {
           detail?.done?.(null);
@@ -24814,6 +24890,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             target?: string;
             sourceHandle?: string | null;
             targetHandle?: string | null;
+            projectId?: string | null;
             done?: (result: { ok: boolean; error?: string }) => void;
           }
         | undefined;
@@ -24826,6 +24903,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           /* ignore */
         }
       };
+      const projectScopeError = getProjectScopeError(detail?.projectId);
+      if (projectScopeError) {
+        notifyDone({ ok: false, error: projectScopeError });
+        return;
+      }
       if (!detail?.source || !detail?.target) {
         notifyDone({ ok: false, error: "画布连线缺少源节点或目标节点" });
         return;
@@ -24951,6 +25033,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       const detail = (event as CustomEvent).detail as
         | {
             id?: string;
+            projectId?: string | null;
             done?: (result: AgentPatchExecutionResult) => void;
           }
         | undefined;
@@ -24962,6 +25045,16 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           /* ignore */
         }
       };
+      const projectScopeError = getProjectScopeError(detail?.projectId);
+      if (projectScopeError) {
+        finish({
+          op: "runNode",
+          ok: false,
+          assets: [],
+          error: projectScopeError,
+        });
+        return;
+      }
       if (!nodeId) {
         finish({ op: "runNode", ok: false, assets: [], error: "运行节点缺少 id" });
         return;
@@ -25065,7 +25158,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       window.removeEventListener("flow:agent-connect-edge", onAgentConnectEdge as EventListener);
       window.removeEventListener("flow:agent-run-node", onAgentRunNode as EventListener);
     };
-  }, [createNodeAtWorldCenter, onConnect, runNode, rf]);
+  }, [createNodeAtWorldCenter, hydrated, onConnect, projectId, runNode, rf]);
 
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback(

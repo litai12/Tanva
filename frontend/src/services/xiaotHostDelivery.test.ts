@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   buildXiaotDeliveredContent,
+  isXiaotHostExecutionSuspensionMessage,
+  isXiaotModelRouteCreditsError,
+  resolveXiaotAgentErrorMessage,
   verifyXiaotHostDelivery,
   verifyXiaotTurnDelivery,
 } from "./xiaotHostDelivery.ts";
@@ -41,6 +44,60 @@ describe("verifyXiaotHostDelivery", () => {
     });
     assert.equal(result.satisfied, false);
     assert.match(result.error || "", /真实资产 URL/);
+  });
+});
+
+describe("isXiaotHostExecutionSuspensionMessage", () => {
+  it("recognizes the structured TapCanvas host hand-off", () => {
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"xiaot_turn_suspended","details":{"requestTerminal":{"status":"suspended","reason":"host_execution_required"}}}'
+      ),
+      true
+    );
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"xiaot_turn_suspended","details":{"requestTerminal":{"status":"suspended","reason":"root_physical_execution_budget_exhausted"}}}'
+      ),
+      true
+    );
+  });
+
+  it("does not hide real upstream failures", () => {
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"upstream_timeout"}'
+      ),
+      false
+    );
+  });
+});
+
+describe("resolveXiaotAgentErrorMessage", () => {
+  it("extracts the real message from an upstream 402 envelope", () => {
+    const error =
+      'xiaot-agent upstream error: status=402 body={"error":{"message":"积分不足，无法调用三方生成","code":"team_insufficient_credits"}}';
+    assert.equal(resolveXiaotAgentErrorMessage(error), "积分不足，无法调用三方生成");
+    assert.equal(isXiaotModelRouteCreditsError(error), true);
+  });
+
+  it("extracts a complete message from the Agent Runtime prefixed envelope", () => {
+    const errorEvidence = {
+      message:
+        'xiaot-agent stream error: {"message":"root_physical_execution_budget_exhausted","type":"server_error","code":"xiaot_turn_suspended"}',
+    };
+    assert.equal(
+      resolveXiaotAgentErrorMessage(errorEvidence),
+      "root_physical_execution_budget_exhausted"
+    );
+  });
+
+  it("does not collapse a real provider error to the first opening brace", () => {
+    const errorEvidence = {
+      message:
+        'xiaot-agent stream error: {"message":"LLM provider 未完成交付","type":"server_error","code":"llm_provider_response_failed"}',
+    };
+    assert.equal(resolveXiaotAgentErrorMessage(errorEvidence), "LLM provider 未完成交付");
   });
 });
 

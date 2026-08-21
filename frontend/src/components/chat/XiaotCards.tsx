@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Copy,
   Download,
+  FileSpreadsheet,
   FileText,
   Presentation,
   Plus,
@@ -25,6 +26,10 @@ import ImagePreviewModal, {
 import { downloadFile } from "@/utils/downloadHelper";
 import { resolveAgentNodeId } from "@/services/agentPatchApplier";
 import { compatibleRemarkPlugins } from "@/utils/markdownCompatibility";
+import {
+  openDesktopArtifact,
+  type DesktopArtifactSheet,
+} from "@/desktop/artifacts/artifactState";
 
 export interface XiaotCard {
   kind: string;
@@ -326,12 +331,37 @@ function ArtifactCard({ payload }: { payload: unknown }) {
   const artifactKind =
     typeof record?.artifactKind === "string" ? record.artifactKind.trim() : "";
   const isPresentation = artifactKind === "presentation";
+  const isSpreadsheet = artifactKind === "spreadsheet";
   const nodeId = typeof record?.nodeId === "string" ? record.nodeId.trim() : "";
+  const artifactId =
+    typeof record?.artifactId === "string" && record.artifactId.trim()
+      ? record.artifactId.trim()
+      : `${artifactKind || "document"}-${nodeId || title}`;
   const formats = Array.isArray(record?.formats)
     ? record.formats.filter(
-        (item): item is "html" | "pptx" => item === "html" || item === "pptx"
+        (item): item is "html" | "pptx" | "xlsx" =>
+          item === "html" || item === "pptx" || item === "xlsx"
       )
     : [];
+  const openArtifactWorkspace = () => {
+    openDesktopArtifact({
+      id: artifactId,
+      kind: isPresentation
+        ? "presentation"
+        : isSpreadsheet
+          ? "spreadsheet"
+          : "document",
+      title: title || "小T文件",
+      summary,
+      markdown,
+      nodeId: nodeId || undefined,
+      formats,
+      sheets: Array.isArray(record?.sheets)
+        ? (record.sheets as DesktopArtifactSheet[])
+        : undefined,
+      createdAt: new Date().toISOString(),
+    });
+  };
   const exportPresentation = (format: "html" | "pptx") => {
     if (!nodeId || exporting) return;
     setExporting(format);
@@ -371,6 +401,8 @@ function ArtifactCard({ payload }: { payload: unknown }) {
       >
         {isPresentation ? (
           <Presentation className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
+        ) : isSpreadsheet ? (
+          <FileSpreadsheet className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
         ) : (
           <FileText className='h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400' />
         )}
@@ -412,16 +444,16 @@ function ArtifactCard({ payload }: { payload: unknown }) {
           )}
         />
       </button>
-      {isPresentation && nodeId && (
+      {(isPresentation || isSpreadsheet) && (
         <div className='mt-2 flex flex-wrap items-center gap-1.5 border-t border-solid border-slate-200 pt-2 dark:border-white/15'>
           <button
             type='button'
-            onClick={() => focusCanvasNode(nodeId)}
+            onClick={openArtifactWorkspace}
             className='rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-slate-200'
           >
-            在画布打开
+            打开文件
           </button>
-          {formats.includes("html") && (
+          {isPresentation && nodeId && formats.includes("html") && (
             <button
               type='button'
               disabled={Boolean(exporting)}
@@ -432,7 +464,7 @@ function ArtifactCard({ payload }: { payload: unknown }) {
               {exporting === "html" ? "正在导出" : "HTML"}
             </button>
           )}
-          {formats.includes("pptx") && (
+          {isPresentation && nodeId && formats.includes("pptx") && (
             <button
               type='button'
               disabled={Boolean(exporting)}

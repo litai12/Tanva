@@ -13,6 +13,7 @@ import {
   type AgentPatchExecutionReport,
   type AgentPatchExecutionResult,
 } from "./agentPatchExecution";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 
 const toast = (message: string, type: "error" | "warning" | "success" = "error") => {
   try {
@@ -25,6 +26,18 @@ const toast = (message: string, type: "error" | "warning" | "success" = "error")
 // agent 侧节点 id → 画布真实节点 id（addNode 成功后登记）
 const idMap = new Map<string, string>();
 const realId = (id: string): string => idMap.get(id) ?? id;
+
+const getProjectScopeError = (targetProjectId: string | null): string | null => {
+  if (!targetProjectId) return null;
+  const current = useProjectContentStore.getState();
+  if (!current.hydrated || !current.projectId) {
+    return "当前项目画布尚未加载完成，请稍后重试";
+  }
+  if (current.projectId !== targetProjectId) {
+    return "当前画布已切换，小T已停止向旧项目写入";
+  }
+  return null;
+};
 
 // 串行执行队列：op 与 op 之间必须让出一次 React 提交渲染。
 // 原因：FlowOverlay 用 useNodesState，addNode 的 setNodes 要等重渲染后才进
@@ -90,6 +103,7 @@ export function resetAgentPatchSession(): void {
   activeBatchId = 0;
   batchResultsById.clear();
   sessionKey = null;
+  sessionProjectId = null;
 }
 
 /** 保留会话级 agent id 映射，但为新一轮聊天清空执行回执。 */
@@ -104,11 +118,18 @@ export function beginAgentPatchBatch(): number {
 // 第 1 轮自造的 agent 节点 id，若每轮清空 idMap，realId() 回退原样会去操作
 // 不存在的节点（静默 no-op）。仅当聊天会话切换时才全清（含丢弃旧队列）。
 let sessionKey: string | null = null;
+let sessionProjectId: string | null = null;
 
-export function ensureAgentPatchSession(key: string): void {
-  if (sessionKey === key) return;
+export function ensureAgentPatchSession(
+  key: string,
+  projectId?: string | null
+): void {
+  const normalizedProjectId = projectId?.trim() || null;
+  const nextKey = normalizedProjectId ? `${key}::${normalizedProjectId}` : key;
+  if (sessionKey === nextKey) return;
   resetAgentPatchSession();
-  sessionKey = key;
+  sessionKey = nextKey;
+  sessionProjectId = normalizedProjectId;
 }
 
 // 把 agent 自造 id 解析成画布真实 id（addNode 落地后经 done 回调登记）；
@@ -136,6 +157,9 @@ export function applyAgentPatch(raw: unknown): boolean {
     toast("小T下发的画布操作无法识别，已忽略");
     return false;
   }
+  // 每个 patch 在入队时冻结目标项目。即使用户随后切换项目，旧队列也不会
+  // 被新画布误接收；FlowOverlay 会用这个身份做最后一道校验。
+  const patchProjectId = sessionProjectId;
 
   switch (p.op) {
     case "addNode": {
@@ -156,7 +180,7 @@ export function applyAgentPatch(raw: unknown): boolean {
         () =>
           new Promise<AgentPatchExecutionResult>((resolve) => {
             let settled = false;
-            const finish = (createdId: string | null) => {
+            const finish = (createdId: string | null, failureReason?: string) => {
               if (settled) return;
               settled = true;
               window.clearTimeout(timer);
@@ -171,7 +195,7 @@ export function applyAgentPatch(raw: unknown): boolean {
                 });
                 return;
               }
-              const error = `节点类型不可用：${node.type}`;
+              const error = failureReason || `节点类型不可用：${node.type}`;
               toast(error);
               resolve({
                 op: "addNode",
@@ -188,6 +212,7 @@ export function applyAgentPatch(raw: unknown): boolean {
                   type: node.type,
                   data: nodeData,
                   position: node.position,
+                  projectId: patchProjectId,
                   done: finish,
                 },
               })
@@ -199,9 +224,20 @@ export function applyAgentPatch(raw: unknown): boolean {
     case "updateNodeData": {
       const { id, patch } = p;
       enqueue("updateNodeData", () => {
+        const projectScopeError = getProjectScopeError(patchProjectId);
+        if (projectScopeError) {
+          toast(projectScopeError, "warning");
+          return {
+            op: "updateNodeData",
+            ok: false,
+            nodeId: realId(id!),
+            assets: [],
+            error: projectScopeError,
+          };
+        }
         window.dispatchEvent(
           new CustomEvent("flow:updateNodeData", {
-            detail: { id: realId(id!), patch },
+            detail: { id: realId(id!), patch, projectId: patchProjectId },
           })
         );
         return { op: "updateNodeData", ok: true, nodeId: realId(id!), assets: [] };
@@ -240,6 +276,7 @@ export function applyAgentPatch(raw: unknown): boolean {
                   target: realId(target!),
                   sourceHandle: sourceHandle ?? null,
                   targetHandle: targetHandle ?? null,
+                  projectId: patchProjectId,
                   done: finish,
                 },
               })
@@ -251,8 +288,20 @@ export function applyAgentPatch(raw: unknown): boolean {
     case "focusNode": {
       const { id } = p;
       enqueue("focusNode", () => {
+        const projectScopeError = getProjectScopeError(patchProjectId);
+        if (projectScopeError) {
+          return {
+            op: "focusNode",
+            ok: false,
+            nodeId: realId(id!),
+            assets: [],
+            error: projectScopeError,
+          };
+        }
         window.dispatchEvent(
-          new CustomEvent("flow:focus-node", { detail: { id: realId(id!) } })
+          new CustomEvent("flow:focus-node", {
+            detail: { id: realId(id!), projectId: patchProjectId },
+          })
         );
         return { op: "focusNode", ok: true, nodeId: realId(id!), assets: [] };
       });
@@ -285,7 +334,7 @@ export function applyAgentPatch(raw: unknown): boolean {
             );
             window.dispatchEvent(
               new CustomEvent("flow:agent-run-node", {
-                detail: { id: nodeId, done: finish },
+                detail: { id: nodeId, projectId: patchProjectId, done: finish },
               })
             );
           })
@@ -297,6 +346,16 @@ export function applyAgentPatch(raw: unknown): boolean {
       if (!url) return false;
       const fileName = (p.name || "agent-image").trim() || "agent-image";
       enqueue("placeImage", () => {
+        const projectScopeError = getProjectScopeError(patchProjectId);
+        if (projectScopeError) {
+          toast(projectScopeError, "warning");
+          return {
+            op: "placeImage",
+            ok: false,
+            assets: [],
+            error: projectScopeError,
+          };
+        }
         // detail 形状照素材库「应用到画布」惯例（MaterialLibraryPanel applyAssetToCanvas）：
         // imageData 传 payload 对象（url/src/remoteUrl），每次全新 placementId 防去重覆盖。
         const placementId = `agent-image-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -312,6 +371,7 @@ export function applyAgentPatch(raw: unknown): boolean {
               },
               fileName,
               operationType: "manual",
+              projectId: patchProjectId,
             },
           })
         );

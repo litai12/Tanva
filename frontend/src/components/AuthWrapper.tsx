@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { AppLoader } from '@/components/AppLoader';
-import { getStoredTokenExpiry } from '@/services/authApi';
 import { useTranslation } from 'react-i18next';
+import { publicAssetUrl } from '@/utils/publicAssetUrl';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
@@ -11,29 +10,9 @@ interface AuthWrapperProps {
 
 export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   const { user, initializing, error } = useAuthStore();
-  const navigate = useNavigate();
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
-
-  useEffect(() => {
-    try {
-      const expiry = getStoredTokenExpiry();
-      // 若没有本地过期时间或已过期，认为需要重新登录
-      if (!expiry || expiry <= Date.now()) {
-        window.dispatchEvent(
-          new CustomEvent('toast', {
-            detail: { message: lt('当前登录已过期，请重新登录', 'Your login session has expired. Please sign in again'), type: 'info' },
-          })
-        );
-        if (!window.location.pathname.startsWith('/auth')) {
-          navigate('/auth/login', { replace: true });
-        }
-      }
-    } catch (e) {
-      // 忽略本地存储读取错误
-    }
-  }, [lt, navigate]);
 
   // 如果正在初始化认证状态，显示加载器
   if (initializing) {
@@ -46,7 +25,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white">
         <div className="text-center">
           <img
-            src="/LogoText.svg"
+            src={publicAssetUrl('LogoText.svg')}
             className="h-8 w-auto mx-auto mb-6"
             alt="Tanva"
           />

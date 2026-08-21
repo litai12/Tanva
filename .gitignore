@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+frontend/release
+frontend/tmp/desktop-acceptance/
 *.local
 
 # Editor directories and files

@@ -28,6 +28,9 @@ const LS_CURRENT_PROJECT = 'current_project_id';
 const LS_RECENT_PROJECT_IDS = 'tanva_recent_project_ids';
 const MAX_RECENT_PROJECT_IDS = 5;
 
+const isDesktopRuntime = (): boolean =>
+  typeof window !== 'undefined' && Boolean(window.tanvaDesktop?.isElectron);
+
 const normalizeRecentProjectIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   const ids: string[] = [];
@@ -128,8 +131,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (projects.length > 0) {
           current = projects[0];
           try { localStorage.setItem(LS_CURRENT_PROJECT, current.id); } catch {}
-        } else if (isOrgTeam) {
-          // 团队模式下没有共享项目时不自动创建个人项目
+        } else if (isOrgTeam || isDesktopRuntime()) {
+          // 桌面端的项目必须由用户显式创建。团队模式下没有共享项目时也
+          // 不得偷偷创建个人项目，避免侧边栏不断堆积“未命名项目”。
           writeRecentProjectIds(recentProjectIds);
           set({ projects: [], recentProjectIds, currentProjectId: null, currentProject: null, loading: false });
           return;
@@ -351,30 +355,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         recentProjectIds,
         currentProjectId: removedCurrent ? null : state.currentProjectId,
         currentProject: removedCurrent ? null : state.currentProject,
-        modalOpen: projects.length === 0 ? true : state.modalOpen
+        modalOpen: projects.length === 0 && !isDesktopRuntime() ? true : state.modalOpen
       };
     });
 
     const stateAfterRemoval = get();
 
     if (stateAfterRemoval.projects.length === 0) {
-      try {
-        const fallback = await projectApi.create({ name: getDefaultProjectName() });
-        const recentProjectIds = rememberRecentProjectId(
-          fallback.id,
-          get().recentProjectIds
-        );
-        writeRecentProjectIds(recentProjectIds);
-        set({
-          projects: [fallback],
-          recentProjectIds,
-          currentProjectId: fallback.id,
-          currentProject: fallback,
-          modalOpen: true,
-        });
-        try { localStorage.setItem(LS_CURRENT_PROJECT, fallback.id); } catch {}
-      } catch (error) {
-        console.warn('自动创建新项目失败:', error);
+      if (!isDesktopRuntime()) {
+        try {
+          const fallback = await projectApi.create({ name: getDefaultProjectName() });
+          const recentProjectIds = rememberRecentProjectId(
+            fallback.id,
+            get().recentProjectIds
+          );
+          writeRecentProjectIds(recentProjectIds);
+          set({
+            projects: [fallback],
+            recentProjectIds,
+            currentProjectId: fallback.id,
+            currentProject: fallback,
+            modalOpen: true,
+          });
+          try { localStorage.setItem(LS_CURRENT_PROJECT, fallback.id); } catch {}
+        } catch (error) {
+          console.warn('自动创建新项目失败:', error);
+        }
       }
       return;
     }
