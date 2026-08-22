@@ -45,6 +45,9 @@ function emitVersionManifest(): PluginOption {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Packaged Electron loads index.html through file://. Its assets must stay
+  // relative to that file instead of resolving from the filesystem root.
+  base: process.env.VITE_DESKTOP_BUILD === '1' ? './' : '/',
   plugins: [react(), emitVersionManifest()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),

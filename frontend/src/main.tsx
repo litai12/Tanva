@@ -1,7 +1,7 @@
 import '@/bootstrap/polyfills';
 import { StrictMode, Suspense, lazy, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import '@/i18n';
 import ProtectedRoute from '@/routes/ProtectedRoute';
 import './index.css';
@@ -25,14 +25,27 @@ const ForcedRigTestPage = lazy(() => import('@/pages/ForcedRigTestPage'));
 const ForcedCameraTestPage = lazy(() => import('@/pages/ForcedCameraTestPage'));
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
+import DesktopApp from '@/desktop/DesktopApp';
+import { initializeAuthTokenStorage } from '@/services/authTokenStorage';
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
   const loadProjects = useProjectStore((s) => s.load);
+  const desktopPreview =
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get('desktopPreview') === '1';
   // Lazy init is triggered by protected routes/login flow to avoid auto /api/auth/me on every load.
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);
+
+  if (window.tanvaDesktop?.isElectron || desktopPreview) {
+    return (
+      <Routes>
+        <Route path="*" element={user || desktopPreview ? <DesktopApp /> : <LoginPage />} />
+      </Routes>
+    );
+  }
 
   return (
     <>
@@ -62,16 +75,35 @@ function RootRoutes() {
 
 initializeRuntimeStability();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RuntimeErrorBoundary label="应用" variant="root">
-      <BrowserRouter>
-        <RootRoutes />
-      </BrowserRouter>
-    </RuntimeErrorBoundary>
-  </StrictMode>,
-);
+// Browser history assumes an HTTP server can serve every route. A packaged
+// Electron build uses file://, so hash history keeps navigation anchored to
+// the shipped index.html. Preload has already exposed tanvaDesktop here.
+const AppRouter = window.tanvaDesktop?.isElectron ? HashRouter : BrowserRouter;
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+const renderApplication = () => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <RuntimeErrorBoundary label="应用" variant="root">
+        <AppRouter>
+          <RootRoutes />
+        </AppRouter>
+      </RuntimeErrorBoundary>
+    </StrictMode>,
+  );
+};
+
+const bootstrapApplication = async () => {
+  if (window.tanvaDesktop?.isElectron) {
+    // 桌面端必须先恢复系统加密的令牌并校验/续期登录态，之后才能决定
+    // 展示任务壳还是登录页。网页端继续沿用受保护路由的延迟初始化。
+    await initializeAuthTokenStorage();
+    await useAuthStore.getState().init();
+  }
+  renderApplication();
+};
+
+void bootstrapApplication();
+
+if (import.meta.env.PROD && !window.tanvaDesktop?.isElectron && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
 }

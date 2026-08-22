@@ -2,11 +2,53 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  buildMissingExecutableRunPatches,
   buildXiaotDeliveredContent,
+  isXiaotHostExecutionSuspensionMessage,
+  isXiaotModelRouteCreditsError,
+  resolveXiaotAgentErrorMessage,
+  shouldExecuteLegacyImageOnlyHostTool,
   verifyXiaotHostDelivery,
   verifyXiaotTurnDelivery,
 } from "./xiaotHostDelivery.ts";
 import type { XiaotHostDeliveryVerification } from "./xiaotHostDelivery.ts";
+
+describe("buildMissingExecutableRunPatches", () => {
+  it("runs every newly added executable node that XiaoT did not run", () => {
+    assert.deepEqual(
+      buildMissingExecutableRunPatches({
+        addedExecutableNodeIds: ["image-1", "video-1", "image-1"],
+        executedNodeIds: new Set(["video-1"]),
+        deferredNodeIds: new Set(),
+      }),
+      [{ op: "runNode", id: "image-1" }]
+    );
+  });
+
+  it("preserves an explicit workflow-only deferExecution decision", () => {
+    assert.deepEqual(
+      buildMissingExecutableRunPatches({
+        addedExecutableNodeIds: ["image-1"],
+        executedNodeIds: new Set(),
+        deferredNodeIds: new Set(["image-1"]),
+      }),
+      []
+    );
+  });
+});
+
+describe("shouldExecuteLegacyImageOnlyHostTool", () => {
+  it("keeps direct chat generation as a fallback when no canvas generator exists", () => {
+    assert.equal(shouldExecuteLegacyImageOnlyHostTool([]), true);
+  });
+
+  it("suppresses direct chat generation when the turn already owns a canvas generator", () => {
+    assert.equal(
+      shouldExecuteLegacyImageOnlyHostTool(["generatePro-1"]),
+      false
+    );
+  });
+});
 
 describe("verifyXiaotHostDelivery", () => {
   it("requires a real image URL for every expected image node", () => {
@@ -41,6 +83,60 @@ describe("verifyXiaotHostDelivery", () => {
     });
     assert.equal(result.satisfied, false);
     assert.match(result.error || "", /真实资产 URL/);
+  });
+});
+
+describe("isXiaotHostExecutionSuspensionMessage", () => {
+  it("recognizes the structured TapCanvas host hand-off", () => {
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"xiaot_turn_suspended","details":{"requestTerminal":{"status":"suspended","reason":"host_execution_required"}}}'
+      ),
+      true
+    );
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"xiaot_turn_suspended","details":{"requestTerminal":{"status":"suspended","reason":"root_physical_execution_budget_exhausted"}}}'
+      ),
+      true
+    );
+  });
+
+  it("does not hide real upstream failures", () => {
+    assert.equal(
+      isXiaotHostExecutionSuspensionMessage(
+        'xiaot-agent stream error: {"code":"upstream_timeout"}'
+      ),
+      false
+    );
+  });
+});
+
+describe("resolveXiaotAgentErrorMessage", () => {
+  it("extracts the real message from an upstream 402 envelope", () => {
+    const error =
+      'xiaot-agent upstream error: status=402 body={"error":{"message":"积分不足，无法调用三方生成","code":"team_insufficient_credits"}}';
+    assert.equal(resolveXiaotAgentErrorMessage(error), "积分不足，无法调用三方生成");
+    assert.equal(isXiaotModelRouteCreditsError(error), true);
+  });
+
+  it("extracts a complete message from the Agent Runtime prefixed envelope", () => {
+    const errorEvidence = {
+      message:
+        'xiaot-agent stream error: {"message":"root_physical_execution_budget_exhausted","type":"server_error","code":"xiaot_turn_suspended"}',
+    };
+    assert.equal(
+      resolveXiaotAgentErrorMessage(errorEvidence),
+      "root_physical_execution_budget_exhausted"
+    );
+  });
+
+  it("does not collapse a real provider error to the first opening brace", () => {
+    const errorEvidence = {
+      message:
+        'xiaot-agent stream error: {"message":"LLM provider 未完成交付","type":"server_error","code":"llm_provider_response_failed"}',
+    };
+    assert.equal(resolveXiaotAgentErrorMessage(errorEvidence), "LLM provider 未完成交付");
   });
 });
 

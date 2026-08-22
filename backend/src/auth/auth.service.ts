@@ -1527,21 +1527,41 @@ export class AuthService {
     return { success: true };
   }
 
+  private async findPresentedRefreshToken(userId: string, presentedToken: string) {
+    if (!presentedToken) return null;
+    const candidates = await this.prisma.refreshToken.findMany({
+      where: {
+        userId,
+        isRevoked: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+      // 一个账号可以同时登录桌面、网页和多台设备；逐枚验证当前请求携带的
+      // token，不能只取“最新一枚”，否则别处登录会把当前桌面误顶下线。
+      take: 32,
+    });
+    for (const candidate of candidates) {
+      if (await bcrypt.compare(presentedToken, candidate.tokenHash)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
   async refresh(userPayload: any, presentedToken: string) {
     const loginUser = await this.getLoginUser(userPayload.sub);
-    const rt = await this.prisma.refreshToken.findFirst({
-      where: { userId: userPayload.sub, isRevoked: false },
-      orderBy: { createdAt: "desc" },
-    });
+    const rt = await this.findPresentedRefreshToken(
+      userPayload.sub,
+      presentedToken,
+    );
     if (!rt) throw new UnauthorizedException("刷新令牌无效");
-    const ok = await bcrypt.compare(presentedToken, rt.tokenHash);
-    if (!ok) throw new UnauthorizedException("刷新令牌无效");
-    if (rt.expiresAt < new Date())
-      throw new UnauthorizedException("刷新令牌过期");
-    await this.prisma.refreshToken.update({
-      where: { id: rt.id },
+    const revoked = await this.prisma.refreshToken.updateMany({
+      where: { id: rt.id, isRevoked: false },
       data: { isRevoked: true },
     });
+    if (revoked.count !== 1) {
+      throw new UnauthorizedException("刷新令牌已被使用");
+    }
     const tokens = await this.signTokens({
       id: loginUser.id,
       email: loginUser.email || "",
@@ -1557,9 +1577,14 @@ export class AuthService {
     return tokens;
   }
 
-  async logout(userId: string) {
+  async logout(userId: string, presentedToken: string) {
+    const currentSession = await this.findPresentedRefreshToken(
+      userId,
+      presentedToken,
+    );
+    if (!currentSession) return;
     await this.prisma.refreshToken.updateMany({
-      where: { userId, isRevoked: false },
+      where: { id: currentSession.id, isRevoked: false },
       data: { isRevoked: true },
     });
   }

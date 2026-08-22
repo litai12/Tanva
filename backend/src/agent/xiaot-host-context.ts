@@ -197,6 +197,9 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
   const specs = Array.isArray(value.nodeSpecs)
     ? value.nodeSpecs.map(asRecord).filter((item): item is UnknownRecord => !!item)
     : [];
+  const desktopConnectors = Array.isArray(value.desktopTools)
+    ? value.desktopTools.map(asRecord).filter((item): item is UnknownRecord => !!item)
+    : [];
   return {
     protocol_version: value.protocol_version,
     host: value.host,
@@ -208,6 +211,11 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
       name: tool.name,
       ...(tool.description ? { description: safeValue(tool.description) } : {}),
       ...(tool.parameters ? { parameters: safeValue(tool.parameters) } : {}),
+    })),
+    desktopConnectors: desktopConnectors.slice(0, 8).map((connector) => ({
+      connectorId: connector.connectorId,
+      connectorName: connector.connectorName,
+      toolCount: Array.isArray(connector.tools) ? connector.tools.length : 0,
     })),
     // nodeSpecs 是宿主协议必填项。保留执行所需的结构字段，去掉长篇 purpose；
     // 这样创建节点不需要再拉完整 40KB 清单。
@@ -223,8 +231,53 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
       '默认只提供能力索引；需要节点参数、输入输出或规则时调用 query_capabilities。',
       '默认只提供画布摘要；需要节点正文、媒体 URL 或连线关系时调用 query_canvas。',
       "按需查询统一调用 host_tool；画布参数为 {name:'query_canvas',arguments:{scope,nodeIds?,query?}}，能力参数为 {name:'query_capabilities',arguments:{nodeTypes}}。",
+      "桌面 MCP 工具必须先调用 {name:'query_desktop_tools',arguments:{connectorId,query?,toolNames?}} 查询真实名称、风险与参数，再调用 call_desktop_tool；每次执行仍需用户确认。",
       '禁止要求宿主返回整张画布，查询必须限定 scope、nodeIds 或 query。',
     ],
+  };
+}
+
+export function queryDesktopTools(
+  manifest: unknown,
+  rawArguments: unknown,
+): UnknownRecord {
+  const value = asRecord(manifest) || {};
+  const args = asRecord(rawArguments) || {};
+  const connectorId = typeof args.connectorId === 'string' ? args.connectorId.trim() : '';
+  const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+  const requestedNames = new Set(
+    Array.isArray(args.toolNames)
+      ? args.toolNames.filter((item): item is string => typeof item === 'string').slice(0, 12)
+      : [],
+  );
+  const connectors = Array.isArray(value.desktopTools)
+    ? value.desktopTools.map(asRecord).filter((item): item is UnknownRecord => !!item)
+    : [];
+  const connector = connectors.find((item) => item.connectorId === connectorId);
+  if (!connector) {
+    return { connectorId, error: 'desktop connector not found', tools: [] };
+  }
+  const tools = Array.isArray(connector.tools)
+    ? connector.tools.map(asRecord).filter((item): item is UnknownRecord => !!item)
+    : [];
+  const matched = tools.filter((tool) => {
+    const name = typeof tool.name === 'string' ? tool.name : '';
+    if (requestedNames.size > 0) return requestedNames.has(name);
+    if (!query) return true;
+    const haystack = `${name} ${typeof tool.description === 'string' ? tool.description : ''}`.toLowerCase();
+    return haystack.includes(query);
+  });
+  return {
+    connectorId,
+    connectorName: connector.connectorName,
+    returnedToolCount: Math.min(matched.length, 24),
+    truncated: matched.length > 24,
+    tools: matched.slice(0, 24).map((tool) => ({
+      name: tool.name,
+      description: safeValue(tool.description),
+      risk: tool.risk,
+      inputSchema: safeValue(tool.inputSchema),
+    })),
   };
 }
 

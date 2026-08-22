@@ -274,7 +274,7 @@ export class AuthController {
   @ApiCookieAuth('refresh_token')
   @UseGuards(RefreshAuthGuard)
   async logout(@Req() req: any, @Res({ passthrough: true }) res: any) {
-    await this.auth.logout(req.user.sub);
+    await this.auth.logout(req.user.sub, req.user.refreshToken);
     this.auth.clearAuthCookies(res, req);
     return { ok: true };
   }

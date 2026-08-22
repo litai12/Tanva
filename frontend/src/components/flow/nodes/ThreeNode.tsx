@@ -14,6 +14,7 @@ import { toRenderableImageSrc } from '@/utils/imageSource';
 import { canvasToDataUrl } from '@/utils/imageConcurrency';
 import { useLocaleText } from '@/utils/localeText';
 import { resolveFlowNodeSendAnchorClient } from '../utils/flowNodeSendAnchor';
+import { publicAssetUrl } from '@/utils/publicAssetUrl';
 
 type Props = {
   id: string;
@@ -60,7 +61,7 @@ const PRESET_MODELS: PresetModel[] = [
     key: 'duck',
     labelZh: 'Duck',
     labelEn: 'Duck',
-    url: '/models/duck.glb',
+    url: publicAssetUrl('models/duck.glb'),
     modelName: 'duck.glb',
   },
 ];

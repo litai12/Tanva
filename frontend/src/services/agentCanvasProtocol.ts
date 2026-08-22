@@ -223,35 +223,6 @@ export const TANVA_CAPABILITY_MANIFEST = {
       },
     },
     {
-      name: "create_presentation",
-      description:
-        "在 Tanva 浏览器画布中创建并生成演示文稿/PPT。用户要求制作 PPT、幻灯片、提案、汇报或建筑设计汇报时优先调用；宿主会创建安全的 HTML PPT 节点、连接选中素材或附件、等待真实生成完成，并提供 HTML/PPTX 下载。不要用 flow_patch 直接拼 htmlPpt 的 deck/HTML。",
-      parameters: {
-        title: { type: "string", description: "演示文稿标题" },
-        instruction: { type: "string", description: "完整内容与设计要求" },
-        audience: { type: "string", description: "目标受众，可选" },
-        purpose: { type: "string", description: "演示目标，可选" },
-        slideCount: { type: "number", description: "页数，3-24，默认 10" },
-        aspectRatio: { type: "string", enum: ["16:9", "4:3"] },
-        style: {
-          type: "string",
-          enum: ["tanva", "architectural", "editorial", "professional", "bold"],
-          description: "默认 tanva；建筑/室内/景观汇报使用 architectural",
-        },
-        outline: {
-          type: "array",
-          items: { type: "string" },
-          description: "可选的逐页标题/结构，最多 24 项",
-        },
-        assetNodeIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "要引用的画布素材节点 ID；省略时使用当前选中素材",
-        },
-        autoRun: { type: "boolean", description: "是否立即生成，默认 true" },
-      },
-    },
-    {
       name: "edit_presentation",
       description:
         "修改画布中已有的 Tanva HTML PPT，可重做整套叙事或只改当前/指定页面，并可接入新的画布素材或消息附件。用户说继续改、重排、换风格、补页、精简某套 PPT 时调用；不要用 flow_patch 直接覆盖 deck HTML。",
@@ -338,7 +309,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
         { handle: "img", accepts: "image" },
       ],
       constraints: [
-        "新建必须调用 create_presentation，修改必须调用 edit_presentation；禁止用 flow_patch 直接写 deck、slide HTML 或 CSS",
+        "仅用于维护画布里已有的 HTML 演示文稿；新建 PPT 必须使用 pptx-generator Skill 生成真实 PPTX，不得用 flow_patch 直接写 deck、slide HTML 或 CSS",
         "最多 24 页，图片输入最多 6 张；持久化内容只允许远程 URL/路径引用",
       ],
     },
@@ -599,7 +570,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [
-    "宿主工具调用规则：用户要求制作 PPT/幻灯片/提案/汇报时调用 host_tool{name:'create_presentation',arguments:{...}}；继续修改已有 PPT 时调用 edit_presentation，禁止用 flow_patch 直接写 htmlPpt 的 deck/HTML/CSS。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
+    "Office 文件规则：用户要求新建 PPT/PPTX/幻灯片/提案/汇报时，必须加载 pptx-generator Skill，按用户实际内容生成并校验真实 .pptx，随后调用 present_file 交付；用户要求新建 Excel/XLSX/表格/清单/预算/排期时，必须加载 minimax-xlsx Skill，生成并校验真实 .xlsx，随后调用 present_file 交付。禁止调用旧的 create_presentation/create_spreadsheet 模板工具，禁止用固定 HTML 三页模板、Markdown 表格或模拟数据代替文件。只有用户明确要求修改画布中已存在的 Tanva HTML 演示文稿时，才调用 edit_presentation。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",
@@ -607,6 +578,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "操作已有节点时 id 必须来自 canvas_context.nodes（真实 id）；你此前轮次自造的节点 id 仅在同一聊天会话内有效",
     "生图节点 data.modelProvider 三档 banana-2.5/banana/banana-3.1（Fast/Pro/Ultra），参考图上限分别 3/11/14",
     "所有生成类节点（含 generatePro/Pro4、全部视频节点）的提示词一律由 textPrompt 节点承载：创建生成节点时必须同步创建 textPrompt（data.text 写提示词）并 connectEdge {sourceHandle:'text', targetHandle:'text'}（seedream5 的 targetHandle 是 'prompt'）——即使用户说先不运行也要完成连线；不要把提示词写进生成节点 data（宿主会强制抽出改为 textPrompt 承载）；后续改提示词用 updateNodeData 改对应 textPrompt 节点的 data.text，而非改生成节点",
+    "新增的图片/视频/音频生成节点默认必须执行 runNode，宿主会为漏发的 runNode 补齐一次。只有用户明确要求只搭工作流、暂不执行时，才在生成节点 data 写 deferExecution:true 并省略 runNode；这时仍要完成提示词节点与连线。",
     "用户未指定视频模型/参数时，默认创建 seedance20Video（Seedance 2.0），resolution 720P、aspectRatio 16:9",
     "textChat 输出 handle 是 text；textNote 输出 handle 是 text-right-out（一般不要用 textNote 做提示词源，用 textPrompt）",
     "视频节点输出统一为 video handle；生图输出统一为 img handle；第二层清单只列了型号名，参数走节点默认值，需要精细控制时优先用第一层节点",
@@ -837,6 +809,7 @@ export const INLINE_PROMPT_KEYS = ["prompts", "prompt", "text"] as const;
 // 改写影响。
 const VIDEO_REWRITE_DATA_WHITELIST = [
   "label",
+  "deferExecution",
   "aspectRatio",
   "resolution",
   "clipDuration",
@@ -890,6 +863,19 @@ export const IMAGE_GEN_NODE_TYPES = new Set([
   "niji7",
 ]);
 
+// 小T新增后默认应进入执行的、且具有单一媒体交付种类的节点。已有图片承载
+// 节点 image/imagePro 不在此列：它们的 addNode 本身就是交付，不能误触发
+// 生成。audioStudio 会按 mode 产生 audio 或 audio+video，需由小T显式 runNode，
+// 不在这个单一资产种类兜底集合里。
+export const EXECUTABLE_MEDIA_NODE_TYPES = new Set([
+  ...IMAGE_GEN_NODE_TYPES,
+  ...VIDEO_NODE_TYPES,
+  "imageCompress",
+  "imageGrid",
+  "imageSplit",
+  "videoCompose",
+]);
+
 // 用户消息点名的图片模型 → nodeType（没点名返 null）。nano banana 家族统一
 // 落 generatePro（档位由 modelProvider 区分，此处不细分）。
 const REQUESTED_IMAGE_MODEL_RULES: Array<[RegExp, string]> = [
@@ -913,6 +899,7 @@ export function detectRequestedImageModel(text: string): string | null {
 // （否则 generatePro→gptImage2 改写会静默丢提示词，节点报「缺少提示词输入」）。
 const IMAGE_REWRITE_DATA_WHITELIST = [
   "label",
+  "deferExecution",
   "aspectRatio",
   "presetPrompt",
   ...INLINE_PROMPT_KEYS,
@@ -980,9 +967,23 @@ export function externalizeInlinePrompt(patch: AgentFlowPatch): AgentFlowPatch[]
     const v = data[key];
     if (typeof v === "string" && v.trim()) pieces.push(v.trim());
   }
+  // GPT-Image-2/Nano2 的节点面板把 presetPrompt 展示为“预设提示词”，
+  // 运行器历史上却只认外接 textPrompt。小T若只下发 presetPrompt，用户会
+  // 看到节点里明明有字，运行时仍报“缺少提示词输入”。对小T创建的这类节点，
+  // presetPrompt 就是实际执行提示词：同样外置成可见、可编辑、可连线的
+  // textPrompt，避免展示态与执行态分裂。
+  if (node.type === "gptImage2" || node.type === "nano2") {
+    const presetPrompt = data.presetPrompt;
+    if (typeof presetPrompt === "string" && presetPrompt.trim()) {
+      pieces.unshift(presetPrompt.trim());
+    }
+  }
   if (pieces.length === 0) return [patch];
   const strippedData: Record<string, unknown> = { ...data };
   for (const key of INLINE_PROMPT_KEYS) delete strippedData[key];
+  if (node.type === "gptImage2" || node.type === "nano2") {
+    delete strippedData.presetPrompt;
+  }
   // 合成 textPrompt：id 挂在生成节点 agent id 下（idMap 登记后 connectEdge 可解析）；
   // 生成节点给了 position 时放到其左侧，否则交给宿主自动排布
   const promptId = `${node.id}__prompt`;

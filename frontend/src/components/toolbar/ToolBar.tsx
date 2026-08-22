@@ -2,7 +2,14 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare } from 'lucide-react';
+import { Crown, Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare, Zap } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -447,8 +454,13 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     setSourceImageForEditing,
     showDialog,
     chatTheme,
+    bananaImageRoute,
+    setBananaImageRoute,
   } = useAIChatStore();
   const isBlackTheme = chatTheme === "black";
+  const isDesktopElectron = Boolean(window.tanvaDesktop?.isElectron);
+  const isStableImageRoute = bananaImageRoute === "stable";
+  const imageRouteLabel = isStableImageRoute ? "稳定线路" : "普通线路";
 
   // 评论模式（Figma 式画布评论）：与 AI 对话框互斥（后开覆盖先开）。
   const commentActive = useCommentStore((s) => s.active);
@@ -716,6 +728,68 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             {showFlowPanel ? lt('关闭 Flow 面板', 'Close Flow panel') : lt('打开 Flow 面板', 'Open Flow panel')}
           </TooltipContent>
         </Tooltip>
+      )}
+
+      {/* Electron 隐藏网页 FloatingHeader；线路入口在画布工具栏保留且仅保留这一处。 */}
+      {isDesktopElectron && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant='outline'
+              size='sm'
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(false)
+              )}
+              title={`切换生图线路，当前：${imageRouteLabel}`}
+              aria-label={`切换生图线路，当前：${imageRouteLabel}`}
+            >
+              {isStableImageRoute ? (
+                <Crown className='h-4 w-4 text-amber-500' />
+              ) : (
+                <Zap className='h-4 w-4 text-sky-500' />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side='right'
+            align='center'
+            sideOffset={10}
+            className='w-64 rounded-xl p-2'
+          >
+            <DropdownMenuLabel className='px-2 py-1 text-[11px]'>
+              生图线路
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              type='button'
+              onClick={() => setBananaImageRoute("normal")}
+              className={cn(
+                "gap-2 rounded-lg px-2.5 py-2",
+                !isStableImageRoute && "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-200"
+              )}
+            >
+              <Zap className='h-4 w-4 text-sky-500' />
+              <span>
+                <span className='block font-medium'>普通线路</span>
+                <span className='block text-[11px] opacity-70'>速度优先</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              type='button'
+              onClick={() => setBananaImageRoute("stable")}
+              className={cn(
+                "mt-1 gap-2 rounded-lg px-2.5 py-2",
+                isStableImageRoute && "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+              )}
+            >
+              <Crown className='h-4 w-4 text-amber-500' />
+              <span>
+                <span className='block font-medium'>稳定线路</span>
+                <span className='block text-[11px] opacity-70'>稳定性优先</span>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}

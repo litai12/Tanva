@@ -18,8 +18,28 @@ import { projectLoadDebug, waitForProjectLoadPaint } from '@/utils/projectLoadDe
 import { useAuthStore } from '@/stores/authStore';
 import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 import { projectVersionChannel } from '@/services/projectVersionChannel';
+import { useDesktopTaskContextStore } from '@/desktop/taskContextState';
 
 const CANVAS_VIEW_SYNC_DELAY_MS = 160;
+
+const isDesktopTaskShell = (): boolean =>
+  typeof window !== 'undefined' && Boolean(window.tanvaDesktop?.isElectron);
+
+const mergeDesktopProjectSessions = (
+  projectId: string,
+  sessions: ProjectContentSnapshot['aiChatSessions']
+) => {
+  if (!isDesktopTaskShell() || !sessions?.length) return;
+  const taskState = useDesktopTaskContextStore.getState();
+  for (const session of sessions) {
+    const sessionId = session?.sessionId;
+    if (!sessionId) continue;
+    if (!taskState.projectBySessionId[sessionId] && !taskState.modeBySessionId[sessionId]) {
+      taskState.bindProject(sessionId, projectId);
+    }
+  }
+  void useAIChatStore.getState().mergePersistedSessions(sessions);
+};
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -71,15 +91,19 @@ const reconcileMergedRuntime = (
       preserveProjectViewReady: true,
     });
     // 2) AI 会话
-    try {
-      const chatStore = useAIChatStore.getState();
-      const sessions = content?.aiChatSessions ?? [];
-      if (sessions.length > 0) {
-        chatStore.hydratePersistedSessions(sessions, content?.aiChatActiveSessionId ?? null, {
-          markProjectDirty: false,
-        });
-      }
-    } catch {}
+    if (isDesktopTaskShell()) {
+      mergeDesktopProjectSessions(projectId, content?.aiChatSessions);
+    } else {
+      try {
+        const chatStore = useAIChatStore.getState();
+        const sessions = content?.aiChatSessions ?? [];
+        if (sessions.length > 0) {
+          chatStore.hydratePersistedSessions(sessions, content?.aiChatActiveSessionId ?? null, {
+            markProjectDirty: false,
+          });
+        }
+      } catch {}
+    }
     // 3) 画布：清空后重新 importJSON 合并后的 paperJson
     if (content?.paperJson) {
       const paperJson = content.paperJson;
@@ -165,7 +189,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       if (useProjectContentStore.getState().projectId !== null) {
         setProject(null);
       }
-      try { useAIChatStore.getState().resetSessions(); } catch {}
+      if (!isDesktopTaskShell()) {
+        try { useAIChatStore.getState().resetSessions(); } catch {}
+      }
       try { contextManager.clearImageCache(); } catch {}
       // 不再清空图片历史，保留跨文件的历史记录
       // try { useImageHistoryStore.getState().clearHistory(); } catch {}
@@ -188,7 +214,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         setProject(projectId);
       });
     }
-    try { useAIChatStore.getState().resetSessions(); } catch {}
+    if (!isDesktopTaskShell()) {
+      try { useAIChatStore.getState().resetSessions(); } catch {}
+    }
     projectLoadDebug.mark(projectId, 'runtime cleanup done');
 
     (async () => {
@@ -234,22 +262,26 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           projectLoadDebug.measureSync(projectId, 'content store hydrate', () => {
             hydrate(data.content, data.version, data.updatedAt ?? null);
           }, contentSummary);
-          projectLoadDebug.measureSync(projectId, 'AI chat hydrate', () => {
-            try {
-              const chatStore = useAIChatStore.getState();
-              const sessions = data.content?.aiChatSessions ?? [];
-              const activeSessionId = data.content?.aiChatActiveSessionId ?? null;
-              if (sessions.length > 0) {
-                chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
-              } else {
-                chatStore.resetSessions();
+          if (isDesktopTaskShell()) {
+            mergeDesktopProjectSessions(projectId, data.content?.aiChatSessions);
+          } else {
+            projectLoadDebug.measureSync(projectId, 'AI chat hydrate', () => {
+              try {
+                const chatStore = useAIChatStore.getState();
+                const sessions = data.content?.aiChatSessions ?? [];
+                const activeSessionId = data.content?.aiChatActiveSessionId ?? null;
+                if (sessions.length > 0) {
+                  chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
+                } else {
+                  chatStore.resetSessions();
+                }
+              } catch (error) {
+                console.error('❌ 同步聊天会话失败:', error);
               }
-            } catch (error) {
-              console.error('❌ 同步聊天会话失败:', error);
-            }
-          }, {
-            aiChatSessions: contentSummary.aiChatSessions,
-          });
+            }, {
+              aiChatSessions: contentSummary.aiChatSessions,
+            });
+          }
           // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
           try { contextManager.clearImageCache(); } catch {}
           // 保留图片历史，便于跨文件查看
@@ -684,6 +716,10 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
+      // The Electron shell owns its quit lifecycle and project state is
+      // autosaved. A browser beforeunload prompt can become an invisible
+      // macOS sheet and strand the desktop process after its window closes.
+      if (isDesktopTaskShell()) return;
       if (consumeBeforeUnloadPromptSkip()) return;
       const { dirty } = useProjectContentStore.getState();
       const pending = getPendingUploadSummary();

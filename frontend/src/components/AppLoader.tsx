@@ -1,6 +1,7 @@
 import React from 'react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
+import { publicAssetUrl } from '@/utils/publicAssetUrl';
 
 interface AppLoaderProps {
   message?: string;
@@ -20,7 +21,7 @@ export const AppLoader: React.FC<AppLoaderProps> = ({
       <div className="flex flex-col items-center gap-6">
         {showLogo && (
           <img
-            src="/LogoText.svg"
+            src={publicAssetUrl('LogoText.svg')}
             className="h-8 w-auto"
             alt="Tanva"
           />

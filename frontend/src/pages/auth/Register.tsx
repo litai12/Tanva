@@ -8,6 +8,7 @@ import { Eye, EyeOff, Check, X } from "lucide-react";
 import { validateInviteCode } from "@/services/referralApi";
 import { authApi } from "@/services/authApi";
 import { useTranslation } from "react-i18next";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 
 export default function RegisterPage() {
   const { t } = useTranslation();
@@ -165,7 +166,7 @@ export default function RegisterPage() {
         playsInline
         className='absolute inset-0 w-full h-full object-cover z-[1]'
       >
-        <source src='/OpenVideo.mp4' type='video/mp4' />
+        <source src={publicAssetUrl('OpenVideo.mp4')} type='video/mp4' />
         {t("auth.videoUnsupported")}
       </video>
 

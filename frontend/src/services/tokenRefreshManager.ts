@@ -9,7 +9,12 @@
 
 import { triggerAuthExpired } from "./authEvents";
 import { fetchWithAuth } from "./authFetch";
-import { getRefreshAuthHeader, setTokens } from "./authTokenStorage";
+import {
+  getAccessToken,
+  getRefreshAuthHeader,
+  getRefreshToken,
+  setTokens,
+} from "./authTokenStorage";
 
 // Token 配置（与后端 JWT_ACCESS_TTL=24h 对应）
 const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 小时
@@ -30,6 +35,19 @@ export type TokenEvent =
 
 type TokenEventCallback = (event: TokenEvent, data?: any) => void;
 
+const readJwtIssuedAtMs = (token: string | null): number | null => {
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')));
+    return Number.isFinite(decoded?.iat) ? Number(decoded.iat) * 1000 : null;
+  } catch {
+    return null;
+  }
+};
+
 class TokenRefreshManager {
   private lastRefreshTime: number = 0;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -44,11 +62,15 @@ class TokenRefreshManager {
     if (this.initialized) return;
     this.initialized = true;
 
-    // 记录初始时间（假设刚登录或刚刷新页面时 token 是有效的）
-    this.lastRefreshTime = Date.now();
+    // 使用令牌真实签发时间，不能把“应用刚启动”误当成“令牌刚签发”。
+    // 没有 access token 但仍有 refresh token 时置 0，启动后立即后台续期。
+    this.lastRefreshTime = readJwtIssuedAtMs(getAccessToken()) ?? 0;
 
     // 启动定时检查
     this.startPeriodicCheck();
+    if (getRefreshToken()) {
+      void this.checkAndRefresh();
+    }
 
     // 监听页面可见性变化，页面重新可见时检查 token
     if (typeof document !== "undefined") {

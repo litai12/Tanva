@@ -3,6 +3,7 @@ import { fetchWithAuth } from "@/services/authFetch";
 import { Button } from "@/components/ui/button";
 import AccountBadge from "@/components/AccountBadge";
 import { useTranslation } from "react-i18next";
+import { publicAssetUrl } from "@/utils/publicAssetUrl";
 
 export default function OSSDemo() {
   const { i18n } = useTranslation();
@@ -75,7 +76,7 @@ export default function OSSDemo() {
     <div className='min-h-screen w-full bg-gradient-to-b from-white to-sky-50 text-slate-800'>
       <header className='max-w-4xl mx-auto flex items-center justify-between py-6 px-4'>
         <div className='flex items-center gap-2'>
-          <img src='/Logo.svg' alt='Tanvas' className='h-8 w-auto' />
+          <img src={publicAssetUrl('Logo.svg')} alt='Tanvas' className='h-8 w-auto' />
           <span className='font-semibold text-2xl tracking-wide'>
             Tanvas OSS Demo
           </span>

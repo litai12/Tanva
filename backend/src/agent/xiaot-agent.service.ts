@@ -9,12 +9,14 @@ import { AgentEventType } from './agent.types';
 import {
   assertXiaotUpstreamDelivery,
   buildXiaotUpstreamSessionUser,
+  isXiaotHostExecutionSuspension,
 } from './xiaot-agent-delivery';
 import {
   buildCanvasContextSummary,
   buildCapabilityManifestSummary,
   queryCanvasContext,
   queryCapabilityManifest,
+  queryDesktopTools,
   resolveLocalGreeting,
 } from './xiaot-host-context';
 
@@ -28,7 +30,7 @@ type ChatMessage = { role: 'system' | 'user'; content: string };
 /** 按 tool_call index 累积的分片缓冲（兼容 arguments 跨帧分片的 OpenAI 协议形态）。 */
 type ToolCallAccumulator = { id: string; name: string; args: string };
 type ContextQueryRequest = {
-  name: 'query_canvas' | 'query_capabilities';
+  name: 'query_canvas' | 'query_capabilities' | 'query_desktop_tools';
   arguments: Record<string, unknown>;
 };
 type RunContinuation = {
@@ -49,6 +51,22 @@ export const XIAOT_CHAT_MODELS = [
   'xiaot-agent-deepseek-v4-flash',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
+
+const isUpstreamRouteCreditsError = (status: number, detail: string): boolean =>
+  status === 402 ||
+  /team_insufficient_credits|insufficient credits?|积分不足|无法调用三方生成/i.test(
+    detail,
+  );
+
+const buildXiaotModelCandidates = (requestedModel: string): string[] =>
+  Array.from(
+    new Set([
+      requestedModel,
+      'xiaot-agent-gpt-5-6-luna',
+      'xiaot-agent-gpt-5-6-terra',
+      'xiaot-agent-deepseek-v4-flash',
+    ]),
+  );
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -158,7 +176,7 @@ export class XiaotAgentService {
     continuation?: RunContinuation,
   ): Promise<void> {
     // 模型透传：仅白名单内的 dto.model 生效，其余一律回落默认模型。
-    const model = continuation?.model ||
+    let model = continuation?.model ||
       (dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
         ? dto.model
         : this.model);
@@ -203,23 +221,56 @@ export class XiaotAgentService {
         host_user_id: hostScopeId,
         messages: this.buildMessages(dto, !continuation),
       };
-      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
+      let response: Response | null = null;
+      const routeFailures: Array<{ model: string; status: number; detail: string }> = [];
+      for (const candidate of buildXiaotModelCandidates(model)) {
+        const candidateResponse = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({ ...requestBody, model: candidate }),
+          signal: controller.signal,
+        });
+        if (candidateResponse.ok && candidateResponse.body) {
+          if (candidate !== model) {
+            this.logger.warn(
+              `xiaot-agent route fallback ${model} -> ${candidate} for user ${userId}`,
+            );
+          }
+          model = candidate;
+          response = candidateResponse;
+          break;
+        }
 
-      if (!response.ok || !response.body) {
         let detail = '';
         try {
-          detail = (await response.text()).slice(0, 300);
+          detail = (await candidateResponse.text()).slice(0, 300);
         } catch {}
+        if (!isUpstreamRouteCreditsError(candidateResponse.status, detail)) {
+          throw new Error(
+            `xiaot-agent upstream error: status=${candidateResponse.status} body=${detail}`,
+          );
+        }
+        routeFailures.push({
+          model: candidate,
+          status: candidateResponse.status,
+          detail,
+        });
+      }
+
+      if (!response?.body) {
+        this.logger.error(
+          `xiaot-agent all model routes unavailable for user ${userId}: ${JSON.stringify(
+            routeFailures.map(({ model: failedModel, status }) => ({
+              model: failedModel,
+              status,
+            })),
+          )}`,
+        );
         throw new Error(
-          `xiaot-agent upstream error: status=${response.status} body=${detail}`,
+          '小T模型线路暂时不可用，与你的 Tanva 积分余额无关，请稍后重试',
         );
       }
 
@@ -264,6 +315,16 @@ export class XiaotAgentService {
           throw new Error('xiaot-agent protocol error: data frame must be an object');
         }
         if (parsed.error) {
+          if (isXiaotHostExecutionSuspension(parsed.error)) {
+            // The flow_patch/host_tool frames emitted before this terminal are
+            // now owned by Tanva's host executor. Normalize the logical finish
+            // reason, but do not mark the SSE transport as done yet: new-api may
+            // legally append its usage audit chunk before the real [DONE] frame.
+            // Conflating the suspension with [DONE] made successful Excel/PPT
+            // deliveries fail with "received data after [DONE]".
+            finishReason = 'tool_calls';
+            return;
+          }
           throw new Error(
             `xiaot-agent stream error: ${JSON.stringify(parsed.error).slice(0, 300)}`,
           );
@@ -330,7 +391,11 @@ export class XiaotAgentService {
             } else if (acc.name === 'host_tool') {
               const args = parsedArgs as Record<string, unknown>;
               if (typeof args.name !== 'string' || !args.name.trim()) continue;
-              if (args.name === 'query_canvas' || args.name === 'query_capabilities') {
+              if (
+                args.name === 'query_canvas' ||
+                args.name === 'query_capabilities' ||
+                args.name === 'query_desktop_tools'
+              ) {
                 contextQueries.push({
                   name: args.name,
                   arguments: readRecord(args.arguments) || {},
@@ -399,7 +464,9 @@ export class XiaotAgentService {
           result:
             query.name === 'query_canvas'
               ? queryCanvasContext(dto.canvasContext, query.arguments)
-              : queryCapabilityManifest(dto.capabilityManifest, query.arguments),
+              : query.name === 'query_desktop_tools'
+                ? queryDesktopTools(dto.capabilityManifest, query.arguments)
+                : queryCapabilityManifest(dto.capabilityManifest, query.arguments),
         }));
         await this.run(
           {

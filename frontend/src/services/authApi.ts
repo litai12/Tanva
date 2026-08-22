@@ -1,6 +1,7 @@
 import {
   clearTokens,
   getAccessAuthHeader,
+  getRefreshToken,
   getRefreshAuthHeader,
   setTokens,
 } from "./authTokenStorage";
@@ -363,8 +364,19 @@ export const authApi = {
     const tokenExpiry = getStoredTokenExpiry();
     const localUser = loadSession();
 
-    // 如果本地有用户信息且token未过期（提前1分钟检查），直接返回本地数据
-    if (localUser && tokenExpiry && tokenExpiry > Date.now() + 60000) {
+    const desktopPersistentSession = Boolean(
+      typeof window !== "undefined" &&
+      window.tanvaDesktop?.isElectron &&
+      getRefreshToken(),
+    );
+
+    // 桌面端只要还有系统加密保存的 refresh token，就先恢复本地用户并在后台续期。
+    // 这样弱网/离线启动也不会先卡在登录页；真实失效会由后续 401 + refresh 明确收口。
+    if (
+      localUser &&
+      (desktopPersistentSession ||
+        Boolean(tokenExpiry && tokenExpiry > Date.now() + 60000))
+    ) {
       console.log("[authApi] 使用本地缓存的用户信息，避免网络请求");
       return { user: localUser, source: "local" };
     }

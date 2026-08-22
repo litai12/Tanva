@@ -75,6 +75,8 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     // 初始化Paper.js
     paper.setup(canvas);
     patchPaperRasterSetSourceCompat();
+    const managedProject = paper.project;
+    const managedView = paper.view;
     
     // 禁用Paper.js的默认交互行为
     if (paper.view) {
@@ -84,9 +86,29 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     }
 
     let isInitialized = false;
+    let disposed = false;
     let lastViewSize = { width: 0, height: 0 };
+    const pendingFrames = new Set<number>();
+    const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+
+    const scheduleFrame = (callback: () => void) => {
+      const frameId = requestAnimationFrame(() => {
+        pendingFrames.delete(frameId);
+        if (!disposed) callback();
+      });
+      pendingFrames.add(frameId);
+    };
+
+    const scheduleTimer = (callback: () => void, delay: number) => {
+      const timerId = setTimeout(() => {
+        pendingTimers.delete(timerId);
+        if (!disposed) callback();
+      }, delay);
+      pendingTimers.add(timerId);
+    };
     
     const resizeCanvas = () => {
+      if (disposed || !managedProject || !managedView) return;
       const parent = canvas.parentElement;
       if (parent) {
         // 获取设备像素比，支持高DPI屏幕
@@ -114,13 +136,13 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         
         // 更新Paper.js视图尺寸（使用实际像素尺寸，与 canvas.width/height 一致）
         // Paper 会基于此尺寸进行变换；事件→视图坐标需自行考虑 devicePixelRatio
-        if (paper.view) {
+        if (managedView) {
           try {
-            paper.view.viewSize = new paper.Size(nextCanvasWidth, nextCanvasHeight);
+            managedView.viewSize = new paper.Size(nextCanvasWidth, nextCanvasHeight);
           } catch {
             try {
-              (paper.view.viewSize as any).width = nextCanvasWidth;
-              (paper.view.viewSize as any).height = nextCanvasHeight;
+              (managedView.viewSize as any).width = nextCanvasWidth;
+              (managedView.viewSize as any).height = nextCanvasHeight;
             } catch {}
           }
         }
@@ -158,7 +180,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
           applyViewTransform();
         }
 
-        try { paper.view?.update(); } catch {}
+        try { managedView.update(); } catch {}
 
         if (sizeChanged) {
           lastViewSize = { width: nextCanvasWidth, height: nextCanvasHeight };
@@ -180,24 +202,24 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       const tx = currentPanX * currentZoom;
       const ty = currentPanY * currentZoom;
       const matrix = new paper.Matrix(currentZoom, 0, 0, currentZoom, tx, ty);
-      paper.view.matrix = matrix;
+      if (!disposed && managedView) managedView.matrix = matrix;
     };
 
     // 初始化画布
     resizeCanvas();
     // 在下一帧和短延迟后再尝试一次，避免首屏布局尚未稳定
-    requestAnimationFrame(resizeCanvas);
-    setTimeout(resizeCanvas, 50);
+    scheduleFrame(resizeCanvas);
+    scheduleTimer(resizeCanvas, 50);
 
     // 监听窗口大小变化
     const handleResize = () => {
-      setTimeout(resizeCanvas, 100);
+      scheduleTimer(resizeCanvas, 100);
     };
     window.addEventListener('resize', handleResize);
 
     const handleCanvasLayoutChanged = () => {
-      requestAnimationFrame(resizeCanvas);
-      setTimeout(resizeCanvas, 80);
+      scheduleFrame(resizeCanvas);
+      scheduleTimer(resizeCanvas, 80);
     };
     window.addEventListener(
       TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
@@ -212,6 +234,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     }
 
     return () => {
+      disposed = true;
       window.removeEventListener('resize', handleResize);
       window.removeEventListener(
         TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
@@ -221,11 +244,15 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         try { ro.disconnect(); } catch {}
         ro = null;
       }
+      pendingFrames.forEach((frameId) => cancelAnimationFrame(frameId));
+      pendingFrames.clear();
+      pendingTimers.forEach((timerId) => clearTimeout(timerId));
+      pendingTimers.clear();
       // 🛑 清理 Paper.js 项目资源 (P1 修复)
-      if (paper.project) {
+      if (managedProject) {
         try {
-          paper.project.clear();
-          paper.project.remove();
+          managedProject.clear();
+          managedProject.remove();
         } catch (e) {
           console.warn('Paper.js project cleanup failed:', e);
         }

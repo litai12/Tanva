@@ -4,6 +4,7 @@ import {
   buildCapabilityManifestSummary,
   queryCanvasContext,
   queryCapabilityManifest,
+  queryDesktopTools,
   resolveLocalGreeting,
 } from './xiaot-host-context';
 
@@ -51,15 +52,42 @@ const manifest = {
     },
   ],
   nodeSpecs: [{ type: 'generatePro', label: '生图', params: { size: '4K' } }],
+  desktopTools: [
+    {
+      connectorId: 'photoshop',
+      connectorName: 'Photoshop',
+      tools: [
+        {
+          name: 'get_document_info',
+          description: 'Read active document metadata',
+          risk: 'read',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'create_layer',
+          description: 'Create a layer',
+          risk: 'write',
+          inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+        },
+      ],
+    },
+  ],
 };
 const manifestSummary = JSON.stringify(buildCapabilityManifestSummary(manifest));
 assert.match(manifestSummary, /4K/);
 assert.match(manifestSummary, /create_presentation/);
 assert.match(manifestSummary, /slideCount/);
+assert.match(manifestSummary, /photoshop/);
 assert.match(
   JSON.stringify(queryCapabilityManifest(manifest, { nodeTypes: ['generatePro'] })),
   /4K/,
 );
+const desktopTools = queryDesktopTools(manifest, {
+  connectorId: 'photoshop',
+  query: 'layer',
+});
+assert.match(JSON.stringify(desktopTools), /create_layer/);
+assert.doesNotMatch(JSON.stringify(desktopTools), /get_document_info/);
 
 assert.equal(resolveLocalGreeting('你好！'), '你好！有什么我可以帮你处理的吗？');
 assert.equal(resolveLocalGreeting('你好，帮我生成苹果'), null);
