@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-22：修复 Tanva 桌面端关闭后仍留在 macOS Dock/后台的问题。主窗口关闭、窗口 IPC 和系统退出现统一清理本机连接器并在有界超时后结束 Electron 主进程；网页继续保留 `beforeunload` 离站保护，Electron 依赖项目自动保存，明确退出时由 Main 放行 unload，不再让不可见的 macOS 提示卡住无窗口进程。同时新增重复退出去重、清理超时回归，并将退出生命周期模块加入 Electron 打包白名单。
+
 - 2026-08-21：新建 Office 文件从 Tanva 固定模板切换为小T原生 Skill。PPT/PPTX 使用 `pptx-generator`，Excel/XLSX 使用 `minimax-xlsx`，在小T工作区生成并校验真实文件后通过 `present_file` 上传；OpenAI facade 将文件投影成 `artifact` 卡，消息与右侧文件工作台都可直接下载原始 PPTX/XLSX。桌面能力清单移除 `create_presentation` / `create_spreadsheet` 模板入口，仅保留已有 HTML 演示节点的编辑兼容路径，避免再次出现永远相同的三页黑底占位稿。
 
 - 2026-08-21：桌面小T生图链路去重并收紧预览尺寸。同一回合同时返回旧版直接生图工具与画布生成节点时只执行画布节点，旧版工具仅在没有可执行画布生图节点时回退，避免重复生成和双重扣费；聊天图片改为 `128px` 紧凑缩略图，点击继续在右侧预览；Electron 画布工具栏恢复唯一的普通/稳定线路切换入口。

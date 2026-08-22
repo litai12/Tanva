@@ -716,6 +716,10 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
+      // The Electron shell owns its quit lifecycle and project state is
+      // autosaved. A browser beforeunload prompt can become an invisible
+      // macOS sheet and strand the desktop process after its window closes.
+      if (isDesktopTaskShell()) return;
       if (consumeBeforeUnloadPromptSkip()) return;
       const { dirty } = useProjectContentStore.getState();
       const pending = getPendingUploadSummary();

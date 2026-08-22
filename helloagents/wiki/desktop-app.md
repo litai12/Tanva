@@ -41,6 +41,7 @@ Tanva 桌面端采用“Codex 式任务线程、画布按需作为工具面、�
 ## 当前实现（M1 基础）
 
 - Electron Main/Preload 已落地，Renderer 开启 `contextIsolation` 与 sandbox，关闭 Node integration；
+- 主窗口关闭、窗口 IPC 与系统退出统一进入受控退出生命周期：本机连接器清理完成或超时后 Electron 必须结束；macOS 不保留 Dock/后台常驻进程。网页保留 `beforeunload` 离站保护，Electron 依赖自动保存并在明确退出时由 Main 放行 unload，避免不可见的 macOS 提示卡住进程；
 - Electron 环境进入独立 `DesktopApp`，网页版本保持原路由；
 - 已实现任务边栏、嵌入式小T线程、项目上下文和统一右侧工具面；
 - 已实现插件 manifest 校验、注册表、工具面状态、尺寸持久化和错误隔离；

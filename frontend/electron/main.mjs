@@ -7,6 +7,7 @@ import {
   DesktopCapabilityHost,
   validateStdioServerConfig,
 } from './capability-host.mjs';
+import { createQuitCoordinator } from './app-lifecycle.mjs';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(currentDir, '..');
@@ -50,6 +51,10 @@ if (!hasSingleInstanceLock) app.quit();
 
 let mainWindow = null;
 const capabilityHost = new DesktopCapabilityHost();
+const quitCoordinator = createQuitCoordinator({
+  cleanup: () => capabilityHost.disconnectAll(),
+  quit: () => app.quit(),
+});
 
 const getPackagedRendererRoot = () => resolve(process.resourcesPath, 'renderer');
 
@@ -386,7 +391,9 @@ const installWindowIpc = () => {
     return window.isMaximized();
   });
   ipcMain.handle('tanva:window:close', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
+    if (!BrowserWindow.fromWebContents(event.sender)) return false;
+    void quitCoordinator.requestQuit();
+    return true;
   });
   ipcMain.handle('tanva:window:is-maximized', (event) =>
     BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
@@ -427,6 +434,14 @@ const createMainWindow = async () => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
 
+  window.webContents.on('will-prevent-unload', (event) => {
+    if (!quitCoordinator.isQuitPending()) return;
+    // Browser-style beforeunload dialogs can become invisible sheets while
+    // Electron is quitting. Desktop state is autosaved, so an explicit app
+    // quit must never leave a headless main process behind.
+    event.preventDefault();
+  });
+
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl) => {
     console.error(
       `[tanva-renderer] load failed code=${errorCode} description=${errorDescription} url=${validatedUrl}`
@@ -443,6 +458,11 @@ const createMainWindow = async () => {
   window.on('maximize', () => sendMaximizedState(window));
   window.on('unmaximize', () => sendMaximizedState(window));
   window.once('ready-to-show', () => window.show());
+  window.on('close', (event) => {
+    if (quitCoordinator.isReadyToQuit()) return;
+    event.preventDefault();
+    void quitCoordinator.requestQuit();
+  });
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null;
   });
@@ -541,9 +561,11 @@ app.on('second-instance', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  void quitCoordinator.requestQuit();
 });
 
-app.on('before-quit', () => {
-  void capabilityHost.disconnectAll();
+app.on('before-quit', (event) => {
+  if (quitCoordinator.isReadyToQuit()) return;
+  event.preventDefault();
+  void quitCoordinator.requestQuit();
 });
