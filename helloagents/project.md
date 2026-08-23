@@ -36,6 +36,7 @@
 - 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL
 - 如需重新启用代理：设置 `VITE_PROXY_ASSETS=true`
 - 导演台内置模型、纹理与地形只发布到 TOS 的 `director-assets/v1/`，不再随 `frontend/public/` 打包；运行时优先通过 `VITE_ASSET_PUBLIC_BASE_URL` 直连，未配置时使用已部署的广州 TOS 公共基址，不允许回退到本地副本。重新发布时在仓库外准备保持 glTF 相对依赖结构的目录，再运行 `cd backend && DIRECTOR_ASSET_SOURCE_DIR=/absolute/staging/path npm run upload:director-assets`。
+- 导演台全景环境统一使用 `scene.skybox / skyboxYaw / skyboxPitch`。`skyboxPitch` 是 -45°..45° 的地平线校准，用于把背景中的地面起点与三维网格消失线对齐；环境球必须在每次渲染前跟随该次真实 render camera，因此导演视口、机位预览和离屏截图消费同一空间基准。约 2:1 图片按等距全景解释，其他横图只做环幕适配，不得宣称其具备可碰撞或可测量的真实地面几何。
 
 ### API 前缀与文档
 - 后端全局前缀：`/api`

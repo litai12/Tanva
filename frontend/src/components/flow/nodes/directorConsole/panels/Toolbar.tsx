@@ -20,6 +20,8 @@ type Props = {
   panoConnected: boolean
   skyboxYaw: number
   onSetSkyboxYaw: (deg: number) => void
+  skyboxPitch: number
+  onSetSkyboxPitch: (deg: number) => void
   onGeneratePanorama: (prompt: string) => Promise<void>
   onOpenPanoramaHistory: () => void
   onAddCamera: () => void
@@ -102,7 +104,7 @@ function CharacterMenu({ close, onLocalUpload, onGaussianUpload, onAddCharacter,
   </>
 }
 
-export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onGeneratePanorama, onOpenPanoramaHistory, onAddCamera, onSetAspect, onCapture, onAiSceneImport, editorMode, onEditorModeChange }: Props) {
+export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, skyboxPitch, onSetSkyboxPitch, onGeneratePanorama, onOpenPanoramaHistory, onAddCamera, onSetAspect, onCapture, onAiSceneImport, editorMode, onEditorModeChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null)
   const gaussianRef = React.useRef<HTMLInputElement>(null)
   const skyRef = React.useRef<HTMLInputElement>(null)
@@ -147,7 +149,13 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
                       onChange={(e) => onSetSkyboxYaw(Number(e.target.value))} style={{ flex: 1 }} />
                     {skyboxYaw}°
                   </div>
-                  <div style={{ fontSize: 11, color: '#6b7280', padding: '0 10px 6px' }}>非 2:1 的图会自动转为环幕穹顶展示</div>
+                  <div className="director-toolbar-panorama-pitch" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, color: '#cdd3dc' }}>
+                    地平线
+                    <input className="director-toolbar-panorama-pitch-slider" aria-label="全景地平线高度" type="range" min={-45} max={45} step={1} value={skyboxPitch}
+                      onChange={(e) => onSetSkyboxPitch(Number(e.target.value))} style={{ flex: 1 }} />
+                    {skyboxPitch}°
+                  </div>
+                  <div className="director-toolbar-panorama-pitch-hint" style={{ fontSize: 11, color: '#6b7280', padding: '0 10px 6px', lineHeight: 1.45 }}>调到背景地面起点与网格消失线重合；非 2:1 横图只做环幕适配，不具备真实地面几何</div>
                 </>
               ) : null}
             </div>

@@ -161,6 +161,7 @@ function useRenderSceneFromJob(job: CaptureJob, camId: string): DirectorScene {
       activeCameraId: camId,
       skybox: typeof job.scene.skybox === 'string' ? job.scene.skybox : undefined,
       skyboxYaw: typeof (job.scene as { skyboxYaw?: unknown }).skyboxYaw === 'number' ? (job.scene as { skyboxYaw?: number }).skyboxYaw : undefined,
+      skyboxPitch: typeof (job.scene as { skyboxPitch?: unknown }).skyboxPitch === 'number' ? (job.scene as { skyboxPitch?: number }).skyboxPitch : undefined,
       customMotions: Array.isArray((job.scene as { customMotions?: unknown }).customMotions)
         ? ((job.scene as { customMotions?: DirectorScene['customMotions'] }).customMotions)
         : undefined,

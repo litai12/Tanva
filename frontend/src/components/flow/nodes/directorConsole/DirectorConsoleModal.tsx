@@ -9,7 +9,7 @@ import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import { createDefaultDirectorConsoleData } from './types'
 import {
   addCharacter, addCamera, selectObject, removeObject,
-  patchCharacter, patchCamera, setAspect, setViewpoint, setActiveCamera, setSkybox, setSkyboxYaw,
+  patchCharacter, patchCamera, setAspect, setViewpoint, setActiveCamera, setSkybox, setSkyboxYaw, setSkyboxPitch,
 } from './state/scene'
 import { createHistory, pushHistory, undoHistory, redoHistory, snapshotOf, type HistorySnapshot } from './state/history'
 import { copySelection, pasteClipboard, type DirectorClipboard } from './state/clipboard'
@@ -1027,6 +1027,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         panoConnected={!!connectedPanoUrl}
         skyboxYaw={scene.skyboxYaw ?? 0}
         onSetSkyboxYaw={(deg) => apply(setSkyboxYaw(data, deg))}
+        skyboxPitch={scene.skyboxPitch ?? 0}
+        onSetSkyboxPitch={(deg) => apply(setSkyboxPitch(data, deg))}
         onGeneratePanorama={onGeneratePanorama}
         onOpenPanoramaHistory={() => requestHistoryImage('director-panorama', (url) => {
           if (!isPersistableImageRef(url)) { showToast('历史图片不是可持久化远程地址', 'error'); return }

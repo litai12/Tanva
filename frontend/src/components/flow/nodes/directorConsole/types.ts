@@ -85,6 +85,8 @@ export type DirectorScene = {
   skybox?: string
   /** 全景背景水平旋转(度, 0..360)：转动背景取景而不动机位；~2:1 走 equirect offset，非 2:1 转 backdrop 穹顶 */
   skyboxYaw?: number
+  /** 全景地平线俯仰校准(度, -45..45)：让背景地面起点与导演台网格消失线对齐。 */
+  skyboxPitch?: number
   /** LibTV 导演台的全局场景设置。旧节点缺失时按面板默认值解释。 */
   sceneScale?: number
   scenePosition?: Vec3

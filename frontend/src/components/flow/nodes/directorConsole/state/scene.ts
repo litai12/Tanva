@@ -1,5 +1,6 @@
 import type { DirectorConsoleData, CharacterObj, CameraObj, AspectKey, Vec3 } from '../types'
 import { getLibraryItem } from '../assets'
+import { normalizeSkyboxPitch } from './panoramaCalibration'
 
 const ALPHA = (i: number) => String.fromCharCode(65 + i) // 0 -> A
 
@@ -114,6 +115,10 @@ export function setSkybox(d: DirectorConsoleData, skybox?: string): DirectorCons
 export function setSkyboxYaw(d: DirectorConsoleData, yawDeg: number): DirectorConsoleData {
   const yaw = ((Math.round(yawDeg) % 360) + 360) % 360
   return { ...d, scene: { ...d.scene, skyboxYaw: yaw || undefined } }
+}
+
+export function setSkyboxPitch(d: DirectorConsoleData, pitchDeg: number): DirectorConsoleData {
+  return { ...d, scene: { ...d.scene, skyboxPitch: normalizeSkyboxPitch(pitchDeg) } }
 }
 
 export function setViewpoint(d: DirectorConsoleData, vp: 'director' | 'camera'): DirectorConsoleData {

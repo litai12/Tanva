@@ -70,8 +70,14 @@ try {
     throw new Error(`Generated panorama URL became active but its red sphere was not rendered: pixels=${JSON.stringify(renderedPixels)}, statuses=${JSON.stringify(statuses)}`)
   }
 
+  await page.getByTitle('全景背景').click()
+  const horizonSlider = page.getByRole('slider', { name: '全景地平线高度' })
+  await horizonSlider.fill('18')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('tanva:director-full-harness:v1') || 'null')?.scene?.skyboxPitch === 18)
+
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tanva:director-full-harness:v1') || 'null'))
   if (saved?.scene?.skybox !== generatedUrl) throw new Error(`Generated panorama was not persisted: ${saved?.scene?.skybox}`)
+  if (saved?.scene?.skyboxPitch !== 18) throw new Error(`Panorama horizon calibration was not persisted: ${saved?.scene?.skyboxPitch}`)
   // Radius 10 is smaller than the default director-camera distance (~15).
   // A world-origin BackSide sphere becomes completely invisible here; a real
   // sky sphere must follow the active viewpoint and remain visible.
@@ -86,6 +92,11 @@ try {
   const reloadedUrl = await modal.getAttribute('data-skybox-url')
   if (reloadedUrl !== generatedUrl) throw new Error(`Connected input overrode generated panorama after reload: ${reloadedUrl}`)
   await page.waitForFunction((url) => window.__directorPanoramaStatuses?.some((item) => item.url === url && item.status === 'ready'), generatedUrl)
+  await page.getByTitle('全景背景').click()
+  if (await page.getByRole('slider', { name: '全景地平线高度' }).inputValue() !== '18') {
+    throw new Error('Panorama horizon calibration did not survive reload')
+  }
+  await page.keyboard.press('Escape')
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   const outsideRadiusPixel = await page.getByTestId('director-main-viewport').locator('canvas').first().evaluate((canvas) => {
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
@@ -110,6 +121,8 @@ try {
     generatedPanoramaWonAfterReload: true,
     panoramaSphereRendered: true,
     panoramaVisibleOutsideConfiguredRadius: true,
+    panoramaHorizonPersisted: true,
+    panoramaHorizonReloaded: true,
     redPixelCount,
     effectiveUrl: reloadedUrl,
     screenshotPath,

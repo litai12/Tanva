@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-23：修复导演台全景背景无法与地面网格对齐。场景新增 `skyboxPitch` 地平线/底部校准，工具栏和场景属性均可在 -45°..45° 调整；环境穹顶改为跟随每次实际 render camera，使导演视口、当前机位与离屏截图保持一致。约 2:1 图片继续按等距全景渲染，普通横图明确只做环幕适配，不再把视觉背景误称为真实地面几何。
+
 - 2026-08-22：修复 Tanva 桌面端关闭后仍留在 macOS Dock/后台的问题。主窗口关闭、窗口 IPC 和系统退出现统一清理本机连接器并在有界超时后结束 Electron 主进程；网页继续保留 `beforeunload` 离站保护，Electron 依赖项目自动保存，明确退出时由 Main 放行 unload，不再让不可见的 macOS 提示卡住无窗口进程。同时新增重复退出去重、清理超时回归，并将退出生命周期模块加入 Electron 打包白名单。
 
 - 2026-08-21：新建 Office 文件从 Tanva 固定模板切换为小T原生 Skill。PPT/PPTX 使用 `pptx-generator`，Excel/XLSX 使用 `minimax-xlsx`，在小T工作区生成并校验真实文件后通过 `present_file` 上传；OpenAI facade 将文件投影成 `artifact` 卡，消息与右侧文件工作台都可直接下载原始 PPTX/XLSX。桌面能力清单移除 `create_presentation` / `create_spreadsheet` 模板入口，仅保留已有 HTML 演示节点的编辑兼容路径，避免再次出现永远相同的三页黑底占位稿。

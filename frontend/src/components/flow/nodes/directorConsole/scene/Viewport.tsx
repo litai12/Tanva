@@ -234,13 +234,10 @@ function measureImageLuminance(img: HTMLImageElement): number {
 
 /** 全景背景：~2:1 等距图设为天空盒；非 2:1 普通图自适应处理后贴 BackSide 穹顶（裸 equirect 会严重拉伸）。
  * yawDeg 水平旋转背景取景；清除/失败时恢复纯色。 */
-function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: string; yawDeg?: number; skyColor?: string; radius?: number }) {
-  const { scene, invalidate, camera } = useThree()
+function Skybox({ url, yawDeg, pitchDeg, skyColor = '#060608', radius = 60 }: { url?: string; yawDeg?: number; pitchDeg?: number; skyColor?: string; radius?: number }) {
+  const { scene, invalidate } = useThree()
   const [state, setState] = React.useState<SkyboxState>(null)
   const sphereRef = React.useRef<THREE.Mesh>(null)
-  // 天空球始终以当前视点为球心。否则用户缩放导演视角、把球半径调到
-  // 10，或机位运动到球外后，BackSide 材质会从外侧完全不可见，只剩黑屏。
-  useFrame(() => { sphereRef.current?.position.copy(camera.position) })
 
   React.useEffect(() => {
     if (!url) { setState(null); return }
@@ -296,18 +293,27 @@ function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: stri
   }, [url, invalidate])
 
   const yawRad = (((yawDeg ?? 0) % 360) * Math.PI) / 180
+  const pitchRad = (Math.max(-45, Math.min(45, pitchDeg ?? 0)) * Math.PI) / 180
   React.useEffect(() => {
     scene.background = new THREE.Color(skyColor)
     if (state && state.url === url) window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'ready', mode: state.mode, width: state.width, height: state.height, luminance: state.luminance } }))
     invalidate?.()
     return () => { scene.background = new THREE.Color(skyColor) }
-  }, [state, url, yawDeg, skyColor, scene, invalidate])
+  }, [state, url, yawDeg, pitchDeg, skyColor, scene, invalidate])
 
   // 所有全景都渲染成真实内视球体。穹顶不参与拾取，否则点空处永远命中背景球。
   return state && state.url === url ? (
-    <mesh ref={sphereRef} frustumCulled={false} renderOrder={-1000} rotation={[0, yawRad, 0]} raycast={() => null}>
+    <mesh
+      ref={sphereRef}
+      name="tanva-director-environment-dome"
+      frustumCulled={false}
+      renderOrder={-1000}
+      rotation={[pitchRad, yawRad, 0]}
+      raycast={() => null}
+      onBeforeRender={(_renderer, _scene, renderCamera) => sphereRef.current?.position.copy(renderCamera.position)}
+    >
       <sphereGeometry args={[Math.max(1, radius), 96, 64]} />
-      <meshBasicMaterial map={state.texture} side={THREE.BackSide} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial map={state.texture} side={THREE.BackSide} depthTest={false} depthWrite={false} toneMapped={false} />
     </mesh>
   ) : null
 }
@@ -433,7 +439,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
         <ActiveCameraView cam={activeCam} scene={scene} />
       ) : null}
 
-      <Skybox url={skyboxUrl ?? scene.skybox} yawDeg={scene.skyboxYaw} skyColor={scene.skyColor ?? '#060608'} radius={scene.skyRadius ?? 60} />
+      <Skybox url={skyboxUrl ?? scene.skybox} yawDeg={scene.skyboxYaw} pitchDeg={scene.skyboxPitch} skyColor={scene.skyColor ?? '#060608'} radius={scene.skyRadius ?? 60} />
       <ambientLight intensity={1.1} />
       <hemisphereLight args={['#ffffff', '#444a55', 0.8]} />
       <directionalLight position={[5, 10, 7]} intensity={1.4} />

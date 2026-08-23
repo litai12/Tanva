@@ -43,6 +43,8 @@ export function ScenePropertiesPanel({ scene, panoramaConnected, onPatch }: Prop
       <Section title="全景球">
         <div style={{ color: '#a3a3a3', fontSize: 11, marginBottom: 4 }}>水平旋转</div>
         <SliderField value={scene.skyboxYaw ?? 0} min={0} max={360} step={1} suffix="°" onChange={(value) => onPatch({ skyboxYaw: value })} />
+        <div className="director-scene-panorama-pitch-label" style={{ color: '#a3a3a3', fontSize: 11, margin: '12px 0 4px' }}>地平线 / 底部对齐</div>
+        <SliderField value={scene.skyboxPitch ?? 0} min={-45} max={45} step={1} suffix="°" onChange={(value) => onPatch({ skyboxPitch: value || undefined })} />
         <div style={{ color: '#a3a3a3', fontSize: 11, margin: '12px 0 4px' }}>球形半径</div>
         <SliderField value={scene.skyRadius ?? 60} min={10} max={200} step={1} onChange={(value) => onPatch({ skyRadius: value })} />
       </Section>
