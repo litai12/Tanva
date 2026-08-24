@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileSpreadsheet, FileText, PanelRightOpen, Presentation, Rows3 } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, PanelRightOpen, Pencil, Presentation, Rows3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { requestDesktopSurface } from '../surfaceEvents';
 import { TANVA_CANVAS_PLUGIN_ID } from '../pluginIds';
-import { useDesktopArtifactStore } from '../../artifacts/artifactState';
+import { editDesktopArtifact, useDesktopArtifactStore } from '../../artifacts/artifactState';
 import { downloadTextArtifact, exportPresentationArtifact } from '../../artifacts/artifactExport';
 import { downloadSpreadsheetWorkbook } from '../../artifacts/spreadsheetExport';
 import { downloadFile } from '@/utils/downloadHelper';
@@ -217,14 +217,26 @@ export default function ArtifactWorkspaceSurface(_props: DesktopPluginComponentP
             {active.title}
           </div>
           {active.fileUrl && (
-            <button
-              type="button"
-              onClick={downloadNativeFile}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <Download className="h-3.5 w-3.5" />
-              下载 {active.kind === 'presentation' ? 'PPTX' : active.kind === 'spreadsheet' ? 'XLSX' : '文件'}
-            </button>
+            <>
+              {(active.kind === 'presentation' || active.kind === 'spreadsheet') && (
+                <button
+                  type="button"
+                  onClick={() => editDesktopArtifact(active)}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  继续编辑
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={downloadNativeFile}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                下载 {active.kind === 'presentation' ? 'PPTX' : active.kind === 'spreadsheet' ? 'XLSX' : '文件'}
+              </button>
+            </>
           )}
           {active.kind === 'spreadsheet' && active.sheets && (
             <button

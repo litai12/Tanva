@@ -24,6 +24,10 @@ import {
   VolcAssetReviewRejectedError,
   VolcAssetUpstreamError,
 } from "../../volc-asset/volc-asset-error.util";
+import {
+  normalizeKlingOmniPrompt,
+  translateKlingOmniPromptAliases,
+} from "./kling-omni-prompt";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
@@ -1725,6 +1729,18 @@ export class VideoProviderService {
     ]
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       .map((url) => this.normalizeFirstPartyAssetUrl(url));
+    const klingOmniPrompt =
+      model === "kling-v3-omni"
+        ? normalizeKlingOmniPrompt({
+            prompt: options.prompt,
+            imageCount: referenceImages.length,
+            videoCount: referenceVideos.length,
+          })
+        : options.prompt;
+    const effectiveOptions =
+      klingOmniPrompt === options.prompt
+        ? options
+        : { ...options, prompt: klingOmniPrompt };
 
     // wan2.7-videoedit requires the source video via metadata.video_url (the
     // new-api apimart adaptor reads it from metadata, not the top-level
@@ -1743,7 +1759,7 @@ export class VideoProviderService {
       (url) => this.normalizeFirstPartyAssetUrl(url),
     );
     const kling = this.buildKlingApimartParams(
-      options,
+      effectiveOptions,
       model,
       referenceImages,
       referenceVideos,
@@ -1850,7 +1866,7 @@ export class VideoProviderService {
     // 选端点直发，从而让普通 kling 全模式经 kapon 而不破坏 apimart 回落。
     const kaponKling = this.buildKaponKlingRequest(
       model,
-      options,
+      effectiveOptions,
       referenceImages,
       referenceVideos,
       elementImages,
@@ -1870,7 +1886,7 @@ export class VideoProviderService {
 
     const payload = this.stripUndefined({
       model,
-      prompt: options.prompt || "",
+      prompt: klingOmniPrompt || "",
       duration: isOmniFlashExt && referenceVideos.length > 0 ? undefined : duration,
       size,
       resolution: this.normalizeResolutionToken(
@@ -2463,7 +2479,12 @@ export class VideoProviderService {
     // multi_shot 与参考视频(video_list)互斥，上游报 "multi shot is not supported with
     // video input"。连了参考视频时跳过分镜，保证视频输入可用。
     if (isOmni && !hasVideo) {
-      this.applyKlingOmniStoryboard(options, metadata, effectiveDuration);
+      this.applyKlingOmniStoryboard(
+        options,
+        metadata,
+        effectiveDuration,
+        referenceImages.length,
+      );
     }
 
     return { image, images, metadata };
@@ -2478,6 +2499,7 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     metadata: Record<string, any>,
     duration?: number,
+    referenceImageCount = 0,
   ): void {
     const rawMode = String(options.klingStoryboardMode || "").trim().toLowerCase();
     if (!rawMode || rawMode === "single") {
@@ -2508,7 +2530,13 @@ export class VideoProviderService {
       }
       metadata.multi_shot = true;
       metadata.shot_type = "customize";
-      metadata.multi_prompt = shots;
+      metadata.multi_prompt = shots.map((shot) => ({
+        ...shot,
+        prompt: translateKlingOmniPromptAliases(
+          shot.prompt,
+          referenceImageCount,
+        ),
+      }));
       return;
     }
 

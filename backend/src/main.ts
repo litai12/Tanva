@@ -17,6 +17,10 @@ import { OpenObserveTelemetryService } from "./telemetry/openobserve-telemetry.s
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 import { WsCollabGateway } from "./team-collab/ws-collab.gateway";
 import { AsrRealtimeGateway } from "./asr/asr-realtime.gateway";
+import {
+  originsShareHost,
+  resolveOriginHostname,
+} from "./utils/cors-origin";
 
 // 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
 function configureProxyForUndici() {
@@ -203,21 +207,12 @@ async function bootstrap() {
         .filter(Boolean)
     : [];
   const corsAllowAll = corsOrigins.includes("*");
-  const resolveHostname = (value: string) => {
-    try {
-      return new URL(value).hostname;
-    } catch {
-      // 最后一层兜底：去掉协议、路径，尽量获取 host
-      return value.replace(/^https?:\/\//, "").split("/")[0];
-    }
-  };
-
   // 统一的 origin 放行判定，供 HTTP CORS 与 WS upgrade 复用，保证两者规则一致
   const isOriginAllowed = (origin?: string): boolean => {
     if (corsDevAllowAll || corsAllowAll) return true;
     // 没有 origin（同源请求）或 file://（origin 为 "null"），允许
     if (!origin || origin === "null") return true;
-    const hostname = resolveHostname(origin);
+    const hostname = resolveOriginHostname(origin);
     // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
     if (hostname === "trycloudflare.com" || hostname.endsWith(".trycloudflare.com")) {
       return true;
@@ -226,7 +221,7 @@ async function bootstrap() {
     if (corsOrigins.length > 0) {
       return corsOrigins.some(
         (allowedOrigin: string) =>
-          allowedOrigin === origin || resolveHostname(allowedOrigin) === hostname
+          originsShareHost(allowedOrigin, origin)
       );
     }
     // 未配置 CORS_ORIGIN：允许所有来源（开发环境）

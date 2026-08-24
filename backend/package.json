@@ -19,6 +19,7 @@
     "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",
     "test:xiaot-agent-delivery": "ts-node --transpile-only src/agent/xiaot-agent-delivery.spec.ts",
     "test:xiaot-agent-host-handoff": "ts-node --transpile-only src/agent/xiaot-agent-host-handoff.spec.ts",
+    "test:xiaot-agent-recovery": "ts-node --transpile-only src/agent/xiaot-agent-recovery.spec.ts",
     "test:xiaot-agent-route-fallback": "ts-node --transpile-only src/agent/xiaot-agent-route-fallback.spec.ts",
     "test:auth-session-persistence": "ts-node --transpile-only src/auth/auth-session-persistence.spec.ts",
     "verify:image-pricing": "ts-node --transpile-only scripts/verify-image-pricing.ts",

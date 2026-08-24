@@ -12,6 +12,13 @@ import {
   isXiaotHostExecutionSuspension,
 } from './xiaot-agent-delivery';
 import {
+  isXiaotDeferredReplayFrame,
+  isXiaotDurableContinuationPlaceholder,
+  replayXiaotTurn,
+  XiaotReplayFrame,
+  XiaotTurnReplayError,
+} from './xiaot-agent-recovery';
+import {
   buildCanvasContextSummary,
   buildCapabilityManifestSummary,
   queryCanvasContext,
@@ -43,6 +50,38 @@ type RunContinuation = {
   model: string;
   hostScopeId: string;
 };
+
+class XiaotInterruptedStreamError extends Error {
+  constructor() {
+    super('xiaot-agent upstream stream interrupted');
+    this.name = 'XiaotInterruptedStreamError';
+  }
+}
+
+class XiaotTransportReadError extends Error {
+  constructor(readonly diagnostic: string) {
+    super('xiaot-agent transport read failed');
+    this.name = 'XiaotTransportReadError';
+  }
+}
+
+const XIAOT_INTERRUPTED_STREAM_CODE = 'agents_bridge_stream_interrupted';
+
+function readOpenAiTurnId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const id = value.trim();
+  return id.startsWith('chatcmpl-') && id.length > 'chatcmpl-'.length
+    ? id.slice('chatcmpl-'.length)
+    : null;
+}
+
+function isInterruptedStreamEnvelope(value: unknown): boolean {
+  return readRecord(value)?.code === XIAOT_INTERRUPTED_STREAM_CODE;
+}
+
+function buildXiaotDurableSessionKey(openAiUser: string): string {
+  return `host:${openAiUser.slice(0, 120)}`;
+}
 
 /** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
 export const XIAOT_CHAT_MODELS = [
@@ -285,11 +324,195 @@ export class XiaotAgentService {
       let usageUnits = 0;
       let finishReason: string | null = null;
       let doneReceived = false;
+      let upstreamTurnId: string | null = null;
       const contextQueries: ContextQueryRequest[] = [];
+      const deliveredToolCallKeys = new Set<string>();
+      const deliveredMediaUrls = new Set<string>();
       // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
       // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
       // 后续帧补齐后再试，成功即 emit 并清该 index——两种形态都覆盖。
       const toolCallBuffers = new Map<number, ToolCallAccumulator>();
+
+      const deliverCompletedToolCall = (
+        toolName: string,
+        parsedArgs: Record<string, unknown>,
+        toolCallId: string,
+      ): void => {
+        const fallbackKey = `${toolName}:${JSON.stringify(parsedArgs)}`;
+        const deliveryKey = toolCallId.trim() || fallbackKey;
+        if (deliveredToolCallKeys.has(deliveryKey)) return;
+        deliveredToolCallKeys.add(deliveryKey);
+
+        if (toolName === 'flow_patch') {
+          patchCount += 1;
+          emit('flow_patch', { data: { patch: parsedArgs } });
+          return;
+        }
+        if (toolName === 'host_tool') {
+          if (typeof parsedArgs.name !== 'string' || !parsedArgs.name.trim()) return;
+          if (
+            parsedArgs.name === 'query_canvas' ||
+            parsedArgs.name === 'query_capabilities' ||
+            parsedArgs.name === 'query_desktop_tools'
+          ) {
+            contextQueries.push({
+              name: parsedArgs.name,
+              arguments: readRecord(parsedArgs.arguments) || {},
+            });
+            return;
+          }
+          hostToolCount += 1;
+          emit('host_tool', {
+            data: {
+              name: parsedArgs.name,
+              arguments: readRecord(parsedArgs.arguments) || {},
+            },
+          });
+          return;
+        }
+        if (toolName === 'host_ui') {
+          if (typeof parsedArgs.kind !== 'string' || !parsedArgs.kind.trim()) return;
+          hostUiCount += 1;
+          emit('host_ui', {
+            data: { kind: parsedArgs.kind, payload: parsedArgs.payload },
+          });
+        }
+      };
+
+      const deliverHostUi = (kind: string, payload: unknown, key: string): void => {
+        if (deliveredToolCallKeys.has(key)) return;
+        deliveredToolCallKeys.add(key);
+        hostUiCount += 1;
+        emit('host_ui', { data: { kind, payload } });
+      };
+
+      const handleReplayFrame = (frame: XiaotReplayFrame): void => {
+        const data = frame.data;
+        if (isXiaotDeferredReplayFrame(frame)) {
+          // A physical execution window ended, but the durable task owns a
+          // verified continuation. Discard its public placeholder/partial text;
+          // replayXiaotTurn reconnects from this exact event id and waits for
+          // the later logical terminal without resubmitting the prompt.
+          if (frame.event === 'result') fullText = '';
+          doneReceived = false;
+          return;
+        }
+        if (frame.event === 'content') {
+          const delta = typeof data.delta === 'string' ? data.delta : '';
+          if (delta) fullText += delta;
+          return;
+        }
+        if (frame.event === 'tool') {
+          const toolName = typeof data.toolName === 'string' ? data.toolName : '';
+          const status = typeof data.status === 'string' ? data.status : '';
+          const input = readRecord(data.input);
+          if (
+            status === 'succeeded' &&
+            input &&
+            (toolName === 'flow_patch' || toolName === 'host_tool')
+          ) {
+            deliverCompletedToolCall(
+              toolName,
+              input,
+              typeof data.toolCallId === 'string' ? data.toolCallId : '',
+            );
+          }
+          return;
+        }
+        if (frame.event === 'suggestions') {
+          const items = Array.isArray(data.items)
+            ? data.items
+                .map((item) =>
+                  typeof item === 'string'
+                    ? item
+                    : typeof readRecord(item)?.text === 'string'
+                      ? String(readRecord(item)?.text)
+                      : '',
+                )
+                .filter((item) => item.trim().length > 0)
+            : [];
+          if (items.length > 0) {
+            deliverHostUi('suggestions', { items }, frame.id || `suggestions:${JSON.stringify(items)}`);
+          }
+          return;
+        }
+        if (frame.event === 'block' && data.op === 'set') {
+          const block = readRecord(data.block);
+          if (block?.type === 'choice') {
+            deliverHostUi(
+              'request_user_input',
+              {
+                requestId: typeof block.requestId === 'string' ? block.requestId : '',
+                questions: Array.isArray(block.questions) ? block.questions : [],
+              },
+              frame.id || `choice:${JSON.stringify(block)}`,
+            );
+          } else if (block?.type === 'media' && Array.isArray(block.items)) {
+            for (const item of block.items) {
+              const url = readRecord(item)?.url;
+              if (typeof url === 'string' && url) deliveredMediaUrls.add(url);
+            }
+            deliverHostUi(
+              'media',
+              {
+                layout: block.layout === 'grid' ? 'grid' : 'single',
+                items: block.items,
+              },
+              frame.id || `media:${JSON.stringify(block.items)}`,
+            );
+          }
+          return;
+        }
+        if (frame.event === 'result') {
+          const resultResponse = readRecord(data.response);
+          if (!fullText && typeof resultResponse?.text === 'string') {
+            fullText = resultResponse.text;
+          }
+          const assets = Array.isArray(resultResponse?.assets)
+            ? resultResponse.assets
+            : [];
+          const freshMedia = assets
+            .map((asset) => readRecord(asset))
+            .filter((asset): asset is Record<string, unknown> => Boolean(asset))
+            .filter((asset) => asset.type !== 'file' && typeof asset.url === 'string')
+            .filter((asset) => {
+              const url = String(asset.url);
+              if (deliveredMediaUrls.has(url)) return false;
+              deliveredMediaUrls.add(url);
+              return true;
+            })
+            .map((asset) => ({
+              kind: asset.type === 'video' ? 'video' : 'image',
+              url: asset.url,
+              ...(typeof asset.thumbnailUrl === 'string'
+                ? { thumbnailUrl: asset.thumbnailUrl }
+                : {}),
+            }));
+          if (freshMedia.length > 0) {
+            deliverHostUi(
+              'media',
+              { layout: freshMedia.length > 1 ? 'grid' : 'single', items: freshMedia },
+              frame.id || `result-media:${JSON.stringify(freshMedia)}`,
+            );
+          }
+          finishReason =
+            patchCount + hostToolCount + hostUiCount > 0 ? 'tool_calls' : 'stop';
+          doneReceived = true;
+          return;
+        }
+        if (frame.event === 'done') {
+          finishReason =
+            patchCount + hostToolCount + hostUiCount > 0 ? 'tool_calls' : 'stop';
+          doneReceived = true;
+          return;
+        }
+        if (frame.event === 'error' && data.terminal === true) {
+          this.logger.warn(
+            `xiaot-agent replay reached terminal error for ${upstreamTurnId || 'unknown'}: ${JSON.stringify(data).slice(0, 1000)}`,
+          );
+          throw new Error('小T任务执行失败，已停止本次操作');
+        }
+      };
 
       const handleLine = (rawLine: string) => {
         const line = rawLine.trim();
@@ -314,6 +537,7 @@ export class XiaotAgentService {
         if (!parsed) {
           throw new Error('xiaot-agent protocol error: data frame must be an object');
         }
+        upstreamTurnId = readOpenAiTurnId(parsed.id) || upstreamTurnId;
         if (parsed.error) {
           if (isXiaotHostExecutionSuspension(parsed.error)) {
             // The flow_patch/host_tool frames emitted before this terminal are
@@ -325,6 +549,9 @@ export class XiaotAgentService {
             finishReason = 'tool_calls';
             return;
           }
+          if (isInterruptedStreamEnvelope(parsed.error)) {
+            throw new XiaotInterruptedStreamError();
+          }
           throw new Error(
             `xiaot-agent stream error: ${JSON.stringify(parsed.error).slice(0, 300)}`,
           );
@@ -335,7 +562,6 @@ export class XiaotAgentService {
         const delta = readRecord(choice?.delta);
         if (typeof delta?.content === 'string' && delta.content) {
           fullText += delta.content;
-          emit('assistant_delta', { data: { delta: delta.content } });
         }
 
         if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
@@ -382,45 +608,9 @@ export class XiaotAgentService {
               continue; // 分片未齐，等后续帧补齐后再试
             }
             toolCallBuffers.delete(index);
-            if (!parsedArgs || typeof parsedArgs !== 'object') continue;
-            if (acc.name === 'flow_patch') {
-              patchCount += 1;
-              emit('flow_patch', {
-                data: { patch: parsedArgs as Record<string, unknown> },
-              });
-            } else if (acc.name === 'host_tool') {
-              const args = parsedArgs as Record<string, unknown>;
-              if (typeof args.name !== 'string' || !args.name.trim()) continue;
-              if (
-                args.name === 'query_canvas' ||
-                args.name === 'query_capabilities' ||
-                args.name === 'query_desktop_tools'
-              ) {
-                contextQueries.push({
-                  name: args.name,
-                  arguments: readRecord(args.arguments) || {},
-                });
-                continue;
-              }
-              hostToolCount += 1;
-              emit('host_tool', {
-                data: {
-                  name: args.name,
-                  arguments:
-                    args.arguments && typeof args.arguments === 'object'
-                      ? args.arguments
-                      : {},
-                },
-              });
-            } else {
-              // host_ui：协议 v1.1 富格式卡片，必须带 string 类型 kind（choices/suggestions/media）。
-              const args = parsedArgs as Record<string, unknown>;
-              if (typeof args.kind !== 'string' || !args.kind.trim()) continue;
-              hostUiCount += 1;
-              emit('host_ui', {
-                data: { kind: args.kind, payload: args.payload },
-              });
-            }
+            const args = readRecord(parsedArgs);
+            if (!args) continue;
+            deliverCompletedToolCall(acc.name, args, acc.id);
           }
         }
 
@@ -430,19 +620,80 @@ export class XiaotAgentService {
         }
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          handleLine(line);
+      let interrupted = false;
+      try {
+        while (true) {
+          let readResult: ReadableStreamReadResult<Uint8Array>;
+          try {
+            readResult = await reader.read();
+          } catch (error: unknown) {
+            if (controller.signal.aborted) throw error;
+            throw new XiaotTransportReadError(
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          const { done, value } = readResult;
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            handleLine(line);
+          }
         }
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          handleLine(buffer);
+        }
+      } catch (error: unknown) {
+        if (
+          !(error instanceof XiaotInterruptedStreamError) &&
+          !(error instanceof XiaotTransportReadError)
+        ) {
+          throw error;
+        }
+        if (error instanceof XiaotTransportReadError) {
+          this.logger.warn(
+            `xiaot-agent transport read failed before terminal: ${error.diagnostic}`,
+          );
+        }
+        interrupted = true;
       }
-      buffer += decoder.decode();
-      if (buffer.trim()) {
-        handleLine(buffer);
+
+      const durableContinuationPending =
+        isXiaotDurableContinuationPlaceholder(fullText);
+      if ((interrupted || !doneReceived || durableContinuationPending) && upstreamTurnId) {
+        this.logger.warn(
+          durableContinuationPending
+            ? `xiaot-agent physical window suspended; following durable turn ${upstreamTurnId}`
+            : `xiaot-agent live stream interrupted; replaying accepted turn ${upstreamTurnId}`,
+        );
+        // The durable journal is authoritative and starts at sequence one.
+        // Text was deliberately buffered, so replacing it cannot make the user
+        // see duplicated or pre-terminal internal copy. Tool calls remain
+        // protected by their stable toolCallId set.
+        await reader.cancel().catch(() => {});
+        fullText = '';
+        toolCallBuffers.clear();
+        try {
+          await replayXiaotTurn({
+            gatewayBaseUrl: this.baseUrl,
+            apiKey: this.apiKey,
+            sessionKey: buildXiaotDurableSessionKey(requestBody.user),
+            turnId: upstreamTurnId,
+            signal: controller.signal,
+            onFrame: handleReplayFrame,
+          });
+        } catch (error: unknown) {
+          if (error instanceof XiaotTurnReplayError) {
+            this.logger.warn(
+              `xiaot-agent replay request failed for ${upstreamTurnId}: ${error.diagnostic}`,
+            );
+          }
+          throw error;
+        }
+      } else if (interrupted) {
+        throw new Error('小T任务已被受理，但响应中断且缺少安全续接标识');
       }
 
       const nextUsageUnits = (continuation?.usageUnits || 0) + usageUnits;
@@ -510,6 +761,9 @@ export class XiaotAgentService {
         contextQueryCount: continuation?.depth || 0,
       });
 
+      if (nextText) {
+        emit('assistant_delta', { data: { delta: nextText } });
+      }
       emit('final', {
         message: nextText,
         data: { text: nextText, patchCount: nextPatchCount, usageUnits: nextUsageUnits },

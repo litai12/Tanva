@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-08-24：修复 Kling O3 / Kling 3.0 Omni 连接参考图片后报 `Missing image placeholder in prompt`。画布继续使用可读的 `@图N`，后端在 new-api 最终请求边界统一转换为官方 `<<<image_N>>>` 语法；仅连线、未手写引用的图片及参考视频会自动补齐占位符，自定义分镜中的 `@图N` 也同步转换。新增无付费回归覆盖多图映射、纯连线补位、官方占位符去重与 `@图1/@图10` 边界。
+
+- 2026-08-24：修复小T简单生图在 TapCanvas Agent bridge 已受理后偶发断流，导致 Tanvas 直接报错或把内部预算/续跑诊断提前显示在消息里的问题。Tanva 后端现在从 OpenAI chunk 保存稳定 `turnId`，中断后经现有 new-api `xiaot-agent` 渠道代理续读同一 durable turn，绝不重发原 prompt；重放的 `flow_patch` / `host_tool` 按 `toolCallId` 去重，续读连接再次中断只用 `afterEventId` 接续。助手正文改为终态验证后再交给前端。新增无付费集成回归，覆盖单次原请求、断流续接、重复补丁不重复执行、后续 `add/connect/run` 补齐和内部诊断不外显。
+
 - 2026-08-23：修复导演台全景背景无法与地面网格对齐。场景新增 `skyboxPitch` 地平线/底部校准，工具栏和场景属性均可在 -45°..45° 调整；环境穹顶改为跟随每次实际 render camera，使导演视口、当前机位与离屏截图保持一致。约 2:1 图片继续按等距全景渲染，普通横图明确只做环幕适配，不再把视觉背景误称为真实地面几何。
 
 - 2026-08-22：修复 Tanva 桌面端关闭后仍留在 macOS Dock/后台的问题。主窗口关闭、窗口 IPC 和系统退出现统一清理本机连接器并在有界超时后结束 Electron 主进程；网页继续保留 `beforeunload` 离站保护，Electron 依赖项目自动保存，明确退出时由 Main 放行 unload，不再让不可见的 macOS 提示卡住无窗口进程。同时新增重复退出去重、清理超时回归，并将退出生命周期模块加入 Electron 打包白名单。

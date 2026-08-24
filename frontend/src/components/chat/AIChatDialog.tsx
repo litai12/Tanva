@@ -35,6 +35,10 @@ import { useAIChatStore } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useUIStore } from "@/stores";
 import { useCommentStore } from "@/stores/commentStore";
+import {
+  DESKTOP_ARTIFACT_EDIT_EVENT,
+  type DesktopArtifact,
+} from "@/desktop/artifacts/artifactState";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
 import { clipboardJsonService } from "@/services/clipboardJsonService";
 import {
@@ -348,6 +352,24 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
   const collapseHandleRef = useRef<HTMLButtonElement | null>(null);
   const lockButtonRef = useRef<HTMLButtonElement | null>(null);
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
+
+  useEffect(() => {
+    const handleArtifactEdit = (event: Event) => {
+      const artifact = (event as CustomEvent<DesktopArtifact>).detail;
+      if (!artifact || (artifact.kind !== "presentation" && artifact.kind !== "spreadsheet")) {
+        return;
+      }
+      const fileType = artifact.kind === "presentation" ? "PPT" : "Excel";
+      setCurrentInput(`请继续编辑这份${fileType}《${artifact.title}》：`);
+      window.setTimeout(() => {
+        textareaRef.current?.focus();
+        const length = textareaRef.current?.value.length ?? 0;
+        textareaRef.current?.setSelectionRange(length, length);
+      }, 0);
+    };
+    window.addEventListener(DESKTOP_ARTIFACT_EDIT_EVENT, handleArtifactEdit);
+    return () => window.removeEventListener(DESKTOP_ARTIFACT_EDIT_EVENT, handleArtifactEdit);
+  }, [setCurrentInput]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);

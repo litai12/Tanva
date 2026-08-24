@@ -77,7 +77,11 @@ import {
   type EditPresentationArguments,
 } from "@/services/xiaotPresentationTool";
 import { createSpreadsheetFromXiaot } from "@/services/xiaotSpreadsheetTool";
-import { openDesktopArtifact } from "@/desktop/artifacts/artifactState";
+import {
+  buildDesktopArtifactEditPrompt,
+  openDesktopArtifact,
+  useDesktopArtifactStore,
+} from "@/desktop/artifacts/artifactState";
 import {
   resolveXiaotFinalText,
   resolveXiaotTerminalContent,
@@ -8566,7 +8570,19 @@ export const useAIChatStore = create<AIChatState>()(
           // 桌面 Work 会话必须硬绑定到它所属的项目画布。不能只读取“此刻全局
           // 打开的项目”，因为切换任务/展开画布与 React 水合存在时间差，旧逻辑
           // 会把快照或 patch 发给上一项目（甚至尚未加载的空白画布）。
-          const desktopRuntime = Boolean(window.tanvaDesktop?.isElectron);
+          const desktopRuntime = Boolean(
+            window.tanvaDesktop?.isElectron ||
+              new URLSearchParams(window.location.search).get("desktopPreview") === "1"
+          );
+          const desktopArtifactState = useDesktopArtifactStore.getState();
+          const pendingEditArtifact = desktopRuntime
+            ? desktopArtifactState.artifacts.find(
+                (artifact) => artifact.id === desktopArtifactState.pendingEditArtifactId
+              )
+            : undefined;
+          const agentInput = pendingEditArtifact
+            ? buildDesktopArtifactEditPrompt(input, pendingEditArtifact)
+            : input;
           const desktopTaskState = useDesktopTaskContextStore.getState();
           const isDesktopChatTask = Boolean(
             desktopRuntime &&
@@ -8847,6 +8863,12 @@ export const useAIChatStore = create<AIChatState>()(
               ) ?? XIAOT_PREFERRED_VIDEO_MODELS[0];
             const capabilityManifest = {
               ...TANVA_CAPABILITY_MANIFEST,
+              // Only the packaged desktop host asks XiaoT for controlled workspace
+              // execution. The upstream also requires an account allowlist, so this
+              // declaration is necessary but never sufficient authorization.
+              executionMode: desktopRuntime
+                ? "local_desktop"
+                : "hosted",
               desktopTools: desktopMcpTools.map((connector) => ({
                 connectorId: connector.connectorId,
                 connectorName: connector.connectorName,
@@ -9034,7 +9056,7 @@ export const useAIChatStore = create<AIChatState>()(
               return presentationAttachmentUrlsPromise;
             };
             const run = await createAgentRunViaAPI({
-              prompt: input,
+              prompt: agentInput,
               mode: "canvasAgent",
               model: state.xiaotModel,
               sessionId,
@@ -10071,6 +10093,11 @@ export const useAIChatStore = create<AIChatState>()(
                   stage: "已完成",
                 },
               }));
+              if (pendingEditArtifact) {
+                useDesktopArtifactStore
+                  .getState()
+                  .clearEditRequest(pendingEditArtifact.id);
+              }
             }
           } catch (error) {
             // 用户主动中断（stopXiaotAgent → controller.abort()）：不当作错误，

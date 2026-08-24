@@ -203,6 +203,7 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
   return {
     protocol_version: value.protocol_version,
     host: value.host,
+    executionMode: value.executionMode,
     patchOps: value.patchOps,
     ui: value.ui,
     // 宿主工具必须首轮可见，小T才能选择 create_presentation 等高层工具；
