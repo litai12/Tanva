@@ -4876,20 +4876,23 @@ export class AiController {
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
-    // 提示词优化固定走 new-api 文本模型；不能被当前图片 provider（如
-    // RunningHub/Midjourney）带到其原生实现。
+    const usesUnifiedAgentTextGateway =
+      dto.billingTag === 'prompt_optimize' || dto.billingTag === 'text_chat';
+    // Flow Text Chat 与提示词优化共享同一套 new-api agent facade 模型入口；
+    // 显式 billingTag 只区分计费产品，不再分叉模型路由或终态协议。
+    // 未声明 billingTag 的其他历史文本能力保持各自的普通模型链路。
     const providerName =
-      billingTag === 'prompt_optimize'
+      usesUnifiedAgentTextGateway
         ? null
         : dto.aiProvider && dto.aiProvider !== 'gemini'
           ? dto.aiProvider
           : null;
     const model =
-      billingTag === 'prompt_optimize'
+      usesUnifiedAgentTextGateway
         ? resolvePromptOptimizationModel(dto.model)
         : this.resolveTextModel(providerName, dto.model);
     const gatewayModel =
-      billingTag === 'prompt_optimize'
+      usesUnifiedAgentTextGateway
         ? resolvePromptOptimizationGatewayModel(model)
         : model;
     const serviceType: ServiceType =

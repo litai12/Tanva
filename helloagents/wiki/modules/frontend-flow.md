@@ -60,7 +60,7 @@
 - Price badges continue to use authenticated `/api/credits/preview` only. The frontend supplies the selected model, resolution, output duration, and connected reference-video durations; it does not carry a second runtime price table.
 
 ## 2026-08-19 Prompt Optimizer Model Selection
-- Flow Prompt Optimizer 标题栏使用原有紧凑胶囊标签，点击后在浮层中切换 `小T-5.6 Luna`、`小T-5.6 Terra`、`小T-DeepSeek V4 Flash`；节点字段 `promptOptimizationModel` 同时驱动标签、积分预览和实际请求，旧/非法值回退 Luna。AI Chat 长按扩写面板复用同一组选项，自动扩写使用当前面板模型。Flow Text Chat 仍保持其独立默认文本模型。
+- Flow Prompt Optimizer 与 Flow Text Chat 标题栏使用同一组三模型紧凑胶囊：`小T-5.6 Luna`、`小T-5.6 Terra`、`小T-DeepSeek V4 Flash`。Prompt Optimizer 的 `promptOptimizationModel` 与 Text Chat 的 `textChatModel` 分别持久化各自选择，但共享同一模型选项、new-api agent facade 和终态协议；旧/非法/缺失值统一迁移到 Luna。Text Chat 显式提交 `billingTag=text_chat`，保持文字对话计费产品，不再显示或请求已停用的 `小T-5.4`。
 
 ## 2026-07-21 Backend-only Video Credit Display
 - Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.

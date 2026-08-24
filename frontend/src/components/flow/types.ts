@@ -1,4 +1,5 @@
 import type { Node, Edge } from '@xyflow/react';
+import type { PromptOptimizationModel } from '@/services/promptOptimizationModels';
 
 export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech' | 'minimaxMusic' | 'audioStudio';
 
@@ -212,6 +213,7 @@ export type TextChatData = {
   enableWebSearch?: boolean;
   error?: string;
   modelProvider?: 'banana-2.5' | 'banana' | 'banana-3.1';
+  textChatModel?: PromptOptimizationModel;
 };
 
 export type StoryboardSplitStatus = 'idle' | 'succeeded' | 'failed';

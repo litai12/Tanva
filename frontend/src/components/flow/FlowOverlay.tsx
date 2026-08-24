@@ -58,6 +58,7 @@ import { startFlowProgressRun } from "./flowProgressRuntime";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
+import { DEFAULT_PROMPT_OPTIMIZATION_MODEL } from "@/services/promptOptimizationModels";
 import { lazyNodeComponent } from "./lazyNodeComponent";
 import { guardFlowNodeTypes } from "./FlowNodeErrorBoundary";
 // 重依赖节点按需加载:three全家桶/PPT模板数据不进主包
@@ -10933,6 +10934,7 @@ function FlowInner() {
               responseText: "",
               textChatSkillId: "custom",
               enableWebSearch: false,
+              textChatModel: DEFAULT_PROMPT_OPTIMIZATION_MODEL,
               modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               boxW: size.w,
               boxH: size.h,
@@ -27249,6 +27251,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 responseText: "",
                 textChatSkillId: "custom",
                 enableWebSearch: false,
+                textChatModel: DEFAULT_PROMPT_OPTIMIZATION_MODEL,
                 modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               }
             : type === "promptOptimize"

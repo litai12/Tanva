@@ -8,9 +8,16 @@ import {
   type ReactFlowState,
   type Edge,
 } from '@xyflow/react';
-import { aiImageService } from '@/services/aiImageService';
+import { generateTextResponseViaAPI } from '@/services/aiBackendAPI';
 import { useCanvasStore } from '@/stores';
-import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
+import {
+  getPromptOptimizationModelLabel,
+  PROMPT_OPTIMIZATION_MODEL_OPTIONS,
+  resolvePromptOptimizationModel,
+  type PromptOptimizationModel,
+} from '@/services/promptOptimizationModels';
+import { PROMPT_OPTIMIZATION_TIMEOUT_MS } from '@/services/promptOptimizationService';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
@@ -35,6 +42,7 @@ type Props = {
     boxH?: number;
     sizeVersion?: number;
     modelProvider?: FlowModelProvider;
+    textChatModel?: PromptOptimizationModel;
     creditsPerCall?: number;
   };
   selected?: boolean;
@@ -113,8 +121,8 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     [aiProvider, data.modelProvider]
   );
   const textModel = React.useMemo(
-    () => getTextModelForProvider(effectiveProvider),
-    [effectiveProvider]
+    () => resolvePromptOptimizationModel(data.textChatModel),
+    [data.textChatModel]
   );
   const currentProviderValue = effectiveProvider;
   const themePalette = React.useMemo(() => {
@@ -313,6 +321,27 @@ Rules:
     );
   }, [currentProviderValue, data.modelProvider, id]);
 
+  React.useEffect(() => {
+    if (data.textChatModel === textModel) return;
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { textChatModel: textModel } },
+      })
+    );
+  }, [data.textChatModel, id, textModel]);
+
+  const handleModelChange = React.useCallback(
+    (value: PromptOptimizationModel) => {
+      const model = resolvePromptOptimizationModel(value);
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: { id, patch: { textChatModel: model } },
+        })
+      );
+    },
+    [id]
+  );
+
   const commitManualInput = React.useCallback((value: string) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { manualInput: value } }
@@ -424,18 +453,22 @@ Rules:
     setIsInvoking(true);
 
     try {
-      const result = await aiImageService.generateTextResponse({
-        prompt: requestPrompt,
-        enableWebSearch: false,
-        aiProvider: effectiveProvider,
-        model: textModel,
-        providerOptions: {
-          banana: {
-            imageRoute: bananaImageRoute,
+      const result = await generateTextResponseViaAPI(
+        {
+          prompt: requestPrompt,
+          enableWebSearch: false,
+          aiProvider: effectiveProvider,
+          model: textModel,
+          billingTag: 'text_chat',
+          providerOptions: {
+            banana: {
+              imageRoute: bananaImageRoute,
+            },
+            bananaImageRoute,
           },
-          bananaImageRoute,
         },
-      });
+        { timeoutMs: PROMPT_OPTIMIZATION_TIMEOUT_MS },
+      );
 
       if (!result.success || !result.data) {
         const message = result.error?.message || lt('文本生成失败', 'Text generation failed');
@@ -656,25 +689,64 @@ Rules:
                 {title}
               </div>
             )}
-            <span
-              className='tanva-flow-provider-mode-badge'
-              title='new-api · 小T-5.4'
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '1px 8px',
-                borderRadius: 50,
-                fontSize: 11,
-                fontWeight: 600,
-                flexShrink: 0,
-                color: isDarkTheme ? '#ffffff' : '#475569',
-                background: isDarkTheme ? '#343434' : '#f1f5f9',
-                border: isDarkTheme ? '1px solid #4a4a4a' : '1px solid #e2e8f0',
-              }}
-            >
-              小T-5.4
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type='button'
+                  className='nodrag nopan tanva-flow-provider-mode-badge'
+                  onPointerDownCapture={stopFlowPan}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  title={lt(
+                    `当前：${getPromptOptimizationModelLabel(textModel)}，点击切换`,
+                    `Current: ${getPromptOptimizationModelLabel(textModel)}. Click to switch`,
+                  )}
+                  aria-label={lt('切换文本对话模型', 'Switch text chat model')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '1px 8px',
+                    borderRadius: 50,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                    color: isDarkTheme ? '#ffffff' : '#475569',
+                    background: isDarkTheme ? '#343434' : '#f1f5f9',
+                    border: isDarkTheme ? '1px solid #4a4a4a' : '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {getPromptOptimizationModelLabel(textModel)}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align='start'
+                sideOffset={6}
+                className='nodrag nopan min-w-[190px] rounded-lg border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+              >
+                <DropdownMenuLabel className='px-2 py-1 text-[11px] text-slate-400'>
+                  {lt('文本模型', 'Text model')}
+                </DropdownMenuLabel>
+                {PROMPT_OPTIMIZATION_MODEL_OPTIONS.map((option) => {
+                  const active = option.value === textModel;
+                  return (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() => handleModelChange(option.value)}
+                      className={active
+                        ? 'cursor-pointer bg-slate-100 text-slate-900'
+                        : 'cursor-pointer text-slate-600'}
+                    >
+                      <span className='flex-1 text-xs font-medium'>{option.label}</span>
+                      {active ? <Check className='ml-2 h-3.5 w-3.5' /> : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <button
             onClick={runChat}
