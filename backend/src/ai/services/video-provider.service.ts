@@ -1404,7 +1404,15 @@ export class VideoProviderService {
           : undefined,
       sound: providerOptions.sound,
       referenceVideoType:
-        providerOptions.referenceVideoType || firstVideoMeta?.refer_type,
+        referenceVideos.length > 0
+          ? String(
+              providerOptions.referenceVideoType || firstVideoMeta?.refer_type || "",
+            )
+              .trim()
+              .toLowerCase() === "base"
+            ? "base"
+            : "feature"
+          : undefined,
       keepOriginalSound:
         providerOptions.keepOriginalSound || firstVideoMeta?.keep_original_sound,
       klingStoryboardMode: providerOptions.klingStoryboardMode,
@@ -2471,10 +2479,13 @@ export class VideoProviderService {
 
     // ── omni 参考视频 → video_list (refer_type / keep_original_sound from user choice). ──
     if (isOmni && hasVideo) {
+      // “视频参考”是非破坏性的默认语义；只有用户明确选择视频编辑时才发送
+      // base。旧节点通常没有持久化 UI 中展示的 feature 默认值，不能因此退化成
+      // base 并让输出时长继承输入视频长度。
       const referType =
-        String(options.referenceVideoType || "").trim().toLowerCase() === "feature"
-          ? "feature"
-          : "base";
+        String(options.referenceVideoType || "").trim().toLowerCase() === "base"
+          ? "base"
+          : "feature";
       const keepOriginalSound =
         String(options.keepOriginalSound || "").trim().toLowerCase() === "yes"
           ? "yes"

@@ -94,7 +94,7 @@ export interface VideoGenerationRequest {
   hailuoModel?: "h3";
   // Kling O1 瑙嗛缂栬緫涓撶敤鍙傛暟
   referenceVideo?: string;
-  referenceVideoType?: "feature" | "motion" | "expression";
+  referenceVideoType?: "feature" | "base";
   keepOriginalSound?: "yes" | "no";
   generateAudio?: boolean;
   idempotencyKey?: string;

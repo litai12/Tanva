@@ -21986,7 +21986,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                         : normalizedKlingSound
                       : undefined,
                   referenceVideo: referenceVideoUrl,
-                  referenceVideoType: rawNodeData.referenceVideoType,
+                  // 节点 UI 的默认显示是“视频参考(feature)”。必须把这个有效默认值
+                  // 显式写进请求；否则旧 backend 会把 undefined 当成 base（视频编辑），
+                  // 输出时长随输入视频而不是用户选择的生成时长。
+                  referenceVideoType:
+                    rawNodeData.referenceVideoType === "base" ? "base" : "feature",
                   keepOriginalSound: rawNodeData.keepOriginalSound,
                 };
 

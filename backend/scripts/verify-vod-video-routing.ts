@@ -74,6 +74,56 @@ assert.equal(
   klingOmniElementDto.prompt,
   '<<<image_1>>>仙侠分镜画面脚本',
 );
+
+const klingOmniVideoReferenceParams = service.buildKlingApimartParams(
+  { provider: 'kling-o3', prompt: '保留镜头节奏', duration: 6 },
+  'kling-v3-omni',
+  [],
+  ['https://example.com/three-seconds.mp4'],
+  [],
+  6,
+);
+assert.equal(
+  klingOmniVideoReferenceParams.metadata.video_list[0].refer_type,
+  'feature',
+);
+
+const klingOmniVideoEditParams = service.buildKlingApimartParams(
+  {
+    provider: 'kling-o3',
+    prompt: '修改输入视频内容',
+    duration: 6,
+    referenceVideoType: 'base',
+  },
+  'kling-v3-omni',
+  [],
+  ['https://example.com/three-seconds.mp4'],
+  [],
+  6,
+);
+assert.equal(klingOmniVideoEditParams.metadata.video_list[0].refer_type, 'base');
+
+const klingOmniTencentVideoReferenceDto = service.buildDtoFromUnifiedForTencent({
+  model: 'kling-v3-omni',
+  prompt: '参考动作生成新的六秒视频',
+  reference_videos: ['https://example.com/three-seconds.mp4'],
+  duration: 6,
+  provider_options: { videoMode: 'video' },
+});
+assert.equal(klingOmniTencentVideoReferenceDto.referenceVideoType, 'feature');
+assert.equal(klingOmniTencentVideoReferenceDto.duration, 6);
+
+const klingOmniTencentVideoEditDto = service.buildDtoFromUnifiedForTencent({
+  model: 'kling-v3-omni',
+  prompt: '编辑输入视频',
+  reference_videos: ['https://example.com/three-seconds.mp4'],
+  duration: 6,
+  provider_options: {
+    videoMode: 'video',
+    referenceVideoType: 'base',
+  },
+});
+assert.equal(klingOmniTencentVideoEditDto.referenceVideoType, 'base');
 assert.equal(
   service.resolveManagedViduModel({ viduModel: 'q3', videoMode: 'reference2video' })
     .modelVersion,
@@ -111,6 +161,15 @@ service.tencentVodAigcService = {
   },
 };
 await service.generateKlingViaTencent(
+  klingOmniTencentVideoReferenceDto,
+  { modelName: 'Kling', modelVersion: '3.0-Omni' },
+  '3.0-Omni',
+  true,
+);
+assert.equal(klingVodRequests[0].duration, 6);
+assert.equal(klingVodRequests[0].fileInfos[0].referenceType, 'feature');
+
+await service.generateKlingViaTencent(
   {
     provider: 'kling',
     klingModel: 'kling-v3-0',
@@ -128,9 +187,9 @@ await service.generateKlingViaTencent(
   '3.0',
   true,
 );
-assert.equal(klingVodRequests[0].fileInfos[0].usage, 'FirstFrame');
-assert.equal(klingVodRequests[0].lastFrameUrl, 'https://example.com/last.png');
-assert.equal(klingVodRequests[0].audioGeneration, 'Enabled');
+assert.equal(klingVodRequests[1].fileInfos[0].usage, 'FirstFrame');
+assert.equal(klingVodRequests[1].lastFrameUrl, 'https://example.com/last.png');
+assert.equal(klingVodRequests[1].audioGeneration, 'Enabled');
 
 await service.generateKlingViaTencent(
   {
@@ -149,7 +208,7 @@ await service.generateKlingViaTencent(
   '2.6',
   true,
 );
-assert.equal(klingVodRequests[1].audioGeneration, 'Disabled');
+assert.equal(klingVodRequests[2].audioGeneration, 'Disabled');
 
 await assert.rejects(
   service.generateKlingViaTencent(
