@@ -73,6 +73,103 @@ func TestTaskAdaptorParsesToAPIsVideoResult(t *testing.T) {
 	}
 }
 
+func TestNormalizeToAPISKlingOmniPayloadConvertsTanvaElementRequest(t *testing.T) {
+	const assetURL = "https://cdn.example.com/character.png"
+	payload := &SubmitPayload{
+		Model:      "kling-v3-omni",
+		Prompt:     "@图1仙侠分镜画面脚本",
+		Resolution: "720p",
+		Duration:   3,
+		Extras: map[string]any{
+			"audio":  true,
+			"mode":   "std",
+			"prompt": "@role1 @图1仙侠分镜画面脚本",
+			"element_list": []any{
+				map[string]any{
+					"name":               "role1",
+					"description":        "the named subject",
+					"element_input_urls": []any{assetURL, assetURL},
+				},
+			},
+		},
+	}
+
+	if err := normalizeToAPISKlingOmniPayload(payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Prompt != "<<<element_1>>>仙侠分镜画面脚本" {
+		t.Fatalf("Prompt=%q", payload.Prompt)
+	}
+	if payload.Resolution != "" {
+		t.Fatalf("Resolution=%q, want omitted because mode controls ToAPIs resolution", payload.Resolution)
+	}
+	if _, exists := payload.Extras["element_list"]; exists {
+		t.Fatal("APIMart element_list must not remain at the upstream top level")
+	}
+
+	metadata, ok := payload.Extras["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata=%T, want map", payload.Extras["metadata"])
+	}
+	elements, ok := metadata["element_list"].([]map[string]any)
+	if !ok || len(elements) != 1 {
+		t.Fatalf("element_list=%#v", metadata["element_list"])
+	}
+	if elements[0]["url"] != assetURL || elements[0]["type"] != "image" || elements[0]["role"] != "subject" {
+		t.Fatalf("element=%#v", elements[0])
+	}
+}
+
+func TestNormalizeToAPISKlingOmniPayloadConvertsFrameImages(t *testing.T) {
+	payload := &SubmitPayload{
+		Model:  "kling-v3-omni",
+		Prompt: "@图1走向@图2",
+		Extras: map[string]any{
+			"image_with_roles": []any{
+				map[string]any{"url": "https://cdn.example.com/first.png", "role": "first_frame"},
+				map[string]any{"url": "https://cdn.example.com/last.png", "role": "last_frame"},
+			},
+		},
+	}
+
+	if err := normalizeToAPISKlingOmniPayload(payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Prompt != "<<<image_1>>>走向<<<image_2>>>" {
+		t.Fatalf("Prompt=%q", payload.Prompt)
+	}
+	metadata := payload.Extras["metadata"].(map[string]any)
+	images := metadata["image_list"].([]map[string]any)
+	if len(images) != 2 || images[0]["type"] != "first_frame" || images[1]["type"] != "end_frame" {
+		t.Fatalf("image_list=%#v", images)
+	}
+}
+
+func TestNormalizeToAPISKlingOmniPayloadAddsMissingPlaceholdersInListOrder(t *testing.T) {
+	payload := &SubmitPayload{
+		Model:  "kling-v3-omni",
+		Prompt: "两张参考图自然过渡",
+		ImageUrls: []string{
+			"https://cdn.example.com/first.png",
+			"https://cdn.example.com/second.png",
+		},
+	}
+
+	if err := normalizeToAPISKlingOmniPayload(payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Prompt != "<<<image_1>>> <<<image_2>>> 两张参考图自然过渡" {
+		t.Fatalf("Prompt=%q", payload.Prompt)
+	}
+}
+
+func TestReplaceNamedOmniAliasDoesNotMatchLongerName(t *testing.T) {
+	got := replaceNamedOmniAlias("@role10 follows @role1", "role1", "<<<element_1>>>")
+	if got != "@role10 follows <<<element_1>>>" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 // DetailResponse must parse both envelopes for status, terminal detection,
 // result URLs and failure reason.
 func TestDetailResponseEnvelopes(t *testing.T) {

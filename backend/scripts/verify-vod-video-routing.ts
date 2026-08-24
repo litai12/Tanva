@@ -48,6 +48,32 @@ const roleAwareDto = service.buildDtoFromUnifiedForTencent({
   provider_options: {},
 });
 assert.equal(roleAwareDto.videoMode, 'start_end');
+
+const klingOmniElementDto = service.buildDtoFromUnifiedForTencent({
+  model: 'kling-v3-omni',
+  prompt: '@图1仙侠分镜画面脚本',
+  metadata: {
+    prompt: '@role1 @图1仙侠分镜画面脚本',
+    element_list: [
+      {
+        name: 'role1',
+        element_input_urls: [
+          'https://example.com/character.png',
+          'https://example.com/character.png',
+        ],
+      },
+    ],
+  },
+  provider_options: { videoMode: 'text' },
+});
+assert.equal(klingOmniElementDto.videoMode, 'reference');
+assert.deepEqual(klingOmniElementDto.referenceImages, [
+  'https://example.com/character.png',
+]);
+assert.equal(
+  klingOmniElementDto.prompt,
+  '<<<image_1>>>仙侠分镜画面脚本',
+);
 assert.equal(
   service.resolveManagedViduModel({ viduModel: 'q3', videoMode: 'reference2video' })
     .modelVersion,
@@ -156,6 +182,18 @@ await assert.rejects(
   ),
   /不支持 4K/,
 );
+
+await service.generateKlingViaTencent(
+  klingOmniElementDto,
+  { modelName: 'Kling', modelVersion: '3.0-Omni' },
+  '3.0-Omni',
+  true,
+);
+const klingOmniElementRequest = klingVodRequests.at(-1);
+assert.equal(klingOmniElementRequest.prompt, '<<<image_1>>>仙侠分镜画面脚本');
+assert.equal(klingOmniElementRequest.fileInfos.length, 1);
+assert.equal(klingOmniElementRequest.fileInfos[0].url, 'https://example.com/character.png');
+assert.equal(klingOmniElementRequest.fileInfos[0].usage, 'Reference');
 
 service.prepareRemoteImageUrls = async (urls: string[]) => urls;
 service.uploadBase64ImageToOSS = async (url: string) => url;

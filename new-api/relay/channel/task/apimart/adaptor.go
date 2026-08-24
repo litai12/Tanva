@@ -181,6 +181,16 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, errors.Wrap(err, "build payload failed")
 	}
 
+	// ToAPIs shares APIMart's submit endpoint, but Kling v3 Omni does not share
+	// APIMart's media schema. Convert the provider-neutral/APIMart-compatible
+	// request only after the distributor has selected the concrete channel so
+	// APIMart channels keep receiving their native element_list contract.
+	if isToAPISBaseURL(a.baseURL) {
+		if err := normalizeToAPISKlingOmniPayload(payload); err != nil {
+			return nil, errors.Wrap(err, "normalize toapis kling omni payload failed")
+		}
+	}
+
 	if requiresAssetConversion(info.UpstreamModelName) {
 		if err := resolvePayloadAssets(payload, a.baseURL, a.apiKey); err != nil {
 			return nil, errors.Wrap(err, "resolve asset urls failed")

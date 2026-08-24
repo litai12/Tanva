@@ -34,6 +34,24 @@ const run = (): void => {
     translateKlingOmniPromptAliases("@图1入画，@图10保持不变", 2),
     "<<<image_1>>>入画，@图10保持不变",
   );
+
+  assert.equal(
+    normalizeKlingOmniPrompt({
+      prompt: "@role1 @图1仙侠分镜画面脚本",
+      imageCount: 1,
+      namedImageAliases: [{ name: "role1", imageIndex: 1 }],
+    }),
+    "<<<image_1>>>仙侠分镜画面脚本",
+  );
+
+  assert.equal(
+    normalizeKlingOmniPrompt({
+      prompt: "@role10跟随@role1",
+      imageCount: 1,
+      namedImageAliases: [{ name: "role1", imageIndex: 1 }],
+    }),
+    "@role10跟随<<<image_1>>>",
+  );
 };
 
 run();

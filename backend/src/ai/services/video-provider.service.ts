@@ -1299,18 +1299,29 @@ export class VideoProviderService {
           }))
           .filter((item: { url: string }) => Boolean(item.url))
       : [];
-    const elementImages = Array.isArray(metadata.element_list)
-      ? metadata.element_list.flatMap((item: any) =>
-          Array.isArray(item?.element_input_urls)
-            ? item.element_input_urls.map((url: unknown) => String(url || "").trim())
-            : [],
-        ).filter(Boolean)
+    const elementDefinitions = Array.isArray(metadata.element_list)
+      ? metadata.element_list
+          .map((item: any) => ({
+            name: String(item?.name || "").trim(),
+            urls: Array.isArray(item?.element_input_urls)
+              ? item.element_input_urls
+                  .map((url: unknown) => String(url || "").trim())
+                  .filter(Boolean)
+              : String(item?.url || "").trim()
+                ? [String(item.url).trim()]
+                : [],
+          }))
+          .filter((item: { urls: string[] }) => item.urls.length > 0)
       : [];
+    const elementImages = Array.from(
+      new Set(elementDefinitions.flatMap((item: { urls: string[] }) => item.urls)),
+    );
     const referenceImages = Array.from(
       new Set([
         ...(Array.isArray(input.images) ? input.images : []),
         ...imageWithRoles.map((item: { url: string }) => item.url),
         ...(input.lastFrame ? [input.lastFrame] : []),
+        ...elementImages,
       ].map((url) => String(url || "").trim()).filter(Boolean)),
     );
     const metadataVideos = Array.isArray(metadata.video_list)
@@ -1327,6 +1338,27 @@ export class VideoProviderService {
     const firstVideoMeta = Array.isArray(metadata.video_list)
       ? metadata.video_list.find((item: any) => item?.video_url)
       : undefined;
+    const rawPrompt =
+      typeof metadata.prompt === "string" && metadata.prompt.trim()
+        ? metadata.prompt
+        : input.prompt;
+    const tencentKlingOmniPrompt =
+      model === "kling-v3-omni"
+        ? normalizeKlingOmniPrompt({
+            prompt: rawPrompt,
+            imageCount: referenceImages.length,
+            videoCount: referenceVideos.length,
+            namedImageAliases: elementDefinitions
+              .map((item: { name: string; urls: string[] }) => ({
+                name: item.name,
+                imageIndex: referenceImages.indexOf(item.urls[0]) + 1,
+              }))
+              .filter(
+                (item: { name: string; imageIndex: number }) =>
+                  Boolean(item.name) && item.imageIndex > 0,
+              ),
+          })
+        : rawPrompt;
     const normalizedRoleMode = imageWithRoles.some((item: { role: string }) =>
       ["last_frame", "lastframe", "last-frame"].includes(item.role),
     )
@@ -1340,10 +1372,7 @@ export class VideoProviderService {
           ? "image"
           : undefined;
     const base = {
-      prompt:
-        typeof metadata.prompt === "string" && metadata.prompt.trim()
-          ? metadata.prompt
-          : input.prompt,
+      prompt: tencentKlingOmniPrompt,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       elementImages: elementImages.length > 0 ? elementImages : undefined,
       referenceVideos: referenceVideos.length > 0 ? referenceVideos : undefined,
@@ -1364,7 +1393,9 @@ export class VideoProviderService {
       platformKey: "tencent_vod",
       channelTier: "vip" as const,
       videoMode:
-        typeof providerOptions.videoMode === "string"
+        model === "kling-v3-omni" && elementImages.length > 0
+          ? "reference"
+          : typeof providerOptions.videoMode === "string"
           ? providerOptions.videoMode
           : normalizedRoleMode,
       viduModelVariant:
@@ -4206,11 +4237,10 @@ export class VideoProviderService {
               usage: "FirstFrame" as const,
             },
           ]
-        : normalizedImages.map((url, index) => ({
+        : normalizedImages.map((url) => ({
             type: "Url" as const,
             category: "Image" as const,
             url,
-            objectId: isReferenceImageMode ? `id${index + 1}` : undefined,
             usage: isReferenceImageMode ? ("Reference" as const) : ("FirstFrame" as const),
           }))
       : [];

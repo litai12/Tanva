@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-24：修复 Kling 3.0 Omni 命名角色图片在 ToAPIs 与腾讯 VOD 两条线路上的协议串用。ToAPIs 渠道现在把 APIMart 兼容的 `element_input_urls` 转为嵌套 `metadata.element_list[{url,type,role}]`，并生成 `<<<element_N>>>`；腾讯 VOD 将临时角色图作为 `FileInfos[].Usage=Reference`，把 `@角色名/@图N` 绑定为 `<<<image_N>>>`，不再误当文生或首帧。新增渠道隔离、首尾帧、别名边界、列表顺序和腾讯最终请求回归。
+
 - 2026-08-24：修复 Kling O3 / Kling 3.0 Omni 连接参考图片后报 `Missing image placeholder in prompt`。画布继续使用可读的 `@图N`，后端在 new-api 最终请求边界统一转换为官方 `<<<image_N>>>` 语法；仅连线、未手写引用的图片及参考视频会自动补齐占位符，自定义分镜中的 `@图N` 也同步转换。新增无付费回归覆盖多图映射、纯连线补位、官方占位符去重与 `@图1/@图10` 边界。
 
 - 2026-08-24：修复小T简单生图在 TapCanvas Agent bridge 已受理后偶发断流，导致 Tanvas 直接报错或把内部预算/续跑诊断提前显示在消息里的问题。Tanva 后端现在从 OpenAI chunk 保存稳定 `turnId`，中断后经现有 new-api `xiaot-agent` 渠道代理续读同一 durable turn，绝不重发原 prompt；重放的 `flow_patch` / `host_tool` 按 `toolCallId` 去重，续读连接再次中断只用 `afterEventId` 接续。助手正文改为终态验证后再交给前端。新增无付费集成回归，覆盖单次原请求、断流续接、重复补丁不重复执行、后续 `add/connect/run` 补齐和内部诊断不外显。

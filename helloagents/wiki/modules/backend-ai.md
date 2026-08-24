@@ -208,3 +208,9 @@
 - `/api/ai/analyze-image` 的 Image Chat 三档使用 ToAPIs 模型广场真实基础 ID：Fast `gemini-2.5-flash`、Pro `gemini-3.5-flash`、Ultra `gemini-3.1-pro`，均走 OpenAI-compatible `/v1/chat/completions` 并显式发送 `max_tokens=4096`。接口只接受并直接传递远程 `image_url`，不下载或转换 base64；即使小T大脑是 `gpt-5.6-luna`，图片识别也必须通过 `analyze_image` 宿主工具切到上述 Gemini 模型。
 - ToAPIs 数据补丁 `new-api/patches/2026-07-24/001-add-toapis-gemini-image-chat.sql` 为 type=59 ToAPIs 渠道追加模型与 abilities，并按 Tanva 后端 Image Chat 统一 `10 credits = RMB 0.10/次` 写入固定 `ModelPrice`。ToAPIs 2026-07-24 页面参考 token 价分别为 12/100、60/360、80/480 credits/1M input/output；产品对用户仍采用后端固定价。
 - 小T capability manifest 暴露宿主工具 `analyze_image`。识图、图片描述、图片比较、提示词反推等任务必须调用该工具；宿主复用同一个 analyze endpoint、三档模型与积分逻辑，并从工具参数或当前消息附件收集图片。
+
+## 2026-08-24 Kling 3.0 Omni 双渠道素材映射
+
+- Tanva 可同时维护 ToAPIs 与腾讯 VOD 渠道，但 Kling Omni 请求不得共享同一上游 JSON。new-api 在选中 ToAPIs 后把 APIMart 兼容的 `image_with_roles` / `element_list` 转成 ToAPIs 嵌套 `metadata.image_list` / `metadata.element_list`，并把 `@图N` / `@角色名` 转成 `<<<image_N>>>` / `<<<element_N>>>`。
+- 腾讯 VOD type=67 继续回调 backend 内部 create/poll 端点。临时 `elementImg` 图片并不是腾讯主体库 ID，必须合并进参考图列表并生成 `FileInfos[{Category:"Image",Usage:"Reference"}]`；prompt 中的 `@角色名` 与 `@图N` 都绑定到对应 `<<<image_N>>>`。只有已通过 `CreateAigcAdvancedCustomElement` 创建并取得 ID 的主体才能使用 `SubjectInfos`。
+- `provider_options.videoMode=text` 只代表普通 image 桩为空，不能覆盖 element 图片的参考语义；腾讯转换层检测到 element 图片时必须收敛为 `reference`。重复的同 URL 正面照/参考照在腾讯 FileInfos 中去重，避免同一素材被重复计数和重复引用。

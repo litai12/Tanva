@@ -40,6 +40,7 @@
 - Omni prompt 引用语法：`<<<image_N>>>`、`<<<video_N>>>`、`<<<element_N>>>`
 - 图片放 `metadata.image_list`；角色/主体放 `metadata.element_list`；视频放顶层 `video_list`
 - 列表顺序必须与 prompt 中占位符编号一致，网关不会自动补占位符
+- new-api 只能在 distributor 已选中 ToAPIs 渠道后转换 Kling Omni 请求：Tanva/APIMart 兼容的顶层 `image_with_roles`、`element_list[{name,description,element_input_urls}]` 会分别归一到嵌套 `metadata.image_list`、`metadata.element_list[{url,type,role}]`，`@图N` / `@角色名` 同步改写为官方占位符。APIMart 渠道继续保留自己的原生结构，不能在公共入站阶段提前转换。
 
 ## 代表性时长/分辨率约束
 
