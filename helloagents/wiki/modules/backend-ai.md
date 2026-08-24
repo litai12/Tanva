@@ -81,8 +81,9 @@
 - new-api 中令牌所属分组必须存在请求模型对应的 ability。提示词优化在产品与计费层使用 `gpt-5.6-luna`、`gpt-5.6-terra`、`deepseek-v4-flash`，发送 new-api 前分别转换为 `xiaot-agent-gpt-5-6-luna`、`xiaot-agent-gpt-5-6-terra`、`xiaot-agent-deepseek-v4-flash`，复用小T已配置的 OpenAI facade 渠道；不得直接请求本地没有 ability 的裸模型 ID。
 - 提示词优化虽然复用 facade 模型路由，但每次调用使用全新的临时会话标识、`mode=chat` 与 `executionToolPolicy.allowedTools=[]`，不得复用小T session、记忆、画布或工具执行环境。小T画布回合先在浏览器请求边界把完整快照投影为摘要、选中节点和按本轮文字类型命中的最多 8 个节点，完整快照不离开浏览器；`xiaot-host-context` 在后端再次执行同样的边界校验，去除内联/超长内容并限制最多 12 个节点、24 条相关连线。纯问候在进入上游前本地完成，usage 为 0 且不扣固定对话积分。
 - 普通文本与 `image_url` 继续按 OpenAI-compatible Chat payload 交给 new-api；显式联网文本请求改走 `/v1/responses`，使用当前 `web_search` 工具，并把 `thinking_level` 转换为 `reasoning.effort`。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
+- 同步 `POST /api/ai/text-chat` 的终态合同为 `HTTP 200 + 无 error 信封 + 非空 assistant 正文`。new-api 返回 `202 pending`、`200/202` 内嵌 OpenAI error，或 `choices/output_text` 为空时，`NewApiProvider` 必须返回失败；Controller 在计费操作内再次校验正文，`withCredits.validateSuccessResult` 作为最终结算防线，确保已预扣用量标失败并退款。图片、视频等异步任务继续使用各自的任务终态链，不受同步文本状态约束。
 - 视频分析由 `resolveVideoAnalysisModel` 校验节点显式模型；默认豆包 Seed 2.0 Lite，也支持豆包 Mini/Pro 与 Gemini 三档。小T走独立 facade，可选 Fast 小T-5.4、Pro 小T-5.5、Ultra 小T-5.6 Luna 和小T-DeepSeek V4 Flash。
-- 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。
+- 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 Luna 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败；`npm run test:new-api-text-terminal` 覆盖 `202 error/pending`、`200 error`、空正文和正常 Chat/Responses 终态；`npm run test:text-chat-terminal-billing` 验证空正文绝不成功结算并触发用量失败与退款。
 
 ## 2026-07-31 Video Analysis Model Selection
 

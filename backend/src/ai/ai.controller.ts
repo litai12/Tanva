@@ -102,6 +102,10 @@ import {
   isDoubaoSeedVideoAnalysisModel,
 } from './services/doubao-seed-video-analysis-pricing';
 import {
+  requireTerminalTextResult,
+  validateTerminalTextPayload,
+} from './text-terminal.contract';
+import {
   resolvePromptOptimizationGatewayModel,
   resolvePromptOptimizationModel,
 } from './prompt-optimization-models';
@@ -4915,16 +4919,7 @@ export class AiController {
           enableWebSearch: dto.enableWebSearch,
           providerOptions: dto.providerOptions,
         });
-        if (result.success && result.data) {
-          return {
-            text: result.data.text,
-            webSearchResult: result.data.webSearchResult,
-            metadata: result.data.metadata,
-          };
-        }
-        throw new ServiceUnavailableException(
-          result.error?.message || '文本生成服务暂时不可用，请稍后重试',
-        );
+        return requireTerminalTextResult(result);
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
@@ -4934,7 +4929,9 @@ export class AiController {
       model,
       requestedProvider: dto.aiProvider,
       ...this.buildRequestPromptAndImageParams(dto.prompt, imageUrls),
-    }, dto.providerOptions));
+    }, dto.providerOptions), {
+      validateSuccessResult: validateTerminalTextPayload,
+    });
   }
 
   @Post('remove-background')

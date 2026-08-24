@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-24：修复 `/api/ai/text-chat` 把 new-api `HTTP 202` 错误/挂起信封当成成功并返回空正文、同时扣除提示词优化积分的问题。同步文本现在只接受 `HTTP 200 + 无 error 信封 + 非空 assistant 正文`；Provider 与 Controller 双层终态校验，计费包装器在空正文时标记失败并退款，图片/视频异步 `202` 不受影响。新增 Chat/Responses 状态矩阵及真实计费回滚回归。
+
 - 2026-08-24：修复 Kling 3.0 Omni 视频输入默认语义与输出时长。节点选择“视频参考”时，前端、ToAPI/APIMart 与腾讯 VOD 均显式提交 `feature`；只有明确选择“视频编辑”才提交 `base`。3 秒参考素材配 6 秒输出会继续提交 `duration=6`，不再因旧节点缺少 `referenceVideoType` 而退化为沿用素材时长的视频编辑。新增双渠道默认值、显式编辑与腾讯最终请求回归。
 
 - 2026-08-24：修复 Kling 3.0 Omni 命名角色图片在 ToAPIs 与腾讯 VOD 两条线路上的协议串用。ToAPIs 渠道现在把 APIMart 兼容的 `element_input_urls` 转为嵌套 `metadata.element_list[{url,type,role}]`，并生成 `<<<element_N>>>`；腾讯 VOD 将临时角色图作为 `FileInfos[].Usage=Reference`，把 `@角色名/@图N` 绑定为 `<<<image_N>>>`，不再误当文生或首帧。新增渠道隔离、首尾帧、别名边界、列表顺序和腾讯最终请求回归。

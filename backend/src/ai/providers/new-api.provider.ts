@@ -65,6 +65,16 @@ const URL_ONLY_IMAGE_RESPONSE_MODELS = new Set([
   'gemini-3.1-flash-image-preview',
 ]);
 
+type JsonResponsePolicy = {
+  acceptedStatuses?: readonly number[];
+  rejectErrorEnvelope?: boolean;
+};
+
+const TERMINAL_TEXT_RESPONSE_POLICY: JsonResponsePolicy = {
+  acceptedStatuses: [200],
+  rejectErrorEnvelope: true,
+};
+
 @Injectable()
 export class NewApiProvider implements IAIProvider {
   private readonly logger = new Logger(NewApiProvider.name);
@@ -740,11 +750,13 @@ export class NewApiProvider implements IAIProvider {
           ),
         },
         this.resolveApiKey(providerOptions),
+        TERMINAL_TEXT_RESPONSE_POLICY,
       );
+      const text = this.requireTerminalText(result);
       return {
         success: true,
         data: {
-          text: this.extractText(result),
+          text,
           metadata: {
             provider: 'new-api',
             model: payload.model,
@@ -772,11 +784,13 @@ export class NewApiProvider implements IAIProvider {
           ),
         },
         this.resolveApiKey(providerOptions),
+        TERMINAL_TEXT_RESPONSE_POLICY,
       );
+      const text = this.requireTerminalText(result);
       return {
         success: true,
         data: {
-          text: this.extractText(result),
+          text,
           metadata: {
             provider: 'new-api',
             model: payload.model,
@@ -883,6 +897,7 @@ export class NewApiProvider implements IAIProvider {
     path: string,
     init: RequestInit,
     apiKey?: string,
+    responsePolicy?: JsonResponsePolicy,
   ): Promise<any> {
     const key = apiKey || this.apiKey;
     if (!key) {
@@ -912,14 +927,70 @@ export class NewApiProvider implements IAIProvider {
         `new-api response not JSON: status=${response.status} url=${this.baseUrl}${path} preview=${String(data).slice(0, 200)}`,
       );
     }
-    if (!response.ok) {
+    const statusAccepted =
+      !responsePolicy?.acceptedStatuses ||
+      responsePolicy.acceptedStatuses.includes(response.status);
+    if (!response.ok || !statusAccepted) {
       const message =
-        typeof data === 'object' && data
-          ? data.error?.message || data.message || JSON.stringify(data)
-          : String(data || `HTTP ${response.status}`);
+        this.extractNewApiFailureMessage(data) ||
+        (!statusAccepted
+          ? 'synchronous text request did not return a terminal HTTP 200 response'
+          : this.stringifyResponsePreview(data));
       throw new Error(`new-api HTTP ${response.status}: ${message}`);
     }
+    if (responsePolicy?.rejectErrorEnvelope) {
+      const errorMessage = this.extractNewApiErrorEnvelopeMessage(data);
+      if (errorMessage) {
+        throw new Error(`new-api HTTP ${response.status}: ${errorMessage}`);
+      }
+    }
     return data;
+  }
+
+  private extractNewApiErrorEnvelopeMessage(data: unknown): string | undefined {
+    if (!this.isRecord(data)) return undefined;
+
+    const error = data.error;
+    if (this.isRecord(error)) {
+      const message = error.message;
+      if (typeof message === 'string' && message.trim()) return message.trim();
+      const code = error.code;
+      if (typeof code === 'string' && code.trim()) return code.trim();
+      return this.stringifyResponsePreview(error);
+    }
+    if (typeof error === 'string' && error.trim()) return error.trim();
+
+    return undefined;
+  }
+
+  private extractNewApiFailureMessage(data: unknown): string | undefined {
+    const errorMessage = this.extractNewApiErrorEnvelopeMessage(data);
+    if (errorMessage) return errorMessage;
+    if (!this.isRecord(data)) return undefined;
+
+    const message = data.message;
+    return typeof message === 'string' && message.trim() ? message.trim() : undefined;
+  }
+
+  private stringifyResponsePreview(data: unknown): string {
+    if (typeof data === 'string') return data.slice(0, 500);
+    try {
+      return JSON.stringify(data).slice(0, 500);
+    } catch {
+      return 'unreadable upstream response';
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private requireTerminalText(result: unknown): string {
+    const text = this.extractText(result).trim();
+    if (!text) {
+      throw new Error('new-api terminal text response is missing assistant content');
+    }
+    return text;
   }
 
   private errorResponse<T>(code: string, error: unknown): AIProviderResponse<T> {
