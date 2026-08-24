@@ -109,6 +109,11 @@ import {
   resolvePromptOptimizationGatewayModel,
   resolvePromptOptimizationModel,
 } from './prompt-optimization-models';
+import {
+  BUSINESS_TEXT_SAFETY_MODEL,
+  buildBusinessTextSafetyPrompt,
+  parseBusinessTextSafetyVerdict,
+} from './business-text-safety.contract';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -4876,23 +4881,23 @@ export class AiController {
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
-    const usesUnifiedAgentTextGateway =
+    const usesDirectRightTextRoute =
       dto.billingTag === 'prompt_optimize' || dto.billingTag === 'text_chat';
-    // Flow Text Chat 与提示词优化共享同一套 new-api agent facade 模型入口；
-    // 显式 billingTag 只区分计费产品，不再分叉模型路由或终态协议。
+    // Flow Text Chat 与提示词优化共享 Tanvas new-api 的 Right 直连入口；
+    // 显式 billingTag 只区分计费产品，不得进入 xiaot-agent facade / durable turn。
     // 未声明 billingTag 的其他历史文本能力保持各自的普通模型链路。
     const providerName =
-      usesUnifiedAgentTextGateway
+      usesDirectRightTextRoute
         ? null
         : dto.aiProvider && dto.aiProvider !== 'gemini'
           ? dto.aiProvider
           : null;
     const model =
-      usesUnifiedAgentTextGateway
+      usesDirectRightTextRoute
         ? resolvePromptOptimizationModel(dto.model)
         : this.resolveTextModel(providerName, dto.model);
     const gatewayModel =
-      usesUnifiedAgentTextGateway
+      usesDirectRightTextRoute
         ? resolvePromptOptimizationGatewayModel(model)
         : model;
     const serviceType: ServiceType =
@@ -4914,13 +4919,42 @@ export class AiController {
 
     return this.withCredits(req, serviceType, model, async () => {
       if (!customApiKey) {
+        if (usesDirectRightTextRoute) {
+          const safetyProvider = this.factory.getProvider(
+            BUSINESS_TEXT_SAFETY_MODEL,
+            'new-api',
+          );
+          const safetyResult = await safetyProvider.generateText({
+            prompt: buildBusinessTextSafetyPrompt(dto.prompt),
+            model: BUSINESS_TEXT_SAFETY_MODEL,
+          });
+          const safetyText = requireTerminalTextResult(safetyResult).text;
+          const safetyVerdict = (() => {
+            try {
+              return parseBusinessTextSafetyVerdict(safetyText);
+            } catch (error) {
+              throw new ServiceUnavailableException(
+                error instanceof Error
+                  ? error.message
+                  : 'DeepSeek safety gate returned an invalid verdict',
+              );
+            }
+          })();
+          if (!safetyVerdict.allowed) {
+            throw new BadRequestException(
+              `内容未通过安全审核：${safetyVerdict.reason}`,
+            );
+          }
+        }
+
         const provider = this.factory.getProvider(gatewayModel, providerName || 'new-api');
         const result = await provider.generateText({
           prompt: dto.prompt,
           model: gatewayModel,
           imageUrls: imageUrls.length ? imageUrls : undefined,
           enableWebSearch: dto.enableWebSearch,
-          providerOptions: dto.providerOptions,
+          // 图片线路配置（stable/ultra）不能改变业务文本 token 分组；Right 文本固定走 default。
+          providerOptions: usesDirectRightTextRoute ? undefined : dto.providerOptions,
         });
         return requireTerminalTextResult(result);
       }

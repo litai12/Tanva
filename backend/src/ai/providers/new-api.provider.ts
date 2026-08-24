@@ -132,6 +132,8 @@ export class NewApiProvider implements IAIProvider {
         'gpt-5.4',
         'gpt-5.6-luna',
         'gpt-5.6-terra',
+        'tanvas-right-gpt-5.6-luna',
+        'tanvas-right-gpt-5.6-terra',
         'deepseek-v4-flash',
         'xiaot-agent-gpt-5-6-luna',
         'xiaot-agent-gpt-5-6-terra',

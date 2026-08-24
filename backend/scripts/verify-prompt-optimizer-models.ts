@@ -15,20 +15,19 @@ const requestedModels: unknown[] = [];
 globalThis.fetch = async (_input, init) => {
   const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
   requestedModels.push(body.model);
-  assert.equal(body.stream, true);
-  assert.deepEqual(body.stream_options, { include_usage: true });
+  assert.equal(body.stream, false);
+  assert.equal(body.mode, undefined);
+  assert.equal(body.executionToolPolicy, undefined);
+  assert.equal(body.user, undefined);
   return new Response(
-    [
-      `data: ${JSON.stringify({
-        id: `chatcmpl-${String(body.model)}-turn`,
-        choices: [
-          { delta: { content: 'optimized' }, finish_reason: 'stop' },
-        ],
-      })}`,
-      'data: [DONE]',
-      '',
-    ].join('\n'),
-    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    JSON.stringify({
+      id: `chatcmpl-${String(body.model)}`,
+      choices: [
+        { message: { role: 'assistant', content: 'optimized' }, finish_reason: 'stop' },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
   );
 };
 
@@ -36,14 +35,14 @@ async function main(): Promise<void> {
   assert.deepEqual(PROMPT_OPTIMIZATION_MODELS, [
     'gpt-5.6-luna',
     'gpt-5.6-terra',
-    'deepseek-v4-flash',
   ]);
   assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'gpt-5.6-luna');
   assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'gpt-5.6-luna');
   assert.equal(resolvePromptOptimizationModel('GPT-5.6-TERRA'), 'gpt-5.6-terra');
+  assert.equal(resolvePromptOptimizationModel('deepseek-v4-flash'), 'gpt-5.6-luna');
   assert.equal(
     resolvePromptOptimizationGatewayModel('gpt-5.4'),
-    'xiaot-agent-gpt-5-6-luna',
+    'tanvas-right-gpt-5.6-luna',
   );
 
   const provider = new NewApiProvider(
@@ -68,7 +67,7 @@ async function main(): Promise<void> {
       (model) => PROMPT_OPTIMIZATION_GATEWAY_MODELS[model],
     ),
   );
-  console.log('prompt optimizer three-model routing verification passed');
+  console.log('prompt optimizer verified direct Right routing passed');
 }
 
 main()

@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-24：纠正 Flow Text Chat / Prompt Optimizer 的文本渠道边界：两者不再请求 `xiaot-agent-*` facade，也不再消费小T的 SSE/durable turn 状态。每次业务文本先经 new-api 的 `deepseek-v4-flash-260425` 做语义安全审核，只有同时满足“无政治违规、无敏感话题”才继续；拒绝、空结果、非法 JSON 或自相矛盾的审核结果都会原地失败，绝不调用后续 GPT。产品生成模型仅保留已在 4458 与生产真实验证通过的 GPT-5.6 Luna / Terra，最后一跳分别使用 `tanvas-right-gpt-5.6-luna` / `tanvas-right-gpt-5.6-terra` 锁定 new-api `right` channel；前端移除“小T”品牌与 Right 上游不支持的 DeepSeek 生成选项。图片 stable/ultra 线路参数不会再把业务文本切到 VIP token 分组。
+
 - 2026-08-24：Flow Text Chat 移除已停用的 `小T-5.4` 固定入口，与 Prompt Optimizer 共用 Luna、Terra、DeepSeek V4 Flash 三模型选择和 `xiaot-agent-*` facade。两类节点继续按各自 service type 计费，但统一使用无工具、隔离会话的 SSE 终态收集与 durable turn 续接；前端统一走无自动重试的 `/api/ai/text-chat` 客户端，避免网络重试重复提交已受理文本任务。新增后端路由契约回归并通过前后端生产构建。
 
 - 2026-08-24：修复 `/api/ai/text-chat` 把 new-api `HTTP 202` 错误/挂起信封当成成功并返回空正文、同时扣除提示词优化积分的问题。同步文本现在只接受 `HTTP 200 + 无 error 信封 + 非空 assistant 正文`；Provider 与 Controller 双层终态校验，计费包装器在空正文时标记失败并退款，图片/视频异步 `202` 不受影响。新增 Chat/Responses 状态矩阵及真实计费回滚回归。
