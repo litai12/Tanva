@@ -15,9 +15,20 @@ const requestedModels: unknown[] = [];
 globalThis.fetch = async (_input, init) => {
   const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
   requestedModels.push(body.model);
+  assert.equal(body.stream, true);
+  assert.deepEqual(body.stream_options, { include_usage: true });
   return new Response(
-    JSON.stringify({ choices: [{ message: { content: 'optimized' } }] }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
+    [
+      `data: ${JSON.stringify({
+        id: `chatcmpl-${String(body.model)}-turn`,
+        choices: [
+          { delta: { content: 'optimized' }, finish_reason: 'stop' },
+        ],
+      })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n'),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
   );
 };
 

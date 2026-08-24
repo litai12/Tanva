@@ -23,6 +23,7 @@ import {
 } from './ai-provider.interface';
 import { normalizeGeminiImageSize } from '../image-size.util';
 import { extractNewApiTokenUsage } from '../services/doubao-seed-video-analysis-pricing';
+import { collectAgentTextStream } from './new-api-agent-text-stream';
 
 // 图片生成/编辑链路上游可能跑很久（大图 + 4K），把 undici 默认 5 分钟
 // 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
@@ -417,6 +418,10 @@ export class NewApiProvider implements IAIProvider {
         : {}),
     };
 
+    if (isAgentFacade && !request.enableWebSearch) {
+      return this.chatAgentFacade(payload, request.providerOptions);
+    }
+
     if (!request.enableWebSearch) {
       return this.chat(payload, request.providerOptions);
     }
@@ -767,6 +772,109 @@ export class NewApiProvider implements IAIProvider {
       };
     } catch (error) {
       return this.errorResponse('TEXT_GENERATION_FAILED', error);
+    }
+  }
+
+  private async chatAgentFacade(
+    payload: Record<string, unknown>,
+    providerOptions?: ProviderOptionsPayload,
+  ): Promise<AIProviderResponse<TextResult>> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () =>
+        controller.abort(
+          new Error(
+            `xiaot-agent terminal text request timed out after ${LONG_RUNNING_TIMEOUT_MS}ms`,
+          ),
+        ),
+      LONG_RUNNING_TIMEOUT_MS,
+    );
+
+    try {
+      const apiKey = this.resolveApiKey(providerOptions);
+      if (!apiKey) throw new Error('NEW_API_KEY 未配置');
+      const model =
+        typeof payload.model === 'string'
+          ? this.normalizeUpstreamModel(payload.model)
+          : payload.model;
+      const openAiUser =
+        typeof payload.user === 'string' && payload.user.trim()
+          ? payload.user.trim()
+          : '';
+      if (!openAiUser) {
+        throw new Error(
+          'xiaot-agent terminal text request requires an isolated user identity',
+        );
+      }
+
+      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
+        dispatcher: this.httpDispatcher,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(
+          this.stripUndefined(
+            this.stripUnsupportedTextPayloadFields({
+              ...payload,
+              model,
+              stream: true,
+              stream_options: { include_usage: true },
+            }),
+          ),
+        ),
+        signal: controller.signal,
+      });
+
+      if (response.status !== 200) {
+        const body = await response.text();
+        const data = body ? this.parseJsonObject(body) || body : {};
+        const message =
+          this.extractNewApiFailureMessage(data) ||
+          'agent text stream did not return HTTP 200';
+        throw new Error(`new-api HTTP ${response.status}: ${message}`);
+      }
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.toLowerCase().includes('text/event-stream')) {
+        const body = await response.text();
+        const data = body ? this.parseJsonObject(body) || body : {};
+        const message =
+          this.extractNewApiFailureMessage(data) ||
+          `expected text/event-stream, received ${contentType || 'unknown content type'}`;
+        throw new Error(`new-api HTTP 200: ${message}`);
+      }
+
+      const result = await collectAgentTextStream({
+        response,
+        gatewayBaseUrl: this.baseUrl,
+        apiKey,
+        openAiUser,
+        signal: controller.signal,
+      });
+      return {
+        success: true,
+        data: {
+          text: result.text,
+          metadata: {
+            provider: 'new-api',
+            model,
+            usage: extractNewApiTokenUsage({ usage: result.usage }),
+            raw: {
+              transport: 'text/event-stream',
+              terminal: true,
+              turnId: result.turnId,
+              usage: result.usage,
+            },
+          },
+        },
+      };
+    } catch (error) {
+      return this.errorResponse('TEXT_GENERATION_FAILED', error);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

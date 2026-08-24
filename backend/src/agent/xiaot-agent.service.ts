@@ -8,8 +8,11 @@ import { CreateAgentRunDto } from './dto/agent-run.dto';
 import { AgentEventType } from './agent.types';
 import {
   assertXiaotUpstreamDelivery,
+  buildXiaotDurableSessionKey,
   buildXiaotUpstreamSessionUser,
+  isXiaotInterruptedStreamEnvelope,
   isXiaotHostExecutionSuspension,
+  readXiaotOpenAiTurnId,
 } from './xiaot-agent-delivery';
 import {
   isXiaotDeferredReplayFrame,
@@ -63,24 +66,6 @@ class XiaotTransportReadError extends Error {
     super('xiaot-agent transport read failed');
     this.name = 'XiaotTransportReadError';
   }
-}
-
-const XIAOT_INTERRUPTED_STREAM_CODE = 'agents_bridge_stream_interrupted';
-
-function readOpenAiTurnId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const id = value.trim();
-  return id.startsWith('chatcmpl-') && id.length > 'chatcmpl-'.length
-    ? id.slice('chatcmpl-'.length)
-    : null;
-}
-
-function isInterruptedStreamEnvelope(value: unknown): boolean {
-  return readRecord(value)?.code === XIAOT_INTERRUPTED_STREAM_CODE;
-}
-
-function buildXiaotDurableSessionKey(openAiUser: string): string {
-  return `host:${openAiUser.slice(0, 120)}`;
 }
 
 /** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
@@ -537,7 +522,7 @@ export class XiaotAgentService {
         if (!parsed) {
           throw new Error('xiaot-agent protocol error: data frame must be an object');
         }
-        upstreamTurnId = readOpenAiTurnId(parsed.id) || upstreamTurnId;
+        upstreamTurnId = readXiaotOpenAiTurnId(parsed.id) || upstreamTurnId;
         if (parsed.error) {
           if (isXiaotHostExecutionSuspension(parsed.error)) {
             // The flow_patch/host_tool frames emitted before this terminal are
@@ -549,7 +534,7 @@ export class XiaotAgentService {
             finishReason = 'tool_calls';
             return;
           }
-          if (isInterruptedStreamEnvelope(parsed.error)) {
+          if (isXiaotInterruptedStreamEnvelope(parsed.error)) {
             throw new XiaotInterruptedStreamError();
           }
           throw new Error(

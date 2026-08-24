@@ -10,6 +10,9 @@ export interface XiaotUpstreamDeliveryEvidence {
 
 export const XIAOT_UPSTREAM_SESSION_PROTOCOL_VERSION = 'v2';
 
+export const XIAOT_INTERRUPTED_STREAM_CODE =
+  'agents_bridge_stream_interrupted';
+
 const XIAOT_HOST_HANDOFF_REASONS = new Set([
   'host_execution_required',
   // TapCanvas uses this reason when the root physical turn has exhausted its
@@ -21,6 +24,22 @@ const readRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+export function readXiaotOpenAiTurnId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const id = value.trim();
+  return id.startsWith('chatcmpl-') && id.length > 'chatcmpl-'.length
+    ? id.slice('chatcmpl-'.length)
+    : null;
+}
+
+export function isXiaotInterruptedStreamEnvelope(value: unknown): boolean {
+  return readRecord(value)?.code === XIAOT_INTERRUPTED_STREAM_CODE;
+}
+
+export function buildXiaotDurableSessionKey(openAiUser: string): string {
+  return `host:${openAiUser.slice(0, 120)}`;
+}
 
 /**
  * TapCanvas deliberately suspends a physical turn after emitting host canvas

@@ -9,22 +9,52 @@ import {
 type MockResponse = {
   status: number;
   body: unknown;
+  contentType?: string;
 };
 
 const originalFetch = globalThis.fetch;
 const responses: MockResponse[] = [];
+const requests: Array<{
+  url: string;
+  headers: Headers;
+  body: Record<string, unknown>;
+}> = [];
 
-globalThis.fetch = async () => {
+globalThis.fetch = async (input, init) => {
   const response = responses.shift();
   assert.ok(response, 'expected a queued mock response');
-  return new Response(JSON.stringify(response.body), {
-    status: response.status,
-    headers: { 'content-type': 'application/json' },
+  requests.push({
+    url: String(input),
+    headers: new Headers(init?.headers),
+    body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
   });
+  return new Response(
+    typeof response.body === 'string'
+      ? response.body
+      : JSON.stringify(response.body),
+    {
+      status: response.status,
+      headers: {
+        'content-type': response.contentType || 'application/json',
+      },
+    },
+  );
 };
 
 function enqueue(status: number, body: unknown): void {
   responses.push({ status, body });
+}
+
+function enqueueStream(...frames: string[]): void {
+  responses.push({
+    status: 200,
+    body: `${frames.join('\n')}\n`,
+    contentType: 'text/event-stream',
+  });
+}
+
+function openAiFrame(value: unknown): string {
+  return `data: ${JSON.stringify(value)}`;
 }
 
 async function main(): Promise<void> {
@@ -36,13 +66,35 @@ async function main(): Promise<void> {
   );
   await provider.initialize();
 
-  enqueue(200, { choices: [{ message: { content: '  terminal answer  ' } }] });
+  enqueueStream(
+    openAiFrame({
+      id: 'chatcmpl-prompt-turn-success',
+      choices: [{ delta: { content: '  terminal ' }, finish_reason: null }],
+    }),
+    openAiFrame({
+      id: 'chatcmpl-prompt-turn-success',
+      choices: [{ delta: { content: 'answer  ' }, finish_reason: 'stop' }],
+    }),
+    openAiFrame({
+      id: 'chatcmpl-prompt-turn-success',
+      choices: [],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    }),
+    'data: [DONE]',
+  );
   const successfulChat = await provider.generateText({
     prompt: 'return a terminal answer',
     model: 'xiaot-agent-gpt-5-6-luna',
   });
   assert.equal(successfulChat.success, true);
   assert.equal(successfulChat.data?.text, 'terminal answer');
+  assert.equal(requests[0]?.headers.get('accept'), 'text/event-stream');
+  assert.equal(requests[0]?.body.stream, true);
+  assert.deepEqual(requests[0]?.body.stream_options, { include_usage: true });
+  assert.deepEqual(requests[0]?.body.executionToolPolicy, {
+    mode: 'restricted',
+    allowedTools: [],
+  });
 
   enqueue(202, {
     error: {
@@ -70,7 +122,107 @@ async function main(): Promise<void> {
   assert.equal(pendingCompletion.success, false);
   assert.match(
     pendingCompletion.error?.message || '',
-    /HTTP 202: synchronous text request did not return a terminal HTTP 200 response/,
+    /HTTP 202: agent text stream did not return HTTP 200/,
+  );
+
+  enqueueStream(
+    openAiFrame({
+      choices: [{ delta: { content: 'unterminated' }, finish_reason: 'stop' }],
+    }),
+  );
+  const unterminatedStream = await provider.generateText({
+    prompt: 'missing done must fail',
+    model: 'xiaot-agent-gpt-5-6-luna',
+  });
+  assert.equal(unterminatedStream.success, false);
+  assert.match(
+    unterminatedStream.error?.message || '',
+    /upstream stream ended without \[DONE\]/,
+  );
+
+  enqueueStream(
+    openAiFrame({
+      id: 'chatcmpl-prompt-turn-empty',
+      choices: [{ delta: {}, finish_reason: 'stop' }],
+    }),
+    'data: [DONE]',
+  );
+  const emptyAgentStream = await provider.generateText({
+    prompt: 'empty terminal stream must fail',
+    model: 'xiaot-agent-gpt-5-6-terra',
+  });
+  assert.equal(emptyAgentStream.success, false);
+  assert.match(
+    emptyAgentStream.error?.message || '',
+    /completed without text/,
+  );
+
+  enqueueStream(
+    openAiFrame({
+      choices: [
+        {
+          delta: {
+            content: '任务仍在处理中，系统会自动继续，无需重复提交。',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }),
+    'data: [DONE]',
+  );
+  const unsafePendingStream = await provider.generateText({
+    prompt: 'pending without a durable id must fail',
+    model: 'xiaot-agent-gpt-5-6-luna',
+  });
+  assert.equal(unsafePendingStream.success, false);
+  assert.match(
+    unsafePendingStream.error?.message || '',
+    /requires recovery but has no durable turn identifier/,
+  );
+
+  enqueueStream(
+    openAiFrame({
+      id: 'chatcmpl-prompt-turn-replay',
+      choices: [
+        {
+          delta: {
+            content: '任务仍在处理中，系统会自动继续，无需重复提交。',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }),
+    'data: [DONE]',
+  );
+  responses.push({
+    status: 200,
+    contentType: 'text/event-stream',
+    body:
+      'event: result\n' +
+      'id: prompt-turn-replay#4\n' +
+      `data: ${JSON.stringify({
+        response: {
+          text: 'durable terminal answer',
+          trace: { requestTerminal: { status: 'succeeded', reason: 'done' } },
+        },
+      })}\n\n`,
+  });
+  const recoveredAgentStream = await provider.generateText({
+    prompt: 'follow the already accepted durable turn',
+    model: 'xiaot-agent-deepseek-v4-flash',
+  });
+  assert.equal(recoveredAgentStream.success, true);
+  assert.equal(recoveredAgentStream.data?.text, 'durable terminal answer');
+  const replayRequest = requests.at(-1);
+  assert.equal(
+    replayRequest?.url,
+    'https://new-api.test/proxy/xiaot-agent/agents/chat/status',
+  );
+  assert.equal(replayRequest?.body.turnId, 'prompt-turn-replay');
+  assert.equal(replayRequest?.body.streamEvents, true);
+  assert.match(
+    String(replayRequest?.body.sessionKey || ''),
+    /^host:prompt-optimizer:/,
   );
 
   enqueue(200, {
