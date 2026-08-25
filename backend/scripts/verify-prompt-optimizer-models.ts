@@ -36,13 +36,13 @@ async function main(): Promise<void> {
     'gpt-5.6-luna',
     'gpt-5.6-terra',
   ]);
-  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'gpt-5.6-luna');
-  assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'gpt-5.6-luna');
+  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'gpt-5.6-terra');
+  assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'gpt-5.6-terra');
   assert.equal(resolvePromptOptimizationModel('GPT-5.6-TERRA'), 'gpt-5.6-terra');
-  assert.equal(resolvePromptOptimizationModel('deepseek-v4-flash'), 'gpt-5.6-luna');
+  assert.equal(resolvePromptOptimizationModel('deepseek-v4-flash'), 'gpt-5.6-terra');
   assert.equal(
     resolvePromptOptimizationGatewayModel('gpt-5.4'),
-    'tanvas-right-gpt-5.6-luna',
+    'tanvas-right-gpt-5.6-terra',
   );
 
   const provider = new NewApiProvider(

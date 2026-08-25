@@ -198,17 +198,17 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gpt-5.4',
-    'gemini-pro': 'gpt-5.4',
-    banana: 'gpt-5.4',
-    'banana-2.5': 'gpt-5.4',
-    'banana-3.1': 'gpt-5.4',
-    'deepseek-v4-flash': 'gpt-5.4',
-    'deepseek-v4-pro': 'gpt-5.4',
-    runninghub: 'gpt-5.4',
-    midjourney: 'gpt-5.4',
-    nano2: 'gpt-5.4',
-    seedream5: 'gpt-5.4',
+    gemini: 'gpt-5.6-terra',
+    'gemini-pro': 'gpt-5.6-terra',
+    banana: 'gpt-5.6-terra',
+    'banana-2.5': 'gpt-5.6-terra',
+    'banana-3.1': 'gpt-5.6-terra',
+    'deepseek-v4-flash': 'gpt-5.6-terra',
+    'deepseek-v4-pro': 'gpt-5.6-terra',
+    runninghub: 'gpt-5.6-terra',
+    midjourney: 'gpt-5.6-terra',
+    nano2: 'gpt-5.6-terra',
+    seedream5: 'gpt-5.6-terra',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.5-flash',
@@ -3751,7 +3751,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gpt-5.4';
+      return this.providerDefaultTextModels[providerName] || 'gpt-5.6-terra';
     }
     return this.providerDefaultTextModels.gemini;
   }
@@ -3826,21 +3826,29 @@ export class AiController {
       allowVectorIntent: allowVector,
     });
 
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    if (availableTools.length === 1) {
+      const selectedTool = availableTools[0];
+      this.logger.log(`✅ [LOCAL] Only one tool is available: ${selectedTool}`);
+      return {
+        selectedTool,
+        parameters: { prompt: dto.prompt },
+        reasoning: 'Only one tool is available; selected locally',
+        confidence: 1,
+      };
+    }
 
-    return this.withCredits(req, 'gemini-tool-selection', dto.model, async () => {
-      if (providerName) {
-        try {
-          // 工具选择属于文本推理，优先使用文本模型链路
-          const normalizedModel = this.resolveTextModel(providerName, dto.model);
+    const model = resolvePromptOptimizationModel(dto.model);
+    const gatewayModel = resolvePromptOptimizationGatewayModel(model);
 
-          this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
-            originalModel: dto.model,
-            normalizedModel,
-          });
+    return this.withCredits(req, 'gemini-tool-selection', model, async () => {
+      try {
+        this.logger.log('[NEW-API/RIGHT] Using provider for tool selection', {
+          originalModel: dto.model,
+          model,
+          gatewayModel,
+        });
 
-          const provider = this.factory.getProvider(normalizedModel, providerName);
+        const provider = this.factory.getProvider(gatewayModel, 'new-api');
         const result = await provider.selectTool({
           prompt: dto.prompt,
           availableTools,
@@ -3848,48 +3856,35 @@ export class AiController {
           imageCount: dto.imageCount,
           hasCachedImage: dto.hasCachedImage,
           context: dto.context,
-          model: normalizedModel,
-          providerOptions: (dto as any).providerOptions,
+          model: gatewayModel,
         });
 
-          if (result.success && result.data) {
-            const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
-            this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
-            return {
-              selectedTool,
-              parameters: { prompt: dto.prompt },
-              reasoning: result.data.reasoning,
-              confidence: result.data.confidence,
-            };
-          }
-
-          const message = result.error?.message ?? 'provider returned an error response';
-          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider responded with error: ${message}`);
-          throw new ServiceUnavailableException(
-            `[${providerName}] tool selection failed: ${message}`
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
-          throw new ServiceUnavailableException(
-            `[${providerName}] tool selection failed: ${message}`
-          );
+        if (result.success && result.data) {
+          const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
+          this.logger.log(`✅ [NEW-API/RIGHT] Tool selected: ${selectedTool}`);
+          return {
+            selectedTool,
+            parameters: { prompt: dto.prompt },
+            reasoning: result.data.reasoning,
+            confidence: result.data.confidence,
+          };
         }
+
+        const message = result.error?.message ?? 'provider returned an error response';
+        this.logger.warn(`⚠️ [NEW-API/RIGHT] provider responded with error: ${message}`);
+        throw new ServiceUnavailableException(
+          `[new-api/right] tool selection failed: ${message}`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`⚠️ [NEW-API/RIGHT] provider threw exception: ${message}`);
+        throw new ServiceUnavailableException(
+          `[new-api/right] tool selection failed: ${message}`,
+        );
       }
-
-      // 🔥 降级到Google Gemini进行工具选择
-      this.logger.log('📊 Falling back to Gemini tool selection');
-      const result = await this.ai.runToolSelectionPrompt(dto.prompt, availableTools);
-      const selectedTool = this.enforceSelectedTool(result.selectedTool, availableTools);
-
-      this.logger.log('✅ [GEMINI] Tool selected:', selectedTool);
-      return {
-        selectedTool,
-        parameters: { prompt: dto.prompt },
-        reasoning: result.reasoning,
-        confidence: result.confidence,
-      };
-    }, undefined, undefined, true, this.buildCreditRequestParams(providerName));
+    }, undefined, undefined, true, this.buildCreditRequestParams('new-api', {
+      model,
+    }));
   }
 
   @Post('generate-image')

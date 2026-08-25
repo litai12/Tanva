@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-25：修复 AI Chat 带图 Auto 工具选择仍发送已停用 `gpt-5.4`、继而被 new-api 分配到 TC/小T侧渠道的问题。非小T标准文本默认模型改为 `gpt-5.6-terra`；工具候选去重后仅剩一个时前后端直接选中，不产生模型调用或工具选择扣费，多候选时只允许 Luna/Terra（默认 Terra），并用 `tanvas-right-gpt-5.6-*` 专用模型名锁定 new-api `right` channel。工具选择不再透传 Banana stable/VIP providerOptions；Flow Text Chat 与 Prompt Optimizer 的默认 Right 模型同步改为 Terra，并新增无付费路由回归。
+
 - 2026-08-24：纠正 Flow Text Chat / Prompt Optimizer 的文本渠道边界：两者不再请求 `xiaot-agent-*` facade，也不再消费小T的 SSE/durable turn 状态。每次业务文本先经 new-api 的 `deepseek-v4-flash-260425` 做语义安全审核，只有同时满足“无政治违规、无敏感话题”才继续；拒绝、空结果、非法 JSON 或自相矛盾的审核结果都会原地失败，绝不调用后续 GPT。产品生成模型仅保留已在 4458 与生产真实验证通过的 GPT-5.6 Luna / Terra，最后一跳分别使用 `tanvas-right-gpt-5.6-luna` / `tanvas-right-gpt-5.6-terra` 锁定 new-api `right` channel；前端移除“小T”品牌与 Right 上游不支持的 DeepSeek 生成选项。图片 stable/ultra 线路参数不会再把业务文本切到 VIP token 分组。
 
 - 2026-08-24：Flow Text Chat 移除已停用的 `小T-5.4` 固定入口，与 Prompt Optimizer 共用 Luna、Terra、DeepSeek V4 Flash 三模型选择和 `xiaot-agent-*` facade。两类节点继续按各自 service type 计费，但统一使用无工具、隔离会话的 SSE 终态收集与 durable turn 续接；前端统一走无自动重试的 `/api/ai/text-chat` 客户端，避免网络重试重复提交已受理文本任务。新增后端路由契约回归并通过前后端生产构建。

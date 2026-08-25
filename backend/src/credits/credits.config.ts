@@ -178,26 +178,26 @@ export const CREDIT_PRICING_CONFIG = {
 
   // GPT 文字服务（统一经 new-api 网关）
   'gemini-text': {
-    serviceName: 'GPT-5.4 文字对话',
+    serviceName: 'GPT-5.6 文字对话',
     provider: 'new-api',
     creditsPerCall: 5,
-    description: '通过 new-api 使用 GPT-5.4 进行文字对话',
+    description: '通过 new-api 使用 GPT-5.6 Terra 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-prompt-optimize': {
-    serviceName: 'GPT-5.4 提示词优化',
+    serviceName: 'GPT-5.6 提示词优化',
     provider: 'new-api',
     creditsPerCall: 5,
-    description: '通过 new-api 使用 GPT-5.4 优化提示词',
+    description: '通过 new-api Right 使用 GPT-5.6 优化提示词',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-tool-selection': {
-    serviceName: 'GPT-5.4 工具选择',
+    serviceName: 'GPT-5.6 工具选择',
     provider: 'new-api',
     creditsPerCall: 0,
-    description: '通过 new-api 使用 GPT-5.4 进行智能工具选择',
+    description: '通过 new-api Right 使用 GPT-5.6 进行智能工具选择',
   },
   'gemini-paperjs': {
     serviceName: 'GPT-5.6 Paper.js 生成',

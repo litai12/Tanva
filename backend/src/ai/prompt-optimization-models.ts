@@ -7,7 +7,7 @@ export type PromptOptimizationModel =
   (typeof PROMPT_OPTIMIZATION_MODELS)[number];
 
 export const DEFAULT_PROMPT_OPTIMIZATION_MODEL: PromptOptimizationModel =
-  'gpt-5.6-luna';
+  'gpt-5.6-terra';
 
 export const PROMPT_OPTIMIZATION_GATEWAY_MODELS = {
   'gpt-5.6-luna': 'tanvas-right-gpt-5.6-luna',

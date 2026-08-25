@@ -13,6 +13,7 @@ import { getRefreshAuthHeader } from "./authTokenStorage";
 import { triggerAuthExpired } from "./authEvents";
 import { fetchWithAuth } from "./authFetch";
 import { imageUploadService } from "./imageUploadService";
+import { resolveLocalSingleToolSelection } from "./toolSelectionRouting";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -441,6 +442,13 @@ class AIImageService {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIServiceResponse<ToolSelectionResult>> {
+    const localSelection = resolveLocalSingleToolSelection(request);
+    if (localSelection) return localSelection;
+
+    const availableTools = Array.from(
+      new Set((request.availableTools || []).filter(Boolean))
+    );
+
     // 转换请求格式以匹配后端期望的结构
     const backendRequest = {
       prompt: request.userInput || request.prompt || "",
@@ -449,7 +457,7 @@ class AIImageService {
       hasImages: request.hasImages,
       imageCount: request.imageCount,
       hasCachedImage: request.hasCachedImage,
-      availableTools: request.availableTools,
+      availableTools,
       context: request.context,
       providerOptions: request.providerOptions,
     };

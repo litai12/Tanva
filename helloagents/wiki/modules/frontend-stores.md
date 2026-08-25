@@ -9,7 +9,7 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
-- `aiChatStore` 的普通 Text、Flow Text Chat、工具选择和 PDF 分析默认使用 `gpt-5.4`；HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6-luna`。提示词优化独立支持 Luna/Terra/DeepSeek V4 Flash 三模型，不再读取全局图片 provider 推导模型。小T偏好 v8 仅接受对应三种 facade ID，旧 5.4/5.5 或未知值迁移到 Luna。图片识别继续使用 Gemini 三档并只提交远程 URL；视频分析由节点的 `analysisModel` 独立持久化。
+- `aiChatStore` 的普通 Text、工具选择和 PDF 分析默认使用 `gpt-5.6-terra`；HTML PPT、Paper.js、图像转矢量与普通 Agent trace/research 使用 `gpt-5.6-luna`。工具选择先去重候选：仅剩一个候选时前端直接返回，不发 `/api/ai/tool-selection`；多候选才交给后端的 new-api Right 专用路由。Flow Text Chat 与提示词优化支持 Luna/Terra 双模型并默认 Terra，不再读取全局图片 provider 推导模型。小T偏好 v8 仅接受三种独立 facade ID，默认仍为小T Luna；图片识别继续使用 Gemini 三档并只提交远程 URL，视频分析由节点的 `analysisModel` 独立持久化。
 - AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接对话历史。迭代计数与上下文依赖检测独立，Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
 - AI Chat Auto/Generate 的多图输出数量默认来自 `autoModeMultiplier`，但会先解析本次输入里的明确输出数量（如“画两张”“生成 3 张”“多张方案”）并覆盖默认倍数；“用两张参考图/把两张图融合”等输入素材数量不应触发输出倍数。明确数量触发并行时，每个 slot 会使用拆分后的单张 prompt，强调“本次只生成 1 张完整图片”，避免把总张数画成单图拼图或同图多主体。
 - 小T模式不使用上述自然语言覆盖逻辑：`autoModeMultiplier` 直接写入 `imageOutputCount`，同时由 `XiaotImagePatchContract` 限制实际落板的单输出图片节点、prompt、连线和 `runNode`。`gptImage2` 的宿主能力声明包含 `text/img` 输入与单个 `img:image` 输出，用于节点选择与连线，但 `runNode` tool call 只代表命令到达 Tanva。`agentPatchApplier` 为每轮建立结构化执行回执，严格串行等待节点创建、真实连线和节点运行；`runNode` 必须由 Flow 返回成功/失败和远程资产 URL，队列完成后才自动布局并聚焦首个图片生成节点。

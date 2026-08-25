@@ -35,6 +35,7 @@
     "test:canvas-auto-layout": "node --test src/utils/canvasAutoLayout.test.ts",
     "test:shared-request-pool": "node --test src/utils/sharedRequestPool.test.ts",
     "test:prompt-optimization-models": "node --test src/services/promptOptimizationModels.test.ts",
+    "test:tool-selection-routing": "tsx --test src/services/aiImageService.tool-selection.test.ts",
     "test:flow-progress-runtime": "node --test src/components/flow/flowProgressRuntime.test.ts",
     "test:storyboard-prompt-table": "node --test src/components/flow/storyboardPromptTable.test.ts",
     "test:desktop-plugins": "tsx --test src/desktop/plugins/registry.test.ts src/desktop/plugins/surfaceState.test.ts src/desktop/taskContextState.test.ts src/desktop/media/mediaPreviewState.test.ts src/desktop/artifacts/artifactState.test.ts src/services/authTokenStorage.test.ts src/utils/clipboardText.test.ts src/utils/publicAssetUrl.test.ts",

@@ -129,7 +129,6 @@ export class NewApiProvider implements IAIProvider {
       version: 'openai-compatible',
       supportedModels: [
         'gemini',
-        'gpt-5.4',
         'gpt-5.6-luna',
         'gpt-5.6-terra',
         'tanvas-right-gpt-5.6-luna',
@@ -381,7 +380,7 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async generateText(request: TextChatRequest): Promise<AIProviderResponse<TextResult>> {
-    const model = request.model || 'gpt-5.4';
+    const model = request.model || 'gpt-5.6-terra';
     const imageReferences = Array.from(
       new Set(
         [
@@ -450,7 +449,7 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.generateText({
       prompt,
-      model: request.model || 'gpt-5.4',
+      model: request.model || 'gpt-5.6-terra',
       providerOptions: request.providerOptions,
     });
 

@@ -12,13 +12,13 @@ test("prompt optimizer exposes exactly the verified Right model set", () => {
     "gpt-5.6-luna",
     "gpt-5.6-terra",
   ]);
-  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, "gpt-5.6-luna");
+  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, "gpt-5.6-terra");
 });
 
-test("legacy, unavailable and unknown prompt optimizer models migrate to Luna", () => {
-  assert.equal(resolvePromptOptimizationModel("gpt-5.4"), "gpt-5.6-luna");
-  assert.equal(resolvePromptOptimizationModel(undefined), "gpt-5.6-luna");
-  assert.equal(resolvePromptOptimizationModel("deepseek-v4-flash"), "gpt-5.6-luna");
+test("legacy, unavailable and unknown prompt optimizer models migrate to Terra", () => {
+  assert.equal(resolvePromptOptimizationModel("gpt-5.4"), "gpt-5.6-terra");
+  assert.equal(resolvePromptOptimizationModel(undefined), "gpt-5.6-terra");
+  assert.equal(resolvePromptOptimizationModel("deepseek-v4-flash"), "gpt-5.6-terra");
   assert.equal(
     getPromptOptimizationModelLabel("gpt-5.6-terra"),
     "GPT-5.6 Terra",

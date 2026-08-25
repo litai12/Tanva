@@ -226,6 +226,18 @@ async function main(): Promise<void> {
   );
 
   enqueue(200, {
+    choices: [
+      { message: { role: 'assistant', content: 'default terra answer' }, finish_reason: 'stop' },
+    ],
+  });
+  const defaultTextModel = await provider.generateText({
+    prompt: 'use the current default text model',
+  });
+  assert.equal(defaultTextModel.success, true);
+  assert.equal(defaultTextModel.data?.text, 'default terra answer');
+  assert.equal(requests.at(-1)?.body.model, 'gpt-5.6-terra');
+
+  enqueue(200, {
     error: {
       message: 'embedded_error',
       type: 'server_error',
@@ -241,7 +253,7 @@ async function main(): Promise<void> {
   enqueue(200, { choices: [] });
   const emptyChat = await provider.generateText({
     prompt: 'empty choices are not success',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-terra',
   });
   assert.equal(emptyChat.success, false);
   assert.match(emptyChat.error?.message || '', /missing assistant content/);
