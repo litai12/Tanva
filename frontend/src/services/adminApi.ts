@@ -1292,6 +1292,7 @@ export interface MembershipCurrentResponse {
     monthlyQuotaCredits: number;
     signupBonusCredits: number;
     dailyGiftCredits: number;
+    sortOrder: number;
     metadata: Record<string, any> | null;
   } | null;
   nextChange: MembershipNextChange | null;
@@ -1389,6 +1390,7 @@ export interface MembershipTransitionPreview {
   remainingValueEligible?: boolean;
   currentPlanPaidAmount?: number | null;
   currentPlanPriceVersion?: string | null;
+  legacyPlanReplacement?: boolean;
   targetPlan: {
     id: string;
     code: string;

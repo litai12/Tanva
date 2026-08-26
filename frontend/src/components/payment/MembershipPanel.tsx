@@ -30,6 +30,7 @@ interface MembershipPanelProps {
 }
 
 type BillingPeriod = "monthly" | "yearly";
+const CURRENT_MEMBERSHIP_PRICE_VERSION = "2026-08-v2";
 
 function normPlanCode(code: string | undefined): string {
   return (code || "").trim().toLowerCase();
@@ -42,13 +43,21 @@ function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): nu
 }
 
 function resolvePlanTierRank(plan: {
+  code?: string;
   sortOrder?: number;
   monthlyQuotaCredits?: number;
   price?: number;
   metadata?: Record<string, unknown> | null;
 }): number {
-  const metadataTier = Number(getPlanMetadataObject(plan.metadata).tierRank);
+  const metadata = getPlanMetadataObject(plan.metadata);
+  const metadataTier = Number(metadata.tierRank);
   if (Number.isFinite(metadataTier)) return metadataTier;
+  const commercialCode =
+    typeof metadata.planCode === "string" && metadata.planCode.trim()
+      ? metadata.planCode.trim().toLowerCase()
+      : (plan.code || "").trim().toLowerCase();
+  const commercialTier = commercialCode.match(/(?:^|[_-])(69|199|599)(?:[_-]|$)/)?.[1];
+  if (commercialTier) return Number(commercialTier);
   const sortOrder = Number(plan.sortOrder);
   if (Number.isFinite(sortOrder) && sortOrder !== 0) return sortOrder;
   const monthlyQuotaCredits = Number(plan.monthlyQuotaCredits);
@@ -473,6 +482,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       if (!hasActiveSubscription || isFreeUser || !current?.plan) return true;
       const currentRank = resolvePlanTierRank(currentCatalogPlan || current.plan);
       const targetRank = resolvePlanTierRank(plan);
+      const currentPriceVersion = getPlanMetadataObject(current.plan.metadata).priceVersion;
+      const targetPriceVersion = getPlanMetadataObject(plan.metadata).priceVersion;
+      const isLegacyMonthlyReplacement =
+        current.plan.billingCycle === "monthly" &&
+        currentPriceVersion !== CURRENT_MEMBERSHIP_PRICE_VERSION &&
+        targetPriceVersion === CURRENT_MEMBERSHIP_PRICE_VERSION;
+      if (isLegacyMonthlyReplacement && targetRank >= currentRank) return true;
       if (targetRank > currentRank) return true;
       return (
         targetRank === currentRank &&
@@ -1104,7 +1120,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           </div>
                           {transitionPreview?.actionType === "upgrade" ? (
                             <div className={cn("mt-2 text-xs leading-relaxed", isWhite ? "text-violet-700" : "text-violet-200")}>
-                              {transitionPreview.remainingValueEligible === false
+                              {transitionPreview.legacyPlanReplacement
+                                ? "旧月付套餐将立即结束，旧套餐剩余额度清零；新套餐从付款时刻生效并重新计算有效期，不叠加剩余天数。独立充值积分不受影响。"
+                                : transitionPreview.remainingValueEligible === false
                                 ? "当前旧年费为一次性到账版本，不参与剩余价值抵扣；支付后新套餐立即覆盖并重新起算周期。"
                                 : `旧套餐剩余价值抵扣 ¥${transitionPreview.remainingValue}；支付后新套餐立即覆盖并重新起算周期。`}
                             </div>

@@ -198,8 +198,8 @@
   - 新增 `backend/src/business-policy/business-policy.service.ts`，统一读取/归一化 `membership_credit_policy`。
   - 新增 `GET /api/admin/membership-credit-policy` 与 `POST /api/admin/membership-credit-policy`。
   - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
-  - 套餐覆盖式升级以用户开通时 `UserMembershipSubscription.snapshot` / `PaymentOrder.planSnapshot` 的价格快照为准，而不是当前后台套餐价格。目标档位更高（或同档月费转年费）时，旧套餐剩余时间价值抵扣新套餐；旧套餐已发放积分保留、未来未发放额度停止。
-  - 用户有生效会员时，只能购买严格更高档位的套餐；同档续费和所有低档套餐订单均由服务端拒绝。订阅到期后不再存在活跃订阅，用户可按新购逻辑选择套餐。
+  - 套餐覆盖式升级以用户开通时 `UserMembershipSubscription.snapshot` / `PaymentOrder.planSnapshot` 的价格快照为准，而不是当前后台套餐价格。目标档位更高（或同档月费转年费）时，只有新版分期年卡尚未发放的期数价值可抵扣新套餐；普通覆盖式升级保留旧套餐已发放积分、停止未来未发额度。旧价格版本月付换购当前 `2026-08-v2` 套餐是例外：全额付款并立即清零旧 `membership_bound` 批次，新周期从付款时刻重开，充值和永久赠送批次不受影响。
+  - 用户有当前价格版本的生效会员时，只能购买严格更高档位的套餐；同档续费和所有低档套餐订单均由服务端拒绝。旧价格版本月付是唯一同档例外，可按上一条的清零重开规则换购当前同档套餐。订阅到期后不再存在活跃订阅，用户可按新购逻辑选择套餐。
   - 年费套餐必须在 `MembershipPlan.metadata` 显式配置 `creditIssuanceMode: "yearly_monthly_installments"` 才按 12 期发放；推荐同时写入 `priceVersion` 用于运营审计。未配置该模式的历史年费视为“一次性到账”版本：保留既有余额和发放行为，但升级时不计算剩余价值抵扣，避免已完整领取全年积分后重复享受折抵。
   - 独立积分充值不再按会员身份打折；所有用户按固定原价购买基础积分，普通用户到账 `100%`，仅有效最高档年卡与开启对应白名单权益的用户到账 `120%`。订单金额只按基础积分和 `1:100` 校验，资格与赠送积分由服务端订单快照确定，客户端不能控制。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。

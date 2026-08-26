@@ -21,6 +21,7 @@
 - 管理员的立即套餐变更也必须复用 `resolveInitialMembershipGrant(snapshot)`：新版年卡只发第 1 期，并在 `membership_admin_change` 交易和 credit lot 元数据写入 `annualCycleStartAt/annualInstallmentIndex=1/annualInstallmentCount=12`。年度刷新同时识别这种管理员首期记录；对没有期号但已有 `membership_admin_change` 的历史年卡，视为旧路径已一次性发放，跳过后续补发，防止重复赠送。
 - `/api/admin/membership-plans` 与用户支付页共用 `MembershipService.listActivePlans()`，因此两端只看到当前 `2026-08-v2` 的 6 个可售套餐。后台的套餐创建、编辑和启停接口明确拒绝，避免再次产生独立套餐目录；管理员可对单个用户使用既有的套餐变更和有效期调整接口。
 - 年卡覆盖式升级的剩余价值抵扣必须同时满足“分期快照”和“当前周期存在 `annualInstallmentIndex` 积分流水”。抵扣比例是“当前有效期内计划发放期数中尚未实际发放的比例”，不是剩余天数比例；月卡、旧年卡和没有首期期号的异常一次性年卡一律为零。管理员手工缩短有效期时，结束日决定最多可计划多少期，结束日外的额度不会参与抵扣。
+- 旧价格版本的月付订阅可换购同档或更高档 `2026-08-v2` 套餐。预览固定返回全额目标价、`legacyPlanReplacement=true` 与立即重开周期；支付订单绑定下单时的 `currentMembershipPlanId`，回调时订阅 ID 或价格版本不匹配即暂停自动覆盖并保留待人工处理，不能误清已经变化的新套餐。正常换购会清除旧订阅的 `membership_bound` 剩余额度，只保留充值及永久赠送等非会员批次，新周期从 `paidAt` 起算且不累计旧周期剩余时间。
 
 ## 2026-07-31 Seedance 2.5
 - Seedance 2.5 单视频输入新增三种显式 Flow 模式：`video_editing`（视频编辑）、`video_extend`（视频延长）与 `video_reference`（多模态参考）；三者都限制为单条参考视频，避免“全能参考”同时携带 `video_url` 与普通生成时长/比例造成 Ark 自动切入编辑校验。编辑模式在前端探测到输入视频时把节点时长同步为参考视频时长，后端及 managed/new-api 路由最终强制向 Ark 发送 `ratio=adaptive`、`duration=-1`。

@@ -25,6 +25,7 @@ import type {
 
 const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
 const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
+const CURRENT_MEMBERSHIP_PRICE_VERSION = '2026-08-v2';
 
 type MembershipCreditBalances = {
   freeCredits: number;
@@ -83,7 +84,7 @@ export class MembershipService {
             isActive: true,
             metadata: {
               path: ['priceVersion'],
-              equals: '2026-08-v2',
+              equals: CURRENT_MEMBERSHIP_PRICE_VERSION,
             },
           },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -305,6 +306,7 @@ export class MembershipService {
             monthlyQuotaCredits: plan.monthlyQuotaCredits,
             signupBonusCredits: plan.signupBonusCredits,
             dailyGiftCredits: this.normalizeDailyGiftCreditsForPlanCode(plan.code, plan.dailyGiftCredits),
+            sortOrder: plan.sortOrder,
             metadata: plan.metadata,
           }
         : null,
@@ -760,6 +762,49 @@ export class MembershipService {
     );
     const currentCycle = this.normalizeBillingCycle(currentPlan.billingCycle);
     const targetCycle = this.normalizeBillingCycle(targetPlan.billingCycle);
+    const currentSnapshot = this.asMembershipPlanSnapshot(current.snapshot);
+    const currentPlanPriceVersion =
+      this.getPlanPriceVersion(currentSnapshot) ?? this.getPlanPriceVersionFromMetadata(currentPlan.metadata);
+    const targetPlanPriceVersion = this.getPlanPriceVersionFromMetadata(targetPlan.metadata);
+    const isLegacyMonthlyReplacement =
+      currentCycle === 'monthly' &&
+      currentPlanPriceVersion !== CURRENT_MEMBERSHIP_PRICE_VERSION &&
+      targetPlanPriceVersion === CURRENT_MEMBERSHIP_PRICE_VERSION &&
+      this.resolvePlanRank(currentPlan) <= this.resolvePlanRank(targetPlan);
+
+    if (isLegacyMonthlyReplacement) {
+      // 旧月付套餐与当前价格版本不是同一商品，不能按“续费”或旧周期叠加处理。
+      // 允许用户换购同档或更高档的当前套餐：全额支付，付款后立即重开目标周期，
+      // 并由支付入账路径清除旧套餐剩余额度；独立充值/永久赠送积分不受影响。
+      return {
+        actionType: 'upgrade' as const,
+        effectiveMode: 'immediate' as const,
+        payableAmount: Number(targetPlan.price),
+        immediateCreditDelta: this.resolveInitialMembershipGrant(targetPlan),
+        cycleSwitch: true,
+        legacyPlanReplacement: true,
+        remainingRatio: 0,
+        remainingValue: 0,
+        remainingValueEligible: false,
+        currentPlanPaidAmount: null,
+        currentPlanPriceVersion,
+        targetPlan: {
+          id: targetPlan.id,
+          code: targetPlan.code,
+          name: targetPlan.name,
+          billingCycle: targetCycle,
+          price: Number(targetPlan.price),
+        },
+        currentPlan: {
+          id: currentPlan.id,
+          code: currentPlan.code,
+          name: currentPlan.name,
+          billingCycle: currentCycle,
+          price: Number(currentPlan.price),
+        },
+      };
+    }
+
     const isCoverageUpgrade =
       comparison < 0 || (comparison === 0 && currentCycle === 'monthly' && targetCycle === 'yearly');
 
@@ -801,7 +846,6 @@ export class MembershipService {
             select: { amount: true },
           })
         : null;
-      const currentSnapshot = this.asMembershipPlanSnapshot(current.snapshot);
       // 金额口径以开通时的订单套餐快照为准，不能因后台后来改价回溯重算。
       const versionedPlanPrice = Number(currentSnapshot?.price ?? currentOrder?.amount ?? currentPlan.price);
       const paidAmount = Number(currentOrder?.amount ?? versionedPlanPrice);
@@ -830,7 +874,7 @@ export class MembershipService {
         remainingValue,
         remainingValueEligible,
         currentPlanPaidAmount: paidAmount,
-        currentPlanPriceVersion: this.getPlanPriceVersion(currentSnapshot),
+        currentPlanPriceVersion,
         targetPlan: {
           id: targetPlan.id,
           code: targetPlan.code,
@@ -2297,8 +2341,10 @@ export class MembershipService {
     // 把年费全年额度错误地一次性带入升级入账。
     const immediateCreditDelta = this.resolveInitialMembershipGrant(snapshot);
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const legacyPlanReplacementRequested = orderMetadata?.legacyPlanReplacement === true;
     const resolvedPeriod = resolvePaidUpgradePeriod({
-      orderCycleSwitch: orderMetadata?.membershipCycleSwitch,
+      orderCycleSwitch:
+        orderMetadata?.membershipCycleSwitch === true || legacyPlanReplacementRequested,
       currentPeriodType: activeSubscription.periodType,
       targetBillingCycle: snapshot.billingCycle,
       currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
@@ -2316,6 +2362,20 @@ export class MembershipService {
       periodStartAt,
       periodEndAt,
     } = resolvedPeriod;
+    const activePlanForReplacement = legacyPlanReplacementRequested
+      ? await params.tx.membershipPlan.findUnique({
+          where: { id: activeSubscription.membershipPlanId },
+          select: { metadata: true },
+        })
+      : null;
+    const legacyPlanReplacement = legacyPlanReplacementRequested
+      ? this.validateLegacyPlanReplacementOrder({
+          activeSubscription,
+          currentPlanMetadata: activePlanForReplacement?.metadata ?? null,
+          currentMembershipPlanId: orderMetadata?.currentMembershipPlanId,
+          targetSnapshot: snapshot,
+        })
+      : false;
 
     await params.tx.membershipSubscriptionChange.updateMany({
       where: { userId: params.userId, status: 'scheduled' },
@@ -2327,6 +2387,15 @@ export class MembershipService {
       },
     });
 
+    const replacedLegacyCredits = legacyPlanReplacement
+      ? await this.expireSubscriptionLots(
+          params.tx,
+          activeSubscription,
+          params.paidAt,
+          'legacy_monthly_plan_replaced',
+        )
+      : { expiredLots: 0, expiredCredits: 0 };
+
     await params.tx.userMembershipSubscription.update({
       where: { id: activeSubscription.id },
       data: {
@@ -2336,6 +2405,12 @@ export class MembershipService {
         periodType,
         currentPeriodStartAt: periodStartAt,
         currentPeriodEndAt: periodEndAt,
+        ...(legacyPlanReplacement
+          ? {
+              activatedAt: params.paidAt,
+              renewalCount: 0,
+            }
+          : {}),
       },
     });
 
@@ -2352,18 +2427,20 @@ export class MembershipService {
       });
     }
 
-    // 升级不清除旧套餐剩余积分：把旧 membership_bound 活跃批次顺延到新周期结束，叠加继续用。
-    // expiresAt > paidAt：只顺延支付时仍未到期的批次；已到期未被清扫的照旧清零，避免 cron 竞态复活。
-    const carriedOverLots = await params.tx.creditLot.updateMany({
-      where: {
-        accountId: account.id,
-        validityType: 'membership_bound',
-        status: 'active',
-        remainingAmount: { gt: 0 },
-        expiresAt: { gt: params.paidAt, lt: periodEndAt },
-      },
-      data: { expiresAt: periodEndAt },
-    });
+    // 普通覆盖式升级继续保留旧套餐已发额度；旧价格版本换购则已在上方清除
+    // 旧 membership_bound 批次，避免旧、新套餐额度或有效期发生叠加。
+    const carriedOverLots = legacyPlanReplacement
+      ? { count: 0 }
+      : await params.tx.creditLot.updateMany({
+          where: {
+            accountId: account.id,
+            validityType: 'membership_bound',
+            status: 'active',
+            remainingAmount: { gt: 0 },
+            expiresAt: { gt: params.paidAt, lt: periodEndAt },
+          },
+          data: { expiresAt: periodEndAt },
+        });
 
     let createdLotId: string | null = null;
     if (immediateCreditDelta > 0) {
@@ -2382,6 +2459,7 @@ export class MembershipService {
             membershipPlanName: snapshot.name,
             billingCycle: snapshot.billingCycle,
             grantedBy: cycleSwitch ? 'membership_cycle_switch' : 'membership_upgrade_prorated',
+            ...(legacyPlanReplacement ? { legacyPlanReplacement: true } : {}),
             ...(this.isYearlyMonthlyInstallmentPlan(snapshot)
               ? {
                   annualCycleStartAt: periodStartAt.toISOString(),
@@ -2422,6 +2500,7 @@ export class MembershipService {
             membershipPlanCode: snapshot.code,
             billingCycle: snapshot.billingCycle,
             grantedCredits: immediateCreditDelta,
+            ...(legacyPlanReplacement ? { legacyPlanReplacement: true } : {}),
             ...(this.isYearlyMonthlyInstallmentPlan(snapshot)
               ? {
                   annualCycleStartAt: periodStartAt.toISOString(),
@@ -2468,7 +2547,11 @@ export class MembershipService {
         changeType: 'upgrade',
         effectiveMode: 'immediate',
         status: 'applied',
-        reason: cycleSwitch ? 'user_upgrade_cycle_switch' : 'user_upgrade',
+        reason: legacyPlanReplacement
+          ? 'user_legacy_monthly_plan_replacement'
+          : cycleSwitch
+            ? 'user_upgrade_cycle_switch'
+            : 'user_upgrade',
         orderId: order.id,
         requestedBy: params.userId,
         currentPeriodEndAt: periodEndAt,
@@ -2479,6 +2562,9 @@ export class MembershipService {
           cycleSwitch,
           cycleSwitchSource,
           carriedOverLots: carriedOverLots.count,
+          legacyPlanReplacement,
+          expiredLegacyLots: replacedLegacyCredits.expiredLots,
+          expiredLegacyCredits: replacedLegacyCredits.expiredCredits,
         },
       },
     });
@@ -3013,6 +3099,47 @@ export class MembershipService {
       : null;
   }
 
+  private getPlanPriceVersionFromMetadata(metadata: Prisma.JsonValue | null | undefined): string | null {
+    const value = this.asJsonObject(metadata);
+    return typeof value?.priceVersion === 'string' && value.priceVersion.trim()
+      ? value.priceVersion.trim()
+      : null;
+  }
+
+  private validateLegacyPlanReplacementOrder(params: {
+    activeSubscription: {
+      id: string;
+      membershipPlanId: string;
+      periodType: string;
+      snapshot: Prisma.JsonValue | null;
+    };
+    currentPlanMetadata: Prisma.JsonValue | null;
+    currentMembershipPlanId: unknown;
+    targetSnapshot: MembershipPlanSnapshot;
+  }): true {
+    if (
+      typeof params.currentMembershipPlanId !== 'string' ||
+      params.currentMembershipPlanId !== params.activeSubscription.membershipPlanId
+    ) {
+      throw new BadRequestException('当前套餐已发生变化，已暂停自动换购；如已支付请联系客服处理');
+    }
+
+    const activeSnapshot = this.asMembershipPlanSnapshot(params.activeSubscription.snapshot);
+    const activePriceVersion =
+      this.getPlanPriceVersion(activeSnapshot) ??
+      this.getPlanPriceVersionFromMetadata(params.currentPlanMetadata);
+    const targetPriceVersion = this.getPlanPriceVersion(params.targetSnapshot);
+    if (
+      this.normalizeBillingCycle(params.activeSubscription.periodType) !== 'monthly' ||
+      activePriceVersion === CURRENT_MEMBERSHIP_PRICE_VERSION ||
+      targetPriceVersion !== CURRENT_MEMBERSHIP_PRICE_VERSION
+    ) {
+      throw new BadRequestException('当前订单不再符合旧套餐换购条件；如已支付请联系客服处理');
+    }
+
+    return true;
+  }
+
   private resolveYearlyInstallmentGrant(
     plan: Pick<MembershipPlanSnapshot, 'monthlyQuotaCredits' | 'signupBonusCredits'>,
     installmentIndex: number,
@@ -3166,6 +3293,7 @@ export class MembershipService {
   }
 
   private resolvePlanRank(plan: {
+    code?: string;
     sortOrder: number;
     monthlyQuotaCredits: number;
     price: Prisma.Decimal;
@@ -3178,6 +3306,14 @@ export class MembershipService {
     const metadataTier = Number(metadata?.tierRank);
     if (Number.isFinite(metadataTier)) {
       return metadataTier;
+    }
+    const commercialCode =
+      typeof metadata?.planCode === 'string' && metadata.planCode.trim()
+        ? metadata.planCode.trim().toLowerCase()
+        : (plan.code ?? '').trim().toLowerCase();
+    const commercialTier = commercialCode.match(/(?:^|[_-])(69|199|599)(?:[_-]|$)/)?.[1];
+    if (commercialTier) {
+      return Number(commercialTier);
     }
     if (Number.isFinite(plan.sortOrder) && plan.sortOrder !== 0) {
       return plan.sortOrder;

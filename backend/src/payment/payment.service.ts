@@ -380,12 +380,14 @@ export class PaymentService implements OnModuleInit {
         immediateCreditDelta: preview.immediateCreditDelta,
         // 跨周期升级（月卡→年卡）：激活时重开完整目标周期
         membershipCycleSwitch: preview.cycleSwitch === true,
+        legacyPlanReplacement: preview.legacyPlanReplacement === true,
         remainingRatio: preview.remainingRatio,
         remainingValue: preview.remainingValue,
         remainingValueEligible: preview.remainingValueEligible ?? false,
         currentPlanPaidAmount: preview.currentPlanPaidAmount ?? null,
         currentPlanPriceVersion: preview.currentPlanPriceVersion ?? null,
         currentPlanCode: preview.currentPlan?.code ?? null,
+        currentMembershipPlanId: preview.currentPlan?.id ?? null,
         targetPlanCode: preview.targetPlan.code,
       },
     });
