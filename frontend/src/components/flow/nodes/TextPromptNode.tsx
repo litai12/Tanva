@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { BookOpen } from 'lucide-react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from '@xyflow/react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
@@ -38,6 +39,8 @@ import {
   serializeStoryboardPromptTable,
 } from '../storyboardPromptTable';
 import StoryboardScriptToShotsDialog from './StoryboardScriptToShotsDialog';
+import PromptLibraryPopover, { type PromptLibraryApplyMode } from './PromptLibraryPopover';
+import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 
 type Props = {
   id: string;
@@ -370,6 +373,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [isComposing, setIsComposing] = React.useState(false);
   const [scriptToStoryboardOpen, setScriptToStoryboardOpen] =
     React.useState(false);
+  const [promptLibraryOpen, setPromptLibraryOpen] = React.useState(false);
   const [atMention, setAtMention] = React.useState<AtMentionState | null>(null);
   const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('project-library');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
@@ -955,6 +959,23 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     });
     window.dispatchEvent(ev);
   }, [id, isStoryboardTable, syncTypedCandidateMentions]);
+
+  const applyPromptLibraryItem = React.useCallback((prompt: string, mode: PromptLibraryApplyMode) => {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) return;
+    const next = mode === 'append' && value.trim().length
+      ? `${value.trimEnd()}\n\n${normalizedPrompt}`
+      : normalizedPrompt;
+    setValue(next);
+    commitValue(next);
+    setAtMention(null);
+    window.requestAnimationFrame(() => {
+      if (!isPromptEditable) return;
+      const textarea = textareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(next.length, next.length);
+    });
+  }, [commitValue, isPromptEditable, value]);
 
   const commitStoryboardTable = React.useCallback((
     nextTable: TextPromptData['storyboardTable'],
@@ -1719,6 +1740,41 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             {title}
           </span>
         )}
+        {!isStoryboardTable && (
+          <button
+            type="button"
+            className="nodrag nopan"
+            aria-label={lt('打开提示词库', 'Open prompt library')}
+            aria-expanded={promptLibraryOpen}
+            title={lt('提示词库', 'Prompt library')}
+            onPointerDownCapture={(event) => event.stopPropagation()}
+            onMouseDownCapture={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPromptLibraryOpen((current) => !current);
+            }}
+            style={{
+              display: 'grid',
+              width: 25,
+              height: 25,
+              flex: '0 0 auto',
+              marginLeft: 'auto',
+              padding: 0,
+              placeItems: 'center',
+              color: promptLibraryOpen ? '#2563eb' : mutedTextColor,
+              background: promptLibraryOpen
+                ? (isFlowDark ? 'rgba(37,99,235,0.2)' : '#eff6ff')
+                : 'transparent',
+              border: promptLibraryOpen
+                ? '1px solid rgba(37,99,235,0.28)'
+                : '1px solid transparent',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            <BookOpen size={14} strokeWidth={1.9} />
+          </button>
+        )}
         {isStoryboardTable && (
           <div
             className="nodrag nopan"
@@ -1988,6 +2044,18 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           ))}
         </div>
       )}
+      <RuntimeErrorBoundary
+        label={lt('提示词库', 'Prompt library')}
+        variant="panel"
+        resetKeys={[promptLibraryOpen, isStoryboardTable]}
+      >
+        <PromptLibraryPopover
+          open={promptLibraryOpen && !isStoryboardTable}
+          dark={isFlowDark}
+          onClose={() => setPromptLibraryOpen(false)}
+          onApply={applyPromptLibraryItem}
+        />
+      </RuntimeErrorBoundary>
       {atMention && dropdownPos && createPortal(
         <div
           className="notranslate nodrag nopan"

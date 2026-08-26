@@ -30,6 +30,7 @@ import { DirectorCaptureModule } from './director-capture/director-capture.modul
 import { MaterialLibraryModule } from './material-library/material-library.module';
 import { AsrModule } from './asr/asr.module';
 import { StoryboardSkillsModule } from './storyboard-skills/storyboard-skills.module';
+import { PromptLibraryModule } from './prompt-library/prompt-library.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { StoryboardSkillsModule } from './storyboard-skills/storyboard-skills.mo
     MaterialLibraryModule,
     AsrModule,
     StoryboardSkillsModule,
+    PromptLibraryModule,
   ],
 })
 export class AppModule {}

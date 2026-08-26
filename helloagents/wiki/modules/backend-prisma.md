@@ -10,4 +10,4 @@
 
 ## 数据库
 - PostgreSQL（连接字符串：`DATABASE_URL`）
-
+- 提示词库使用 `UserPromptLibraryItem` 保存当前用户的标题、描述、提示词、媒体类型和可选远程封面 URL，使用 `UserPromptLibraryFavorite` 保存 `official/custom + promptId` 常用关系；两者都以用户外键级联删除。迁移：`202608260001_add_user_prompt_library`。

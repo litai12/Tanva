@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-08-26：Prompt 提示词库去掉面板左上角蓝色书本 Logo，改为紧凑纯文字标题。官方视频卡片默认仅展示封面，鼠标移入后按需静音循环播放，移出立即停止、复位并回到封面；视频加载失败时仅降级为封面。
+
+- 2026-08-26：Flow 普通 Prompt 节点新增账号级提示词库。居中面板经 Tanva 后端代理实时读取 `https://tc.tanvas.cn/api/prompt-library` 的完整图片/视频案例、模型 facets 与分页数据，以媒体卡片而非纯文本展示；本地联调可用 `TAPCANVAS_PROMPT_LIBRARY_API_URL` 覆盖回 localhost。滚动接近底部自动分页，并用轻量圆点状态替代手动“加载更多”按钮。后端代理对相同请求合并、短缓存并重试一次瞬时失败，前端卡片启用 lazy media 与 `content-visibility`，提示词库由局部错误边界隔离，分页/媒体异常不会再击穿整个 Prompt 节点。用户提示词和官方/用户常用状态写入 PostgreSQL。自定义项支持上传、替换和移除卡片封面，文件先进入现有 OSS，数据库仅保存远程 URL；旧版 localStorage 自定义项首次打开自动迁移。数据库迁移 `202608260001_add_user_prompt_library` 已应用，并通过真实登录态验证官方 1,983 条数据、自动加载至第 3 页（72 张卡片）及用户提示词创建→查询→删除闭环。
+
+- 2026-08-26：项目自动保存新增空 Flow 防护。`content.flow` 缺失或 `flow.nodes` 为空时，保留本地 `dirty` 状态但不发起整包云端 PUT，避免项目切换、水合或组件重建期间的短暂空状态覆盖已有工作流；手动保存与历史恢复保持原有链路。
+
 - 2026-08-25：修复 AI Chat 带图 Auto 工具选择仍发送已停用 `gpt-5.4`、继而被 new-api 分配到 TC/小T侧渠道的问题。非小T标准文本默认模型改为 `gpt-5.6-terra`；工具候选去重后仅剩一个时前后端直接选中，不产生模型调用或工具选择扣费，多候选时只允许 Luna/Terra（默认 Terra），并用 `tanvas-right-gpt-5.6-*` 专用模型名锁定 new-api `right` channel。工具选择不再透传 Banana stable/VIP providerOptions；Flow Text Chat 与 Prompt Optimizer 的默认 Right 模型同步改为 Terra，并新增无付费路由回归。
 
 - 2026-08-24：纠正 Flow Text Chat / Prompt Optimizer 的文本渠道边界：两者不再请求 `xiaot-agent-*` facade，也不再消费小T的 SSE/durable turn 状态。每次业务文本先经 new-api 的 `deepseek-v4-flash-260425` 做语义安全审核，只有同时满足“无政治违规、无敏感话题”才继续；拒绝、空结果、非法 JSON 或自相矛盾的审核结果都会原地失败，绝不调用后续 GPT。产品生成模型仅保留已在 4458 与生产真实验证通过的 GPT-5.6 Luna / Terra，最后一跳分别使用 `tanvas-right-gpt-5.6-luna` / `tanvas-right-gpt-5.6-terra` 锁定 new-api `right` channel；前端移除“小T”品牌与 Right 上游不支持的 DeepSeek 生成选项。图片 stable/ultra 线路参数不会再把业务文本切到 VIP token 分组。

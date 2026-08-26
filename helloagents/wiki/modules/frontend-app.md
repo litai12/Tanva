@@ -11,6 +11,14 @@
 ## AI 对话框右键菜单
 - 对话框内容区使用浏览器默认右键菜单。
 
+## Flow Prompt 提示词库
+- 普通 `textPrompt` 节点标题右侧提供书本入口，通过 `document.body` Portal 打开居中模态提示词库，避免受 React Flow 缩放与节点裁剪影响。面板保持 Tanva 明暗主题与卡片视觉。
+- 官方案例由 `promptLibraryApi` 请求 Tanva `/api/prompt-library/official`，后端再代理 TapCanvas Prompt Library；前端消费其图片/视频媒体、模型 facets、搜索、排序和分页，不再维护静态样例副本。卡片优先选择与案例类型相同的第一个媒体；视频平时仅展示缩略图，鼠标移入时按需静音循环播放，移出立即暂停、复位并回到封面；媒体 lazy load 并使用 `content-visibility` 降低长列表成本。
+- 用户自定义提示词与官方/用户常用状态写入账号数据库。自定义封面只允许由文件选择器或拖放上传图片，保存时通过现有 `imageUploadService` 上传至 `prompt-library/covers/`，API 与数据库仅接收远程 HTTP(S) 引用；界面不得要求用户手填 URL。旧版 localStorage 自定义项首次打开自动迁移并删除旧键。
+- 面板支持官方/我的、全文搜索、图片/视频筛选、模型/排序、自定义增删改、横向卡片操作，以及替换/追加回填。官方列表由滚动容器内的 IntersectionObserver 在底部前 360px 自动加载下一页，必须使用小型内联状态，不恢复手动大按钮。分镜表变体不显示入口，避免快捷提示词破坏表格结构。
+- `TextPromptNode` 在提示词库外增加独立 `RuntimeErrorBoundary`；提示词库分页或第三方媒体渲染异常只能降级提示词库区域，不得让外层 `FlowNodeErrorBoundary` 把整个 Prompt 节点替换为错误卡。
+- 面板根节点必须保持 `translate="no" + notranslate`，支持 Flow 暗色主题、点击外部与 Escape 关闭。选择提示词后继续通过标准 `flow:updateNodeData` 写回文本，由原有 mention 清洗逻辑同步移除已失效引用。
+
 ## 活动通知栏
 - 组件：`frontend/src/components/layout/CampaignNoticeBar.tsx`
 - 配置：`frontend/src/components/layout/campaignNoticeConfig.ts`

@@ -15,6 +15,7 @@ import {
   getNonPersistableFlowImageNodeIds,
   sanitizeProjectContentForCloudSave,
 } from '@/utils/projectContentValidation';
+import { hasFlowNodesForAutosave } from '@/utils/projectAutosavePolicy';
 import type { ProjectContentSnapshot } from '@/types/project';
 
 const AUTOSAVE_INTERVAL = 60 * 1000;
@@ -75,6 +76,14 @@ export function useProjectAutosave(projectId: string | null) {
     }
     if (useProjectContentStore.getState().cacheValidationPending) {
       setWarning('本地缓存正在校验远端版本，校验完成前已暂停自动保存。');
+      return;
+    }
+    if (!hasFlowNodesForAutosave(currentContent)) {
+      saveMonitor.push(currentProjectId, 'autosave_skipped_empty_flow', {
+        version: currentVersion,
+        attempt,
+        stage: 'initial',
+      });
       return;
     }
 
@@ -139,6 +148,16 @@ export function useProjectAutosave(projectId: string | null) {
       const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
       const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
       const contentForCloudSave = sanitizeResult?.sanitized ?? contentToSave;
+
+      // flush/sanitize 期间 Store 内容可能已变化，在真正发起网络请求前再做一次最终防线。
+      if (!hasFlowNodesForAutosave(contentForCloudSave)) {
+        saveMonitor.push(currentProjectId, 'autosave_skipped_empty_flow', {
+          version: versionToSave,
+          attempt,
+          stage: 'before-request',
+        });
+        return;
+      }
 
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
         const message = `Found non-persistable images (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}), cloud save blocked.`;
