@@ -22,6 +22,10 @@ export type PromptLibraryApplyMode = 'replace' | 'append';
 type PromptLibraryPopoverProps = {
   open: boolean;
   dark: boolean;
+  /** Open the library directly in the personal-prompt editor. */
+  startInCreate?: boolean;
+  /** Optional prompt text to seed when creating from a Prompt node. */
+  initialPromptText?: string;
   onClose: () => void;
   onApply: (prompt: string, mode: PromptLibraryApplyMode) => void;
 };
@@ -234,7 +238,14 @@ function SkeletonCards() {
   );
 }
 
-export default function PromptLibraryPopover({ open, dark, onClose, onApply }: PromptLibraryPopoverProps): React.ReactPortal | null {
+export default function PromptLibraryPopover({
+  open,
+  dark,
+  startInCreate = false,
+  initialPromptText = '',
+  onClose,
+  onApply,
+}: PromptLibraryPopoverProps): React.ReactPortal | null {
   const { lt } = useLocaleText();
   const titleInputRef = React.useRef<HTMLInputElement | null>(null);
   const officialRequestRef = React.useRef(0);
@@ -266,6 +277,7 @@ export default function PromptLibraryPopover({ open, dark, onClose, onApply }: P
   const [coverPreviewUrl, setCoverPreviewUrl] = React.useState('');
   const [error, setError] = React.useState('');
   const [formError, setFormError] = React.useState('');
+  const createInitRef = React.useRef(false);
 
   const resetEditor = React.useCallback(() => {
     setEditorOpen(false);
@@ -453,14 +465,32 @@ export default function PromptLibraryPopover({ open, dark, onClose, onApply }: P
     }
   }, [favorites, lt]);
 
-  const startCreate = React.useCallback(() => {
+  const startCreate = React.useCallback((seedPromptText = '') => {
     setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT, mediaType: mediaType === 'all' ? 'image' : mediaType });
+    setDraft({
+      ...EMPTY_DRAFT,
+      mediaType: mediaType === 'all' ? 'image' : mediaType,
+      promptText: seedPromptText,
+    });
     setCoverFile(null);
     setCoverPreviewUrl('');
     setFormError('');
     setEditorOpen(true);
   }, [mediaType]);
+
+  // The Prompt node's plus button reuses this editor, while the book button
+  // continues to open the normal browse view. Guard with a ref so changes to
+  // the surrounding filters do not reset a draft that the user is editing.
+  React.useEffect(() => {
+    if (!open || !startInCreate) {
+      createInitRef.current = false;
+      return;
+    }
+    if (createInitRef.current) return;
+    createInitRef.current = true;
+    setTab('custom');
+    startCreate(initialPromptText);
+  }, [initialPromptText, open, startCreate, startInCreate]);
 
   const startEdit = React.useCallback((item: UserPromptItem) => {
     setEditingId(item.id);
@@ -612,7 +642,7 @@ export default function PromptLibraryPopover({ open, dark, onClose, onApply }: P
           <button type="button" className={`tanva-prompt-library__favorite-filter${favoritesOnly ? ' is-active' : ''}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly((current) => !current)}>
             <Star size={16} fill={favoritesOnly ? 'currentColor' : 'none'} />{lt('常用', 'Saved')}
           </button>
-          {tab === 'custom' ? <button type="button" className="tanva-prompt-library__new-button" onClick={startCreate}><Plus size={16} />{lt('新建', 'New')}</button> : null}
+          {tab === 'custom' ? <button type="button" className="tanva-prompt-library__new-button" onClick={() => startCreate()}><Plus size={16} />{lt('新建', 'New')}</button> : null}
         </div>
 
         <div className="tanva-prompt-library__filters">
@@ -649,7 +679,7 @@ export default function PromptLibraryPopover({ open, dark, onClose, onApply }: P
                 <label className="is-wide"><span>{lt('描述', 'Description')}</span><input maxLength={1000} value={draft.description || ''} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder={lt('一句话说明适用场景（可选）', 'Describe the use case (optional)')} /></label>
                 <label className="is-wide"><span>{lt('提示词', 'Prompt')} *</span><textarea maxLength={50000} value={draft.promptText} onChange={(event) => setDraft((current) => ({ ...current, promptText: event.target.value }))} placeholder={lt('输入要复用的完整提示词…', 'Enter the complete reusable prompt…')} /></label>
                 <div className="tanva-prompt-library__cover-field">
-                  <span>{lt('卡片封面', 'Card cover')}</span>
+                  <span>{lt('卡片封面（可选）', 'Card cover (optional)')}</span>
                   {coverPreviewUrl ? (
                     <div className="tanva-prompt-library__cover-preview">
                       <img src={coverPreviewUrl} alt={lt('封面预览', 'Cover preview')} />
@@ -722,7 +752,7 @@ export default function PromptLibraryPopover({ open, dark, onClose, onApply }: P
               <span><BookOpen size={28} /></span>
               <strong>{favoritesOnly ? lt('这里还没有常用提示词', 'No saved prompts here yet') : lt('没有找到匹配内容', 'No matching prompts')}</strong>
               <p>{tab === 'custom' ? lt('新建一条并保存到账号，之后可以随时复用。', 'Create one and save it to your account for reuse.') : lt('调整搜索词、模型或素材类型后再试。', 'Try another search, model, or media type.')}</p>
-              {tab === 'custom' && !favoritesOnly ? <button type="button" onClick={startCreate}><Plus size={15} />{lt('新建提示词', 'Create prompt')}</button> : null}
+              {tab === 'custom' && !favoritesOnly ? <button type="button" onClick={() => startCreate()}><Plus size={15} />{lt('新建提示词', 'Create prompt')}</button> : null}
             </div>
           )}
           {tab === 'official' && !loadingOfficial && !favoritesOnly && officialItems.length > 0 ? (

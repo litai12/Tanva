@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Plus } from 'lucide-react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from '@xyflow/react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
@@ -374,6 +374,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [scriptToStoryboardOpen, setScriptToStoryboardOpen] =
     React.useState(false);
   const [promptLibraryOpen, setPromptLibraryOpen] = React.useState(false);
+  const [promptLibraryStartInCreate, setPromptLibraryStartInCreate] = React.useState(false);
   const [atMention, setAtMention] = React.useState<AtMentionState | null>(null);
   const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('project-library');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
@@ -1741,39 +1742,71 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           </span>
         )}
         {!isStoryboardTable && (
-          <button
-            type="button"
+          <div
             className="nodrag nopan"
-            aria-label={lt('打开提示词库', 'Open prompt library')}
-            aria-expanded={promptLibraryOpen}
-            title={lt('提示词库', 'Prompt library')}
-            onPointerDownCapture={(event) => event.stopPropagation()}
-            onMouseDownCapture={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              setPromptLibraryOpen((current) => !current);
-            }}
-            style={{
-              display: 'grid',
-              width: 25,
-              height: 25,
-              flex: '0 0 auto',
-              marginLeft: 'auto',
-              padding: 0,
-              placeItems: 'center',
-              color: promptLibraryOpen ? '#2563eb' : mutedTextColor,
-              background: promptLibraryOpen
-                ? (isFlowDark ? 'rgba(37,99,235,0.2)' : '#eff6ff')
-                : 'transparent',
-              border: promptLibraryOpen
-                ? '1px solid rgba(37,99,235,0.28)'
-                : '1px solid transparent',
-              borderRadius: 6,
-              cursor: 'pointer',
-            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 'auto' }}
           >
-            <BookOpen size={14} strokeWidth={1.9} />
-          </button>
+            <button
+              type="button"
+              aria-label={lt('保存到我的提示词', 'Save to my prompts')}
+              title={lt('保存到我的提示词', 'Save to my prompts')}
+              onPointerDownCapture={(event) => event.stopPropagation()}
+              onMouseDownCapture={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setPromptLibraryStartInCreate(true);
+                setPromptLibraryOpen(true);
+              }}
+              style={{
+                display: 'grid',
+                width: 28,
+                height: 28,
+                flex: '0 0 auto',
+                padding: 0,
+                placeItems: 'center',
+                color: '#ef4444',
+                background: 'transparent',
+                border: '1px solid transparent',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={23} strokeWidth={2.6} />
+            </button>
+            <button
+              type="button"
+              className="nodrag nopan"
+              aria-label={lt('打开提示词库', 'Open prompt library')}
+              aria-expanded={promptLibraryOpen}
+              title={lt('提示词库', 'Prompt library')}
+              onPointerDownCapture={(event) => event.stopPropagation()}
+              onMouseDownCapture={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setPromptLibraryStartInCreate(false);
+                setPromptLibraryOpen((current) => !current);
+              }}
+              style={{
+                display: 'grid',
+                width: 25,
+                height: 25,
+                flex: '0 0 auto',
+                padding: 0,
+                placeItems: 'center',
+                color: promptLibraryOpen && !promptLibraryStartInCreate ? '#2563eb' : mutedTextColor,
+                background: promptLibraryOpen && !promptLibraryStartInCreate
+                  ? (isFlowDark ? 'rgba(37,99,235,0.2)' : '#eff6ff')
+                  : 'transparent',
+                border: promptLibraryOpen && !promptLibraryStartInCreate
+                  ? '1px solid rgba(37,99,235,0.28)'
+                  : '1px solid transparent',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              <BookOpen size={14} strokeWidth={1.9} />
+            </button>
+          </div>
         )}
         {isStoryboardTable && (
           <div
@@ -2052,7 +2085,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         <PromptLibraryPopover
           open={promptLibraryOpen && !isStoryboardTable}
           dark={isFlowDark}
-          onClose={() => setPromptLibraryOpen(false)}
+          startInCreate={promptLibraryStartInCreate}
+          initialPromptText={value}
+          onClose={() => {
+            setPromptLibraryOpen(false);
+            setPromptLibraryStartInCreate(false);
+          }}
           onApply={applyPromptLibraryItem}
         />
       </RuntimeErrorBoundary>
