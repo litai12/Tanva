@@ -1759,19 +1759,23 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               }}
               style={{
                 display: 'grid',
-                width: 28,
-                height: 28,
+                width: 25,
+                height: 25,
                 flex: '0 0 auto',
                 padding: 0,
                 placeItems: 'center',
-                color: '#ef4444',
-                background: 'transparent',
-                border: '1px solid transparent',
+                color: promptLibraryOpen && promptLibraryStartInCreate ? '#2563eb' : mutedTextColor,
+                background: promptLibraryOpen && promptLibraryStartInCreate
+                  ? (isFlowDark ? 'rgba(37,99,235,0.2)' : '#eff6ff')
+                  : 'transparent',
+                border: promptLibraryOpen && promptLibraryStartInCreate
+                  ? '1px solid rgba(37,99,235,0.28)'
+                  : '1px solid transparent',
                 borderRadius: 6,
                 cursor: 'pointer',
               }}
             >
-              <Plus size={23} strokeWidth={2.6} />
+              <Plus size={14} strokeWidth={1.9} />
             </button>
             <button
               type="button"
