@@ -3053,18 +3053,22 @@ const FloatingHeader: React.FC = () => {
               className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
               title={
                 i18n.language?.startsWith("zh")
-                  ? "一键整理"
-                  : "Auto arrange"
+                  ? "整理选中节点（未选择时整理全部）"
+                  : "Arrange selected nodes (or all when none are selected)"
               }
               aria-label={
                 i18n.language?.startsWith("zh")
-                  ? "一键整理"
-                  : "Auto arrange"
+                  ? "整理选中节点（未选择时整理全部）"
+                  : "Arrange selected nodes (or all when none are selected)"
               }
               onClick={() => {
                 if (!currentProject?.id) return;
                 try {
-                  window.dispatchEvent(new CustomEvent(FLOW_AUTO_LAYOUT_EVENT));
+                  window.dispatchEvent(
+                    new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
+                      detail: { scope: "selection-or-all" },
+                    })
+                  );
                 } catch {}
               }}
             >

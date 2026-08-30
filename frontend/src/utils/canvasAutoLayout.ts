@@ -57,6 +57,9 @@ export type NodeSizeGetter = (node: Node) => Size;
 
 export interface TidyLayoutOptions {
   getSize: NodeSizeGetter;
+  // 仅整理这些节点；未传时整理所有节点。组容器仍是原子整理单元：
+  // 选中组会带成员整体平移，单独选中组成员不会拆散该组。
+  targetIds?: ReadonlySet<string>;
   // 被协作端锁定的节点：锁定的整理单元（含其组成员）整体不动，
   // 与拖拽路径「锁定节点本地也不产生位移」的语义一致。
   lockedIds?: ReadonlySet<string>;
@@ -206,6 +209,8 @@ export function computeTidyByCategoryLayout(
   const colGap = options.colGap ?? 120;
   const rowGap = options.rowGap ?? 40;
   const getSize = options.getSize;
+  const targetIds = options.targetIds;
+  const isTargeted = (id: string): boolean => !targetIds || targetIds.has(id);
   const lockedIds = options.lockedIds;
   const isLocked = (id: string): boolean => !!lockedIds?.has(id);
   const positions = new Map<string, XY>();
@@ -253,6 +258,7 @@ export function computeTidyByCategoryLayout(
   const units: Array<{ node: Node; category: TidyCategory }> = [];
   for (const n of allNodes) {
     if (!isUnit(n)) continue;
+    if (!isTargeted(n.id)) continue;
     if (n.type === GROUP_NODE_TYPE ? isGroupLocked(n.id) : isLocked(n.id))
       continue;
     const category = categoryOfUnit(n);

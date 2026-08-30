@@ -15325,14 +15325,20 @@ function FlowInner() {
   // 一键整理的补间动画句柄(卸载/重复触发时取消)
   const tidyAnimationRef = React.useRef<number | null>(null);
 
-  // 监听「一键整理」：按节点类别分列重排（对齐 TapCanvas tidyByCategory）。
+  // 监听「一键整理」：有选区时仅整理选中节点，否则按节点类别分列重排全画布
+  // （对齐 TapCanvas tidyByCategory）。小T等未声明 selection-or-all 的调用继续
+  // 整理全画布，避免用户遗留选区影响自动新增节点的布局。
   // 组容器(childNodeIds 模型)作为整体单元按成员类别投票归列，成员随组同 delta 平移；
   // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
   // 落库由 nodes effect 的 scheduleCommit 在状态更新后自动完成。
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { source?: string; focusNodeId?: string | null }
+        | {
+            source?: string;
+            focusNodeId?: string | null;
+            scope?: "all" | "selection-or-all";
+          }
         | undefined;
       const focusAfterLayout = () => {
         if (!detail?.focusNodeId) return;
@@ -15351,6 +15357,15 @@ function FlowInner() {
         focusAfterLayout();
         return;
       }
+      const selectedIds =
+        detail?.scope === "selection-or-all"
+          ? new Set(
+              allNodes
+                .filter((node) => node.selected)
+                .map((node) => String(node.id))
+            )
+          : undefined;
+      const isSelectionLayout = !!selectedIds?.size;
       const positions = computeTidyByCategoryLayout(allNodes as any, {
         getSize: (node) => {
           const { width, height } = getNodeRenderSize(node as RFNode);
@@ -15359,6 +15374,7 @@ function FlowInner() {
         lockedIds: new Set(
           Array.from(lockedByOthersRef.current.keys(), String)
         ),
+        targetIds: isSelectionLayout ? selectedIds : undefined,
       });
       if (!positions.size) {
         focusAfterLayout();
@@ -15437,7 +15453,12 @@ function FlowInner() {
         try {
           window.dispatchEvent(
             new CustomEvent("toast", {
-              detail: { message: "已整理画布布局", type: "success" },
+              detail: {
+                message: isSelectionLayout
+                  ? "已整理选中节点"
+                  : "已整理画布布局",
+                type: "success",
+              },
             })
           );
         } catch {}
