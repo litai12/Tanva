@@ -8,6 +8,7 @@ import {
   buildRechargeBonusCreditLotData,
   buildRechargeCreditLotData,
   buildSignupCreditLotData,
+  buildVipDailyRewardCreditLotData,
 } from '../src/credits/credit-lot-grants';
 
 function iso(input: string): Date {
@@ -150,6 +151,21 @@ function run(): void {
   assert.equal(paidDailyRewardLot.sourceType, 'gift');
   assert.equal(paidDailyRewardLot.validityType, 'fixed_window');
   assert.equal(paidDailyRewardLot.expiresAt?.toISOString(), '2026-04-09T03:00:00.000Z');
+
+  const vipDailyRewardLot = buildVipDailyRewardCreditLotData({
+    accountId: 'acct_5vip',
+    amount: 120,
+    grantedAt,
+    metadata: {
+      reason: 'daily_reward',
+      tierCode: 'vip_199',
+      retentionPolicy: 'vip_permanent',
+    },
+  });
+
+  assert.equal(vipDailyRewardLot.sourceType, 'subscription');
+  assert.equal(vipDailyRewardLot.validityType, 'permanent');
+  assert.equal(vipDailyRewardLot.expiresAt, null);
 
   const freeMonthlyQuotaLot = buildFreeMonthlyQuotaCreditLotData({
     accountId: 'acct_6',

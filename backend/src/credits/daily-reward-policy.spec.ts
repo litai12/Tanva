@@ -4,6 +4,7 @@ import {
   diffDailyRewardBusinessDays,
   getDailyRewardBusinessDayAnchor,
   getDailyRewardExpiresAt,
+  isRetainedVipDailyReward,
 } from './daily-reward-policy';
 
 const afterReset = new Date(2026, 7, 31, 15, 26, 28);
@@ -40,5 +41,11 @@ assert.equal(
   ),
   1,
 );
+
+assert.equal(isRetainedVipDailyReward({ tierCode: 'vip_69' }), true);
+assert.equal(isRetainedVipDailyReward({ tierCode: 'vip_599' }), true);
+assert.equal(isRetainedVipDailyReward({ retentionPolicy: 'vip_permanent' }), true);
+assert.equal(isRetainedVipDailyReward({ tierCode: 'free' }), false);
+assert.equal(isRetainedVipDailyReward(null), false);
 
 console.log('daily reward policy checks passed');

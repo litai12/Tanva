@@ -42,5 +42,13 @@ assert.equal(
   isFreeCreditDecayLot({ sourceType: 'subscription', validityType: 'membership_bound' }),
   false,
 );
+assert.equal(
+  isFreeCreditDecayLot({
+    sourceType: 'subscription',
+    validityType: 'permanent',
+    metadata: { reason: 'daily_reward', retentionPolicy: 'vip_permanent' },
+  }),
+  false,
+);
 
 console.log('free credit decay policy checks passed');

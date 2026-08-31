@@ -416,7 +416,7 @@ const enUS = {
     },
     expiring: {
       title: "You have {{total}} check-in credits available today only",
-      desc: "Check-in credits expire at the next 3:00 AM check-in-day boundary. This rule applies to every user.",
+      desc: "Free-user check-in credits expire at the next 3:00 AM boundary. Active monthly/yearly members and VIP-whitelisted users keep them permanently.",
       detail: "{{amount}} credits will expire on {{date}}",
       more: "{{count}} more expiring soon...",
     },

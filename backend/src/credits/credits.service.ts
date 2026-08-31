@@ -13,6 +13,7 @@ import {
   diffDailyRewardBusinessDays,
   getDailyRewardBusinessDayAnchor,
   getDailyRewardExpiresAt,
+  isRetainedVipDailyReward,
 } from './daily-reward-policy';
 import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
@@ -21,6 +22,7 @@ import {
   buildDailyRewardCreditLotData,
   buildFreeMonthlyQuotaCreditLotData,
   buildManualCreditLotData,
+  buildVipDailyRewardCreditLotData,
 } from './credit-lot-grants';
 import {
   applyLotDeductionsToSnapshots,
@@ -2395,6 +2397,7 @@ export class CreditsService {
     baseCredits: number,
     rewardMultiplier = 1,
     tierCode?: string,
+    isVipEntitled = false,
   ): Prisma.InputJsonValue {
     return {
       reason: 'daily_reward',
@@ -2402,6 +2405,7 @@ export class CreditsService {
       baseCredits,
       rewardMultiplier,
       ...(tierCode ? { tierCode } : {}),
+      retentionPolicy: isVipEntitled ? 'vip_permanent' : 'same_business_day',
       ...(bonusCredits > 0
         ? {
           bonusCredits,
@@ -2427,6 +2431,7 @@ export class CreditsService {
     tierCode: 'free' | 'vip_69' | 'vip_199' | 'vip_599';
     baseCredits: number;
     rewardMultiplier: number;
+    isVipEntitled: boolean;
   }> {
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
 
@@ -2446,15 +2451,11 @@ export class CreditsService {
 
       const isActiveVip =
         entitlementSource === 'vip_whitelist' ||
-        (entitlement?.membershipStatus === 'active' &&
-          entitlement.currentPeriodEndAt instanceof Date &&
-          entitlement.currentPeriodEndAt.getTime() > Date.now());
+        entitlementSource === 'subscription';
 
       const tierCode = isActiveVip
         ? this.normalizeDailyRewardTierCode(
-            entitlementSource === 'vip_whitelist'
-              ? effectivePlan?.code
-              : entitlement?.currentPlanCode,
+            effectivePlan?.code ?? entitlement?.currentPlanCode,
           )
         : 'free';
 
@@ -2515,6 +2516,7 @@ export class CreditsService {
         tierCode,
         baseCredits,
         rewardMultiplier: Math.max(1, policy.consecutive7DayRewardMultiplier),
+        isVipEntitled: isActiveVip,
       };
     } catch (error) {
       if (
@@ -2525,6 +2527,7 @@ export class CreditsService {
           tierCode: 'free',
           baseCredits: policy.dailyRewardCredits,
           rewardMultiplier: Math.max(1, policy.consecutive7DayRewardMultiplier),
+          isVipEntitled: false,
         };
       }
       throw error;
@@ -2579,8 +2582,8 @@ export class CreditsService {
   /**
    * 在账户锁内即时清理已跨签到业务日的积分。
    *
-   * 除新 fixed_window 批次外，这里也识别历史 permanent 签到批次，确保规则上线后
-   * 旧签到余额不会继续被当作 legacy balance 消费。
+   * 除新 fixed_window 批次外，这里也识别历史免费签到批次；历史 VIP 批次通过
+   * tierCode/retentionPolicy 排除，月卡、年卡和 VIP 白名单签到永久保留。
    */
   private async expireDailyRewardLotsForLockedAccount(
     tx: Prisma.TransactionClient,
@@ -2588,7 +2591,7 @@ export class CreditsService {
     now: Date,
   ): Promise<{ expiredLots: number; expiredCredits: number; balanceAfter: number }> {
     const currentBusinessDayStartAt = this.getDailyRewardBusinessDayAnchor(now);
-    const expiredLots = await tx.creditLot.findMany({
+    const candidateLots = await tx.creditLot.findMany({
       where: {
         accountId: account.id,
         status: { in: ['active', 'expired'] },
@@ -2604,6 +2607,9 @@ export class CreditsService {
       },
       orderBy: [{ grantedAt: 'asc' }, { id: 'asc' }],
     });
+    const expiredLots = candidateLots.filter(
+      (lot) => !isRetainedVipDailyReward(lot.metadata),
+    );
 
     if (expiredLots.length === 0) {
       return { expiredLots: 0, expiredCredits: 0, balanceAfter: account.balance };
@@ -6747,7 +6753,7 @@ export class CreditsService {
 
   /**
    * 领取每日签到奖励。
-   * 签到积分对所有用户都只在当前签到业务日有效；第 7 天仍按套餐倍率发放。
+   * 免费用户签到积分只在当前签到业务日有效；有效月卡/年卡和 VIP 白名单永久保留。
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -6782,7 +6788,7 @@ export class CreditsService {
       }
 
       const rewardRule = await this.resolveDailyRewardRuleForUser(tx, userId);
-      const expiresAt = getDailyRewardExpiresAt(now);
+      const expiresAt = rewardRule.isVipEntitled ? null : getDailyRewardExpiresAt(now);
 
       // ????????
       let newConsecutiveDays = 1;
@@ -6836,21 +6842,31 @@ export class CreditsService {
         ? `连续签到第7天，按${rewardMultiplier}倍发放共${totalCredits}积分`
         : `每日签到第${newConsecutiveDays}天`;
 
+      const dailyRewardMetadata = this.getDailyRewardMetadata(
+        newConsecutiveDays,
+        bonusCredits,
+        rewardRule.baseCredits,
+        rewardMultiplier,
+        rewardRule.tierCode,
+        rewardRule.isVipEntitled,
+      );
       const creditLot = await tx.creditLot.create({
-        data: buildDailyRewardCreditLotData({
+        data: rewardRule.isVipEntitled
+          ? buildVipDailyRewardCreditLotData({
+            accountId: account.id,
+            amount: totalCredits,
+            grantedAt: now,
+            activeAt: now,
+            metadata: dailyRewardMetadata,
+          })
+          : buildDailyRewardCreditLotData({
           accountId: account.id,
           amount: totalCredits,
           grantedAt: now,
           activeAt: now,
-          expiresAt,
-          metadata: this.getDailyRewardMetadata(
-            newConsecutiveDays,
-            bonusCredits,
-            rewardRule.baseCredits,
-            rewardMultiplier,
-            rewardRule.tierCode,
-          ),
-        }),
+            expiresAt: expiresAt!,
+            metadata: dailyRewardMetadata,
+          }),
       });
 
       const transaction = await tx.creditTransaction.create({
@@ -6863,13 +6879,7 @@ export class CreditsService {
           description,
           creditLotId: creditLot.id,
           expiresAt,
-          metadata: this.getDailyRewardMetadata(
-            newConsecutiveDays,
-            bonusCredits,
-            rewardRule.baseCredits,
-            rewardMultiplier,
-            rewardRule.tierCode,
-          ),
+          metadata: dailyRewardMetadata,
         },
       });
 
@@ -6949,8 +6959,8 @@ export class CreditsService {
   }
 
   /**
-   * 清理跨签到业务日仍未使用的签到积分。
-   * 同时兼容规则上线前的 permanent lot 和没有 lot 的历史签到流水。
+   * 清理免费用户跨签到业务日仍未使用的签到积分。
+   * VIP 签到永久保留；历史无 lot 且 expiresAt=null 的永久签到流水也不追溯清理。
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
@@ -6995,10 +7005,7 @@ export class CreditsService {
         isExpired: false,
         creditLotId: null,
         amount: { gt: 0 },
-        OR: [
-          { expiresAt: { lte: now } },
-          { createdAt: { lt: currentBusinessDayStartAt } },
-        ],
+        expiresAt: { lte: now },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });

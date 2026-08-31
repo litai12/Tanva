@@ -96,6 +96,15 @@ export function buildDailyRewardCreditLotData(
   });
 }
 
+export function buildVipDailyRewardCreditLotData(
+  input: CreditLotGrantBaseInput,
+): CreditLotGrantData {
+  return buildPermanentLotData({
+    ...input,
+    sourceType: 'subscription',
+  });
+}
+
 export function buildMembershipCreditLotData(
   input: CreditLotGrantBaseInput & { expiresAt: Date; durationDays?: number | null },
 ): CreditLotGrantData {
