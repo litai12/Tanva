@@ -2405,7 +2405,7 @@ export class CreditsService {
       baseCredits,
       rewardMultiplier,
       ...(tierCode ? { tierCode } : {}),
-      retentionPolicy: isVipEntitled ? 'vip_permanent' : 'same_business_day',
+      retentionPolicy: isVipEntitled ? 'vip_decay_after_entitlement' : 'same_business_day',
       ...(bonusCredits > 0
         ? {
           bonusCredits,
@@ -2583,7 +2583,8 @@ export class CreditsService {
    * 在账户锁内即时清理已跨签到业务日的积分。
    *
    * 除新 fixed_window 批次外，这里也识别历史免费签到批次；历史 VIP 批次通过
-   * tierCode/retentionPolicy 排除，月卡、年卡和 VIP 白名单签到永久保留。
+   * tierCode/retentionPolicy 排除。会员/白名单签到不在次日 3 点整批清除，
+   * 但批次仍属于 gift，资格失效后会参与每日 50 分衰减。
    */
   private async expireDailyRewardLotsForLockedAccount(
     tx: Prisma.TransactionClient,
@@ -6753,7 +6754,8 @@ export class CreditsService {
 
   /**
    * 领取每日签到奖励。
-   * 免费用户签到积分只在当前签到业务日有效；有效月卡/年卡和 VIP 白名单永久保留。
+   * 免费用户签到积分只在当前签到业务日有效；有效月卡/年卡和 VIP 白名单
+   * 在资格有效期内暂停衰减，资格失效后恢复每日免费积分衰减。
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -6960,7 +6962,8 @@ export class CreditsService {
 
   /**
    * 清理免费用户跨签到业务日仍未使用的签到积分。
-   * VIP 签到永久保留；历史无 lot 且 expiresAt=null 的永久签到流水也不追溯清理。
+   * VIP 签到不按次日 3 点整批清理，改由免费 gift 每日衰减规则在资格失效后处理；
+   * 历史无 lot 且 expiresAt=null 的签到流水不追溯执行次日整批清理。
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();

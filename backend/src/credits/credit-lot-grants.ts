@@ -90,19 +90,28 @@ export function buildSignupCreditLotData(
 export function buildDailyRewardCreditLotData(
   input: CreditLotGrantBaseInput & { expiresAt: Date },
 ): CreditLotGrantData {
-  return buildDurableLotData({
-    ...input,
-    sourceType: 'gift',
-  });
+  return {
+    ...buildDurableLotData({
+      ...input,
+      sourceType: 'gift',
+    }),
+    // 签到积分优先于套餐、邀请赠送与充值批次消耗。
+    priority: -200,
+  };
 }
 
 export function buildVipDailyRewardCreditLotData(
   input: CreditLotGrantBaseInput,
 ): CreditLotGrantData {
-  return buildPermanentLotData({
-    ...input,
-    sourceType: 'subscription',
-  });
+  return {
+    ...buildPermanentLotData({
+      ...input,
+      // 会员签到仍属于免费 gift 池：当前有会员/白名单时暂停衰减，
+      // 资格失效后重新参与每日免费积分衰减。
+      sourceType: 'gift',
+    }),
+    priority: -200,
+  };
 }
 
 export function buildMembershipCreditLotData(

@@ -44,11 +44,11 @@ assert.equal(
 );
 assert.equal(
   isFreeCreditDecayLot({
-    sourceType: 'subscription',
+    sourceType: 'gift',
     validityType: 'permanent',
-    metadata: { reason: 'daily_reward', retentionPolicy: 'vip_permanent' },
+    metadata: { reason: 'daily_reward', retentionPolicy: 'vip_decay_after_entitlement' },
   }),
-  false,
+  true,
 );
 
 console.log('free credit decay policy checks passed');

@@ -114,6 +114,45 @@ function run(): void {
     },
   ]);
 
+  const dailyRewardFirst = buildDeductionPlan({
+    lots: [
+      buildLot({
+        id: 'older-membership-lot',
+        sourceType: 'subscription',
+        validityType: 'membership_bound',
+        grantedAt: iso('2026-04-01T00:00:00.000Z'),
+        remainingAmount: 100,
+        priority: 0,
+      }),
+      buildLot({
+        id: 'daily-reward-lot',
+        sourceType: 'gift',
+        validityType: 'permanent',
+        grantedAt: iso('2026-04-07T00:00:00.000Z'),
+        expiresAt: null,
+        remainingAmount: 50,
+        priority: -200,
+      }),
+      buildLot({
+        id: 'recharge-lot',
+        sourceType: 'recharge',
+        validityType: 'permanent',
+        grantedAt: iso('2026-03-01T00:00:00.000Z'),
+        expiresAt: null,
+        remainingAmount: 100,
+        priority: 0,
+      }),
+    ],
+    amount: 80,
+    now,
+    policy,
+  });
+
+  assert.deepEqual(dailyRewardFirst.deductions, [
+    { lotId: 'daily-reward-lot', amount: 50 },
+    { lotId: 'older-membership-lot', amount: 30 },
+  ]);
+
   const insufficient = buildDeductionPlan({
     lots: [
       buildLot({

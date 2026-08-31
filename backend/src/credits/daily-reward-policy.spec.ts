@@ -44,6 +44,7 @@ assert.equal(
 
 assert.equal(isRetainedVipDailyReward({ tierCode: 'vip_69' }), true);
 assert.equal(isRetainedVipDailyReward({ tierCode: 'vip_599' }), true);
+assert.equal(isRetainedVipDailyReward({ retentionPolicy: 'vip_decay_after_entitlement' }), true);
 assert.equal(isRetainedVipDailyReward({ retentionPolicy: 'vip_permanent' }), true);
 assert.equal(isRetainedVipDailyReward({ tierCode: 'free' }), false);
 assert.equal(isRetainedVipDailyReward(null), false);

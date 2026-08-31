@@ -136,6 +136,7 @@ function run(): void {
 
   assert.equal(freeDailyRewardLot.sourceType, 'gift');
   assert.equal(freeDailyRewardLot.validityType, 'fixed_window');
+  assert.equal(freeDailyRewardLot.priority, -200);
   assert.equal(freeDailyRewardLot.expiresAt?.toISOString(), '2026-04-15T12:00:00.000Z');
 
   const paidDailyRewardLot = buildDailyRewardCreditLotData({
@@ -159,13 +160,14 @@ function run(): void {
     metadata: {
       reason: 'daily_reward',
       tierCode: 'vip_199',
-      retentionPolicy: 'vip_permanent',
+      retentionPolicy: 'vip_decay_after_entitlement',
     },
   });
 
-  assert.equal(vipDailyRewardLot.sourceType, 'subscription');
+  assert.equal(vipDailyRewardLot.sourceType, 'gift');
   assert.equal(vipDailyRewardLot.validityType, 'permanent');
   assert.equal(vipDailyRewardLot.expiresAt, null);
+  assert.equal(vipDailyRewardLot.priority, -200);
 
   const freeMonthlyQuotaLot = buildFreeMonthlyQuotaCreditLotData({
     accountId: 'acct_6',
