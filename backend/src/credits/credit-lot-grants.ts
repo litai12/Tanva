@@ -106,8 +106,8 @@ export function buildVipDailyRewardCreditLotData(
   return {
     ...buildPermanentLotData({
       ...input,
-      // 会员签到仍属于免费 gift 池：当前有会员/白名单时暂停衰减，
-      // 资格失效后重新参与每日免费积分衰减。
+      // 会员签到仍属于 gift：当前有会员/白名单时跨业务日保留，
+      // 资格失效后按签到业务日规则一次性清理。
       sourceType: 'gift',
     }),
     priority: -200,

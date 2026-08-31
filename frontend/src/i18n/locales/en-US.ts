@@ -416,7 +416,7 @@ const enUS = {
     },
     expiring: {
       title: "You have {{total}} check-in credits available today only",
-      desc: "Free-user check-in credits expire at the next 3:00 AM boundary. Active monthly/yearly members and VIP-whitelisted users pause decay; after eligibility ends, 50 credits decay daily.",
+      desc: "Without an active monthly/yearly membership or VIP whitelist access, check-in credits are valid only for the current check-in day and are cleared at the next 3:00 AM boundary.",
       detail: "{{amount}} credits will expire on {{date}}",
       more: "{{count}} more expiring soon...",
     },

@@ -160,7 +160,7 @@ function run(): void {
     metadata: {
       reason: 'daily_reward',
       tierCode: 'vip_199',
-      retentionPolicy: 'vip_decay_after_entitlement',
+      retentionPolicy: 'current_vip_only',
     },
   });
 

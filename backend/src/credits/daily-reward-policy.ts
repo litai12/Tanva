@@ -29,29 +29,3 @@ export function diffDailyRewardBusinessDays(current: Date, previous: Date): numb
   const previousAnchor = getDailyRewardBusinessDayAnchor(previous);
   return Math.floor((currentAnchor.getTime() - previousAnchor.getTime()) / (24 * 60 * 60 * 1000));
 }
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-/**
- * 有效月卡、年卡或 VIP 白名单领取的签到积分不按次日 3 点整批清除。
- * 它们仍属于 gift：只有当前 VIP/白名单有效时暂停每日衰减，资格失效后恢复衰减。
- * retentionPolicy 用于新数据，vip_permanent/tierCode 只用于兼容已发放的历史批次。
- */
-export function isRetainedVipDailyReward(metadata: unknown): boolean {
-  const record = asRecord(metadata);
-  if (
-    record?.retentionPolicy === 'vip_decay_after_entitlement' ||
-    record?.retentionPolicy === 'vip_permanent'
-  ) {
-    return true;
-  }
-
-  const tierCode = typeof record?.tierCode === 'string'
-    ? record.tierCode.trim().toLowerCase()
-    : '';
-  return tierCode.length > 0 && tierCode !== 'free';
-}

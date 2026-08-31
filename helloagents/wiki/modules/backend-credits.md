@@ -167,9 +167,9 @@
   - `CreditsService.adminAddCredits`：管理员补发积分时创建 `sourceType=manual` 的 permanent lot。
   - `CreditsService.getOrCreateAccount`：首次使用时初始化 `CreditAccount`；不再发放“新用户注册赠送积分”，免费用户额度改由月度补发链路提供。
 - 已接入的限时链路：
-  - `CreditsService.claimDailyReward`：免费用户签到创建 `sourceType=gift + validityType=fixed_window` 的 lot，到期点为下一个凌晨 `3:00` 签到业务日边界；有效月卡、有效年卡及 VIP 白名单签到创建 `sourceType=gift + validityType=permanent` 的 lot，不参加次日整批清理，但在资格失效后参与每日免费积分衰减。
-  - `CreditsService.cleanupExpiredDailyRewards` 只清理免费签到 fixed-window 批次，并兼容历史免费签到记录；带非 `free` tierCode 或 `retentionPolicy=vip_decay_after_entitlement`（兼容旧 `vip_permanent`）的会员签到批次跳过次日整批清理。余额查询和个人扣费入口也会在账户锁内即时执行同一判断。
-  - `CreditsService.getExpiringCredits` 只返回免费用户当前业务日尚未使用的签到批次；会员签到批次不显示次日整批到期提示，但资格失效后会进入每日 `50` 分衰减。
+  - `CreditsService.claimDailyReward`：免费用户签到创建 `sourceType=gift + validityType=fixed_window` 的 lot，到期点为下一个凌晨 `3:00`；有效月卡、年卡及 VIP 白名单签到创建 `sourceType=gift + validityType=permanent` 的 lot，在当前资格有效时跨业务日保留。
+  - `CreditsService.cleanupExpiredDailyRewards` 在账户锁内实时查询当前有效订阅和 VIP 白名单：有资格时暂停该账户签到清理；无资格时一次性清除所有已跨业务日签到批次，包括会员期间领取的 permanent gift 与历史无 lot 签到流水。发放时的 tierCode/retentionPolicy 只作审计，不再构成永久豁免。
+  - `CreditsService.getExpiringCredits` 对当前有资格用户不显示到期；资格失效后先即时清除旧业务日签到积分，并把当日仍可用的签到积分统一展示为下一个凌晨 `3:00` 到期。
 - consume policy：
   - 新增 `CreditConsumePolicy` 表，并在 migration 中初始化 `global_default`
   - 当前 `CreditsService` 先读取 `global_default`，缺失时回退内置默认策略
@@ -186,7 +186,7 @@
   - `CreditsService.issueFreeUserStarterQuotaCredits()` 会为没有活跃会员的用户补发一次性免费额度 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_starter_quota` 流水；历史 `free_monthly_quota` 流水也会被视为已领取，避免从月度规则切换后重复发 500。
   - 免费用户一次性额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；不会再按 30 天周期续发，定时清理任务仅兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
-  - `MembershipService.decayDailyGiftCredits()` 以“执行时是否处于 VIP 有效期”为唯一会员判断：非有效 VIP 的签到（包括会员期间积攒但会员已到期的签到积分）、邀请奖励、运营赠送与受邀注册免费额度等免费积分池每天按策略默认衰减 `50`，有效 VIP/VIP 白名单暂停；历史上充值过但当前无有效 VIP 的用户仍参与衰减。`gift` 批次全部属于免费衰减池，充值本金与充值赠送统一归类为 `recharge`，不参与衰减；历史误标为 `gift` 的充值赠送会迁移为 `recharge`。签到 lot 使用 `priority=-200`，消费时优先于会员额度、其他赠送与充值批次。流水使用 `businessType=free_credit_decay`，同一用户同一自然日幂等。
+  - `MembershipService.decayDailyGiftCredits()` 以“执行时是否处于 VIP 有效期”为唯一会员判断：非有效 VIP 的邀请奖励、运营赠送与受邀注册免费额度等普通免费积分池每天默认衰减 `50`，有效 VIP/VIP 白名单暂停；签到 gift 明确排除此任务，统一交给凌晨 `3:00` 业务日清理，避免先衰减再整批清除。充值本金与充值赠送统一归类为 `recharge`，不参与衰减。签到 lot 使用 `priority=-200`，消费时优先于会员额度、其他赠送与充值批次。流水使用 `businessType=free_credit_decay`，同一用户同一自然日幂等。
   - 年卡额度在购买时一次性发放，`MembershipService.refreshYearlySubscriptionQuotaLots()` 保留兼容入口但固定空转，不再按月重复补发年卡额度。
   - 会员升级订单会记录 `membershipCycleSwitch`；支付入账同时根据当前订阅与目标套餐的真实周期推断，月卡→年卡即使订单标记缺失也会从支付时刻重开完整年周期。事务提交前会复读订阅、权益快照与新积分 lot，任一周期不一致则整体回滚。
   - `MembershipSchedulerService` 每小时只读巡检最近 48 小时的已支付年卡升级，检查订阅、权益快照和积分 lot 周期；异常只写错误日志，不自动修复或补积分。
@@ -204,7 +204,7 @@
   - 独立积分充值不再按会员身份打折；所有用户按固定原价购买基础积分，普通用户到账 `100%`，仅有效最高档年卡与开启对应白名单权益的用户到账 `120%`。订单金额只按基础积分和 `1:100` 校验，资格与赠送积分由服务端订单快照确定，客户端不能控制。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.issueFreeUserStarterQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`，其中刷新周期仅作为一次性额度有效期窗口使用，不再触发月度续发。
-- `CreditsService.claimDailyReward` 读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），第 7 天按倍率发放；免费额度在下一个签到业务日失效，月卡/年卡/VIP 白名单签到额度在资格有效时保留，资格失效后按免费 gift 每日衰减。`ReferralService` 的邀请人与首充邀请奖励会创建 `gift` lot，供非有效 VIP 的每日免费积分衰减精确扣减；历史无 lot 邀请流水保留兼容扣减。
+- `CreditsService.claimDailyReward` 读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），第 7 天按倍率发放；月卡/年卡/VIP 白名单签到在当前资格有效时保留，资格失效后所有跨业务日签到余额一次性清除。`ReferralService` 的邀请人与首充邀请奖励会创建 `gift` lot，供非有效 VIP 的每日免费积分衰减精确扣减；历史无 lot 邀请流水保留兼容扣减。
 - `ReferralService.getCheckInStatus/checkIn` 现仅作为前端推广页签到入口的兼容壳层，底层状态与发奖统一复用 `CreditsService.canClaimDailyReward/claimDailyReward`；自动签到与手动签到不再各自维护独立逻辑，避免同一天重复发放。
 - `CreditsService.adminAddCredits` 的正向加积分现已改为进入 `gift` 池，与定价策略“后台管理员操作积分视为赠送积分”一致。
 - 尚未接入的链路：

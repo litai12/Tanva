@@ -13,7 +13,6 @@ import {
   diffDailyRewardBusinessDays,
   getDailyRewardBusinessDayAnchor,
   getDailyRewardExpiresAt,
-  isRetainedVipDailyReward,
 } from './daily-reward-policy';
 import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
@@ -2405,7 +2404,7 @@ export class CreditsService {
       baseCredits,
       rewardMultiplier,
       ...(tierCode ? { tierCode } : {}),
-      retentionPolicy: isVipEntitled ? 'vip_decay_after_entitlement' : 'same_business_day',
+      retentionPolicy: isVipEntitled ? 'current_vip_only' : 'same_business_day',
       ...(bonusCredits > 0
         ? {
           bonusCredits,
@@ -2579,18 +2578,44 @@ export class CreditsService {
     return diffDailyRewardBusinessDays(now, last);
   }
 
+  private async hasActiveVipEntitlement(
+    client: PrismaService | Prisma.TransactionClient,
+    userId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const [activeSubscription, vipWhitelistUser] = await Promise.all([
+      client.userMembershipSubscription.findFirst({
+        where: {
+          userId,
+          status: 'active',
+          currentPeriodStartAt: { lte: now },
+          currentPeriodEndAt: { gt: now },
+        },
+        select: { id: true },
+      }),
+      client.user.findFirst({
+        where: { id: userId, vipEntitlementWhitelist: true },
+        select: { id: true },
+      }),
+    ]);
+    return Boolean(activeSubscription || vipWhitelistUser);
+  }
+
   /**
    * 在账户锁内即时清理已跨签到业务日的积分。
    *
-   * 除新 fixed_window 批次外，这里也识别历史免费签到批次；历史 VIP 批次通过
-   * tierCode/retentionPolicy 排除。会员/白名单签到不在次日 3 点整批清除，
-   * 但批次仍属于 gift，资格失效后会参与每日 50 分衰减。
+   * 当前有效会员或 VIP 白名单暂停签到清理；资格一旦失效，所有已经跨过
+   * 签到业务日的签到批次（包括会员期间领取的批次）都会一次性清除。
    */
   private async expireDailyRewardLotsForLockedAccount(
     tx: Prisma.TransactionClient,
-    account: { id: string; balance: number },
+    account: { id: string; userId: string; balance: number },
     now: Date,
   ): Promise<{ expiredLots: number; expiredCredits: number; balanceAfter: number }> {
+    if (await this.hasActiveVipEntitlement(tx, account.userId, now)) {
+      return { expiredLots: 0, expiredCredits: 0, balanceAfter: account.balance };
+    }
+
     const currentBusinessDayStartAt = this.getDailyRewardBusinessDayAnchor(now);
     const candidateLots = await tx.creditLot.findMany({
       where: {
@@ -2608,9 +2633,7 @@ export class CreditsService {
       },
       orderBy: [{ grantedAt: 'asc' }, { id: 'asc' }],
     });
-    const expiredLots = candidateLots.filter(
-      (lot) => !isRetainedVipDailyReward(lot.metadata),
-    );
+    const expiredLots = candidateLots;
 
     if (expiredLots.length === 0) {
       return { expiredLots: 0, expiredCredits: 0, balanceAfter: account.balance };
@@ -6754,8 +6777,8 @@ export class CreditsService {
 
   /**
    * 领取每日签到奖励。
-   * 免费用户签到积分只在当前签到业务日有效；有效月卡/年卡和 VIP 白名单
-   * 在资格有效期内暂停衰减，资格失效后恢复每日免费积分衰减。
+   * 当前无有效月卡/年卡或 VIP 白名单时，签到积分只在当前业务日有效；
+   * 资格失效后，会员期间累计且已跨业务日的签到积分也会一次性清除。
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -6962,8 +6985,8 @@ export class CreditsService {
 
   /**
    * 清理免费用户跨签到业务日仍未使用的签到积分。
-   * VIP 签到不按次日 3 点整批清理，改由免费 gift 每日衰减规则在资格失效后处理；
-   * 历史无 lot 且 expiresAt=null 的签到流水不追溯执行次日整批清理。
+   * 当前有效会员/VIP 白名单暂停清理；资格失效后，会员期间累计但已经跨过
+   * 签到业务日的积分也一次性清除。历史无 lot 签到流水同样按当前资格处理。
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
@@ -7008,7 +7031,10 @@ export class CreditsService {
         isExpired: false,
         creditLotId: null,
         amount: { gt: 0 },
-        expiresAt: { lte: now },
+        OR: [
+          { expiresAt: { lte: now } },
+          { createdAt: { lt: currentBusinessDayStartAt } },
+        ],
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -7025,6 +7051,8 @@ export class CreditsService {
       const result = await this.prisma.$transaction(async (tx) => {
         const account = await findCreditAccountForUpdate(tx, { id: accountId });
         if (!account) return null;
+
+        if (await this.hasActiveVipEntitlement(tx, account.userId, now)) return null;
 
         const expiredAmount = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
         const actualDeduct = Math.min(expiredAmount, Math.max(0, account.balance));
@@ -7085,7 +7113,8 @@ export class CreditsService {
     expiringDetails: Array<{ amount: number; expiresAt: Date }>;
     isPaidUser: boolean;
   }> {
-    const isPaid = await this.isPaidUser(userId);
+    const now = new Date();
+    const isPaid = await this.hasActiveVipEntitlement(this.prisma, userId, now);
 
     const account = await this.prisma.creditAccount.findUnique({
       where: { userId },
@@ -7098,16 +7127,18 @@ export class CreditsService {
     await this.prisma.$transaction(async (tx) => {
       const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
       if (!lockedAccount) return;
-      await this.expireDailyRewardLotsForLockedAccount(tx, lockedAccount, new Date());
+      await this.expireDailyRewardLotsForLockedAccount(tx, lockedAccount, now);
     });
+
+    if (isPaid) {
+      return { totalExpiring: 0, expiringDetails: [], isPaidUser: true };
+    }
 
     const [expiringLots, expiringTransactions] = await Promise.all([
       this.prisma.creditLot.findMany({
         where: {
           accountId: account.id,
           status: 'active',
-          validityType: 'fixed_window',
-          expiresAt: { not: null },
           remainingAmount: { gt: 0 },
           metadata: {
             path: ['reason'],
@@ -7120,7 +7151,6 @@ export class CreditsService {
         where: {
           accountId: account.id,
           type: TransactionType.DAILY_REWARD,
-          expiresAt: { not: null },
           isExpired: false,
           creditLotId: null,
           amount: { gt: 0 },
@@ -7132,11 +7162,11 @@ export class CreditsService {
     const expiringDetails = [
       ...expiringLots.map((lot) => ({
         amount: lot.remainingAmount,
-        expiresAt: lot.expiresAt!,
+        expiresAt: lot.expiresAt ?? getDailyRewardExpiresAt(lot.grantedAt),
       })),
       ...expiringTransactions.map((t) => ({
         amount: t.amount,
-        expiresAt: t.expiresAt!,
+        expiresAt: t.expiresAt ?? getDailyRewardExpiresAt(t.createdAt),
       })),
     ].sort((left, right) => left.expiresAt.getTime() - right.expiresAt.getTime());
 

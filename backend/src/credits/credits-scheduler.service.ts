@@ -15,8 +15,8 @@ export class CreditsSchedulerService {
   ) {}
 
   /**
-   * 每天凌晨 3 点清理免费用户上一业务日未使用的签到积分；
-   * VIP/白名单签到仅跳过整批清理，资格失效后仍参与 gift 每日衰减。
+   * 每天凌晨 3 点清理当前无有效会员/VIP 白名单用户的跨业务日签到积分；
+   * 会员期间累计的签到积分在资格失效后也会一次性清除。
    */
   @Cron('0 3 * * *')
   async handleExpiredCreditsCleanup() {

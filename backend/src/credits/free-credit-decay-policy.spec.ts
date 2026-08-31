@@ -4,7 +4,7 @@ import { isFreeCreditDecayLot } from './free-credit-decay-policy';
 
 assert.equal(
   isFreeCreditDecayLot({ sourceType: 'gift', validityType: 'fixed_window', metadata: { reason: 'daily_reward' } }),
-  true,
+  false,
 );
 assert.equal(
   isFreeCreditDecayLot({ sourceType: 'gift', validityType: 'permanent', metadata: { grantedBy: 'referral_reward' } }),
@@ -46,9 +46,9 @@ assert.equal(
   isFreeCreditDecayLot({
     sourceType: 'gift',
     validityType: 'permanent',
-    metadata: { reason: 'daily_reward', retentionPolicy: 'vip_decay_after_entitlement' },
+    metadata: { reason: 'daily_reward', retentionPolicy: 'current_vip_only' },
   }),
-  true,
+  false,
 );
 
 console.log('free credit decay policy checks passed');

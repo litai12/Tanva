@@ -10,11 +10,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** gift 即免费积分；recharge/manual/会员额度均不属于每日免费积分衰减池。 */
+/** gift 通常属于每日免费积分衰减池；签到 gift 单独按业务日整批清理。 */
 export function isFreeCreditDecayLot(lot: FreeCreditDecayLotLike): boolean {
   const metadata = asRecord(lot.metadata);
 
   if (lot.sourceType === 'gift') {
+    // 签到积分单独按凌晨 3 点业务日边界整批清理；不能再叠加每日 50 衰减。
+    if (metadata?.reason === 'daily_reward') return false;
     return true;
   }
 
