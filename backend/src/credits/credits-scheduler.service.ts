@@ -15,9 +15,9 @@ export class CreditsSchedulerService {
   ) {}
 
   /**
-   * 每天凌晨 2 点执行过期积分清理
+   * 每天凌晨 3 点（签到业务日切换点）清理上一业务日未使用的签到积分。
    */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  @Cron('0 3 * * *')
   async handleExpiredCreditsCleanup() {
     this.logger.log('开始执行签到积分过期清理任务...');
 
@@ -26,15 +26,23 @@ export class CreditsSchedulerService {
       this.logger.log(
         `签到积分过期清理完成: 处理 ${result.processedUsers} 个用户, 清除 ${result.totalExpiredCredits} 积分`
       );
+    } catch (error) {
+      this.logger.error('签到积分过期清理失败:', error);
+    }
+  }
 
-      const freeQuotaResult = await this.creditsService.cleanupExpiredFreeUserMonthlyQuotaCredits();
-      if (freeQuotaResult.expiredLots > 0 || freeQuotaResult.expiredCredits > 0) {
+  /** 免费用户一次性额度仍按原规则在每天凌晨 2 点执行到期清理。 */
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async handleExpiredFreeUserQuotaCleanup() {
+    try {
+      const result = await this.creditsService.cleanupExpiredFreeUserMonthlyQuotaCredits();
+      if (result.expiredLots > 0 || result.expiredCredits > 0) {
         this.logger.log(
-          `免费用户一次性额度过期清理完成: accounts=${freeQuotaResult.processedAccounts}, lots=${freeQuotaResult.expiredLots}, credits=${freeQuotaResult.expiredCredits}`,
+          `免费用户一次性额度过期清理完成: accounts=${result.processedAccounts}, lots=${result.expiredLots}, credits=${result.expiredCredits}`,
         );
       }
     } catch (error) {
-      this.logger.error('签到积分过期清理失败:', error);
+      this.logger.error('免费用户一次性额度过期清理失败:', error);
     }
   }
 

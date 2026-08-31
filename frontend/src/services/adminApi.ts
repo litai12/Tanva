@@ -296,6 +296,8 @@ export interface SystemMonitorSnapshot {
       external: number;
       arrayBuffers: number;
       rssRestartLimit: number;
+      rssRestartConfigured?: boolean;
+      allocator?: "jemalloc" | "glibc-limited" | "system";
     };
     eventLoop: { p50Ms: number; p99Ms: number; maxMs: number };
   };

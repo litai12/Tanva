@@ -306,6 +306,39 @@ func TestBuildOmniFlashExtPayload(t *testing.T) {
 	}
 }
 
+func TestBuildGeminiOmniFlashPayloadKeepsToAPIsModelID(t *testing.T) {
+	payload, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:           "gemini_omni_flash",
+		Prompt:          "keep the subject and camera motion",
+		Images:          []string{"https://example.com/subject.png"},
+		ReferenceVideos: []string{"https://example.com/motion.mp4"},
+		Resolution:      "1080P",
+		AspectRatio:     "9:16",
+		Duration:        10,
+		Metadata: map[string]interface{}{
+			"videoMode": "reference",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Model != "gemini_omni_flash" {
+		t.Fatalf("Model=%q, want gemini_omni_flash", payload.Model)
+	}
+	if payload.Resolution != "1080p" {
+		t.Fatalf("Resolution=%q, want normalized 1080p", payload.Resolution)
+	}
+	if payload.GenerationType != "reference" {
+		t.Fatalf("GenerationType=%q, want reference", payload.GenerationType)
+	}
+	if len(payload.ImageUrls) != 1 || len(payload.VideoUrls) != 1 {
+		t.Fatalf("ImageUrls=%v VideoUrls=%v", payload.ImageUrls, payload.VideoUrls)
+	}
+	if payload.Duration != 10 {
+		t.Fatalf("Duration=%d, want Gemini output duration 10", payload.Duration)
+	}
+}
+
 func TestBuildSeedance2PayloadNormalizesReferenceVideos(t *testing.T) {
 	payload, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
 		Model:           "seedance-2-mini",

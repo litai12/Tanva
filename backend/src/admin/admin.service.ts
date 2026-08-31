@@ -359,7 +359,11 @@ export class AdminService {
 
     let key = 'other';
 
-    if (managedModelKey === 'omni-flash-ext' || model === 'omni-flash-ext') {
+    if (
+      managedModelKey === 'omni-flash-ext' ||
+      model === 'omni-flash-ext' ||
+      model === 'gemini_omni_flash'
+    ) {
       key = 'omni';
     } else if (serviceType === 'convert-2d-to-3d' || this.includesAny(search, ['seed3d', 'seed-3d'])) {
       key = '3d';

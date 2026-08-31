@@ -68,7 +68,7 @@ const permanentBonusLot = buildRechargeBonusCreditLotData({
   amount: 500,
   orderId: 'order-1',
 });
-assert.equal(permanentBonusLot.sourceType, 'gift');
+assert.equal(permanentBonusLot.sourceType, 'recharge');
 assert.equal(permanentBonusLot.validityType, 'permanent');
 assert.equal(permanentBonusLot.expiresAt, null);
 assert.equal(permanentBonusLot.durationDays, null);
@@ -421,7 +421,7 @@ async function verifyPaymentSuccessSplitAndIdempotency() {
   assert.equal(createdLots.length, 2);
   assert.equal(createdLots[0].sourceType, 'recharge');
   assert.equal(createdLots[0].totalAmount, 2_500);
-  assert.equal(createdLots[1].sourceType, 'gift');
+  assert.equal(createdLots[1].sourceType, 'recharge');
   assert.equal(createdLots[1].validityType, 'permanent');
   assert.equal(createdLots[1].totalAmount, 500);
   assert.equal(createdLots[1].expiresAt, null);

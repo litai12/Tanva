@@ -1724,7 +1724,9 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
-    const isOmniFlashExt = model === "omni-flash-ext";
+    const isOmniFlashExt =
+      model === "gemini_omni_flash" ||
+      String(options.managedModelKey || "").trim().toLowerCase() === "omni-flash-ext";
     if (
       !isOmniFlashExt &&
       /doubao-seedance-2/i.test(model) &&
@@ -1736,10 +1738,10 @@ export class VideoProviderService {
       }
     }
     const isHailuoH3 = model === "hailuo-h3";
-    // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
+    // Gemini Omni Flash and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
-    const usesNativeAspectRatio = model === "omni-flash-ext" || model.startsWith("vidu-") || model === "hailuo-h3";
+    const usesNativeAspectRatio = isOmniFlashExt || model.startsWith("vidu-") || model === "hailuo-h3";
     const size = usesNativeAspectRatio ? undefined : this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
@@ -1926,7 +1928,7 @@ export class VideoProviderService {
     const payload = this.stripUndefined({
       model,
       prompt: klingOmniPrompt || "",
-      duration: isOmniFlashExt && referenceVideos.length > 0 ? undefined : duration,
+      duration,
       size,
       resolution: this.normalizeResolutionToken(
         options.resolution ||
@@ -2217,8 +2219,8 @@ export class VideoProviderService {
     if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
       return "wan2.7-videoedit";
     }
-    if (explicit === "omni-flash-ext") {
-      return "omni-flash-ext";
+    if (explicit === "omni-flash-ext" || explicit === "gemini_omni_flash") {
+      return "gemini_omni_flash";
     }
     if (options.provider === "kling-o3") {
       // Kling 3.0 and Kling 3.0 Omni currently share the frontend provider

@@ -5,6 +5,7 @@ import {
   buildDailyRewardCreditLotData,
   buildFreeMonthlyQuotaCreditLotData,
   buildManualCreditLotData,
+  buildRechargeBonusCreditLotData,
   buildRechargeCreditLotData,
   buildSignupCreditLotData,
 } from '../src/credits/credit-lot-grants';
@@ -33,6 +34,21 @@ function run(): void {
   assert.equal(rechargeLot.remainingAmount, 2000);
   assert.equal(rechargeLot.orderId, 'order_1');
   assert.equal(rechargeLot.expiresAt, null);
+
+  const rechargeBonusLot = buildRechargeBonusCreditLotData({
+    accountId: 'acct_1',
+    amount: 400,
+    grantedAt,
+    orderId: 'order_1',
+    metadata: {
+      grantType: 'recharge_bonus',
+      permanent: true,
+    },
+  });
+
+  assert.equal(rechargeBonusLot.sourceType, 'recharge');
+  assert.equal(rechargeBonusLot.validityType, 'permanent');
+  assert.equal(rechargeBonusLot.expiresAt, null);
 
   const manualLot = buildManualCreditLotData({
     accountId: 'acct_2',
@@ -125,15 +141,15 @@ function run(): void {
     accountId: 'acct_5',
     amount: 120,
     grantedAt,
-    expiresAt: null,
+    expiresAt: iso('2026-04-09T03:00:00.000Z'),
     metadata: {
       reason: 'daily_reward',
     },
   });
 
   assert.equal(paidDailyRewardLot.sourceType, 'gift');
-  assert.equal(paidDailyRewardLot.validityType, 'permanent');
-  assert.equal(paidDailyRewardLot.expiresAt, null);
+  assert.equal(paidDailyRewardLot.validityType, 'fixed_window');
+  assert.equal(paidDailyRewardLot.expiresAt?.toISOString(), '2026-04-09T03:00:00.000Z');
 
   const freeMonthlyQuotaLot = buildFreeMonthlyQuotaCreditLotData({
     accountId: 'acct_6',

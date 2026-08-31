@@ -7,6 +7,32 @@ const DEFAULT_WATERMARK_FILENAME = "tanvas_ai.png";
 const WATERMARK_OPACITY = 0.8;
 const WATERMARK_SCALE = 0.25;
 const WATERMARK_MARGIN = 25;
+const SHARP_LIMIT_INPUT_PIXELS = (() => {
+  const value = Number(process.env.SHARP_LIMIT_INPUT_PIXELS ?? 40_000_000);
+  return Number.isFinite(value) && value > 0
+    ? Math.max(1_000_000, Math.min(100_000_000, Math.floor(value)))
+    : 40_000_000;
+})();
+const SHARP_CONCURRENCY = (() => {
+  const value = Number(process.env.SHARP_CONCURRENCY ?? 1);
+  return Number.isFinite(value)
+    ? Math.max(1, Math.min(4, Math.floor(value)))
+    : 1;
+})();
+
+// libvips' own cache is useful for repeated transformations, but this service
+// mostly processes unique generated images. Keeping those decoded operations
+// cached raises the idle RSS floor without useful hits, so production defaults
+// to no persistent Sharp cache and a small native worker pool.
+sharp.cache({ memory: 0, files: 0, items: 0 });
+sharp.concurrency(SHARP_CONCURRENCY);
+
+function boundedSharp(input: Buffer) {
+  return sharp(input, {
+    limitInputPixels: SHARP_LIMIT_INPUT_PIXELS,
+    sequentialRead: true,
+  });
+}
 
 function resolveWatermarkImagePath(): string | null {
   const candidates = [
@@ -41,7 +67,7 @@ export async function applyWatermarkToBase64(
   const dataPart = base64.startsWith("data:") ? base64.split(",")[1] : base64;
 
   const buffer = Buffer.from(dataPart, "base64");
-  const image = sharp(buffer);
+  const image = boundedSharp(buffer);
   const { width = 0, height = 0 } = await image.metadata();
 
   // 如果拿不到尺寸，直接返回原图（纯 base64）
@@ -65,7 +91,7 @@ export async function applyWatermarkToBase64(
   }
 
   // 获取水印图片尺寸
-  const watermarkMeta = await sharp(watermarkBuffer).metadata();
+  const watermarkMeta = await boundedSharp(watermarkBuffer).metadata();
   const wmWidth = watermarkMeta.width || 100;
   const wmHeight = watermarkMeta.height || 100;
 
@@ -75,7 +101,7 @@ export async function applyWatermarkToBase64(
   const targetWmHeight = Math.round((targetWmWidth / wmWidth) * wmHeight);
 
   // 处理水印图片：调整大小并设置透明度
-  const processedWatermark = await sharp(watermarkBuffer)
+  const processedWatermark = await boundedSharp(watermarkBuffer)
     .resize(targetWmWidth, targetWmHeight, { fit: "inside" })
     .ensureAlpha()
     .raw()
@@ -124,7 +150,7 @@ export async function applyWatermarkToBase64(
  * 失败时静默返回原图，不影响主流程。
  */
 export async function applyWatermarkToBuffer(buffer: Buffer): Promise<Buffer> {
-  const image = sharp(buffer);
+  const image = boundedSharp(buffer);
   const { width = 0, height = 0 } = await image.metadata();
   if (!width || !height) return buffer;
 
@@ -138,7 +164,7 @@ export async function applyWatermarkToBuffer(buffer: Buffer): Promise<Buffer> {
     return buffer;
   }
 
-  const watermarkMeta = await sharp(watermarkBuffer).metadata();
+  const watermarkMeta = await boundedSharp(watermarkBuffer).metadata();
   const wmWidth = watermarkMeta.width || 100;
   const wmHeight = watermarkMeta.height || 100;
 
@@ -146,7 +172,7 @@ export async function applyWatermarkToBuffer(buffer: Buffer): Promise<Buffer> {
   const targetWmWidth = Math.round(shortSide * WATERMARK_SCALE);
   const targetWmHeight = Math.round((targetWmWidth / wmWidth) * wmHeight);
 
-  const processedWatermark = await sharp(watermarkBuffer)
+  const processedWatermark = await boundedSharp(watermarkBuffer)
     .resize(targetWmWidth, targetWmHeight, { fit: "inside" })
     .ensureAlpha()
     .raw()
@@ -171,4 +197,3 @@ export async function applyWatermarkToBuffer(buffer: Buffer): Promise<Buffer> {
     .png()
     .toBuffer();
 }
-

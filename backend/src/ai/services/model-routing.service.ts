@@ -7,6 +7,10 @@ import {
   createSeedance20DiscountPricingTemplate,
   normalizeSeedance20DiscountPricing,
 } from './seedance20-pricing';
+import {
+  GEMINI_OMNI_FLASH_MODEL_ID,
+  createGeminiOmniFlashPricingTemplate,
+} from './gemini-omni-flash-pricing';
 
 export const MODEL_PROVIDER_MAPPING_SETTING_KEY = 'model_provider_mapping_v2';
 
@@ -1104,7 +1108,7 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
     },
     {
       modelKey: 'omni-flash-ext',
-      modelName: 'Omni Flash Ext',
+      modelName: 'Gemini Omni Flash',
       taskType: 'video',
       enabled: true,
       defaultVendor: 'new_api',
@@ -1116,9 +1120,10 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           enabled: true,
           route: 'legacy',
           provider: 'new-api',
-          modelName: 'omni-flash-ext',
-          creditsPerCall: 600,
-          priceYuan: 6,
+          modelName: GEMINI_OMNI_FLASH_MODEL_ID,
+          creditsPerCall: 158,
+          priceYuan: 1.575,
+          pricing: createGeminiOmniFlashPricingTemplate(),
         },
       ],
     },
@@ -1523,6 +1528,34 @@ export class ModelRoutingService {
           ...model,
           defaultVendor: model.defaultVendor || 'sora2_api',
           vendors: [normalizedSoraApiVendor, normalizedTencentVodVendor],
+        });
+      }
+
+      if (model.modelKey === 'omni-flash-ext') {
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const existingNewApiVendor: ManagedModelVendorConfig =
+          existingVendors.find((vendor) => vendor.vendorKey === 'new_api') || {
+            vendorKey: 'new_api',
+          };
+        const normalizedVendor: ManagedModelVendorConfig = {
+          ...existingNewApiVendor,
+          vendorKey: 'new_api',
+          platformKey: 'new_api',
+          label: existingNewApiVendor.label || 'ToAPIs',
+          enabled: true,
+          route: 'legacy',
+          provider: 'new-api',
+          modelName: GEMINI_OMNI_FLASH_MODEL_ID,
+          creditsPerCall: 158,
+          priceYuan: 1.575,
+          pricing: createGeminiOmniFlashPricingTemplate(),
+        };
+
+        return this.ensureModelDefaultVendor({
+          ...model,
+          modelName: 'Gemini Omni Flash',
+          defaultVendor: 'new_api',
+          vendors: [normalizedVendor],
         });
       }
 

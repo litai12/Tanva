@@ -43,7 +43,8 @@ func isWan27VideoEditModel(name string) bool {
 }
 
 var omniFlashExtModels = map[string]bool{
-	"omni-flash-ext": true,
+	"omni-flash-ext":    true,
+	"gemini_omni_flash": true,
 }
 
 const omniFlashExtUpstreamModel = "Omni-Flash-Ext"
@@ -54,6 +55,10 @@ func isOmniFlashExtModel(name string) bool {
 		base = strings.TrimSuffix(base, suffix)
 	}
 	return omniFlashExtModels[base]
+}
+
+func isGeminiOmniFlashModel(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "gemini_omni_flash")
 }
 
 // aspectRatioToken resolves a ratio token (e.g. "16:9") for the request.
@@ -400,19 +405,24 @@ func nestedMediaURL(value any) string {
 	}
 }
 
-// buildOmniFlashExtPayload constructs APIMart omni-flash-ext requests.
+// buildOmniFlashExtPayload constructs the shared Omni request shape used by
+// legacy APIMart Omni-Flash-Ext and ToAPIs gemini_omni_flash.
 // Contract: prompt required; image_urls count must be 0..3; 2+ images require
-// reference generation; video_urls count
-// must be 0/1; generation_type only applies when image_urls is present; omit
-// duration when a reference video is present.
+// reference generation; video_urls count must be 0/1. Legacy Omni-Flash-Ext
+// omits duration for reference video, while Gemini keeps its billable output
+// duration (4/6/8/10 seconds).
 func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		return nil, fmt.Errorf("apimart omni-flash-ext: prompt is required")
+		return nil, fmt.Errorf("omni video: prompt is required")
+	}
+	upstreamModel := req.Model
+	if !isGeminiOmniFlashModel(req.Model) {
+		upstreamModel = omniFlashExtUpstreamModel
 	}
 
 	p := &SubmitPayload{
-		Model:       omniFlashExtUpstreamModel,
+		Model:       upstreamModel,
 		Prompt:      req.Prompt,
 		Resolution:  strings.ToLower(strings.TrimSpace(req.Resolution)),
 		AspectRatio: aspectRatioToken(req),
@@ -448,10 +458,10 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 	p.VideoUrls = uniqueStrings(p.VideoUrls)
 
 	if len(p.ImageUrls) > 3 {
-		return nil, fmt.Errorf("apimart omni-flash-ext: image_urls count must be 0 to 3 (got %d)", len(p.ImageUrls))
+		return nil, fmt.Errorf("omni video: image_urls count must be 0 to 3 (got %d)", len(p.ImageUrls))
 	}
 	if len(p.VideoUrls) > 1 {
-		return nil, fmt.Errorf("apimart omni-flash-ext: video_urls supports at most 1 item (got %d)", len(p.VideoUrls))
+		return nil, fmt.Errorf("omni video: video_urls supports at most 1 item (got %d)", len(p.VideoUrls))
 	}
 
 	if len(p.ImageUrls) > 0 {
@@ -460,13 +470,15 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 			generationType = "frame"
 		}
 		if len(p.ImageUrls) >= 2 && generationType != "reference" {
-			return nil, fmt.Errorf("apimart omni-flash-ext: 2+ image_urls require generation_type=reference")
+			return nil, fmt.Errorf("omni video: 2+ image_urls require generation_type=reference")
 		}
 		p.GenerationType = generationType
 	}
 	if len(p.VideoUrls) > 0 {
 		p.VideoUrls = p.VideoUrls[:1]
-		p.Duration = 0
+		if !isGeminiOmniFlashModel(req.Model) {
+			p.Duration = 0
+		}
 		p.GenerationType = "reference"
 	}
 

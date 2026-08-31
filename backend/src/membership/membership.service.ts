@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
+import { isFreeCreditDecayLot } from '../credits/free-credit-decay-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
 import {
@@ -1336,6 +1337,19 @@ export class MembershipService {
   }
 
   async decayDailyGiftCredits(now = new Date()) {
+    // 2026-08-11 至本规则上线前，充值赠送曾被误写成 gift。
+    // 先纠正来源，保持“gift 全部可衰减、recharge 全部不可衰减”的数据不变量。
+    await this.prisma.creditLot.updateMany({
+      where: {
+        sourceType: 'gift',
+        metadata: {
+          path: ['grantType'],
+          equals: 'recharge_bonus',
+        },
+      },
+      data: { sourceType: 'recharge' },
+    });
+
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const dailyDecayAmount = policy.dailyGiftDecayCredits;
     if (dailyDecayAmount <= 0) {
@@ -1345,133 +1359,145 @@ export class MembershipService {
         updatedLots: 0,
       };
     }
-    return this.prisma.$transaction(async (tx) => {
-      const accounts = await tx.creditAccount.findMany({
-        where: {
-          lots: {
-            some: {
-              sourceType: 'subscription',
-              validityType: 'fixed_window',
-              status: 'active',
-              remainingAmount: { gt: 0 },
-              OR: [
-                {
-                  metadata: {
-                    path: ['grantedBy'],
-                    equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
+    const accounts = await this.prisma.creditAccount.findMany({
+      where: {
+        OR: [
+          {
+            lots: {
+              some: {
+                status: 'active',
+                remainingAmount: { gt: 0 },
+                OR: [
+                  { sourceType: 'gift' },
+                  {
+                    sourceType: 'subscription',
+                    validityType: 'fixed_window',
                   },
-                },
-                {
-                  metadata: {
-                    path: ['grantedBy'],
-                    equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
-                  },
-                },
-                {
-                  metadata: {
-                    path: ['grantType'],
-                    equals: 'free_user_starter_quota',
-                  },
-                },
-              ],
+                ],
+              },
             },
           },
-        },
-        select: {
-          id: true,
-          userId: true,
-          balance: true,
-        },
-      });
-
-      // 付费用户（曾支付成功过任何订单，不论积分还是套餐）不参与赠送积分衰减。
-      // 口径与免费用户额度清理任务保持一致（credits.service.ts isPaidUser / 清理任务）。
-      const paidUserIds = new Set(
-        (
-          await tx.paymentOrder.findMany({
-            where: {
-              userId: { in: accounts.map((account) => account.userId) },
-              status: 'paid',
-              orderType: { in: ['membership', 'recharge'] },
+          {
+            transactions: {
+              some: {
+                type: 'REFERRAL_REWARD',
+                creditLotId: null,
+                amount: { gt: 0 },
+                isExpired: false,
+              },
             },
-            select: { userId: true },
-            distinct: ['userId'],
-          })
-        ).map((order) => order.userId),
-      );
-      const vipWhitelistUserIds = new Set(
-        (
-          await tx.user.findMany({
+          },
+        ],
+      },
+      select: { id: true, userId: true },
+    });
+
+    if (accounts.length === 0) {
+      return { affectedUsers: 0, decayedCredits: 0, updatedLots: 0 };
+    }
+
+    const userIds = accounts.map((account) => account.userId);
+    const [activeSubscriptions, vipWhitelistUsers] = await Promise.all([
+      this.prisma.userMembershipSubscription.findMany({
+        where: {
+          userId: { in: userIds },
+          status: 'active',
+          currentPeriodStartAt: { lte: now },
+          currentPeriodEndAt: { gt: now },
+        },
+        select: { userId: true },
+        distinct: ['userId'],
+      }),
+      this.prisma.user.findMany({
+        where: {
+          id: { in: userIds },
+          vipEntitlementWhitelist: true,
+        },
+        select: { id: true },
+      }),
+    ]);
+    const activeVipUserIds = new Set([
+      ...activeSubscriptions.map((subscription) => subscription.userId),
+      ...vipWhitelistUsers.map((user) => user.id),
+    ]);
+
+    const decayDayStartAt = new Date(now);
+    decayDayStartAt.setHours(0, 0, 0, 0);
+    const decayDayEndAt = new Date(decayDayStartAt);
+    decayDayEndAt.setDate(decayDayEndAt.getDate() + 1);
+
+    let affectedUsers = 0;
+    let decayedCredits = 0;
+    let updatedLots = 0;
+
+    for (const account of accounts) {
+      if (activeVipUserIds.has(account.userId)) continue;
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
+        if (!lockedAccount) return null;
+
+        const [activeSubscription, vipWhitelistUser] = await Promise.all([
+          tx.userMembershipSubscription.findFirst({
             where: {
-              id: { in: accounts.map((account) => account.userId) },
-              vipEntitlementWhitelist: true,
+              userId: account.userId,
+              status: 'active',
+              currentPeriodStartAt: { lte: now },
+              currentPeriodEndAt: { gt: now },
             },
             select: { id: true },
-          })
-        ).map((user) => user.id),
-      );
+          }),
+          tx.user.findFirst({
+            where: { id: account.userId, vipEntitlementWhitelist: true },
+            select: { id: true },
+          }),
+        ]);
+        if (activeSubscription || vipWhitelistUser) return null;
 
-      let affectedUsers = 0;
-      let decayedCredits = 0;
-      let updatedLots = 0;
-
-      for (const account of accounts) {
-        if (
-          paidUserIds.has(account.userId) ||
-          vipWhitelistUserIds.has(account.userId)
-        ) {
-          continue;
-        }
-
-        const snapshot = await tx.membershipEntitlementSnapshot.findUnique({
-          where: { userId: account.userId },
-        });
-        if (snapshot?.pauseGiftDecay) {
-          continue;
-        }
-
-        const lots = await tx.creditLot.findMany({
+        const alreadyDecayed = await tx.creditTransaction.count({
           where: {
             accountId: account.id,
-            sourceType: 'subscription',
-            validityType: 'fixed_window',
+            type: TransactionType.EXPIRE,
+            createdAt: { gte: decayDayStartAt, lt: decayDayEndAt },
+            OR: [
+              { businessType: { in: ['free_credit_decay', 'gift_decay'] } },
+              { description: { in: ['免费积分每日衰减', '赠送积分每日衰减'] } },
+            ],
+          },
+        });
+        if (alreadyDecayed > 0) return null;
+
+        const candidateLots = await tx.creditLot.findMany({
+          where: {
+            accountId: account.id,
             status: 'active',
             remainingAmount: { gt: 0 },
             OR: [
+              { sourceType: 'gift' },
               {
-                metadata: {
-                  path: ['grantedBy'],
-                  equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
-                },
-              },
-              {
-                metadata: {
-                  path: ['grantedBy'],
-                  equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
-                },
-              },
-              {
-                metadata: {
-                  path: ['grantType'],
-                  equals: 'free_user_starter_quota',
-                },
+                sourceType: 'subscription',
+                validityType: 'fixed_window',
               },
             ],
           },
-          orderBy: [{ grantedAt: 'asc' }, { createdAt: 'asc' }],
         });
-
-        // 行锁 + 事务内重读：accounts 快照里的余额可能已过期，避免覆盖并发变更。
-        const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
-        if (!lockedAccount) continue;
+        const freeLots = candidateLots
+          .filter(isFreeCreditDecayLot)
+          .sort((left, right) => {
+            const leftExpiry = left.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            const rightExpiry = right.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            if (leftExpiry !== rightExpiry) return leftExpiry - rightExpiry;
+            return left.grantedAt.getTime() - right.grantedAt.getTime();
+          });
 
         let remainingDecay = dailyDecayAmount;
         let accountBalance = lockedAccount.balance;
-        const deductions: Array<{ lotId: string; amount: number }> = [];
+        const deductions: Array<Record<string, string | number>> = [];
+        let changedLots = 0;
 
-        for (const lot of lots) {
-          if (remainingDecay <= 0) break;
-          const amount = Math.min(remainingDecay, lot.remainingAmount);
+        for (const lot of freeLots) {
+          if (remainingDecay <= 0 || accountBalance <= 0) break;
+          const amount = Math.min(remainingDecay, lot.remainingAmount, accountBalance);
           if (amount <= 0) continue;
 
           const nextRemaining = lot.remainingAmount - amount;
@@ -1482,48 +1508,96 @@ export class MembershipService {
               status: nextRemaining > 0 ? 'active' : 'exhausted',
             },
           });
-          deductions.push({ lotId: lot.id, amount });
+          deductions.push({ kind: 'lot', lotId: lot.id, amount });
           remainingDecay -= amount;
-          decayedCredits += amount;
-          updatedLots += 1;
+          accountBalance -= amount;
+          changedLots += 1;
         }
 
-        const totalDecayed = deductions.reduce((sum, item) => sum + item.amount, 0);
-        if (totalDecayed <= 0) continue;
+        if (remainingDecay > 0 && accountBalance > 0) {
+          const activeLotBalance = await tx.creditLot.aggregate({
+            where: {
+              accountId: account.id,
+              status: 'active',
+              remainingAmount: { gt: 0 },
+            },
+            _sum: { remainingAmount: true },
+          });
+          let legacyBalance = Math.max(
+            0,
+            accountBalance - (activeLotBalance._sum.remainingAmount ?? 0),
+          );
+          const legacyReferralTransactions = await tx.creditTransaction.findMany({
+            where: {
+              accountId: account.id,
+              type: 'REFERRAL_REWARD',
+              creditLotId: null,
+              amount: { gt: 0 },
+              isExpired: false,
+            },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          });
 
-        affectedUsers += 1;
-        const balanceBefore = accountBalance;
-        accountBalance = Math.max(0, accountBalance - totalDecayed);
+          for (const transaction of legacyReferralTransactions) {
+            if (remainingDecay <= 0 || legacyBalance <= 0 || accountBalance <= 0) break;
+            const remainingReward = Math.max(0, transaction.amount - transaction.expiredAmount);
+            const amount = Math.min(remainingDecay, legacyBalance, accountBalance, remainingReward);
+            if (amount <= 0) continue;
+
+            const nextExpiredAmount = transaction.expiredAmount + amount;
+            await tx.creditTransaction.update({
+              where: { id: transaction.id },
+              data: {
+                expiredAmount: nextExpiredAmount,
+                isExpired: nextExpiredAmount >= transaction.amount,
+              },
+            });
+            deductions.push({
+              kind: 'legacy_referral',
+              transactionId: transaction.id,
+              amount,
+            });
+            remainingDecay -= amount;
+            legacyBalance -= amount;
+            accountBalance -= amount;
+          }
+        }
+
+        const totalDecayed = dailyDecayAmount - remainingDecay;
+        if (totalDecayed <= 0) return null;
 
         await tx.creditAccount.update({
           where: { id: account.id },
           data: { balance: accountBalance },
         });
-
         await tx.creditTransaction.create({
           data: {
             accountId: account.id,
             type: TransactionType.EXPIRE,
             amount: -totalDecayed,
-            balanceBefore,
+            balanceBefore: lockedAccount.balance,
             balanceAfter: accountBalance,
-            description: '\u514d\u8d39\u79ef\u5206\u6bcf\u65e5\u8870\u51cf',
+            description: '免费积分每日衰减',
             businessType: 'free_credit_decay',
             metadata: {
               decayedAt: now.toISOString(),
               dailyDecayAmount,
+              eligibility: 'no_active_vip',
               deductions,
             },
           },
         });
-      }
 
-      return {
-        affectedUsers,
-        decayedCredits,
-        updatedLots,
-      };
-    });
+        return { totalDecayed, changedLots };
+      });
+
+      if (!result) continue;
+      affectedUsers += 1;
+      decayedCredits += result.totalDecayed;
+      updatedLots += result.changedLots;
+    }
+
+    return { affectedUsers, decayedCredits, updatedLots };
   }
 
   async expireElapsedMemberships(now = new Date()) {

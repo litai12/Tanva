@@ -9,7 +9,6 @@ import { CreditsService } from '../../credits/credits.service';
 import { ApiResponseStatus } from '../../credits/dto/credits.dto';
 import { AIProviderFactory } from '../ai-provider.factory';
 import crypto from 'crypto';
-import { Readable } from 'stream';
 import { CollabEventBus } from '../../team-collab/collab-event-bus.service';
 import { CollabEventLog } from '../../team-collab/collab-event-log.service';
 import {
@@ -19,6 +18,10 @@ import {
 } from '../../team-collab/types';
 import { CreditChargeService, type ChargeHandle } from '../../team-credits/credit-charge.service';
 import { Seedream5Service } from './seedream5.service';
+import { bufferResponseWithLimit } from '../../common/http-buffer.util';
+import { resolveImageTaskRuntimeConfig } from './image-task-runtime.config';
+
+const IMAGE_TASK_RUNTIME_CONFIG = resolveImageTaskRuntimeConfig();
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -231,6 +234,12 @@ export class ImageTaskService {
     if (!payload) {
       throw new BadGatewayException('图像任务输出为空，无法上传到 OSS');
     }
+    const estimatedBytes = Math.ceil((payload.length * 3) / 4);
+    if (estimatedBytes > IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes + 2) {
+      throw new BadGatewayException(
+        `图像任务输出超过 ${Math.round(IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes / 1024 / 1024)}MB 上限`,
+      );
+    }
 
     const decodeCandidate = (encoding: BufferEncoding): Buffer => {
       try {
@@ -246,6 +255,11 @@ export class ImageTaskService {
     }
     if (!buffer.length) {
       throw new BadGatewayException('图像任务输出解码失败，无法上传到 OSS');
+    }
+    if (buffer.length > IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes) {
+      throw new BadGatewayException(
+        `图像任务输出超过 ${Math.round(IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes / 1024 / 1024)}MB 上限`,
+      );
     }
 
     let mimeType: string;
@@ -264,11 +278,11 @@ export class ImageTaskService {
       .randomBytes(6)
       .toString('hex')}.${extension}`;
 
-    const { url } = await this.oss.putStream(key, Readable.from(buffer), {
-      headers: {
-        'Content-Type': mimeType,
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
+    // The payload is already one bounded Buffer. Passing it through
+    // Readable.from() makes the TOS adapter collect + Buffer.concat a second
+    // full copy; upload the existing allocation directly instead.
+    const { url } = await this.oss.putBufferWithHeaders(key, buffer, mimeType, {
+      'Cache-Control': 'public, max-age=31536000, immutable',
     });
 
     return { url, key, mimeType, size: buffer.length };
@@ -296,18 +310,18 @@ export class ImageTaskService {
         throw new BadGatewayException(`图像任务外链返回了非法 content-type: ${contentType || 'unknown'}`);
       }
 
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const buffer = await bufferResponseWithLimit(
+        response,
+        IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes,
+      );
       const { mimeType, extension } = this.inferImageMimeFromBuffer(buffer);
       const userTag = crypto.createHash('sha1').update(String(userId)).digest('hex').slice(0, 8);
       const key = `uploads/ai/tasks/${userTag}/${Date.now()}-${crypto
         .randomBytes(6)
         .toString('hex')}.${extension}`;
 
-      const { url } = await this.oss.putStream(key, Readable.from(buffer), {
-        headers: {
-          'Content-Type': mimeType,
-          'Cache-Control': 'public, max-age=31536000, immutable',
-        },
+      const { url } = await this.oss.putBufferWithHeaders(key, buffer, mimeType, {
+        'Cache-Control': 'public, max-age=31536000, immutable',
       });
 
       return { url, key, mimeType, size: buffer.length };

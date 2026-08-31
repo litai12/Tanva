@@ -415,8 +415,8 @@ const enUS = {
       noGenerationYet: "No generation record",
     },
     expiring: {
-      title: "You have {{total}} credits expiring soon",
-      desc: "Check-in credits expire after 7 days. Use them soon. After upgrading to paid, check-in credits never expire.",
+      title: "You have {{total}} check-in credits available today only",
+      desc: "Check-in credits expire at the next 3:00 AM check-in-day boundary. This rule applies to every user.",
       detail: "{{amount}} credits will expire on {{date}}",
       more: "{{count}} more expiring soon...",
     },

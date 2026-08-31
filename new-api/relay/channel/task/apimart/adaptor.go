@@ -43,6 +43,17 @@ type TaskAdaptor struct {
 
 const seedance2VideoDurationCacheContextKey = "apimart_seedance2_video_duration_cache"
 
+const geminiOmniFlashBaseRetailPriceYuan = 1.575
+
+func geminiOmniFlashRetailPriceYuan(resolution string, duration int) (float64, bool) {
+	prices := map[string]map[int]float64{
+		"720P":  {4: 1.575, 6: 1.575, 8: 1.89, 10: 2.1},
+		"1080P": {4: 2.1, 6: 2.1, 8: 2.31, 10: 2.625},
+	}
+	price, ok := prices[strings.ToUpper(strings.TrimSpace(resolution))][duration]
+	return price, ok
+}
+
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
@@ -65,6 +76,19 @@ func (a *TaskAdaptor) EstimateBillingChecked(c *gin.Context, info *relaycommon.R
 	upstreamModel := ""
 	if info.ChannelMeta != nil {
 		upstreamModel = info.ChannelMeta.UpstreamModelName
+	}
+	if isGeminiOmniFlashModel(upstreamModel) || isGeminiOmniFlashModel(info.OriginModelName) {
+		priceYuan, ok := geminiOmniFlashRetailPriceYuan(req.Resolution, req.Duration)
+		if !ok {
+			return nil, service.TaskErrorWrapperLocal(
+				fmt.Errorf("gemini_omni_flash supports resolution 720P/1080P and duration 4/6/8/10 seconds"),
+				"invalid_gemini_omni_flash_spec",
+				http.StatusBadRequest,
+			)
+		}
+		return map[string]float64{
+			"gemini_omni_flash_spec": priceYuan / geminiOmniFlashBaseRetailPriceYuan,
+		}, nil
 	}
 	if !isSeedance2BillingModel(upstreamModel) && !isSeedance2BillingModel(info.OriginModelName) {
 		return nil, nil

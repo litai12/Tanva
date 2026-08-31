@@ -41,7 +41,7 @@ type FlowStoreStateLike = {
 };
 
 const DURATION_OPTIONS = [4, 6, 8, 10];
-const RESOLUTION_OPTIONS = ["720P", "1080P", "4K"];
+const RESOLUTION_OPTIONS = ["720P", "1080P"];
 const ASPECT_OPTIONS = ["16:9", "9:16"];
 const MODE_OPTIONS = [
   {
@@ -186,8 +186,9 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     () => ({
       managedModelKey: "omni-flash-ext",
       modelKey: "omni-flash-ext",
-      resolution: resolution.toLowerCase(),
-      ...(videoInputCount > 0 ? {} : { duration, durationSec: duration }),
+      resolution,
+      duration,
+      durationSec: duration,
       aspectRatio,
       videoMode: effectiveVideoMode,
       hasReferenceVideo: videoInputCount > 0,
@@ -227,7 +228,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         const blobUrl = URL.createObjectURL(videoBlob);
         const link = document.createElement("a");
         link.href = blobUrl;
-        link.download = `omni-flash-ext-${new Date().toISOString().split("T")[0]}.mp4`;
+        link.download = `gemini-omni-flash-${new Date().toISOString().split("T")[0]}.mp4`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -312,7 +313,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
           <Video size={16} />
-          <span>Omni Flash Ext</span>
+          <span>Gemini Omni Flash</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {data.status === "running" ? (
@@ -426,8 +427,8 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       {videoInputCount > 0 && (
         <div style={{ marginBottom: 8, color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>
           {lt(
-            "已接入参考视频：本次按参考模式发送，不下发时长。",
-            "Reference video connected: this run uses reference mode and omits duration."
+            "已接入参考视频：本次按参考模式发送，仍按所选输出时长计价。",
+            "Reference video connected: this run uses reference mode and keeps the selected output duration."
           )}
         </div>
       )}

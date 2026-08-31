@@ -414,8 +414,8 @@ const zhCN = {
       noGenerationYet: "暂无生成记录",
     },
     expiring: {
-      title: "您有 {{total}} 积分即将过期",
-      desc: "签到获得的积分将在7天后过期，请尽快使用。充值成为付费用户后，签到积分将永久保留。",
+      title: "您有 {{total}} 签到积分仅限今天使用",
+      desc: "签到积分会在下一个签到业务日（凌晨3点）失效，请优先使用；所有用户规则一致。",
       detail: "{{amount}} 积分将于 {{date}} 过期",
       more: "还有 {{count}} 笔即将过期...",
     },

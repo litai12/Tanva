@@ -9,13 +9,14 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
+import { buildReferralRewardCreditLotData } from '../credits/credit-lot-grants';
+import { diffDailyRewardBusinessDays } from '../credits/daily-reward-policy';
 import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 
 // 邀请奖励配置
 const REFERRAL_INVITER_REWARD = 500; // 邀请人奖励积分
 const REFERRAL_INVITER_FIRST_RECHARGE_REWARD = 500; // 邀请好友首充额外奖励积分
 const FREE_USER_REFERRAL_REWARD_LIMIT = 5; // 免费用户邀请奖励次数上限
-const DAILY_REWARD_RESET_HOUR = 3;
 
 @Injectable()
 export class ReferralService {
@@ -25,20 +26,8 @@ export class ReferralService {
     private readonly creditsService: CreditsService,
   ) {}
 
-  private getDailyRewardBusinessDayAnchor(date: Date): Date {
-    const anchor = new Date(date);
-    if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
-      anchor.setDate(anchor.getDate() - 1);
-    }
-    anchor.setHours(0, 0, 0, 0);
-    return anchor;
-  }
-
   private diffDailyRewardBusinessDays(current: Date, previous: Date): number {
-    const currentAnchor = this.getDailyRewardBusinessDayAnchor(current);
-    const previousAnchor = this.getDailyRewardBusinessDayAnchor(previous);
-    const diffMs = currentAnchor.getTime() - previousAnchor.getTime();
-    return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    return diffDailyRewardBusinessDays(current, previous);
   }
 
   private parseInviteLimitFromPlanMetadata(metadata: Prisma.JsonValue | null | undefined): number | null {
@@ -538,6 +527,18 @@ export class ReferralService {
         },
       });
 
+      const rewardLot = await tx.creditLot.create({
+        data: buildReferralRewardCreditLotData({
+          accountId: inviterAccount.id,
+          amount: REFERRAL_INVITER_REWARD,
+          metadata: {
+            grantedBy: 'referral_reward',
+            inviteeUserId,
+            rewardType: 'invitee_first_creation',
+          },
+        }),
+      });
+
       // 为邀请人创建交易记录
       await tx.creditTransaction.create({
         data: {
@@ -547,7 +548,8 @@ export class ReferralService {
           balanceBefore: inviterAccount.balance - REFERRAL_INVITER_REWARD,
           balanceAfter: inviterAccount.balance,
           description: '邀请好友奖励',
-          metadata: { inviteeUserId },
+          creditLotId: rewardLot.id,
+          metadata: { inviteeUserId, rewardType: 'invitee_first_creation' },
         },
       });
 
@@ -629,6 +631,18 @@ export class ReferralService {
       },
     });
 
+    const rewardLot = await tx.creditLot.create({
+      data: buildReferralRewardCreditLotData({
+        accountId: inviterAccount.id,
+        amount: REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+        metadata: {
+          grantedBy: 'referral_reward',
+          inviteeUserId,
+          rewardType: 'invitee_first_recharge',
+        },
+      }),
+    });
+
     await tx.creditTransaction.create({
       data: {
         accountId: inviterAccount.id,
@@ -637,6 +651,7 @@ export class ReferralService {
         balanceBefore: inviterAccount.balance - REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
         balanceAfter: inviterAccount.balance,
         description: '邀请好友首充奖励',
+        creditLotId: rewardLot.id,
         metadata: { inviteeUserId, rewardType: 'invitee_first_recharge' },
       },
     });

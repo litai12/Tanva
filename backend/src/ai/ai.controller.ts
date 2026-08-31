@@ -89,7 +89,6 @@ import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
-import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
@@ -1765,12 +1764,7 @@ export class AiController {
     );
 
     const isSeedance25 = this.isSeedance25Model(dto.seedanceModel);
-    const isSeedance25VideoEditing =
-      isSeedance25 &&
-      (dto.omniReferenceTaskType === 'edit' ||
-        String(dto.videoMode || '').trim().toLowerCase() === 'video_editing');
     const maxReferenceMedia = isSeedance25 ? 10 : 3;
-    const maxReferenceMediaDuration = isSeedance25 ? 30 : 15;
     if (referenceVideos.length > maxReferenceMedia) {
       throw new BadRequestException(`Seedance ${isSeedance25 ? '2.5' : '2.0'} 最多支持 ${maxReferenceMedia} 条参考视频，当前为 ${referenceVideos.length} 条`);
     }
@@ -1779,38 +1773,6 @@ export class AiController {
     }
     if (isSeedance25 && referenceImages.length > 30) {
       throw new BadRequestException(`Seedance 2.5 最多支持 30 张参考图片，当前为 ${referenceImages.length} 张`);
-    }
-    if (!referenceVideos.length && !referenceAudios.length) return;
-    if (!this.referenceVideoDuration) {
-      throw new ServiceUnavailableException('参考媒体时长探测服务不可用，请稍后重试');
-    }
-
-    let totalVideoDuration = 0;
-    for (const [index, url] of referenceVideos.entries()) {
-      const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考视频`);
-      const minDuration = isSeedance25VideoEditing ? 4 : 2;
-      if (duration < minDuration || duration > maxReferenceMediaDuration) {
-        throw new BadRequestException(
-          `第 ${index + 1} 条参考视频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'}${isSeedance25VideoEditing ? ' 视频编辑任务' : ''}单条需在 ${minDuration}–${maxReferenceMediaDuration} 秒之间`,
-        );
-      }
-      totalVideoDuration += duration;
-    }
-    if (totalVideoDuration > maxReferenceMediaDuration) {
-      throw new BadRequestException(`参考视频总时长为 ${totalVideoDuration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 不超过 ${maxReferenceMediaDuration} 秒`);
-    }
-    let totalAudioDuration = 0;
-    for (const [index, url] of referenceAudios.entries()) {
-      const duration = await this.referenceVideoDuration.probeDuration(url, `第 ${index + 1} 条参考音频`);
-      if (duration < 2 || duration > maxReferenceMediaDuration) {
-        throw new BadRequestException(
-          `第 ${index + 1} 条参考音频时长为 ${duration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 单条需在 2–${maxReferenceMediaDuration} 秒之间`,
-        );
-      }
-      totalAudioDuration += duration;
-    }
-    if (totalAudioDuration > maxReferenceMediaDuration) {
-      throw new BadRequestException(`参考音频总时长为 ${totalAudioDuration.toFixed(1)} 秒，Seedance ${isSeedance25 ? '2.5' : '2.0'} 不超过 ${maxReferenceMediaDuration} 秒`);
     }
   }
 
@@ -3194,6 +3156,10 @@ export class AiController {
     const dataUrl = await this.resolvePdfSourceForInline(source);
     const base64 = dataUrl.replace(/^data:application\/pdf(?:;[^,]*)?,/i, '').replace(/\s+/g, '');
     const buffer = Buffer.from(base64, 'base64');
+    // pdf-parse statically loads pdfjs + @napi-rs/canvas/Skia. Keep that large
+    // native runtime out of the long-lived API process until a real PDF request
+    // needs it; most image-task traffic never touches this path.
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     try {
       const parsed = await parser.getText();

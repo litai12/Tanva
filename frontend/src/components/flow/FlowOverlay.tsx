@@ -1916,7 +1916,7 @@ const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 Reference Video", category: "video" },
   { key: "happyhorseR2V", zh: "快乐马", en: "HappyHorse", category: "video" },
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
-  { key: "omniFlashExtVideo", zh: "Omni Flash Ext", en: "Omni Flash Ext", category: "video" },
+  { key: "omniFlashExtVideo", zh: "Gemini Omni Flash", en: "Gemini Omni Flash", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" },
@@ -20580,23 +20580,23 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             omniVideoCount > 0 || rawNodeData.videoMode === "reference" ? "reference" : "frame";
 
           if (!promptText) {
-            failCurrentVideoNode("Omni Flash Ext 需要连接非空提示词");
+            failCurrentVideoNode("Gemini Omni Flash 需要连接非空提示词");
             return;
           }
           if (omniVideoCount > 1) {
-            failCurrentVideoNode("Omni Flash Ext 最多支持 1 条参考视频");
+            failCurrentVideoNode("Gemini Omni Flash 最多支持 1 条参考视频");
             return;
           }
           if (imageCount > 3) {
-            failCurrentVideoNode("Omni Flash Ext 图片最多 3 张");
+            failCurrentVideoNode("Gemini Omni Flash 图片最多 3 张");
             return;
           }
           if (omniVideoMode === "frame" && imageCount > 1) {
-            failCurrentVideoNode("Omni Flash Ext 单图模式只接 1 张图");
+            failCurrentVideoNode("Gemini Omni Flash 单图模式只接 1 张图");
             return;
           }
           if (omniVideoMode === "reference" && imageCount === 0) {
-            failCurrentVideoNode("Omni Flash Ext 参考模式至少接 1 张图");
+            failCurrentVideoNode("Gemini Omni Flash 参考模式至少接 1 张图");
             return;
           }
         } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
@@ -21262,7 +21262,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             console.log(
               `🎬 [${
                 isOmniFlashExtNode
-                  ? "Omni Flash Ext"
+                  ? "Gemini Omni Flash"
                   : isSeedanceNode && isSeedance20Request
                   ? "Seedance 2.0"
                   : "Kling O1"
@@ -21851,9 +21851,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
                   referenceVideos:
                     referenceVideoUrls.length > 0 ? referenceVideoUrls.slice(0, 1) : undefined,
-                  duration: referenceVideoUrls.length > 0 ? undefined : durationForAPI,
+                  duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
-                  resolution: rawNodeData.resolution,
+                  resolution: ["720P", "1080P"].includes(
+                    String(rawNodeData.resolution || "").trim().toUpperCase()
+                  )
+                    ? String(rawNodeData.resolution).trim().toUpperCase()
+                    : "720P",
                   provider: provider as VideoProvider,
                   videoMode: omniVideoModeForAPI,
                 }

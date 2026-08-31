@@ -566,7 +566,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "wan26", purpose: "Wan2.6 视频" },
     { type: "wan2R2V", purpose: "Wan2 参考图生视频" },
     { type: "happyhorseR2V", purpose: "Happyhorse 多参考图生视频（1-9张）" },
-    { type: "omniFlashExtVideo", purpose: "Omni 视频扩展（延长已有视频）" },
+    { type: "omniFlashExtVideo", purpose: "Gemini Omni Flash 多模态视频生成" },
     { type: "klingO1Video", purpose: "可灵O3 分镜视频" },
   ],
   notes: [

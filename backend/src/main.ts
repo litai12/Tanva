@@ -299,6 +299,12 @@ async function bootstrap() {
   asrGateway.setOriginCheck((origin: string) => isOriginAllowed(origin));
   asrGateway.attach(fastifyInstance.server);
 
+  // PM2 reloads and the image-worker idle RSS recycler terminate with
+  // SIGINT/SIGTERM. Let Fastify stop accepting new requests and allow Nest
+  // providers (BullMQ, Prisma, telemetry, gateways) to close cleanly before
+  // the process exits.
+  app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
+
   const port = Number(process.env.PORT || configService.get("PORT") || 4000);
   const host = process.env.HOST || "0.0.0.0";
   await app.listen({ port, host });

@@ -2,6 +2,8 @@ package apimart
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -220,5 +222,74 @@ func TestSeedance2BillingDoesNotAffectOtherModels(t *testing.T) {
 	}
 	if ratios != nil {
 		t.Fatalf("EstimateBillingChecked() = %v, want nil", ratios)
+	}
+}
+
+func TestGeminiOmniFlashBillingMatrix(t *testing.T) {
+	tests := []struct {
+		resolution string
+		duration   int
+		wantRatio  float64
+	}{
+		{resolution: "720P", duration: 4, wantRatio: 1},
+		{resolution: "720P", duration: 6, wantRatio: 1},
+		{resolution: "720P", duration: 8, wantRatio: 1.2},
+		{resolution: "720P", duration: 10, wantRatio: 2.1 / 1.575},
+		{resolution: "1080P", duration: 4, wantRatio: 2.1 / 1.575},
+		{resolution: "1080P", duration: 6, wantRatio: 2.1 / 1.575},
+		{resolution: "1080P", duration: 8, wantRatio: 2.31 / 1.575},
+		{resolution: "1080P", duration: 10, wantRatio: 2.625 / 1.575},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s_%ds", tt.resolution, tt.duration), func(t *testing.T) {
+			c := newSeedance2BillingContext(t, `{
+				"model":"gemini_omni_flash",
+				"prompt":"test",
+				"resolution":"`+tt.resolution+`",
+				"duration":`+fmt.Sprint(tt.duration)+`
+			}`)
+			adaptor := &TaskAdaptor{}
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "gemini_omni_flash",
+				TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+				ChannelMeta: &relaycommon.ChannelMeta{
+					UpstreamModelName: "gemini_omni_flash",
+				},
+			}
+
+			if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
+				t.Fatalf("ValidateRequestAndSetAction() error = %v", taskErr)
+			}
+			ratios, taskErr := adaptor.EstimateBillingChecked(c, info)
+			if taskErr != nil {
+				t.Fatalf("EstimateBillingChecked() error = %v", taskErr)
+			}
+			if got := ratios["gemini_omni_flash_spec"]; math.Abs(got-tt.wantRatio) > 1e-9 {
+				t.Fatalf("billing ratio = %v, want %v", got, tt.wantRatio)
+			}
+		})
+	}
+}
+
+func TestGeminiOmniFlashBillingRejectsUnsupportedSpec(t *testing.T) {
+	c := newSeedance2BillingContext(t, `{
+		"model":"gemini_omni_flash",
+		"prompt":"test",
+		"resolution":"4K",
+		"duration":6
+	}`)
+	adaptor := &TaskAdaptor{}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gemini_omni_flash",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+	}
+
+	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
+		t.Fatalf("ValidateRequestAndSetAction() error = %v", taskErr)
+	}
+	_, taskErr := adaptor.EstimateBillingChecked(c, info)
+	if taskErr == nil || taskErr.Code != "invalid_gemini_omni_flash_spec" {
+		t.Fatalf("task error = %v, want invalid_gemini_omni_flash_spec", taskErr)
 	}
 }

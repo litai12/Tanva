@@ -65,6 +65,15 @@ export function buildRechargeBonusCreditLotData(
 ): CreditLotGrantData {
   return buildPermanentLotData({
     ...input,
+    sourceType: 'recharge',
+  });
+}
+
+export function buildReferralRewardCreditLotData(
+  input: CreditLotGrantBaseInput,
+): CreditLotGrantData {
+  return buildPermanentLotData({
+    ...input,
     sourceType: 'gift',
   });
 }
@@ -79,19 +88,12 @@ export function buildSignupCreditLotData(
 }
 
 export function buildDailyRewardCreditLotData(
-  input: CreditLotGrantBaseInput & { expiresAt: Date | null },
+  input: CreditLotGrantBaseInput & { expiresAt: Date },
 ): CreditLotGrantData {
-  const grantedAt = input.grantedAt ?? new Date();
-  const activeAt = input.activeAt ?? grantedAt;
-
-  return {
-    ...buildPermanentLotData({
-      ...input,
-      sourceType: 'gift',
-    }),
-    grantedAt,
-    activeAt,
-  };
+  return buildDurableLotData({
+    ...input,
+    sourceType: 'gift',
+  });
 }
 
 export function buildMembershipCreditLotData(

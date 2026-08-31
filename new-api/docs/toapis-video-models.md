@@ -25,6 +25,15 @@
 | Vidu Q3 | `viduq3`, `viduq3-pro`, `viduq3-turbo` |
 | Wan 2.6 | `wan2.6`, `wan2.6-flash` |
 
+## Gemini Omni Flash
+
+- 精确上游 model ID：`gemini_omni_flash`
+- Tanva 画布为了兼容历史项目，继续使用 `managedModelKey=omni-flash-ext`，但新任务不再发送到 APIMart `Omni-Flash-Ext`
+- 开放规格：720P/1080P，4/6/8/10 秒；4K 不在当前成本表中，不对用户开放
+- 客户售价按 ToAPIs 成本 `x1.5`，整数积分向上取整：720P 4/6/8/10 秒为 `158/158/189/210`，1080P 为 `210/210/231/263`
+- new-api 基础 `ModelPrice=1.575`，其他规格由 APIMart/ToAPIs adaptor 按分辨率和时长在提交前乘以对应因子
+- 生产补丁：`patches/2026-08-31/001-switch-omni-to-gemini-omni-flash.sql`
+
 不在本次生成模型目录中的操作型接口：Grok/Sora remix、Grok extend、Sora persona、Seedance avatar。这些接口不是标准 `generation` 任务，不能只靠增加 model ability 接入。
 
 ## Kling v3 Omni 重点约束

@@ -149,6 +149,7 @@
 - `generateVideo` now prioritizes `klingModel=kling-v3-0` as managed `kling-3.0` routing, even if payload provider is `kling-o3`, to avoid accidentally entering `kling-3.0-omni` execution path.
 - `queryTask` now detects managed Tencent task prefixes before provider-branch routing, ensuring `kling-v3-0` polling remains correct even when request provider is `kling-o3`.
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传�?OSS，仅返回自有 OSS 公网链接给前端�?
+- Tanva 不再按 15/30 秒规则拦截 Seedance 参考视频或参考音频，也不会为容器尾差启动 ffmpeg 或生成派生文件；原始远程 URL 直接进入 new-api/Seedance 请求，上游错误原样回传。`ReferenceVideoDurationService` 仍会探测参考视频真实时长供计费使用，因此视频不可访问或无法读取时长仍会在计费边界失败。
 - Seedance 2.0 现在统一�?`seedance-2.0` 模型管理键，但运行时可按请求里的 `seedanceModel` �?`doubao-seedance-2-0-260128` �?`doubao-seedance-2-0-fast-260128` 间切换；`ai.controller` �?Seedance 2 权益校验也会同时识别 `2.0` �?`2.0-fast`�?
 - `generate-video-provider` 在解析到模型管理线路后，会把该线路 `pricing.displayConfig.defaultSelections` 补进缺失的计费参数（如 Seedance 2.0 默认 `resolution=720P`、`duration=5`），确保对话框等非画布入口也能命中规格定价。
 - 快乐马 `POST /api/ai/dashscope/generate-happyhorse-video` 默认仅允许已登录付费用户调用：成功支付过任意订单（充值或会员）可用；未支付过的会员用户需当前有效套餐 metadata 显式配置 `happyhorseAccess: "enabled"`；免费档默认不支持。该接口创建 DashScope 任务后立即返回 `taskId/apiUsageId`，前端通过 `/api/ai/dashscope/task/:taskId` 轮询并在成功/失败时回写积分状态。
@@ -218,3 +219,15 @@
 - Tanva 可同时维护 ToAPIs 与腾讯 VOD 渠道，但 Kling Omni 请求不得共享同一上游 JSON。new-api 在选中 ToAPIs 后把 APIMart 兼容的 `image_with_roles` / `element_list` 转成 ToAPIs 嵌套 `metadata.image_list` / `metadata.element_list`，并把 `@图N` / `@角色名` 转成 `<<<image_N>>>` / `<<<element_N>>>`。
 - 腾讯 VOD type=67 继续回调 backend 内部 create/poll 端点。临时 `elementImg` 图片并不是腾讯主体库 ID，必须合并进参考图列表并生成 `FileInfos[{Category:"Image",Usage:"Reference"}]`；prompt 中的 `@角色名` 与 `@图N` 都绑定到对应 `<<<image_N>>>`。只有已通过 `CreateAigcAdvancedCustomElement` 创建并取得 ID 的主体才能使用 `SubjectInfos`。
 - `provider_options.videoMode=text` 只代表普通 image 桩为空，不能覆盖 element 图片的参考语义；腾讯转换层检测到 element 图片时必须收敛为 `reference`。重复的同 URL 正面照/参考照在腾讯 FileInfos 中去重，避免同一素材被重复计数和重复引用。
+
+## 2026-08-31 Gemini Omni Flash / ToAPIs
+
+- Tanva 保留 `omni-flash-ext` 业务键兼容历史画布，但 `VideoProviderService` 创建新任务时统一解析为 ToAPIs `gemini_omni_flash`。new-api 复用 Omni 的 `image_urls/video_urls/generation_type` 归一逻辑，并保留 Gemini 参考视频任务的显式输出 `duration`。
+- 只接受 720P/1080P 与 4/6/8/10 秒。成本矩阵为 720P `1.05/1.05/1.26/1.40` 元、1080P `1.40/1.40/1.54/1.75` 元；客户价按 `x1.5` 得到 `1.575/1.575/1.89/2.10` 和 `2.10/2.10/2.31/2.625` 元，换算积分时向上取整。
+- Tanva 的 managed pricing 是预览与实扣 SSOT；new-api 以 720P 4/6 秒的 `ModelPrice=1.575` 为基准，adaptor 在提交前按规格乘以矩阵因子。生产数据使用 `new-api/patches/2026-08-31/001-switch-omni-to-gemini-omni-flash.sql`。
+
+## 2026-08-31 图片任务原生内存治理
+
+- `image-tasks` Worker 保持 1000 并发上限；结果下载和 base64 解码均受 `IMAGE_TASK_OUTPUT_MAX_MB`（默认 64MB）约束，上传复用已有 Buffer，避免流适配器再次聚合出完整副本。
+- Sharp 对唯一生成图片关闭持久缓存，默认 native concurrency=1，并限制输入像素；PDF/Skia 只在 PDF 分析请求到达时动态加载。
+- 生产 ecosystem 优先使用 jemalloc，并在 RSS 超过 2GB 且 Worker 无 active job 时关闭 consumer，再经 Nest/Fastify shutdown hook 排空普通 HTTP 请求后安全退出。PM2 6GB RSS 重启阈值只作紧急保险；监控必须展示真实配置和 allocator。

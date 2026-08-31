@@ -9,6 +9,11 @@ import {
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { findCreditAccountForUpdate } from './credit-account-lock.util';
+import {
+  diffDailyRewardBusinessDays,
+  getDailyRewardBusinessDayAnchor,
+  getDailyRewardExpiresAt,
+} from './daily-reward-policy';
 import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import {
@@ -50,6 +55,10 @@ import {
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
 import { normalizeSeedance20DiscountPricing } from '../ai/services/seedance20-pricing';
+import {
+  GEMINI_OMNI_FLASH_MODEL_ID,
+  createGeminiOmniFlashPricingTemplate,
+} from '../ai/services/gemini-omni-flash-pricing';
 import { applyConsumerCreditDiscount } from './consumer-credit-operation';
 import {
   calculateDoubaoSeedVideoAnalysisDurationBilling,
@@ -75,7 +84,6 @@ const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
 const ACTIVE_NODE_VIDEO_GATE_WINDOW_MS = 30 * 60 * 1000;
 export const LEGACY_FLOW_VIDEO_PROJECT_SCOPE = '__legacy_flow_project__';
 const PRE_DEDUCT_TRANSACTION_TIMEOUT_MS = 30_000;
-const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const FREE_USER_LEGACY_QUOTA_BUSINESS_TYPE = 'free_monthly_quota';
 const FREE_USER_STARTER_QUOTA_BUSINESS_TYPE = 'free_starter_quota';
@@ -1211,39 +1219,43 @@ export class CreditsService {
     mapping: ManagedPricingMappingLike,
   ): ManagedPricingMappingLike {
     const models = Array.isArray(mapping?.models) ? mapping.models.filter(Boolean) : [];
+    const geminiOmniFlashModel = {
+      modelKey: OMNI_FLASH_EXT_MODEL_KEY,
+      modelName: 'Gemini Omni Flash',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'new_api',
+      vendors: [
+        {
+          vendorKey: 'new_api',
+          platformKey: 'new_api',
+          label: 'ToAPIs',
+          enabled: true,
+          route: 'legacy',
+          provider: 'new-api',
+          modelName: GEMINI_OMNI_FLASH_MODEL_ID,
+          creditsPerCall: 158,
+          priceYuan: 1.575,
+          pricing: createGeminiOmniFlashPricingTemplate(),
+        },
+      ],
+    };
     const hasOmniFlashExt = models.some(
       (item) =>
         typeof item?.modelKey === 'string' &&
         item.modelKey.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY,
     );
-    if (hasOmniFlashExt) {
-      return mapping;
-    }
 
     return {
       ...mapping,
       models: [
-        ...models,
-        {
-          modelKey: OMNI_FLASH_EXT_MODEL_KEY,
-          modelName: 'Omni Flash Ext',
-          taskType: 'video',
-          enabled: true,
-          defaultVendor: 'new_api',
-          vendors: [
-            {
-              vendorKey: 'new_api',
-              platformKey: 'new_api',
-              label: 'New API',
-              enabled: true,
-              route: 'legacy',
-              provider: 'new-api',
-              modelName: OMNI_FLASH_EXT_MODEL_KEY,
-              creditsPerCall: 600,
-              priceYuan: 6,
-            },
-          ],
-        },
+        ...models.map((item) =>
+          typeof item?.modelKey === 'string' &&
+          item.modelKey.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY
+            ? geminiOmniFlashModel
+            : item,
+        ),
+        ...(!hasOmniFlashExt ? [geminiOmniFlashModel] : []),
       ],
     } as ManagedPricingMappingLike;
   }
@@ -1364,6 +1376,21 @@ export class CreditsService {
             normalized.managedModelKey.trim().length > 0
           ? normalized.managedModelKey.trim().toLowerCase()
           : this.inferManagedModelKeyFromRequestParams(normalized).trim().toLowerCase();
+
+    if (modelKey === OMNI_FLASH_EXT_MODEL_KEY) {
+      const resolution =
+        typeof normalized.resolution === 'string'
+          ? normalized.resolution.trim().toUpperCase()
+          : '';
+      const durationSec = Number(normalized.durationSec ?? normalized.duration);
+      normalized = {
+        ...normalized,
+        ...(resolution ? { resolution } : {}),
+        ...(Number.isFinite(durationSec) && durationSec > 0
+          ? { durationSec }
+          : {}),
+      };
+    }
 
     if (modelKey === 'seedance-2.0') {
       const outputDurationSec = Number(
@@ -1770,7 +1797,7 @@ export class CreditsService {
     requestParams: any,
   ): string {
     if (this.isOmniFlashExtRequest(requestParams)) {
-      return 'Omni Flash Ext 视频生成';
+      return 'Gemini Omni Flash 视频生成';
     }
 
     if (serviceType !== 'doubao-video') {
@@ -2542,21 +2569,111 @@ export class CreditsService {
   }
 
   private getDailyRewardBusinessDayAnchor(date: Date): Date {
-    const anchor = new Date(date);
-    anchor.setMinutes(0, 0, 0);
-
-    if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
-      anchor.setDate(anchor.getDate() - 1);
-    }
-
-    anchor.setHours(DAILY_REWARD_RESET_HOUR, 0, 0, 0);
-    return anchor;
+    return getDailyRewardBusinessDayAnchor(date);
   }
 
   private diffDailyRewardBusinessDays(now: Date, last: Date): number {
-    const nowAnchor = this.getDailyRewardBusinessDayAnchor(now);
-    const lastAnchor = this.getDailyRewardBusinessDayAnchor(last);
-    return Math.floor((nowAnchor.getTime() - lastAnchor.getTime()) / (24 * 60 * 60 * 1000));
+    return diffDailyRewardBusinessDays(now, last);
+  }
+
+  /**
+   * 在账户锁内即时清理已跨签到业务日的积分。
+   *
+   * 除新 fixed_window 批次外，这里也识别历史 permanent 签到批次，确保规则上线后
+   * 旧签到余额不会继续被当作 legacy balance 消费。
+   */
+  private async expireDailyRewardLotsForLockedAccount(
+    tx: Prisma.TransactionClient,
+    account: { id: string; balance: number },
+    now: Date,
+  ): Promise<{ expiredLots: number; expiredCredits: number; balanceAfter: number }> {
+    const currentBusinessDayStartAt = this.getDailyRewardBusinessDayAnchor(now);
+    const expiredLots = await tx.creditLot.findMany({
+      where: {
+        accountId: account.id,
+        status: { in: ['active', 'expired'] },
+        remainingAmount: { gt: 0 },
+        metadata: {
+          path: ['reason'],
+          equals: 'daily_reward',
+        },
+        OR: [
+          { expiresAt: { lte: now } },
+          { grantedAt: { lt: currentBusinessDayStartAt } },
+        ],
+      },
+      orderBy: [{ grantedAt: 'asc' }, { id: 'asc' }],
+    });
+
+    if (expiredLots.length === 0) {
+      return { expiredLots: 0, expiredCredits: 0, balanceAfter: account.balance };
+    }
+
+    let balanceAfter = account.balance;
+    let expiredCredits = 0;
+
+    for (const lot of expiredLots) {
+      const amountToExpire = Math.min(lot.remainingAmount, Math.max(0, balanceAfter));
+      const normalizedExpiresAt = lot.expiresAt ?? getDailyRewardExpiresAt(lot.grantedAt);
+      const balanceBefore = balanceAfter;
+      balanceAfter -= amountToExpire;
+      expiredCredits += amountToExpire;
+
+      await tx.creditLot.update({
+        where: { id: lot.id },
+        data: {
+          validityType: 'fixed_window',
+          remainingAmount: 0,
+          expiresAt: normalizedExpiresAt,
+          durationDays: 1,
+          status: 'expired',
+        },
+      });
+
+      await tx.creditTransaction.updateMany({
+        where: {
+          creditLotId: lot.id,
+          type: TransactionType.DAILY_REWARD,
+        },
+        data: {
+          expiresAt: normalizedExpiresAt,
+          isExpired: true,
+          expiredAmount: amountToExpire,
+        },
+      });
+
+      if (amountToExpire > 0) {
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EXPIRE,
+            amount: -amountToExpire,
+            balanceBefore,
+            balanceAfter,
+            description: '签到积分当日到期清除',
+            creditLotId: lot.id,
+            metadata: {
+              expiredLotId: lot.id,
+              originalRemainingAmount: lot.remainingAmount,
+              expiryPolicy: 'same_business_day',
+            },
+          },
+        });
+      }
+    }
+
+    if (balanceAfter !== account.balance) {
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: { balance: balanceAfter },
+      });
+    }
+
+    return {
+      expiredLots: expiredLots.length,
+      expiredCredits,
+      balanceAfter,
+    };
   }
 
   private async expireFreeUserMonthlyQuotaLotsForAccount(
@@ -3751,26 +3868,34 @@ export class CreditsService {
    * ????????
    */
   async getBalance(userId: string): Promise<number> {
-    const account = await this.getOrCreateAccount(userId);
-    if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
-    }
-    return account.balance;
+    await this.getOrCreateAccount(userId);
+    return this.prisma.$transaction(async (tx) => {
+      const account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      return expiry.balanceAfter;
+    });
   }
 
   /**
    * ??????????
    */
   async getAccountDetails(userId: string) {
-    const account = await this.getOrCreateAccount(userId);
-    if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
-    }
-    return {
-      balance: account.balance,
-      totalEarned: account.totalEarned,
-      totalSpent: account.totalSpent,
-    };
+    await this.getOrCreateAccount(userId);
+    return this.prisma.$transaction(async (tx) => {
+      const account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      return {
+        balance: expiry.balanceAfter,
+        totalEarned: account.totalEarned,
+        totalSpent: account.totalSpent,
+      };
+    });
   }
 
   /**
@@ -4422,11 +4547,14 @@ export class CreditsService {
     return await this.prisma.$transaction(async (tx) => {
       // 账户行级锁：串行化同一用户的并发预扣，兼保证下方幂等/指纹查重
       // （先查后插）在并发下真正可见（详见 credit-account-lock.util.ts）。
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       const activeNodeScope = FREE_USER_VIDEO_LIMITED_SERVICES.includes(serviceType)
         ? this.normalizeActiveNodeVideoScope(apiUsageRequestParams)
@@ -4732,10 +4860,12 @@ export class CreditsService {
       : undefined;
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       const buildUsageData = (creditsUsed: number, status: ApiResponseStatus) => ({
         userId,
@@ -5263,11 +5393,13 @@ export class CreditsService {
         return;
       }
 
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       const preDeductedCredits = Math.max(0, Math.floor(apiUsage.creditsUsed));
       const deltaCredits = settledCredits - preDeductedCredits;
@@ -5739,11 +5871,13 @@ export class CreditsService {
         throw new BadRequestException('只有失败的API调用才能退款');
       }
 
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       // ???????? apiUsage ???????????
       const existingRefund = await tx.creditTransaction.findFirst({
@@ -5895,11 +6029,13 @@ export class CreditsService {
         throw new BadRequestException('只能调整成功的API调用积分');
       }
 
-      const account = await findCreditAccountForUpdate(tx, { userId: apiUsage.userId });
+      let account = await findCreditAccountForUpdate(tx, { userId: apiUsage.userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       const originalRequestParams = this.asJsonObject(apiUsage.requestParams) || {};
       const originalOutputCount = apiUsage.outputImageCount ?? 1;
@@ -6274,11 +6410,13 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       const newBalance = account.balance + amount;
 
@@ -6337,11 +6475,13 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       if (account.balance < amount) {
         throw new BadRequestException(`用户积分不足，当前余额: ${account.balance}`);
@@ -6606,10 +6746,8 @@ export class CreditsService {
   }
 
   /**
-   * ????????
-   * ???????? gift ????????????? VIP ? pauseGiftDecay ???
-   * ??????????????????????????? dailyGiftCredits ?????????
-   * ????? 7 ??????????? 7 ?????? 1 ???????????
+   * 领取每日签到奖励。
+   * 签到积分对所有用户都只在当前签到业务日有效；第 7 天仍按套餐倍率发放。
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -6621,13 +6759,16 @@ export class CreditsService {
     tierCode?: string;
   }> {
     return await this.prisma.$transaction(async (tx) => {
-      const account = await findCreditAccountForUpdate(tx, { userId });
+      let account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
 
       const now = new Date();
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, now);
+      account = { ...account, balance: expiry.balanceAfter };
+
       if (account.lastDailyRewardAt) {
         const lastClaim = new Date(account.lastDailyRewardAt);
         if (this.diffDailyRewardBusinessDays(now, lastClaim) === 0) {
@@ -6641,7 +6782,7 @@ export class CreditsService {
       }
 
       const rewardRule = await this.resolveDailyRewardRuleForUser(tx, userId);
-      const expiresAt = null;
+      const expiresAt = getDailyRewardExpiresAt(now);
 
       // ????????
       let newConsecutiveDays = 1;
@@ -6699,6 +6840,8 @@ export class CreditsService {
         data: buildDailyRewardCreditLotData({
           accountId: account.id,
           amount: totalCredits,
+          grantedAt: now,
+          activeAt: now,
           expiresAt,
           metadata: this.getDailyRewardMetadata(
             newConsecutiveDays,
@@ -6806,252 +6949,119 @@ export class CreditsService {
   }
 
   /**
-   * ?????????????????
-   * ??????????????
+   * 清理跨签到业务日仍未使用的签到积分。
+   * 同时兼容规则上线前的 permanent lot 和没有 lot 的历史签到流水。
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
+    const currentBusinessDayStartAt = this.getDailyRewardBusinessDayAnchor(now);
     const processedUserIds = new Set<string>();
     let totalExpiredCredits = 0;
 
-    const expiredDailyRewardLots = await this.prisma.creditLot.findMany({
+    const accountsWithExpiredLots = await this.prisma.creditLot.findMany({
       where: {
-        status: 'active',
-        validityType: 'fixed_window',
-        expiresAt: { lte: now },
+        status: { in: ['active', 'expired'] },
+        remainingAmount: { gt: 0 },
         metadata: {
           path: ['reason'],
           equals: 'daily_reward',
         },
+        OR: [
+          { expiresAt: { lte: now } },
+          { grantedAt: { lt: currentBusinessDayStartAt } },
+        ],
       },
-      include: {
-        account: true,
-      },
-      orderBy: { expiresAt: 'asc' },
+      select: { accountId: true },
+      distinct: ['accountId'],
     });
 
-    for (const lot of expiredDailyRewardLots) {
-      const userId = lot.account.userId;
-      processedUserIds.add(userId);
-
-      const isPaid = await this.isPaidUser(userId);
-      if (isPaid) {
-        await this.prisma.$transaction(async (tx) => {
-          await tx.creditLot.update({
-            where: { id: lot.id },
-            data: {
-              validityType: 'permanent',
-              expiresAt: null,
-            },
-          });
-
-          await tx.creditTransaction.updateMany({
-            where: {
-              creditLotId: lot.id,
-              type: TransactionType.DAILY_REWARD,
-            },
-            data: {
-              expiresAt: null,
-              isExpired: false,
-            },
-          });
-        });
-        continue;
-      }
-
-      if (lot.remainingAmount <= 0) {
-        await this.prisma.$transaction(async (tx) => {
-          await tx.creditLot.update({
-            where: { id: lot.id },
-            data: {
-              remainingAmount: 0,
-              status: 'expired',
-            },
-          });
-
-          await tx.creditTransaction.updateMany({
-            where: {
-              creditLotId: lot.id,
-              type: TransactionType.DAILY_REWARD,
-            },
-            data: {
-              isExpired: true,
-              expiredAmount: 0,
-            },
-          });
-        });
-        continue;
-      }
-
-      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
-      const actualDeduct = await this.prisma.$transaction(async (tx) => {
-        const account = await findCreditAccountForUpdate(tx, { id: lot.accountId });
-        if (!account) return 0;
-
-        const deduct = Math.min(lot.remainingAmount, account.balance);
-        const newBalance = account.balance - deduct;
-        await tx.creditAccount.update({
-          where: { id: account.id },
-          data: {
-            balance: newBalance,
-          },
-        });
-
-        await tx.creditLot.update({
-          where: { id: lot.id },
-          data: {
-            remainingAmount: 0,
-            status: 'expired',
-          },
-        });
-
-        await tx.creditTransaction.create({
-          data: {
-            accountId: account.id,
-            type: TransactionType.EXPIRE,
-            amount: -deduct,
-            balanceBefore: account.balance,
-            balanceAfter: newBalance,
-            description: '签到积分过期清除',
-            creditLotId: lot.id,
-            metadata: {
-              expiredLotId: lot.id,
-              originalRemainingAmount: lot.remainingAmount,
-            },
-          },
-        });
-
-        await tx.creditTransaction.updateMany({
-          where: {
-            creditLotId: lot.id,
-            type: TransactionType.DAILY_REWARD,
-          },
-          data: {
-            isExpired: true,
-            expiredAmount: deduct,
-          },
-        });
-
-        return deduct;
+    for (const item of accountsWithExpiredLots) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { id: item.accountId });
+        if (!account) return null;
+        const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, now);
+        return { userId: account.userId, ...expiry };
       });
 
-      totalExpiredCredits += actualDeduct;
+      if (!result || result.expiredLots <= 0) continue;
+      processedUserIds.add(result.userId);
+      totalExpiredCredits += result.expiredCredits;
     }
 
-    // ??????????????????
+    // 兼容积分 lot 上线前只写 CreditTransaction 的签到记录。
     const expiredTransactions = await this.prisma.creditTransaction.findMany({
       where: {
         type: TransactionType.DAILY_REWARD,
-        expiresAt: { lte: now },
         isExpired: false,
         creditLotId: null,
-        amount: { gt: 0 }, // ??????????????
+        amount: { gt: 0 },
+        OR: [
+          { expiresAt: { lte: now } },
+          { createdAt: { lt: currentBusinessDayStartAt } },
+        ],
       },
-      include: {
-        account: true,
-      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
-    if (expiredTransactions.length === 0) {
-      return { processedUsers: processedUserIds.size, totalExpiredCredits };
+    const transactionsByAccount = new Map<string, typeof expiredTransactions>();
+    for (const transaction of expiredTransactions) {
+      if (!transactionsByAccount.has(transaction.accountId)) {
+        transactionsByAccount.set(transaction.accountId, []);
+      }
+      transactionsByAccount.get(transaction.accountId)!.push(transaction);
     }
 
-    // ???????
-    const userTransactions = new Map<string, typeof expiredTransactions>();
-    for (const tx of expiredTransactions) {
-      const userId = tx.account.userId;
-      if (!userTransactions.has(userId)) {
-        userTransactions.set(userId, []);
-      }
-      userTransactions.get(userId)!.push(tx);
-    }
-
-    let processedUsers = 0;
-
-    for (const [userId, transactions] of userTransactions) {
-      processedUserIds.add(userId);
-      // ????????????????
-      const isPaid = await this.isPaidUser(userId);
-      if (isPaid) {
-        // ?????????????????
-        await this.prisma.creditTransaction.updateMany({
-          where: {
-            id: { in: transactions.map(t => t.id) },
-          },
-          data: {
-            expiresAt: null,
-            isExpired: false,
-          },
-        });
-        continue;
-      }
-
-      // ????????????????
-      const expiredAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
-
-      if (expiredAmount <= 0) continue;
-
-      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
-      // 返回 null=账户不存在（跳过该用户，保持原 continue 语义）；0=余额不足仅标记过期。
-      const actualDeduct = await this.prisma.$transaction(async (tx) => {
-        const account = await findCreditAccountForUpdate(tx, { userId });
+    for (const [accountId, transactions] of transactionsByAccount) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { id: accountId });
         if (!account) return null;
 
-        const deduct = Math.min(expiredAmount, account.balance);
-        if (deduct <= 0) return 0;
+        const expiredAmount = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+        const actualDeduct = Math.min(expiredAmount, Math.max(0, account.balance));
+        const balanceAfter = account.balance - actualDeduct;
+        let remainingAllocation = actualDeduct;
 
-        const newBalance = account.balance - deduct;
-        await tx.creditAccount.update({
-          where: { id: account.id },
-          data: { balance: newBalance },
-        });
-
-        await tx.creditTransaction.create({
-          data: {
-            accountId: account.id,
-            type: TransactionType.EXPIRE,
-            amount: -deduct,
-            balanceBefore: account.balance,
-            balanceAfter: newBalance,
-            description: `签到积分过期清除（${transactions.length}笔）`,
-            metadata: {
-              expiredTransactionIds: transactions.map(t => t.id),
-              originalExpiredAmount: expiredAmount,
+        for (const transaction of transactions) {
+          const allocated = Math.min(transaction.amount, remainingAllocation);
+          remainingAllocation -= allocated;
+          await tx.creditTransaction.update({
+            where: { id: transaction.id },
+            data: {
+              expiresAt: transaction.expiresAt ?? getDailyRewardExpiresAt(transaction.createdAt),
+              isExpired: true,
+              expiredAmount: allocated,
             },
-          },
-        });
+          });
+        }
 
-        await tx.creditTransaction.updateMany({
-          where: {
-            id: { in: transactions.map(t => t.id) },
-          },
-          data: {
-            isExpired: true,
-            expiredAmount: deduct,
-          },
-        });
+        if (actualDeduct > 0) {
+          await tx.creditAccount.update({
+            where: { id: account.id },
+            data: { balance: balanceAfter },
+          });
+          await tx.creditTransaction.create({
+            data: {
+              accountId: account.id,
+              type: TransactionType.EXPIRE,
+              amount: -actualDeduct,
+              balanceBefore: account.balance,
+              balanceAfter,
+              description: `签到积分当日到期清除（${transactions.length}笔历史记录）`,
+              metadata: {
+                expiredTransactionIds: transactions.map((transaction) => transaction.id),
+                originalExpiredAmount: expiredAmount,
+                expiryPolicy: 'same_business_day',
+              },
+            },
+          });
+        }
 
-        return deduct;
+        return { userId: account.userId, actualDeduct };
       });
 
-      if (actualDeduct === null) continue;
-
-      if (actualDeduct > 0) {
-        totalExpiredCredits += actualDeduct;
-      } else {
-        // 实际扣减为 0 时，仅将这些流水标记为已过期
-        await this.prisma.creditTransaction.updateMany({
-          where: {
-            id: { in: transactions.map(t => t.id) },
-          },
-          data: {
-            isExpired: true,
-            expiredAmount: 0,
-          },
-        });
-      }
-
-      processedUsers++;
+      if (!result) continue;
+      processedUserIds.add(result.userId);
+      totalExpiredCredits += result.actualDeduct;
     }
 
     const totalProcessedUsers = processedUserIds.size;
@@ -7059,19 +7069,13 @@ export class CreditsService {
     return { processedUsers: totalProcessedUsers, totalExpiredCredits };
   }
 
-  /**
-   * ???????????????
-   */
+  /** 获取当前业务日内仍可使用的签到积分。 */
   async getExpiringCredits(userId: string): Promise<{
     totalExpiring: number;
     expiringDetails: Array<{ amount: number; expiresAt: Date }>;
     isPaidUser: boolean;
   }> {
     const isPaid = await this.isPaidUser(userId);
-
-    if (isPaid) {
-      return { totalExpiring: 0, expiringDetails: [], isPaidUser: true };
-    }
 
     const account = await this.prisma.creditAccount.findUnique({
       where: { userId },
@@ -7080,6 +7084,12 @@ export class CreditsService {
     if (!account) {
       return { totalExpiring: 0, expiringDetails: [], isPaidUser: false };
     }
+
+    await this.prisma.$transaction(async (tx) => {
+      const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
+      if (!lockedAccount) return;
+      await this.expireDailyRewardLotsForLockedAccount(tx, lockedAccount, new Date());
+    });
 
     const [expiringLots, expiringTransactions] = await Promise.all([
       this.prisma.creditLot.findMany({
@@ -7122,6 +7132,6 @@ export class CreditsService {
 
     const totalExpiring = expiringDetails.reduce((sum, d) => sum + d.amount, 0);
 
-    return { totalExpiring, expiringDetails, isPaidUser: false };
+    return { totalExpiring, expiringDetails, isPaidUser: isPaid };
   }
 }

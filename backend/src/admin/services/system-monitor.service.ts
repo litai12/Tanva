@@ -12,6 +12,7 @@ import { readFileSync } from 'fs';
 import * as os from 'os';
 import * as v8 from 'v8';
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolveImageTaskRuntimeConfig } from '../../ai/services/image-task-runtime.config';
 
 /**
  * 系统监控采集器（驻留后台采样 + 快照缓存）
@@ -35,18 +36,22 @@ const TASK_TOP_ERRORS = 10;
 const TASK_ERROR_MESSAGE_MAXLEN = 300;
 
 // 与 worker / queue 侧保持一致的配置读取（仅展示，不改行为）
-const IMAGE_TASK_MAX_CONCURRENT = Number(
-  process.env.IMAGE_TASK_MAX_CONCURRENT ?? 1000,
-);
+const IMAGE_TASK_MAX_CONCURRENT = resolveImageTaskRuntimeConfig().maxConcurrent;
 const QUEUE_HIGH_WATERMARK = Number(
   process.env.IMAGE_TASK_QUEUE_HIGH ?? 200_000_000,
 );
 const QUEUE_LOW_WATERMARK = Number(
   process.env.IMAGE_TASK_QUEUE_LOW ?? 100_000_000,
 );
-// PM2 max_memory_restart（ecosystem.config.js 固定 4096M），用于 RSS 占比预警。
-const RSS_RESTART_LIMIT_BYTES =
-  Number(process.env.PM2_MAX_MEMORY_RESTART_MB ?? 4096) * 1024 * 1024;
+// Only report a PM2 restart limit when the managed process explicitly receives
+// the matching env value. A display-only 4096MB fallback previously claimed
+// that PM2 would restart even though the live process had no max_memory_restart.
+const RSS_RESTART_LIMIT_MB = Number(process.env.PM2_MAX_MEMORY_RESTART_MB);
+const RSS_RESTART_CONFIGURED =
+  Number.isFinite(RSS_RESTART_LIMIT_MB) && RSS_RESTART_LIMIT_MB > 0;
+const RSS_RESTART_LIMIT_BYTES = RSS_RESTART_CONFIGURED
+  ? Math.floor(RSS_RESTART_LIMIT_MB) * 1024 * 1024
+  : 0;
 
 export interface SystemMonitorTrendPoint {
   t: number; // epoch ms
@@ -97,6 +102,8 @@ export interface SystemMonitorSnapshot {
       external: number;
       arrayBuffers: number;
       rssRestartLimit: number; // PM2 重启阈值
+      rssRestartConfigured: boolean;
+      allocator: 'jemalloc' | 'glibc-limited' | 'system';
     };
     eventLoop: {
       p50Ms: number;
@@ -253,6 +260,8 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
           external: 0,
           arrayBuffers: 0,
           rssRestartLimit: RSS_RESTART_LIMIT_BYTES,
+          rssRestartConfigured: RSS_RESTART_CONFIGURED,
+          allocator: this.resolveAllocator(),
         },
         eventLoop: { p50Ms: 0, p99Ms: 0, maxMs: 0 },
       },
@@ -374,6 +383,8 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
             external: mem.external,
             arrayBuffers: (mem as any).arrayBuffers ?? 0,
             rssRestartLimit: RSS_RESTART_LIMIT_BYTES,
+            rssRestartConfigured: RSS_RESTART_CONFIGURED,
+            allocator: this.resolveAllocator(),
           },
           eventLoop: {
             p50Ms: Number(eventLoop.p50Ms.toFixed(2)),
@@ -420,6 +431,13 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(`系统监控采样失败: ${(err as Error).message}`);
     }
+  }
+
+  private resolveAllocator(): 'jemalloc' | 'glibc-limited' | 'system' {
+    const preload = String(process.env.LD_PRELOAD || '').toLowerCase();
+    if (preload.includes('jemalloc')) return 'jemalloc';
+    if (Number(process.env.MALLOC_ARENA_MAX) > 0) return 'glibc-limited';
+    return 'system';
   }
 
   /**

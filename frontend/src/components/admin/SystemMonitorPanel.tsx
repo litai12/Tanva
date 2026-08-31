@@ -52,8 +52,11 @@ function buildDiagnosticReport(snap: SystemMonitorSnapshot): string {
   );
   L.push(`heapTotal: ${formatBytes(m.heapTotal)}`);
   L.push(
-    `RSS/重启阈值: ${formatBytes(m.rss)} / ${formatBytes(m.rssRestartLimit)} (${pct(m.rss, m.rssRestartLimit)})`,
+    m.rssRestartConfigured
+      ? `RSS/PM2实际重启阈值: ${formatBytes(m.rss)} / ${formatBytes(m.rssRestartLimit)} (${pct(m.rss, m.rssRestartLimit)})`
+      : `RSS: ${formatBytes(m.rss)} | PM2内存重启: 未配置`,
   );
+  L.push(`原生内存分配器: ${m.allocator || "unknown"}`);
   L.push(`external: ${formatBytes(m.external)} | arrayBuffers: ${formatBytes(m.arrayBuffers)}`);
   L.push(`RSS−heapTotal(native/堆外): ${formatBytes(Math.max(0, m.rss - m.heapTotal))}`);
   L.push(``);
@@ -401,10 +404,18 @@ export default function SystemMonitorPanel() {
           hint={`heapTotal ${formatBytes(mem.heapTotal)}`}
         />
         <UsageBar
-          label='进程 RSS（/ PM2 重启阈值）'
+          label={
+            mem.rssRestartConfigured
+              ? '进程 RSS（/ PM2 实际重启阈值）'
+              : '进程 RSS（PM2 内存重启未配置）'
+          }
           used={mem.rss}
-          total={mem.rssRestartLimit}
-          hint='超阈值 PM2 会自动重启'
+          total={mem.rssRestartConfigured ? mem.rssRestartLimit : 0}
+          hint={
+            mem.rssRestartConfigured
+              ? `超阈值 PM2 会自动重启 · allocator ${mem.allocator || "unknown"}`
+              : `当前仅展示 RSS · allocator ${mem.allocator || "unknown"}`
+          }
         />
       </div>
       <div className='grid grid-cols-2 md:grid-cols-4 gap-3'>

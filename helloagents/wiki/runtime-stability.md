@@ -58,6 +58,14 @@
 - Backend build: passed (`npm run build` in `backend/`).
 - Frontend type check/build entry: reached Vite gate, blocked by local Node version (`20.18.1`) requiring `20.19+`.
 
+## Native image memory governance (2026-08-31)
+
+- 生产故障形态为 Node RSS 多 GiB、V8 `heapUsed` 很低，主要落在 Sharp/libvips、Skia 等原生库与 glibc arena 的匿名内存保留，不可按 JavaScript heap 泄漏处理。
+- 图片 Worker 按业务要求维持 `IMAGE_TASK_MAX_CONCURRENT=1000`；内存治理由 64MB 输出硬上限、受限流式读取、避免 OSS 上传二次 Buffer 复制、Sharp cache/concurrency/pixel 上限承担。
+- PDF parser 改为真实 PDF 请求时动态加载，避免普通 API/图片任务流量预先常驻 pdfjs/Skia。
+- Linux PM2 配置优先预加载 jemalloc；当 RSS 达 2GB、进程运行至少 5 分钟且本地 active job 为 0 时，Worker 先关闭 BullMQ consumer，再通过 Nest/Fastify 的 SIGTERM shutdown hook 停止接收并排空普通 HTTP 请求，由 PM2 拉起干净进程；30 秒兜底只用于原生句柄无法退出的异常情况。
+- `max_memory_restart=6144M` 是紧急保险，不代替空闲回收。系统监控只在 `PM2_MAX_MEMORY_RESTART_MB` 确实注入时显示阈值，并显示当前 allocator。
+
 ## Weak-network image delivery hardening (2026-04-12)
 
 ### Frontend changes

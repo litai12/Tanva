@@ -546,7 +546,7 @@ const MyCredits: React.FC = () => {
         </div>
 
         {/* 杩囨湡绉垎鎻愮ず - 浠呮櫘閫氱敤鎴锋樉绀?*/}
-        {expiringCredits && !expiringCredits.isPaidUser && expiringCredits.totalExpiring > 0 && (
+        {expiringCredits && expiringCredits.totalExpiring > 0 && (
           <div className="flex items-start gap-3 p-4 border bg-amber-50 border-amber-200 rounded-2xl">
             <AlertTriangle className="flex-shrink-0 w-5 h-5 mt-0.5 text-amber-500" />
             <div className="flex-1">
@@ -562,7 +562,7 @@ const MyCredits: React.FC = () => {
                     <div key={idx} className="text-xs text-amber-700">
                       {t('creditsPage.expiring.detail', {
                         amount: detail.amount,
-                        date: new Date(detail.expiresAt).toLocaleDateString(currentLocale),
+                        date: new Date(detail.expiresAt).toLocaleString(currentLocale),
                       })}
                     </div>
                   ))}
