@@ -40,7 +40,7 @@ type FlowStoreStateLike = {
   edges?: FlowEdgeLike[];
 };
 
-const DURATION_OPTIONS = [4, 6, 8, 10];
+const DURATION_OPTIONS = [4, 6, 10];
 const RESOLUTION_OPTIONS = ["720P", "1080P"];
 const ASPECT_OPTIONS = ["16:9", "9:16"];
 const MODE_OPTIONS = [
@@ -52,7 +52,7 @@ const MODE_OPTIONS = [
   {
     value: "reference",
     label: "参考模式",
-    description: "1~3 张参考图，或 1 条参考视频",
+    description: "1~3 张参考图",
   },
 ];
 
@@ -118,12 +118,13 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     typeof data.resolution === "string" && RESOLUTION_OPTIONS.includes(data.resolution.toUpperCase())
       ? data.resolution.toUpperCase()
       : "720P";
+  const allowedAspectOptions = resolution === "1080P" ? ["16:9"] : ASPECT_OPTIONS;
   const duration =
     typeof data.duration === "number" && DURATION_OPTIONS.includes(data.duration)
       ? data.duration
       : 6;
   const aspectRatio =
-    typeof data.aspectRatio === "string" && ASPECT_OPTIONS.includes(data.aspectRatio)
+    typeof data.aspectRatio === "string" && allowedAspectOptions.includes(data.aspectRatio)
       ? data.aspectRatio
       : "16:9";
   const configuredVideoMode = data.videoMode === "reference" ? "reference" : "frame";
@@ -163,8 +164,8 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     if (textInputCount === 0) {
       msgs.push(lt("请连接提示词", "Connect a prompt"));
     }
-    if (videoInputCount > 1) {
-      msgs.push(lt("参考视频最多 1 条", "Reference video: max 1"));
+    if (videoInputCount > 0) {
+      msgs.push(lt("Gemini Omni Flash 不支持参考视频，请改接参考图片", "Gemini Omni Flash does not support reference videos; connect reference images instead"));
     }
     if (imageInputCount > 3) {
       msgs.push(lt("图片最多 3 张", "Images: max 3"));
@@ -172,7 +173,10 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       msgs.push(lt("单图模式只接 1 张图", "Single-image mode accepts 1 image"));
     }
     return msgs;
-  }, [imageInputCount, textInputCount, videoInputCount, effectiveVideoMode, lt]);
+    if (resolution === "1080P" && aspectRatio !== "16:9") {
+      msgs.push(lt("1080P 仅支持 16:9 横屏", "1080P only supports 16:9 landscape"));
+    }
+  }, [imageInputCount, textInputCount, videoInputCount, effectiveVideoMode, resolution, aspectRatio, lt]);
 
   const imageHandleTooltip = React.useMemo(
     () =>
@@ -191,7 +195,6 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       durationSec: duration,
       aspectRatio,
       videoMode: effectiveVideoMode,
-      hasReferenceVideo: videoInputCount > 0,
     }),
     [duration, resolution, aspectRatio, effectiveVideoMode, videoInputCount]
   );
@@ -302,7 +305,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
 
       {tooltip("text", "20%", lt("提示词（必填）", "Prompt (required)"))}
       {tooltip("image", "43%", imageHandleTooltip)}
-      {tooltip("video-in", "66%", lt("参考视频（最多 1 个）", "Reference video (max 1)"))}
+      {tooltip("video-in", "66%", lt("不支持参考视频，请改接参考图片", "Reference videos are not supported; connect reference images"))}
       {hover === "video-out" && (
         <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>
           {lt("生成视频输出", "Generated video output")}
@@ -417,7 +420,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           <div style={{ marginBottom: 3 }}>{lt("比例", "Ratio")}</div>
           <NodeSelect
             value={aspectRatio}
-            options={ASPECT_OPTIONS.map((v) => ({ value: v, label: v }))}
+            options={allowedAspectOptions.map((v) => ({ value: v, label: v }))}
             onChange={(v) => updateNodeData({ aspectRatio: v })}
             menuLabel={lt("比例", "Ratio")}
             title={lt("选择画面比例", "Select aspect ratio")}
@@ -427,8 +430,8 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       {videoInputCount > 0 && (
         <div style={{ marginBottom: 8, color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>
           {lt(
-            "已接入参考视频：本次按参考模式发送，仍按所选输出时长计价。",
-            "Reference video connected: this run uses reference mode and keeps the selected output duration."
+            "Gemini Omni Flash 不支持参考视频，请改接参考图片。",
+            "Gemini Omni Flash does not support reference videos; connect reference images instead."
           )}
         </div>
       )}

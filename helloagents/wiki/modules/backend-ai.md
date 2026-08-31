@@ -222,9 +222,9 @@
 
 ## 2026-08-31 Gemini Omni Flash / ToAPIs
 
-- Tanva 保留 `omni-flash-ext` 业务键兼容历史画布，但 `VideoProviderService` 创建新任务时统一解析为 ToAPIs `gemini_omni_flash`。new-api 复用 Omni 的 `image_urls/video_urls/generation_type` 归一逻辑，并保留 Gemini 参考视频任务的显式输出 `duration`。
-- 只接受 720P/1080P 与 4/6/8/10 秒。成本矩阵为 720P `1.05/1.05/1.26/1.40` 元、1080P `1.40/1.40/1.54/1.75` 元；客户价按 `x1.5` 得到 `1.575/1.575/1.89/2.10` 和 `2.10/2.10/2.31/2.625` 元，换算积分时向上取整。
-- Tanva 的 managed pricing 是预览与实扣 SSOT；new-api 以 720P 4/6 秒的 `ModelPrice=1.575` 为基准，adaptor 在提交前按规格乘以矩阵因子。生产数据使用 `new-api/patches/2026-08-31/001-switch-omni-to-gemini-omni-flash.sql`。
+- Tanva 保留 `omni-flash-ext` 业务键兼容历史画布，但 `VideoProviderService` 创建新任务时统一解析为当前 ToAPIs 渠道已配置的 `gemini_omni_flash`（文档默认写法为 `gemini-omni-flash`）。new-api 只发送 `image_urls`，拒绝 `video_urls`/参考视频，不再发送旧的 `generation_type`；ToAPIs 轮询固定使用 `/v1/videos/generations/{id}`，同时兼容 `toapis.xyz` 国内 Base URL。
+- 只接受 720P/1080P 与 4/6/10 秒；1080P 仅允许 16:9 横屏，且不支持参考视频。成本矩阵为 720P `1.05/1.05/1.40` 元、1080P `1.40/1.40/1.75` 元；客户价按 `x1.5` 得到 `1.575/1.575/2.10` 和 `2.10/2.10/2.625` 元，换算积分时向上取整。
+- Tanva 的 managed pricing 是预览与实扣 SSOT；new-api 以 720P 4/6 秒的 `ModelPrice=1.575` 为基准，adaptor 在提交前按规格乘以矩阵因子。Gemini Omni Flash 只支持 4/6/10 秒，1080P 仅支持 16:9；生产数据使用 `new-api/patches/2026-08-31/001-switch-omni-to-gemini-omni-flash.sql`。
 
 ## 2026-08-31 图片任务原生内存治理
 

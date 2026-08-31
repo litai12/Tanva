@@ -47,8 +47,8 @@ const geminiOmniFlashBaseRetailPriceYuan = 1.575
 
 func geminiOmniFlashRetailPriceYuan(resolution string, duration int) (float64, bool) {
 	prices := map[string]map[int]float64{
-		"720P":  {4: 1.575, 6: 1.575, 8: 1.89, 10: 2.1},
-		"1080P": {4: 2.1, 6: 2.1, 8: 2.31, 10: 2.625},
+		"720P":  {4: 1.575, 6: 1.575, 10: 2.1},
+		"1080P": {4: 2.1, 6: 2.1, 10: 2.625},
 	}
 	price, ok := prices[strings.ToUpper(strings.TrimSpace(resolution))][duration]
 	return price, ok
@@ -78,10 +78,26 @@ func (a *TaskAdaptor) EstimateBillingChecked(c *gin.Context, info *relaycommon.R
 		upstreamModel = info.ChannelMeta.UpstreamModelName
 	}
 	if isGeminiOmniFlashModel(upstreamModel) || isGeminiOmniFlashModel(info.OriginModelName) {
-		priceYuan, ok := geminiOmniFlashRetailPriceYuan(req.Resolution, req.Duration)
+		resolution := strings.ToUpper(strings.TrimSpace(req.Resolution))
+		if resolution == "" {
+			resolution = "720P"
+		}
+		duration := req.Duration
+		if duration == 0 {
+			duration = 6
+		}
+		aspectRatio := strings.TrimSpace(req.AspectRatio)
+		if resolution == "1080P" && aspectRatio != "" && aspectRatio != "16:9" {
+			return nil, service.TaskErrorWrapperLocal(
+				fmt.Errorf("gemini-omni-flash 1080p only supports aspect_ratio=16:9"),
+				"invalid_gemini_omni_flash_spec",
+				http.StatusBadRequest,
+			)
+		}
+		priceYuan, ok := geminiOmniFlashRetailPriceYuan(resolution, duration)
 		if !ok {
 			return nil, service.TaskErrorWrapperLocal(
-				fmt.Errorf("gemini_omni_flash supports resolution 720P/1080P and duration 4/6/8/10 seconds"),
+				fmt.Errorf("gemini-omni-flash supports resolution 720p/1080p and duration 4/6/10 seconds; 1080p only supports aspect_ratio=16:9"),
 				"invalid_gemini_omni_flash_spec",
 				http.StatusBadRequest,
 			)
@@ -272,7 +288,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 	uri := baseUrl + PollPath(taskID)
-	if strings.Contains(strings.ToLower(baseUrl), "toapis.com") {
+	if isToAPISBaseURL(baseUrl) {
 		uri = baseUrl + FlatVideoPollPath(taskID)
 	}
 	req, err := http.NewRequest(http.MethodGet, uri, nil)

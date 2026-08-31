@@ -6,6 +6,7 @@
 
 - 提交：`POST https://toapis.com/v1/videos/generations`
 - 查询：`GET https://toapis.com/v1/videos/generations/{task_id}`
+- 中国大陆渠道使用同一路径的 `https://toapis.xyz` Base URL。
 - 响应：OpenAI 风格 flat `generation.task`，状态为 `queued`、`in_progress`、`completed`、`failed`
 - 输入图片/视频必须是公网 URL，不接受裸 base64
 
@@ -27,10 +28,11 @@
 
 ## Gemini Omni Flash
 
-- 精确上游 model ID：`gemini_omni_flash`
+- 文档默认 model ID：`gemini-omni-flash`；当前 ToAPIs 渠道实际配置的是文档允许的等价别名 `gemini_omni_flash`，因此生产路由使用该别名
 - Tanva 画布为了兼容历史项目，继续使用 `managedModelKey=omni-flash-ext`，但新任务不再发送到 APIMart `Omni-Flash-Ext`
-- 开放规格：720P/1080P，4/6/8/10 秒；4K 不在当前成本表中，不对用户开放
-- 客户售价按 ToAPIs 成本 `x1.5`，整数积分向上取整：720P 4/6/8/10 秒为 `158/158/189/210`，1080P 为 `210/210/231/263`
+- 支持文生视频和最多 3 张 `image_urls` 图生视频；不支持 `video_urls`/参考视频或 base64/data URI
+- 开放规格：720p/1080p，4/6/10 秒；1080p 仅支持 `16:9` 横屏
+- 客户售价按 ToAPIs 成本 `x1.5`，整数积分向上取整：720P 4/6/10 秒为 `158/158/210`，1080P 为 `210/210/263`
 - new-api 基础 `ModelPrice=1.575`，其他规格由 APIMart/ToAPIs adaptor 按分辨率和时长在提交前乘以对应因子
 - 生产补丁：`patches/2026-08-31/001-switch-omni-to-gemini-omni-flash.sql`
 

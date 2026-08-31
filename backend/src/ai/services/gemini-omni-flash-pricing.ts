@@ -1,11 +1,14 @@
 import type { ManagedPricingBook } from './model-pricing-resolver';
 
+// ToAPIs documents the hyphen spelling, while the currently configured
+// channel exposes the explicitly allowed underscore alias. Keep the alias as
+// the routed model ID so the active channel can actually select it.
 export const GEMINI_OMNI_FLASH_MODEL_ID = 'gemini_omni_flash';
 export const GEMINI_OMNI_FLASH_MARKUP = 1.5;
 
 export const GEMINI_OMNI_FLASH_COST_YUAN = {
-  '720P': { 4: 1.05, 6: 1.05, 8: 1.26, 10: 1.4 },
-  '1080P': { 4: 1.4, 6: 1.4, 8: 1.54, 10: 1.75 },
+  '720P': { 4: 1.05, 6: 1.05, 10: 1.4 },
+  '1080P': { 4: 1.4, 6: 1.4, 10: 1.75 },
 } as const;
 
 export type GeminiOmniFlashResolution = keyof typeof GEMINI_OMNI_FLASH_COST_YUAN;
@@ -37,7 +40,7 @@ export const createGeminiOmniFlashPricingTemplate = (): ManagedPricingBook => ({
       label: '时长（秒）',
       type: 'enum',
       required: true,
-      options: [4, 6, 8, 10].map((value) => ({ value, label: `${value} 秒` })),
+      options: [4, 6, 10].map((value) => ({ value, label: `${value} 秒` })),
     },
   ],
   defaults: {
@@ -54,7 +57,7 @@ export const createGeminiOmniFlashPricingTemplate = (): ManagedPricingBook => ({
       conditions: {
         all: [
           { field: 'resolution', op: 'in', value: ['720P', '1080P'] },
-          { field: 'durationSec', op: 'in', value: [4, 6, 8, 10] },
+          { field: 'durationSec', op: 'in', value: [4, 6, 10] },
         ],
         any: [],
       },
@@ -68,13 +71,11 @@ export const createGeminiOmniFlashPricingTemplate = (): ManagedPricingBook => ({
         '720P': {
           '4': getGeminiOmniFlashRetailPriceYuan('720P', 4),
           '6': getGeminiOmniFlashRetailPriceYuan('720P', 6),
-          '8': getGeminiOmniFlashRetailPriceYuan('720P', 8),
           '10': getGeminiOmniFlashRetailPriceYuan('720P', 10),
         },
         '1080P': {
           '4': getGeminiOmniFlashRetailPriceYuan('1080P', 4),
           '6': getGeminiOmniFlashRetailPriceYuan('1080P', 6),
-          '8': getGeminiOmniFlashRetailPriceYuan('1080P', 8),
           '10': getGeminiOmniFlashRetailPriceYuan('1080P', 10),
         },
       },
@@ -87,7 +88,6 @@ export const createGeminiOmniFlashPricingTemplate = (): ManagedPricingBook => ({
       'resolution.1080P': '1080P',
       'durationSec.4': '4 秒',
       'durationSec.6': '6 秒',
-      'durationSec.8': '8 秒',
       'durationSec.10': '10 秒',
     },
     defaultSelections: {
@@ -97,11 +97,9 @@ export const createGeminiOmniFlashPricingTemplate = (): ManagedPricingBook => ({
     presets: [
       { resolution: '720P', durationSec: 4 },
       { resolution: '720P', durationSec: 6 },
-      { resolution: '720P', durationSec: 8 },
       { resolution: '720P', durationSec: 10 },
       { resolution: '1080P', durationSec: 4 },
       { resolution: '1080P', durationSec: 6 },
-      { resolution: '1080P', durationSec: 8 },
       { resolution: '1080P', durationSec: 10 },
     ],
     costYuan: GEMINI_OMNI_FLASH_COST_YUAN,

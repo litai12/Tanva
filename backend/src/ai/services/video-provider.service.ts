@@ -1724,8 +1724,10 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
+    const isGeminiOmniFlash =
+      model === "gemini-omni-flash" || model === "gemini_omni_flash";
     const isOmniFlashExt =
-      model === "gemini_omni_flash" ||
+      isGeminiOmniFlash ||
       String(options.managedModelKey || "").trim().toLowerCase() === "omni-flash-ext";
     if (
       !isOmniFlashExt &&
@@ -1770,6 +1772,16 @@ export class VideoProviderService {
     ]
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       .map((url) => this.normalizeFirstPartyAssetUrl(url));
+    if (isGeminiOmniFlash && referenceVideos.length > 0) {
+      throw new BadRequestException("Gemini Omni Flash 仅支持参考图片，不支持参考视频");
+    }
+    if (isGeminiOmniFlash && ![4, 6, 10].includes(duration)) {
+      throw new BadRequestException("Gemini Omni Flash 仅支持 4、6、10 秒");
+    }
+    const omniResolution = this.normalizeResolutionToken(options.resolution || "720P");
+    if (isGeminiOmniFlash && omniResolution === "1080p" && options.aspectRatio && options.aspectRatio !== "16:9") {
+      throw new BadRequestException("Gemini Omni Flash 的 1080P 仅支持 16:9 横屏");
+    }
     const klingOmniPrompt =
       model === "kling-v3-omni"
         ? normalizeKlingOmniPrompt({
@@ -1900,7 +1912,7 @@ export class VideoProviderService {
         ? "reference"
         : "frame";
     const omniGenerationType =
-      isOmniFlashExt && (referenceImages.length > 0 || referenceVideos.length > 0)
+      isOmniFlashExt && !isGeminiOmniFlash && (referenceImages.length > 0 || referenceVideos.length > 0)
         ? omniEffectiveVideoMode
         : undefined;
     // kapon-kling 原生请求（仅 v2-6/v3）：apimart 忽略此键，kapon-kling 适配器据其
@@ -1914,7 +1926,7 @@ export class VideoProviderService {
     );
     const metadata = {
       ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
-      ...(isOmniFlashExt
+      ...(isOmniFlashExt && !isGeminiOmniFlash
         ? {
             ...(omniGenerationType ? { generation_type: omniGenerationType } : {}),
             ...(referenceVideos[0] ? { video_urls: referenceVideos.slice(0, 1) } : {}),
@@ -1971,7 +1983,7 @@ export class VideoProviderService {
         : hailuoImageFields.lastFrame,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
-      reference_videos: isOmniFlashExt
+      reference_videos: isOmniFlashExt && !isGeminiOmniFlash
         ? referenceVideos.length > 0
           ? referenceVideos.slice(0, 1)
           : undefined
@@ -2219,8 +2231,12 @@ export class VideoProviderService {
     if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
       return "wan2.7-videoedit";
     }
-    if (explicit === "omni-flash-ext" || explicit === "gemini_omni_flash") {
-      return "gemini_omni_flash";
+    if (
+      explicit === "omni-flash-ext" ||
+      explicit === "gemini_omni_flash" ||
+      explicit === "gemini-omni-flash"
+    ) {
+      return "gemini-omni-flash";
     }
     if (options.provider === "kling-o3") {
       // Kling 3.0 and Kling 3.0 Omni currently share the frontend provider

@@ -30,7 +30,8 @@ const flatVideoPollPathPrefix = "/v1/videos/generations/"
 var tanvaImageAliasPattern = regexp.MustCompile(`@图(\d+)(?:号)?`)
 
 func isToAPISBaseURL(baseURL string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(baseURL)), "toapis.com")
+	base := strings.ToLower(strings.TrimSpace(baseURL))
+	return strings.Contains(base, "toapis.com") || strings.Contains(base, "toapis.xyz")
 }
 
 // normalizeToAPISKlingOmniPayload translates the APIMart-compatible Kling

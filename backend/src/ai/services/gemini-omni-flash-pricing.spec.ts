@@ -18,11 +18,9 @@ const run = async (): Promise<void> => {
   }> = [
     { resolution: '720P', durationSec: 4, priceYuan: 1.575, credits: 158 },
     { resolution: '720P', durationSec: 6, priceYuan: 1.575, credits: 158 },
-    { resolution: '720P', durationSec: 8, priceYuan: 1.89, credits: 189 },
     { resolution: '720P', durationSec: 10, priceYuan: 2.1, credits: 210 },
     { resolution: '1080P', durationSec: 4, priceYuan: 2.1, credits: 210 },
     { resolution: '1080P', durationSec: 6, priceYuan: 2.1, credits: 210 },
-    { resolution: '1080P', durationSec: 8, priceYuan: 2.31, credits: 231 },
     { resolution: '1080P', durationSec: 10, priceYuan: 2.625, credits: 263 },
   ];
 

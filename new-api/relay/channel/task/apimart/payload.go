@@ -45,6 +45,7 @@ func isWan27VideoEditModel(name string) bool {
 var omniFlashExtModels = map[string]bool{
 	"omni-flash-ext":    true,
 	"gemini_omni_flash": true,
+	"gemini-omni-flash": true,
 }
 
 const omniFlashExtUpstreamModel = "Omni-Flash-Ext"
@@ -58,7 +59,8 @@ func isOmniFlashExtModel(name string) bool {
 }
 
 func isGeminiOmniFlashModel(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(name), "gemini_omni_flash")
+	base := strings.ToLower(strings.TrimSpace(name))
+	return base == "gemini_omni_flash" || base == "gemini-omni-flash"
 }
 
 // aspectRatioToken resolves a ratio token (e.g. "16:9") for the request.
@@ -406,18 +408,23 @@ func nestedMediaURL(value any) string {
 }
 
 // buildOmniFlashExtPayload constructs the shared Omni request shape used by
-// legacy APIMart Omni-Flash-Ext and ToAPIs gemini_omni_flash.
+// legacy APIMart Omni-Flash-Ext and ToAPIs gemini-omni-flash.
 // Contract: prompt required; image_urls count must be 0..3; 2+ images require
 // reference generation; video_urls count must be 0/1. Legacy Omni-Flash-Ext
-// omits duration for reference video, while Gemini keeps its billable output
-// duration (4/6/8/10 seconds).
+// omits duration for reference video. Gemini accepts image_urls only, so video
+// references are rejected instead of being translated to the old video_urls
+// contract.
 func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return nil, fmt.Errorf("omni video: prompt is required")
 	}
 	upstreamModel := req.Model
-	if !isGeminiOmniFlashModel(req.Model) {
+	if isGeminiOmniFlashModel(req.Model) {
+		// The docs allow this channel alias and the active ToAPIs channel is
+		// registered with it; preserving it avoids model_not_found on routing.
+		upstreamModel = "gemini_omni_flash"
+	} else {
 		upstreamModel = omniFlashExtUpstreamModel
 	}
 
@@ -463,22 +470,29 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 	if len(p.VideoUrls) > 1 {
 		return nil, fmt.Errorf("omni video: video_urls supports at most 1 item (got %d)", len(p.VideoUrls))
 	}
+	if isGeminiOmniFlashModel(req.Model) && len(p.VideoUrls) > 0 {
+		return nil, fmt.Errorf("gemini-omni-flash does not support video_urls; use image_urls")
+	}
 
 	if len(p.ImageUrls) > 0 {
-		generationType := strings.ToLower(stringFromMetadata(md, "generation_type", "videoMode", "video_mode"))
-		if generationType != "reference" {
-			generationType = "frame"
+		if isGeminiOmniFlashModel(req.Model) {
+			// ToAPIs' documented Gemini contract only uses image_urls; it does
+			// not accept the legacy generation_type switch.
+			p.GenerationType = ""
+		} else {
+			generationType := strings.ToLower(stringFromMetadata(md, "generation_type", "videoMode", "video_mode"))
+			if generationType != "reference" {
+				generationType = "frame"
+			}
+			if len(p.ImageUrls) >= 2 && generationType != "reference" {
+				return nil, fmt.Errorf("omni video: 2+ image_urls require generation_type=reference")
+			}
+			p.GenerationType = generationType
 		}
-		if len(p.ImageUrls) >= 2 && generationType != "reference" {
-			return nil, fmt.Errorf("omni video: 2+ image_urls require generation_type=reference")
-		}
-		p.GenerationType = generationType
 	}
 	if len(p.VideoUrls) > 0 {
 		p.VideoUrls = p.VideoUrls[:1]
-		if !isGeminiOmniFlashModel(req.Model) {
-			p.Duration = 0
-		}
+		p.Duration = 0
 		p.GenerationType = "reference"
 	}
 

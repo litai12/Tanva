@@ -20583,8 +20583,8 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             failCurrentVideoNode("Gemini Omni Flash 需要连接非空提示词");
             return;
           }
-          if (omniVideoCount > 1) {
-            failCurrentVideoNode("Gemini Omni Flash 最多支持 1 条参考视频");
+          if (omniVideoCount > 0) {
+            failCurrentVideoNode("Gemini Omni Flash 不支持参考视频，请改接参考图片");
             return;
           }
           if (imageCount > 3) {
@@ -20597,6 +20597,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           }
           if (omniVideoMode === "reference" && imageCount === 0) {
             failCurrentVideoNode("Gemini Omni Flash 参考模式至少接 1 张图");
+            return;
+          }
+          const omniResolution = String(rawNodeData.resolution || "720P").trim().toUpperCase();
+          if (omniResolution === "1080P" && aspectSetting && aspectSetting !== "16:9") {
+            failCurrentVideoNode("Gemini Omni Flash 的 1080P 仅支持 16:9 横屏");
             return;
           }
         } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
@@ -21577,7 +21582,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             }
           } else if (
             isOmniFlashExtNode &&
-            (clipDuration === 4 || clipDuration === 6 || clipDuration === 8 || clipDuration === 10)
+            (clipDuration === 4 || clipDuration === 6 || clipDuration === 10)
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -21626,7 +21631,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           if (durationForAPI === undefined) {
             const fallbackDurationOptions =
               isOmniFlashExtNode
-                ? [4, 6, 8, 10]
+                ? [4, 6, 10]
                 : isSeedanceNode
                 ? isSeedance20Request
                   ? normalizeSeedanceModelValue(rawNodeData.seedanceModel) === "seedance-2.5"
@@ -21835,9 +21840,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                 })
               : undefined;
           const omniVideoModeForAPI =
-            isOmniFlashExtNode && referenceVideoUrls.length > 0
-              ? "reference"
-              : rawNodeData.videoMode === "reference"
+            rawNodeData.videoMode === "reference"
               ? "reference"
               : "frame";
 
@@ -21849,8 +21852,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
-                  referenceVideos:
-                    referenceVideoUrls.length > 0 ? referenceVideoUrls.slice(0, 1) : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   resolution: ["720P", "1080P"].includes(

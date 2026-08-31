@@ -81,15 +81,15 @@
 
 ## 2026-06-17 Omni Flash Ext APIMart
 - `omniFlashExtVideo` uses dedicated `text`, `image`, and `video` input handles. The `video` handle accepts video outputs only and is limited to one reference video.
-- Runtime validation follows APIMart `omni-flash-ext`: prompt required; single-image mode accepts 1 image, reference mode accepts 1-3 images, and more than 3 images are rejected.
-- Flow request assembly sends `managedModelKey=omni-flash-ext`, `referenceImages`, optional single `referenceVideos`, `aspectRatio`, `resolution`, and `videoMode`. When reference video is connected, `duration` is omitted and the run badge preview also omits duration.
+- Runtime validation follows the ToAPIs Gemini Omni Flash contract: prompt required; up to 3 image references are accepted, reference videos are rejected, durations are 4/6/10 seconds, and 1080P requires 16:9.
+- Flow request assembly sends `managedModelKey=omni-flash-ext`, `referenceImages`, `aspectRatio`, `resolution`, `duration`, and `videoMode`; the backend converts the historical key to documented upstream model `gemini-omni-flash`.
 
 ## 2026-08-31 Gemini Omni Flash replacement
 
-- `omniFlashExtVideo` 节点类型与 `managedModelKey=omni-flash-ext` 保留以读取历史画布，节点外显名更新为 `Gemini Omni Flash`，后端实际提交 ToAPIs `gemini_omni_flash`。
-- 选项仅保留 720P/1080P 与 4/6/8/10 秒；历史 4K 节点在运行时收敛为 720P。Run 积分一律由 `/api/credits/preview` 返回，按成本 `x1.5` 的分辨率/时长矩阵计算。
-- 参考视频连接仍会自动切到 reference 模式，但不再删除 `duration`；输出时长同时决定上游请求和用户价格。
-- When any reference video is connected, the node UI and request path force `videoMode=reference`; frame mode is only for image-only runs. This prevents APIMart from receiving `frame` together with `video_urls`.
+- `omniFlashExtVideo` 节点类型与 `managedModelKey=omni-flash-ext` 保留以读取历史画布，节点外显名更新为 `Gemini Omni Flash`，后端实际提交当前渠道已配置的 ToAPIs `gemini_omni_flash` 别名（文档默认写法为 `gemini-omni-flash`）。
+- 选项仅保留 720P/1080P 与 4/6/10 秒；1080P 仅允许 16:9，参考视频输入会在运行前拒绝；历史 4K/8 秒节点在运行时收敛到文档支持的规格。Run 积分一律由 `/api/credits/preview` 返回，按成本 `x1.5` 的分辨率/时长矩阵计算。
+- 参考视频连接会在运行前拒绝；输出时长同时决定上游请求和用户价格。
+- When any reference video is connected, the node UI and request path fail validation because ToAPIs Gemini does not accept `video_urls`; frame/reference modes are image-only.
 - Flow video failure display now formats upstream raw codes before writing them to node UI. `PUBLIC_ERROR_UNDERSPECIFIED_ANIMAL` becomes a localized prompt telling the user to describe the animal subject more clearly, and unknown `PUBLIC_ERROR_*` codes fall back to a localized upstream-rejected message while raw codes remain in console logs.
 
 ## 2026-06-05 Prompt Mention Stability

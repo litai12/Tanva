@@ -8,6 +8,15 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
+func TestToAPISBaseURLRecognizesDomesticEndpoint(t *testing.T) {
+	if !isToAPISBaseURL("https://toapis.xyz/") {
+		t.Fatal("toapis.xyz should use the ToAPIs flat video polling contract")
+	}
+	if !isToAPISBaseURL("https://toapis.com/") {
+		t.Fatal("toapis.com should use the ToAPIs flat video polling contract")
+	}
+}
+
 // SubmitResponse must accept both the APIMart {code,data[]} envelope and the
 // toapis flat "generation.task" envelope, exposing the right task id, poll path
 // and rejection behaviour for each.
@@ -308,13 +317,12 @@ func TestBuildOmniFlashExtPayload(t *testing.T) {
 
 func TestBuildGeminiOmniFlashPayloadKeepsToAPIsModelID(t *testing.T) {
 	payload, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
-		Model:           "gemini_omni_flash",
-		Prompt:          "keep the subject and camera motion",
-		Images:          []string{"https://example.com/subject.png"},
-		ReferenceVideos: []string{"https://example.com/motion.mp4"},
-		Resolution:      "1080P",
-		AspectRatio:     "9:16",
-		Duration:        10,
+		Model:       "gemini_omni_flash",
+		Prompt:      "keep the subject and camera motion",
+		Images:      []string{"https://example.com/subject.png", "https://example.com/subject-2.png"},
+		Resolution:  "1080P",
+		AspectRatio: "16:9",
+		Duration:    10,
 		Metadata: map[string]interface{}{
 			"videoMode": "reference",
 		},
@@ -323,19 +331,28 @@ func TestBuildGeminiOmniFlashPayloadKeepsToAPIsModelID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if payload.Model != "gemini_omni_flash" {
-		t.Fatalf("Model=%q, want gemini_omni_flash", payload.Model)
+		t.Fatalf("Model=%q, want gemini_omni_flash channel alias", payload.Model)
 	}
 	if payload.Resolution != "1080p" {
 		t.Fatalf("Resolution=%q, want normalized 1080p", payload.Resolution)
 	}
-	if payload.GenerationType != "reference" {
-		t.Fatalf("GenerationType=%q, want reference", payload.GenerationType)
+	if payload.GenerationType != "" {
+		t.Fatalf("GenerationType=%q, want omitted for ToAPIs Gemini", payload.GenerationType)
 	}
-	if len(payload.ImageUrls) != 1 || len(payload.VideoUrls) != 1 {
+	if len(payload.ImageUrls) != 2 || len(payload.VideoUrls) != 0 {
 		t.Fatalf("ImageUrls=%v VideoUrls=%v", payload.ImageUrls, payload.VideoUrls)
 	}
 	if payload.Duration != 10 {
 		t.Fatalf("Duration=%d, want Gemini output duration 10", payload.Duration)
+	}
+
+	if _, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:           "gemini-omni-flash",
+		Prompt:          "video reference must be rejected",
+		ReferenceVideos: []string{"https://example.com/motion.mp4"},
+		Duration:        6,
+	}); err == nil {
+		t.Fatal("expected ToAPIs Gemini to reject reference video")
 	}
 }
 

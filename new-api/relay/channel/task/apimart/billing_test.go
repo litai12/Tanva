@@ -233,11 +233,9 @@ func TestGeminiOmniFlashBillingMatrix(t *testing.T) {
 	}{
 		{resolution: "720P", duration: 4, wantRatio: 1},
 		{resolution: "720P", duration: 6, wantRatio: 1},
-		{resolution: "720P", duration: 8, wantRatio: 1.2},
 		{resolution: "720P", duration: 10, wantRatio: 2.1 / 1.575},
 		{resolution: "1080P", duration: 4, wantRatio: 2.1 / 1.575},
 		{resolution: "1080P", duration: 6, wantRatio: 2.1 / 1.575},
-		{resolution: "1080P", duration: 8, wantRatio: 2.31 / 1.575},
 		{resolution: "1080P", duration: 10, wantRatio: 2.625 / 1.575},
 	}
 
@@ -282,6 +280,29 @@ func TestGeminiOmniFlashBillingRejectsUnsupportedSpec(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "gemini_omni_flash",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+	}
+
+	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
+		t.Fatalf("ValidateRequestAndSetAction() error = %v", taskErr)
+	}
+	_, taskErr := adaptor.EstimateBillingChecked(c, info)
+	if taskErr == nil || taskErr.Code != "invalid_gemini_omni_flash_spec" {
+		t.Fatalf("task error = %v, want invalid_gemini_omni_flash_spec", taskErr)
+	}
+}
+
+func TestGeminiOmniFlashBillingRejectsPortrait1080p(t *testing.T) {
+	c := newSeedance2BillingContext(t, `{
+		"model":"gemini-omni-flash",
+		"prompt":"test",
+		"resolution":"1080p",
+		"aspect_ratio":"9:16",
+		"duration":6
+	}`)
+	adaptor := &TaskAdaptor{}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gemini-omni-flash",
 		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
 	}
 

@@ -1,4 +1,4 @@
--- Switch Tanva's Omni canvas product to ToAPIs gemini_omni_flash.
+-- Switch Tanva's Omni canvas product to ToAPIs gemini-omni-flash.
 --
 -- ToAPIs endpoint:
 --   POST /v1/videos/generations
@@ -22,7 +22,7 @@ SELECT
   NULL, 'toapis,video,omni', NULL, '/v1/videos/generations', 'video', 1,
   0, EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint, 0,
   '["reference_images","reference_video"]',
-  '[{"key":"duration","type":"integer","label":"时长","options":[4,6,8,10]},{"key":"resolution","type":"string","label":"分辨率","options":["720P","1080P"]},{"key":"aspect_ratio","type":"string","label":"画幅"}]'
+  '[{"key":"duration","type":"integer","label":"时长","options":[4,6,10]},{"key":"resolution","type":"string","label":"分辨率","options":["720P","1080P"]},{"key":"aspect_ratio","type":"string","label":"画幅"}]'
 WHERE NOT EXISTS (
   SELECT 1 FROM models
   WHERE model_name = 'gemini_omni_flash' AND deleted_at IS NULL
@@ -35,7 +35,7 @@ SET description = 'ToAPIs Gemini Omni Flash video generation',
     kind = 'video',
     status = 1,
     capabilities = '["reference_images","reference_video"]',
-    params_def = '[{"key":"duration","type":"integer","label":"时长","options":[4,6,8,10]},{"key":"resolution","type":"string","label":"分辨率","options":["720P","1080P"]},{"key":"aspect_ratio","type":"string","label":"画幅"}]',
+    params_def = '[{"key":"duration","type":"integer","label":"时长","options":[4,6,10]},{"key":"resolution","type":"string","label":"分辨率","options":["720P","1080P"]},{"key":"aspect_ratio","type":"string","label":"画幅"}]',
     updated_time = EXTRACT(EPOCH FROM NOW())::bigint
 WHERE model_name = 'gemini_omni_flash' AND deleted_at IS NULL;
 
@@ -51,7 +51,7 @@ SET models = (
   WHERE model_name <> ''
 )
 WHERE c.type = 59
-  AND lower(regexp_replace(c.base_url, '/+$', '')) = 'https://toapis.com';
+  AND lower(regexp_replace(c.base_url, '/+$', '')) IN ('https://toapis.com', 'https://toapis.xyz');
 
 INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
 SELECT trim(g.grp), 'gemini_omni_flash', c.id, true,
@@ -60,7 +60,7 @@ SELECT trim(g.grp), 'gemini_omni_flash', c.id, true,
 FROM channels c
 CROSS JOIN unnest(string_to_array(c."group", ',')) g(grp)
 WHERE c.type = 59
-  AND lower(regexp_replace(c.base_url, '/+$', '')) = 'https://toapis.com'
+  AND lower(regexp_replace(c.base_url, '/+$', '')) IN ('https://toapis.com', 'https://toapis.xyz')
   AND trim(g.grp) <> ''
 ON CONFLICT ("group", model, channel_id) DO UPDATE
 SET enabled = true,
