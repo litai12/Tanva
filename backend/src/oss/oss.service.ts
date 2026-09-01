@@ -845,6 +845,8 @@ export class OssService {
       // new-api / ToAPIs 视频任务会返回 files.toapis.com 的临时成片地址。
       // 该地址只由后端拉取并转存到 Tanva OSS，不能下放浏览器直连（缺少 CORS）。
       'files.toapis.com',
+      // ToAPIs 中国节点返回的临时成片地址。
+      'files.toapis.cn',
       'kechuangai.com',
       'models.kapon.cloud',
       'volces.com',
