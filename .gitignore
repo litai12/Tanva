@@ -1,5 +1,6 @@
 # Logs
 .codex
+.codex_tmp
 logs
 *.log
 npm-debug.log*

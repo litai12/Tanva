@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -64,6 +66,47 @@ func GetUserTask(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(tasksToDto(items, false))
 	common.ApiSuccess(c, pageInfo)
+}
+
+func parseTaskQueryParams(c *gin.Context) model.SyncTaskQueryParams {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	return model.SyncTaskQueryParams{
+		Platform:       constant.TaskPlatform(c.Query("platform")),
+		TaskID:         c.Query("task_id"),
+		Status:         c.Query("status"),
+		Action:         c.Query("action"),
+		StartTimestamp: startTimestamp,
+		EndTimestamp:   endTimestamp,
+		ChannelID:      c.Query("channel_id"),
+	}
+}
+
+func exportTaskCSV(c *gin.Context, userID *int, includeUsername bool) {
+	filename := fmt.Sprintf("task-logs-%s.csv", time.Now().Format("20060102-150405"))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	// UTF-8 BOM makes Chinese task logs open correctly in desktop Excel.
+	if _, err := c.Writer.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		return
+	}
+	if err := model.StreamTasksCSV(c.Request.Context(), parseTaskQueryParams(c), userID, includeUsername, c.Writer); err != nil {
+		// Headers may already be committed, so log the failure rather than
+		// attempting to write a second JSON response into the CSV stream.
+		common.SysError("export task logs failed: " + err.Error())
+	}
+}
+
+// ExportAllTask exports every task matching the current filters for admins.
+func ExportAllTask(c *gin.Context) {
+	exportTaskCSV(c, nil, true)
+}
+
+// ExportUserTask exports every task matching the current filters for the
+// authenticated user. Channel IDs are intentionally omitted from user data.
+func ExportUserTask(c *gin.Context) {
+	userID := c.GetInt("id")
+	exportTaskCSV(c, &userID, false)
 }
 
 func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {

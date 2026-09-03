@@ -54,6 +54,7 @@ export const useTaskLogsData = () => {
   // Basic state
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [activePage, setActivePage] = useState(1);
   const [logCount, setLogCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
@@ -262,6 +263,58 @@ export const useTaskLogsData = () => {
     await loadLogs(1, pageSize);
   };
 
+  const exportLogs = async () => {
+    setExporting(true);
+    try {
+      const { channel_id, task_id, start_timestamp, end_timestamp } =
+        getFormValues();
+      const params = new URLSearchParams({ task_id });
+      const startSeconds = Date.parse(start_timestamp) / 1000;
+      const endSeconds = Date.parse(end_timestamp) / 1000;
+      if (Number.isFinite(startSeconds)) {
+        params.set('start_timestamp', String(Math.floor(startSeconds)));
+      }
+      if (Number.isFinite(endSeconds)) {
+        params.set('end_timestamp', String(Math.floor(endSeconds)));
+      }
+      if (isAdminUser && channel_id) params.set('channel_id', channel_id);
+      const endpoint = isAdminUser
+        ? '/api/task/export'
+        : '/api/task/self/export';
+      const response = await API.get(`${endpoint}?${params.toString()}`, {
+        responseType: 'blob',
+        skipErrorHandler: true,
+      });
+      const blob = response.data;
+      if (!blob || blob.size === 0) {
+        throw new Error(t('暂无任务日志可导出'));
+      }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `task-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      // Let the browser begin the download before releasing the object URL.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showSuccess(t('任务日志导出成功'));
+    } catch (error) {
+      let message = error?.message || t('导出任务日志失败');
+      if (error?.response?.data instanceof Blob) {
+        try {
+          const payload = JSON.parse(await error.response.data.text());
+          message = payload.message || message;
+        } catch {
+          // Keep the generic message when the server response is not JSON.
+        }
+      }
+      showError(message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Copy text function
   const copyText = async (text) => {
     if (await copy(text)) {
@@ -315,6 +368,7 @@ export const useTaskLogsData = () => {
     // Basic state
     logs,
     loading,
+    exporting,
     activePage,
     logCount,
     pageSize,
@@ -365,6 +419,7 @@ export const useTaskLogsData = () => {
     handlePageChange,
     handlePageSizeChange,
     refresh,
+    exportLogs,
     copyText,
     openContentModal,
     openVideoModal,

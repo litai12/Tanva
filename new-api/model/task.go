@@ -284,14 +284,15 @@ func StreamTasksCSV(ctx context.Context, queryParams SyncTaskQueryParams, userID
 		"submit_time", "start_time", "finish_time", "progress", "properties", "data",
 	}
 	if includeUsername {
-		header = append(header[:6], append([]string{"username"}, header[6:]...)...)
+		header = append(append(append([]string{}, header[:6]...), "username"), header[6:]...)
 	}
 	if err := csvWriter.Write(header); err != nil {
 		return err
 	}
 
 	query := buildTaskQuery(queryParams, userID).WithContext(ctx).Order("id desc")
-	err := query.FindInBatches(&[]Task{}, 500, func(tx *gorm.DB, batch int) error {
+	var tasks []Task
+	result := query.FindInBatches(&tasks, 500, func(tx *gorm.DB, batch int) error {
 		rows, ok := tx.Statement.Dest.(*[]Task)
 		if !ok || rows == nil {
 			return fmt.Errorf("unexpected task batch destination")
@@ -319,7 +320,7 @@ func StreamTasksCSV(ctx context.Context, queryParams SyncTaskQueryParams, userID
 				if user, lookupErr := GetUserCache(task.UserId); lookupErr == nil && user != nil {
 					username = user.Username
 				}
-				row = append(row[:6], append([]string{username}, row[6:]...)...)
+				row = append(append(append([]string{}, row[:6]...), username), row[6:]...)
 			}
 			if err := csvWriter.Write(row); err != nil {
 				return err
@@ -328,8 +329,8 @@ func StreamTasksCSV(ctx context.Context, queryParams SyncTaskQueryParams, userID
 		csvWriter.Flush()
 		return csvWriter.Error()
 	})
-	if err != nil {
-		return err
+	if result.Error != nil {
+		return result.Error
 	}
 	csvWriter.Flush()
 	return csvWriter.Error()
