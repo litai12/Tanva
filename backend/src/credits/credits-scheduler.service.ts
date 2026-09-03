@@ -32,7 +32,7 @@ export class CreditsSchedulerService {
     }
   }
 
-  /** 免费用户一次性额度仍按原规则在每天凌晨 2 点执行到期清理。 */
+  /** 所有账号的一次性免费额度在每天凌晨 2 点执行到期清理。 */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleExpiredFreeUserQuotaCleanup() {
     try {

@@ -160,6 +160,7 @@
 - `CreditsService.preDeductCredits` 已切到 hybrid lot 扣减：
   - 先按 `CreditLot` + consume policy 排序扣减
   - 若历史余额尚未 lot 化，则剩余部分走 `legacy_balance` 兜底
+  - 个人扣费前先清理已过期的免费月度额度；过期 lot 不得继续显示为 active 或参与扣减
   - 交易流水 metadata 记录 `deductions`
 - `CreditsService.refundCredits` 已支持按原 `deductions` 恢复 lot 剩余额度，并保留 legacy balance 回补。
 - 已接入的发放链路：
@@ -190,7 +191,7 @@
   - 年卡额度在购买时一次性发放，`MembershipService.refreshYearlySubscriptionQuotaLots()` 保留兼容入口但固定空转，不再按月重复补发年卡额度。
   - 会员升级订单会记录 `membershipCycleSwitch`；支付入账同时根据当前订阅与目标套餐的真实周期推断，月卡→年卡即使订单标记缺失也会从支付时刻重开完整年周期。事务提交前会复读订阅、权益快照与新积分 lot，任一周期不一致则整体回滚。
   - `MembershipSchedulerService` 每小时只读巡检最近 48 小时的已支付年卡升级，检查订阅、权益快照和积分 lot 周期；异常只写错误日志，不自动修复或补积分。
-- `MembershipSchedulerService` 每日 2 点执行免费积分池衰减；`CreditsSchedulerService` 每日 3 点在签到业务日切换时清理昨日签到余额，并把免费一次性额度的原 2 点到期扫描保持为独立任务；原每日 5 点会员自动赠送任务已停用。
+- `MembershipSchedulerService` 每日 2 点执行免费积分池衰减；`CreditsSchedulerService` 每日 3 点在签到业务日切换时清理昨日签到余额，并把所有账号的免费一次性额度原 2 点到期扫描保持为独立任务；余额汇总同时排除已过期但尚未被定时任务收敛的 lot；原每日 5 点会员自动赠送任务已停用。
 - 会员读接口：
   - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。
   - 新增 `GET /api/membership/entitlement`：返回当前权益快照；无快照时回退为 `free/inactive`。

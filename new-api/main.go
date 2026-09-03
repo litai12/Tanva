@@ -114,7 +114,8 @@ func main() {
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
-	// Auto-cleanup logs and tasks older than 3 days, runs every hour
+	// Auto-cleanup runtime logs older than 3 days, runs every hour.
+	// Task records are retained permanently for audit and export.
 	service.StartLogCleanupTask()
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)

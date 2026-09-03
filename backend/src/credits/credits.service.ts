@@ -2736,6 +2736,12 @@ export class CreditsService {
               equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
             },
           },
+          {
+            metadata: {
+              path: ['grantType'],
+              equals: 'free_user_starter_quota',
+            },
+          },
         ],
       },
       orderBy: [{ expiresAt: 'asc' }, { grantedAt: 'asc' }],
@@ -2950,6 +2956,7 @@ export class CreditsService {
     });
   }
 
+  /** 清理所有账号已过期的免费月度额度，不因用户历史充值而保留 active 状态。 */
   async cleanupExpiredFreeUserMonthlyQuotaCredits(now = new Date()): Promise<{
     processedAccounts: number;
     expiredLots: number;
@@ -2975,6 +2982,12 @@ export class CreditsService {
               equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
             },
           },
+          {
+            metadata: {
+              path: ['grantType'],
+              equals: 'free_user_starter_quota',
+            },
+          },
         ],
       },
       select: { accountId: true },
@@ -2985,39 +2998,11 @@ export class CreditsService {
       return { processedAccounts: 0, expiredLots: 0, expiredCredits: 0 };
     }
 
-    // 过滤掉付费用户（曾支付成功过任何订单，不论积分还是套餐）。
-    // 付费用户的免费额度 lot 不应由"免费用户"清理任务扣除积分。
-    const accountIds = accountsWithExpiredQuota.map((a) => a.accountId);
-    const creditAccounts = await this.prisma.creditAccount.findMany({
-      where: { id: { in: accountIds } },
-      select: { id: true, userId: true },
-    });
-    const accountIdToUserId = new Map(creditAccounts.map((a) => [a.id, a.userId]));
-    const allUserIds = creditAccounts.map((a) => a.userId);
-
-    const paidUserIds = new Set(
-      (
-        await this.prisma.paymentOrder.findMany({
-          where: {
-            userId: { in: allUserIds },
-            status: 'paid',
-          },
-          select: { userId: true },
-          distinct: ['userId'],
-        })
-      ).map((o) => o.userId),
-    );
-
     let processedAccounts = 0;
     let expiredLots = 0;
     let expiredCredits = 0;
 
     for (const item of accountsWithExpiredQuota) {
-      const userId = accountIdToUserId.get(item.accountId);
-      if (userId && paidUserIds.has(userId)) {
-        continue;
-      }
-
       const result = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw<Array<{ id: string }>>(
           Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${item.accountId} FOR UPDATE`,
@@ -4693,6 +4678,16 @@ export class CreditsService {
         };
       }
 
+      // 个人扣费前先清理过期的免费额度，保证 lot 状态、余额展示和扣费资格一致。
+      await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, {
+        accountId: account.id,
+        now: new Date(),
+      });
+      account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
       // 个人模式：完整的积分扣除流程
       const activeLots = await tx.creditLot.findMany({
         where: {
@@ -4936,6 +4931,16 @@ export class CreditsService {
           transactionId: `zero:${apiUsage.id}`,
           creditsCharged: 0,
         };
+      }
+
+      // 个人扣费前先清理过期的免费额度，保证 lot 状态、余额展示和扣费资格一致。
+      await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, {
+        accountId: account.id,
+        now: new Date(),
+      });
+      account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
       }
 
       // 个人模式：复用 lot 扣减原语。

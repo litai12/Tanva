@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
+	"io"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -228,6 +233,106 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		PrivateData: privateData,
 	}
 	return t
+}
+
+// buildTaskQuery centralizes the filters shared by the paginated task log
+// endpoint and the export endpoint. A non-nil userID scopes the query to one
+// user; admin exports pass nil to include all users.
+func buildTaskQuery(queryParams SyncTaskQueryParams, userID *int) *gorm.DB {
+	query := DB.Model(&Task{})
+	if userID != nil {
+		query = query.Where("user_id = ?", *userID)
+	}
+	if queryParams.ChannelID != "" {
+		query = query.Where("channel_id = ?", queryParams.ChannelID)
+	}
+	if queryParams.Platform != "" {
+		query = query.Where("platform = ?", queryParams.Platform)
+	}
+	if queryParams.UserID != "" {
+		query = query.Where("user_id = ?", queryParams.UserID)
+	}
+	if len(queryParams.UserIDs) != 0 {
+		query = query.Where("user_id in (?)", queryParams.UserIDs)
+	}
+	if queryParams.TaskID != "" {
+		query = query.Where("task_id = ?", queryParams.TaskID)
+	}
+	if queryParams.Action != "" {
+		query = query.Where("action = ?", queryParams.Action)
+	}
+	if queryParams.Status != "" {
+		query = query.Where("status = ?", queryParams.Status)
+	}
+	if queryParams.StartTimestamp != 0 {
+		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
+	}
+	if queryParams.EndTimestamp != 0 {
+		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
+	}
+	return query
+}
+
+// StreamTasksCSV writes every matching task log to writer in database order.
+// It intentionally uses batches so exporting a long-retained task history does
+// not load the whole table into memory. PrivateData is never exported.
+func StreamTasksCSV(ctx context.Context, queryParams SyncTaskQueryParams, userID *int, includeUsername bool, writer io.Writer) error {
+	csvWriter := csv.NewWriter(writer)
+	header := []string{
+		"id", "created_at", "updated_at", "task_id", "platform", "user_id",
+		"group", "quota", "action", "status", "fail_reason", "result_url",
+		"submit_time", "start_time", "finish_time", "progress", "properties", "data",
+	}
+	if includeUsername {
+		header = append(header[:6], append([]string{"username"}, header[6:]...)...)
+	}
+	if err := csvWriter.Write(header); err != nil {
+		return err
+	}
+
+	query := buildTaskQuery(queryParams, userID).WithContext(ctx).Order("id desc")
+	err := query.FindInBatches(&[]Task{}, 500, func(tx *gorm.DB, batch int) error {
+		rows, ok := tx.Statement.Dest.(*[]Task)
+		if !ok || rows == nil {
+			return fmt.Errorf("unexpected task batch destination")
+		}
+		for _, task := range *rows {
+			properties, err := common.Marshal(task.Properties)
+			if err != nil {
+				return err
+			}
+			data := string(task.Data)
+			if len(task.Data) == 0 {
+				data = ""
+			}
+			result := task.GetResultURL()
+			row := []string{
+				strconv.FormatInt(task.ID, 10), strconv.FormatInt(task.CreatedAt, 10),
+				strconv.FormatInt(task.UpdatedAt, 10), task.TaskID, string(task.Platform),
+				strconv.Itoa(task.UserId), task.Group, strconv.Itoa(task.Quota), task.Action,
+				string(task.Status), task.FailReason, result,
+				strconv.FormatInt(task.SubmitTime, 10), strconv.FormatInt(task.StartTime, 10),
+				strconv.FormatInt(task.FinishTime, 10), task.Progress, string(properties), data,
+			}
+			if includeUsername {
+				username := ""
+				if user, lookupErr := GetUserCache(task.UserId); lookupErr == nil && user != nil {
+					username = user.Username
+				}
+				row = append(row[:6], append([]string{username}, row[6:]...)...)
+			}
+			if err := csvWriter.Write(row); err != nil {
+				return err
+			}
+		}
+		csvWriter.Flush()
+		return csvWriter.Error()
+	})
+	if err != nil {
+		return err
+	}
+	csvWriter.Flush()
+	return csvWriter.Error()
 }
 
 func TaskGetAllUserTask(userId int, startIdx int, num int, queryParams SyncTaskQueryParams) []*Task {

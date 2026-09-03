@@ -484,6 +484,7 @@ export class MembershipService {
           account: { userId },
           status: 'active',
           remainingAmount: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         select: {
           sourceType: true,
@@ -1483,6 +1484,7 @@ export class MembershipService {
         });
         const freeLots = candidateLots
           .filter(isFreeCreditDecayLot)
+          .filter((lot) => !lot.expiresAt || lot.expiresAt > now)
           .sort((left, right) => {
             const leftExpiry = left.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
             const rightExpiry = right.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
