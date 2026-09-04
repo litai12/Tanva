@@ -1990,12 +1990,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         resolutionTip,
         ...(seedanceModel === "seedance-2.5"
           ? [lt(
-              "参考素材：图片最多 30 张；视频/音频各最多 10 条（每条及总时长 2–30 秒；支持仅音频）",
-              "References: up to 30 images and 10 videos / 10 audios (each and total media duration 2–30s; audio-only supported)"
+              "参考素材：图片最多 30 张；视频/音频各最多 10 条（时长由上游校验；支持仅音频）",
+              "References: up to 30 images and 10 videos / 10 audios (duration is validated upstream; audio-only supported)"
             )]
           : [lt(
-              "参考视频最多 3 条（每条 2–15 秒）；音频最多 3 条（每条 2–15 秒）",
-              "Video refs <=3 (2–15s each); audio refs <=3 (2–15s each)"
+              "参考视频最多 3 条；音频最多 3 条（时长由上游校验）",
+              "Video refs <=3; audio refs <=3 (duration is validated upstream)"
             )]),
         ...(seedanceModel === "seed-2.0-mini"
           ? [lt("Mini 暂不支持 Smart Frames 模式", "Mini does not support Smart Frames mode yet")]
@@ -2024,8 +2024,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       "Generate a new video from references: image<=30, video<=10, audio<=10; describe each asset's role"
                     )
                   : lt(
-                      "文不限，图≤9，视频≤3（每条 2–15 秒），音频≤3（每条 2–5 秒）",
-                      "Text unlimited, image<=9, video<=3 (2–15s each), audio<=3 (2–5s each)"
+                      "文不限，图≤9，视频≤3，音频≤3（时长由上游校验）",
+                      "Text unlimited, image<=9, video<=3, audio<=3 (duration is validated upstream)"
                     ),
             },
             ...(seedanceModel === "seedance-2.5" && videoInputCount === 1
@@ -3246,8 +3246,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         >
           {isSeedanceModel
             ? seedanceModel === "seedance-2.5"
-              ? "video (1-10, 2-30s total ≤30s)"
-              : "video (1-3, 2-15s total ≤15s)"
+              ? "video (1-10; duration validated upstream)"
+              : "video (1-3; duration validated upstream)"
             : isHailuoModel
             ? getHailuoHandleLabel("video", hailuoMode, hailuoInputLimits)
             : "video"}
@@ -3264,8 +3264,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         >
           {isSeedanceModel
             ? seedanceModel === "seedance-2.5"
-              ? "audio (1-10, 2-30s total ≤30s)"
-              : "audio (1-3, 2-15s total ≤15s)"
+              ? "audio (1-10; duration validated upstream)"
+              : "audio (1-3; duration validated upstream)"
             : isHailuoModel
             ? getHailuoHandleLabel("audio", hailuoMode, hailuoInputLimits)
             : "audio"}

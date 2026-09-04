@@ -20978,71 +20978,6 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           }
           return {};
         };
-        const readAudioDurationFromUrl = async (audioUrl: string): Promise<number> =>
-          await new Promise<number>((resolve, reject) => {
-            const audio = document.createElement("audio");
-            let settled = false;
-            const cleanup = () => {
-              audio.removeAttribute("src");
-              audio.load();
-            };
-            const timeoutId = window.setTimeout(() => {
-              if (settled) return;
-              settled = true;
-              cleanup();
-              reject(
-                new Error(
-                  lt(
-                    "无法读取音频时长，请确认音频可访问",
-                    "Unable to read audio duration, please verify audio URL is accessible"
-                  )
-                )
-              );
-            }, 8000);
-            audio.preload = "metadata";
-            audio.src = audioUrl;
-            audio.addEventListener(
-              "loadedmetadata",
-              () => {
-                if (settled) return;
-                settled = true;
-                window.clearTimeout(timeoutId);
-                const duration = Number(audio.duration || 0);
-                cleanup();
-                if (Number.isFinite(duration) && duration > 0) {
-                  resolve(duration);
-                } else {
-                  reject(
-                    new Error(
-                      lt(
-                        "无法读取音频时长，请确认音频可访问",
-                        "Unable to read audio duration, please verify audio URL is accessible"
-                      )
-                    )
-                  );
-                }
-              },
-              { once: true }
-            );
-            audio.addEventListener(
-              "error",
-              () => {
-                if (settled) return;
-                settled = true;
-                window.clearTimeout(timeoutId);
-                cleanup();
-                reject(
-                  new Error(
-                    lt(
-                      "无法读取音频时长，请确认音频可访问",
-                      "Unable to read audio duration, please verify audio URL is accessible"
-                    )
-                  )
-                );
-              },
-              { once: true }
-            );
-          });
         let klingAudioUrlsForAPI: string[] | undefined = undefined;
         /* 音频处理逻辑已注释
         if (provider === "kling-2.6" && (node.data as any)?.mode === "pro") {
@@ -21143,54 +21078,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           const seedanceAudioMax = isSeedance25Request
             ? SEEDANCE25_REFERENCE_AUDIO_MAX
             : SEEDANCE20_REFERENCE_AUDIO_MAX;
-          const seedanceMediaMaxDuration = isSeedance25Request ? 30 : 15;
           const audioMax = isHailuoNode ? Number(hailuoInputs.maxAudios || 0) : seedanceAudioMax;
           if (connectedAudioUrls.length > audioMax) {
             failCurrentVideoNode(`${isHailuoNode ? "Hailuo" : "Seedance 2.0"} 音频参考数量超限`);
-            return;
-          }
-
-          const connectedAudioDurationHints = new Map<string, number>();
-          resolvedAudioInputs.forEach((item) => {
-            if (
-              typeof item.duration === "number" &&
-              Number.isFinite(item.duration) &&
-              item.duration > 0 &&
-              !connectedAudioDurationHints.has(item.audioUrl)
-            ) {
-              connectedAudioDurationHints.set(item.audioUrl, item.duration);
-            }
-          });
-
-          let totalAudioDuration = 0;
-          for (const audioUrl of connectedAudioUrls.slice(0, audioMax)) {
-            const hintedDuration = connectedAudioDurationHints.get(audioUrl);
-            let duration: number;
-            try {
-              duration =
-                typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
-                  ? hintedDuration
-                  : await readAudioDurationFromUrl(audioUrl);
-            } catch (error) {
-              failCurrentVideoNode(
-                error instanceof Error && error.message
-                  ? error.message
-                  : "无法读取音频时长，请确认音频可访问"
-              );
-              return;
-            }
-            if (!isHailuoNode && (duration < 2 || duration > seedanceMediaMaxDuration)) {
-              failCurrentVideoNode(
-                `Seedance ${isSeedance25Request ? "2.5" : "2.0"} 音频每条需在 2–${seedanceMediaMaxDuration} 秒之间，当前约 ${duration.toFixed(1)} 秒`
-              );
-              return;
-            }
-            totalAudioDuration += duration;
-          }
-          if (!isHailuoNode && totalAudioDuration > seedanceMediaMaxDuration) {
-            failCurrentVideoNode(
-              `Seedance ${isSeedance25Request ? "2.5" : "2.0"} 音频总时长不超过 ${seedanceMediaMaxDuration} 秒`
-            );
             return;
           }
 
@@ -21210,6 +21100,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           );
           const resolvedVideoUrls: string[] = [];
 
+          // Seedance reference-video duration is intentionally not preflighted here.
+          // Pass the original URL through and let the upstream provider decide whether
+          // its duration is acceptable; billing may still probe the real duration later.
           for (const videoEdge of videoEdges) {
             const sourceNode = rf.getNode(videoEdge.source);
             if (!sourceNode) continue;
@@ -21223,7 +21116,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             if (!normalizedVideoUrl) continue;
             resolvedVideoUrls.push(normalizedVideoUrl);
 
-            // 验证视频时长（需要从源节点获取）
+            // Kling O3 仍按供应商契约校验参考视频时长；Seedance 不做本地范围拦截。
             const videoDuration = (sourceNode.data as any)?.duration;
             if (
               provider === "kling-o3" &&
