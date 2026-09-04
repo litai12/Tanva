@@ -20,6 +20,10 @@ export function isFreeCreditDecayLot(lot: FreeCreditDecayLotLike): boolean {
     return true;
   }
 
+  // 注册赠送是永久 promo 批次，但仍属于非付费积分；只要用户不是
+  // 有效 VIP/白名单，就应进入每日免费积分衰减池。
+  if (lot.sourceType === 'promo') return true;
+
   if (lot.sourceType !== 'subscription' || lot.validityType !== 'fixed_window') {
     return false;
   }

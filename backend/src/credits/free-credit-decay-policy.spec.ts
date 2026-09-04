@@ -39,6 +39,10 @@ assert.equal(
   true,
 );
 assert.equal(
+  isFreeCreditDecayLot({ sourceType: 'promo', validityType: 'permanent' }),
+  true,
+);
+assert.equal(
   isFreeCreditDecayLot({ sourceType: 'subscription', validityType: 'membership_bound' }),
   false,
 );

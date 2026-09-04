@@ -187,7 +187,7 @@
   - `CreditsService.issueFreeUserStarterQuotaCredits()` 会为没有活跃会员的用户补发一次性免费额度 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_starter_quota` 流水；历史 `free_monthly_quota` 流水也会被视为已领取，避免从月度规则切换后重复发 500。
   - 免费用户一次性额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；不会再按 30 天周期续发，定时清理任务仅兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
-  - `MembershipService.decayDailyGiftCredits()` 以“执行时是否处于 VIP 有效期”为唯一会员判断：非有效 VIP 的邀请奖励、运营赠送与受邀注册免费额度等普通免费积分池每天默认衰减 `50`，有效 VIP/VIP 白名单暂停；签到 gift 明确排除此任务，统一交给凌晨 `3:00` 业务日清理，避免先衰减再整批清除。充值本金与充值赠送统一归类为 `recharge`，不参与衰减。签到 lot 使用 `priority=-200`，消费时优先于会员额度、其他赠送与充值批次。流水使用 `businessType=free_credit_decay`，同一用户同一自然日幂等。
+  - `MembershipService.decayDailyGiftCredits()` 以“执行时是否处于 VIP 有效期”为唯一会员判断：非有效 VIP 的邀请奖励、运营赠送、注册 `promo` 批次与受邀注册免费额度等普通免费积分池每天默认衰减 `50`，有效 VIP/VIP 白名单暂停。对于没有任何已支付订单的历史账号，未被 `CreditLot` 覆盖的旧注册/签到/退款余额也按非付费免费余额参与衰减，避免旧账因缺少 lot 标记永久保留；有付费记录的账号仍不自动扣减无法追溯来源的混合余额。签到 gift 明确排除此任务，统一交给凌晨 `3:00` 业务日清理，避免先衰减再整批清除。充值本金与充值赠送统一归类为 `recharge`，不参与衰减。签到 lot 使用 `priority=-200`，消费时优先于会员额度、其他赠送与充值批次。流水使用 `businessType=free_credit_decay`，同一用户同一自然日幂等。
   - 年卡额度在购买时一次性发放，`MembershipService.refreshYearlySubscriptionQuotaLots()` 保留兼容入口但固定空转，不再按月重复补发年卡额度。
   - 会员升级订单会记录 `membershipCycleSwitch`；支付入账同时根据当前订阅与目标套餐的真实周期推断，月卡→年卡即使订单标记缺失也会从支付时刻重开完整年周期。事务提交前会复读订阅、权益快照与新积分 lot，任一周期不一致则整体回滚。
   - `MembershipSchedulerService` 每小时只读巡检最近 48 小时的已支付年卡升级，检查订阅、权益快照和积分 lot 周期；异常只写错误日志，不自动修复或补积分。

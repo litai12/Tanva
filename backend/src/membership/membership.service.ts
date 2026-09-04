@@ -1360,36 +1360,10 @@ export class MembershipService {
         updatedLots: 0,
       };
     }
+    // 旧账余额可能没有 CreditLot（如注册赠送、签到和历史退款）。对非付费
+    // 用户，这部分余额同样属于免费积分，不能因为缺少 lot 就永久跳过衰减。
     const accounts = await this.prisma.creditAccount.findMany({
-      where: {
-        OR: [
-          {
-            lots: {
-              some: {
-                status: 'active',
-                remainingAmount: { gt: 0 },
-                OR: [
-                  { sourceType: 'gift' },
-                  {
-                    sourceType: 'subscription',
-                    validityType: 'fixed_window',
-                  },
-                ],
-              },
-            },
-          },
-          {
-            transactions: {
-              some: {
-                type: 'REFERRAL_REWARD',
-                creditLotId: null,
-                amount: { gt: 0 },
-                isExpired: false,
-              },
-            },
-          },
-        ],
-      },
+      where: { balance: { gt: 0 } },
       select: { id: true, userId: true },
     });
 
@@ -1398,7 +1372,7 @@ export class MembershipService {
     }
 
     const userIds = accounts.map((account) => account.userId);
-    const [activeSubscriptions, vipWhitelistUsers] = await Promise.all([
+    const [activeSubscriptions, vipWhitelistUsers, paidOrders] = await Promise.all([
       this.prisma.userMembershipSubscription.findMany({
         where: {
           userId: { in: userIds },
@@ -1416,11 +1390,17 @@ export class MembershipService {
         },
         select: { id: true },
       }),
+      this.prisma.paymentOrder.findMany({
+        where: { userId: { in: userIds }, status: 'paid' },
+        select: { userId: true },
+        distinct: ['userId'],
+      }),
     ]);
     const activeVipUserIds = new Set([
       ...activeSubscriptions.map((subscription) => subscription.userId),
       ...vipWhitelistUsers.map((user) => user.id),
     ]);
+    const paidUserIds = new Set(paidOrders.map((order) => order.userId));
 
     const decayDayStartAt = new Date(now);
     decayDayStartAt.setHours(0, 0, 0, 0);
@@ -1475,6 +1455,7 @@ export class MembershipService {
             remainingAmount: { gt: 0 },
             OR: [
               { sourceType: 'gift' },
+              { sourceType: 'promo' },
               {
                 sourceType: 'subscription',
                 validityType: 'fixed_window',
@@ -1562,6 +1543,19 @@ export class MembershipService {
             remainingDecay -= amount;
             legacyBalance -= amount;
             accountBalance -= amount;
+          }
+
+          // 没有任何已支付订单的用户，账户中未被 lot 覆盖的历史余额也按
+          // 非付费积分处理（例如旧注册赠送/签到/退款余额）。已付费用户
+          // 不做这一步，避免把无法追溯来源的混合余额误扣为免费积分。
+          if (remainingDecay > 0 && accountBalance > 0 && !paidUserIds.has(account.userId)) {
+            const amount = Math.min(remainingDecay, legacyBalance, accountBalance);
+            if (amount > 0) {
+              deductions.push({ kind: 'legacy_non_paid_balance', amount });
+              remainingDecay -= amount;
+              legacyBalance -= amount;
+              accountBalance -= amount;
+            }
           }
         }
 
