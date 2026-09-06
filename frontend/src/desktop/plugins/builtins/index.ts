@@ -12,6 +12,10 @@ import {
   mediaPreviewPlugin,
   TANVA_MEDIA_PREVIEW_PLUGIN_ID,
 } from './MediaPreviewPlugin';
+import {
+  reportBuilderPlugin,
+  TANVA_REPORT_BUILDER_PLUGIN_ID,
+} from './ReportBuilderPlugin';
 
 let builtinsRegistered = false;
 
@@ -22,6 +26,7 @@ export const registerBuiltinDesktopPlugins = (): void => {
   desktopPluginRegistry.register(artifactWorkspacePlugin);
   desktopPluginRegistry.register(mediaPreviewPlugin);
   desktopPluginRegistry.register(desktopConnectorsPlugin);
+  desktopPluginRegistry.register(reportBuilderPlugin);
 };
 
 export {
@@ -29,4 +34,5 @@ export {
   TANVA_CANVAS_PLUGIN_ID,
   TANVA_DESKTOP_CONNECTORS_PLUGIN_ID,
   TANVA_MEDIA_PREVIEW_PLUGIN_ID,
+  TANVA_REPORT_BUILDER_PLUGIN_ID,
 };

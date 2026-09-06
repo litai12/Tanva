@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "importedFrom": "user-supplied-reference-app",
+  "referenceVersion": null,
+  "runtime": {
+    "python": "Settings/IsolatedPython/python.exe",
+    "node": "Settings/IsolatedNode/node.exe"
+  },
+  "skillsRoot": "Settings/Skills",
+  "connectors": [
+    "sketchup",
+    "rhino",
+    "grasshopper",
+    "autocad",
+    "photoshop",
+    "3dsmax",
+    "revit",
+    "illustrator",
+    "indesign",
+    "windows"
+  ],
+  "files": 29628,
+  "bytes": 413176027
+}

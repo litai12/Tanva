@@ -20,6 +20,13 @@ try {
 
   await page.addInitScript(() => {
     if (window.top !== window) return;
+    const mockConnectorStatuses = [
+      { id: 'sketchup', name: 'SketchUp', hostedBy: null, available: true, source: 'discovered', transport: 'configured', toolCount: 0, error: null },
+      { id: 'rhino', name: 'Rhino', hostedBy: null, available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
+      { id: 'grasshopper', name: 'Grasshopper', hostedBy: 'rhino', available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
+      { id: 'autocad', name: 'AutoCAD', hostedBy: null, available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
+      { id: 'photoshop', name: 'Photoshop', hostedBy: null, available: true, source: 'configured', transport: 'connected', toolCount: 2, error: null },
+    ];
     Object.defineProperty(window, 'tanvaDesktop', {
       configurable: true,
       value: {
@@ -39,17 +46,20 @@ try {
           clear: async () => true,
         },
         connectors: {
-          list: async () => [
-            { id: 'sketchup', name: 'SketchUp', hostedBy: null, available: true, source: 'discovered', transport: 'configured', toolCount: 0, error: null },
-            { id: 'rhino', name: 'Rhino', hostedBy: null, available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
-            { id: 'grasshopper', name: 'Grasshopper', hostedBy: 'rhino', available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
-            { id: 'autocad', name: 'AutoCAD', hostedBy: null, available: false, source: 'missing', transport: 'not-configured', toolCount: 0, error: null },
-            { id: 'photoshop', name: 'Photoshop', hostedBy: null, available: true, source: 'configured', transport: 'connected', toolCount: 2, error: null },
-          ],
+          list: async () => mockConnectorStatuses.map((status) => ({ ...status })),
           configure: async () => null,
           launch: async () => ({ ok: true }),
           configureMcp: async () => null,
           connectMcp: async () => ({ transport: 'connected', toolCount: 2, error: null }),
+          connectMcpUrl: async (connectorId, config) => {
+            const status = mockConnectorStatuses.find((item) => item.id === connectorId);
+            if (status) {
+              status.transport = 'connected';
+              status.protocol = config.type;
+              status.toolCount = 2;
+            }
+            return { transport: 'connected', protocol: config.type, toolCount: 2, error: null };
+          },
           disconnectMcp: async () => ({ transport: 'configured', toolCount: 0, error: null }),
           listTools: async () => [
             { name: 'get_document_info', description: 'Read the active document metadata', inputSchema: { type: 'object' }, risk: 'read' },
@@ -191,6 +201,16 @@ try {
     throw new Error('Only the connector management surface may expose a manual management entry');
   }
   await page.getByRole('button', { name: '扩展' }).click();
+
+  const skillButton = page.getByRole('button', { name: '选择技能' });
+  await skillButton.waitFor();
+  await skillButton.click();
+  await page.getByText('本次对话使用的技能', { exact: true }).waitFor();
+  const skillCheckboxes = page.locator('main header input[type="checkbox"]');
+  if ((await skillCheckboxes.count()) < 4) {
+    throw new Error('Desktop skill selector must expose the installed skill set');
+  }
+  await skillButton.click();
 
   if ((await page.getByRole('button', { name: '画布', exact: true }).count()) !== 0) {
     throw new Error('Chat tasks must not expose a project canvas');
@@ -373,7 +393,13 @@ try {
   await connectorSurface.waitFor();
   await connectorSurface.getByText('SketchUp', { exact: true }).waitFor();
   await connectorSurface.getByText('MCP 已连接 · 2 个工具').waitFor();
-  await connectorSurface.getByRole('button', { name: '工具', exact: true }).click();
+  const grasshopperUrl = connectorSurface.getByRole('textbox', { name: 'Grasshopper MCP 地址' });
+  if ((await grasshopperUrl.inputValue()) !== 'http://127.0.0.1:26929/mcp') {
+    throw new Error('Grasshopper must expose the reference package default MCP endpoint');
+  }
+  await grasshopperUrl.locator('..').getByRole('button', { name: '连接地址' }).click();
+  await connectorSurface.getByText('MCP SSE 已连接 · 2 个工具').waitFor();
+  await connectorSurface.locator('article').filter({ hasText: 'Photoshop' }).getByRole('button', { name: '工具', exact: true }).click();
   await connectorSurface.getByText('get_document_info').waitFor();
   await page.screenshot({
     path: resolve(evidenceDir, 'desktop-connectors.png'),
@@ -409,6 +435,8 @@ try {
     embeddedCanvas: true,
     artifactWorkspace: true,
     connectorSurface: true,
+    localHttpMcp: true,
+    skillSelector: true,
     commandK: true,
     sidebarToggle: true,
     evidence: [

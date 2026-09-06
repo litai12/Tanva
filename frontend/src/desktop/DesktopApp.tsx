@@ -5,7 +5,7 @@ import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager
 import { useTeamRealtime } from '@/hooks/useTeamRealtime';
 import { useProjectStore } from '@/stores/projectStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
-import DesktopShell from './DesktopShell';
+import ElectroReplica from './ElectroReplica';
 
 export default function DesktopApp() {
   useTeamRealtime();
@@ -20,7 +20,7 @@ export default function DesktopApp() {
     <>
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={currentProjectId} />
-      <DesktopShell />
+      <ElectroReplica />
       <LoginModal />
     </>
   );

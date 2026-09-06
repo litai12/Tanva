@@ -18,7 +18,9 @@ const statusText = (connector: DesktopConnectorStatus): string => {
 };
 
 const mcpStatusText = (connector: DesktopConnectorStatus): string => {
-  if (connector.transport === 'connected') return `MCP 已连接 · ${connector.toolCount} 个工具`;
+  const configuredProtocol = connector.protocol || 'stdio';
+  const protocol = configuredProtocol === 'streamable-http' ? 'HTTP' : configuredProtocol.toUpperCase();
+  if (connector.transport === 'connected') return `MCP${configuredProtocol === 'stdio' ? '' : ` ${protocol}`} 已连接 · ${connector.toolCount} 个工具`;
   if (connector.transport === 'connecting') return 'MCP 连接中';
   if (connector.transport === 'configured') return 'MCP 已配置';
   if (connector.transport === 'error') return 'MCP 连接失败';
@@ -33,6 +35,10 @@ export default function DesktopConnectorsSurface() {
   const [notice, setNotice] = useState<string | null>(null);
   const [expandedToolsId, setExpandedToolsId] = useState<string | null>(null);
   const [toolsByConnector, setToolsByConnector] = useState<Record<string, DesktopMcpTool[]>>({});
+  const [callingTool, setCallingTool] = useState<string | null>(null);
+  const [argsByTool, setArgsByTool] = useState<Record<string, string>>({});
+  const [urlByConnector, setUrlByConnector] = useState<Record<string, string>>({ grasshopper: 'http://127.0.0.1:26929/mcp' });
+  const [protocolByConnector, setProtocolByConnector] = useState<Record<string, 'sse' | 'streamable-http'>>({ grasshopper: 'sse' });
 
   const refresh = useCallback(async () => {
     if (!desktopBridge?.connectors) {
@@ -112,6 +118,25 @@ export default function DesktopConnectorsSurface() {
     }
   };
 
+  const connectMcpUrl = async (connector: DesktopConnectorStatus) => {
+    const url = (urlByConnector[connector.id] || '').trim();
+    if (!url || !desktopBridge?.connectors?.connectMcpUrl) return;
+    setBusyId(connector.id);
+    setNotice(null);
+    try {
+      const status = await desktopBridge.connectors.connectMcpUrl(connector.id, {
+        type: protocolByConnector[connector.id] || 'sse',
+        url,
+      });
+      if (status?.error) setNotice(status.error);
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'HTTP MCP 连接失败');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const toggleTools = async (connector: DesktopConnectorStatus) => {
     if (!desktopBridge?.connectors || connector.transport !== 'connected') return;
     if (expandedToolsId === connector.id) {
@@ -123,6 +148,32 @@ export default function DesktopConnectorsSurface() {
     setExpandedToolsId(connector.id);
   };
 
+  const callTool = async (connectorId: string, tool: DesktopMcpTool) => {
+    if (!desktopBridge?.connectors || callingTool) return;
+    setCallingTool(`${connectorId}:${tool.name}`);
+    setNotice(null);
+    try {
+      const rawArgs = argsByTool[`${connectorId}:${tool.name}`] || '{}';
+      let args: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(rawArgs);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('参数必须是 JSON 对象');
+        args = parsed as Record<string, unknown>;
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : '参数格式错误');
+        return;
+      }
+      const result = await desktopBridge.connectors.callTool(connectorId, tool.name, args);
+      if (result.cancelled) setNotice(`已取消 ${tool.name}`);
+      else if (result.isError) setNotice(result.text || `${tool.name} 执行失败`);
+      else setNotice(result.text || `${tool.name} 执行完成`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '工具执行失败');
+    } finally {
+      setCallingTool(null);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-slate-50/60 p-5">
       <div className="mx-auto max-w-2xl">
@@ -130,7 +181,7 @@ export default function DesktopConnectorsSurface() {
           <div>
             <h2 className="text-base font-semibold text-slate-950">小T的本机应用</h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              检测和启动专业应用，并连接用户明确导入的 stdio MCP 服务。当前只发现工具，不执行工具；写入与脚本类调用要等风险分级和逐次授权完成后开放。
+              检测和启动专业应用，并连接用户明确导入的 stdio / HTTP MCP 服务。工具先展示风险和参数，再由桌面主进程逐次确认后执行。
             </p>
           </div>
           <button
@@ -211,6 +262,31 @@ export default function DesktopConnectorsSurface() {
                   <FileJson className="h-3 w-3" />
                   导入 MCP
                 </button>
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <select
+                    value={protocolByConnector[connector.id] || 'sse'}
+                    onChange={(event) => setProtocolByConnector((current) => ({
+                      ...current,
+                      [connector.id]: event.target.value as 'sse' | 'streamable-http',
+                    }))}
+                    aria-label={`${connector.name} MCP 协议`}
+                    className="h-7 rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600 outline-none focus:border-blue-400"
+                  >
+                    <option value="sse">SSE</option>
+                    <option value="streamable-http">HTTP</option>
+                  </select>
+                  <input
+                    value={urlByConnector[connector.id] || ''}
+                    onChange={(event) => setUrlByConnector((current) => ({ ...current, [connector.id]: event.target.value }))}
+                    placeholder={connector.id === 'grasshopper' ? 'http://127.0.0.1:26929/mcp' : '本机 HTTP MCP 地址'}
+                    aria-label={`${connector.name} MCP 地址`}
+                    className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] text-slate-700 outline-none focus:border-blue-400"
+                  />
+                  <button type="button" onClick={() => void connectMcpUrl(connector)} disabled={!urlByConnector[connector.id]?.trim() || busyId === connector.id || !desktopBridge} className="flex h-7 flex-none items-center gap-1 rounded-md bg-slate-100 px-2 text-[10px] text-slate-600 hover:bg-slate-200 disabled:opacity-50">
+                    <PlugZap className="h-3 w-3" />
+                    连接地址
+                  </button>
+                </div>
                 {connector.transport !== 'not-configured' && (
                   <button type="button" onClick={() => void toggleMcp(connector)} disabled={busyId === connector.id || connector.transport === 'connecting' || !desktopBridge} className="flex h-7 items-center gap-1 rounded-md bg-blue-50 px-2 text-[10px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
                     {connector.transport === 'connected' ? <Unplug className="h-3 w-3" /> : <PlugZap className="h-3 w-3" />}
@@ -223,8 +299,16 @@ export default function DesktopConnectorsSurface() {
                 <div className="ml-[52px] mt-2 max-h-44 overflow-y-auto rounded-lg bg-slate-50 p-2">
                   {(toolsByConnector[connector.id] || []).map((tool) => (
                     <div key={tool.name} className="border-b border-slate-200/70 px-1 py-1.5 last:border-b-0">
-                      <div className="font-mono text-[10px] font-semibold text-slate-800">{tool.name}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1 font-mono text-[10px] font-semibold text-slate-800">{tool.name}</div>
+                        <span className={cn('rounded px-1.5 py-0.5 text-[9px]', tool.risk === 'read' ? 'bg-emerald-50 text-emerald-700' : tool.risk === 'write' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>{tool.risk}</span>
+                        <button type="button" onClick={() => void callTool(connector.id, tool)} disabled={Boolean(callingTool)} className="rounded-md bg-slate-900 px-2 py-1 text-[9px] font-medium text-white disabled:opacity-40">{callingTool === `${connector.id}:${tool.name}` ? '执行中' : '执行'}</button>
+                      </div>
                       {tool.description && <div className="mt-0.5 text-[10px] leading-4 text-slate-500">{tool.description}</div>}
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[10px] text-slate-500">参数 schema</summary>
+                        <textarea aria-label={`${tool.name} 参数`} value={argsByTool[`${connector.id}:${tool.name}`] || '{}'} onChange={(event) => setArgsByTool((current) => ({ ...current, [`${connector.id}:${tool.name}`]: event.target.value }))} className="mt-1 h-14 w-full resize-y rounded border border-slate-200 bg-white px-1.5 py-1 font-mono text-[10px] text-slate-700 outline-none focus:border-blue-400" />
+                      </details>
                     </div>
                   ))}
                 </div>

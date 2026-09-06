@@ -8,6 +8,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
+  Plus,
+  Settings2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -19,6 +21,11 @@ import { useTeamStore } from '@/stores/teamStore';
 import { useDesktopSurfaceStore } from './plugins/surfaceState';
 import { TANVA_CANVAS_PLUGIN_ID } from './plugins/builtins';
 import {
+  DESKTOP_SKILLS,
+  toggleDesktopSkill,
+  useSelectedDesktopSkills,
+} from './desktopSkillState';
+import {
   DESKTOP_PROJECT_CREATION_REQUEST_EVENT,
   resolveDesktopTaskMode,
   useDesktopTaskContextStore,
@@ -29,6 +36,7 @@ export default function DesktopTaskThread() {
   const sessions = useAIChatStore((state) => state.sessions);
   const currentSessionId = useAIChatStore((state) => state.currentSessionId);
   const showDialog = useAIChatStore((state) => state.showDialog);
+  const createSession = useAIChatStore((state) => state.createSession);
   const setXiaotMode = useAIChatStore((state) => state.setXiaotMode);
   const xiaotModel = useAIChatStore((state) => state.xiaotModel);
   const setXiaotModel = useAIChatStore((state) => state.setXiaotModel);
@@ -57,6 +65,9 @@ export default function DesktopTaskThread() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const selectedSkills = useSelectedDesktopSkills();
   const currentSession = sessions.find((session) => session.sessionId === currentSessionId);
   const taskProjectId = currentSessionId ? projectBySessionId[currentSessionId] : null;
   const taskMode = resolveDesktopTaskMode(currentSessionId, {
@@ -194,8 +205,22 @@ export default function DesktopTaskThread() {
     openSurface(TANVA_CANVAS_PLUGIN_ID, 'docked');
   };
 
+  const createNewTask = async () => {
+    if (creatingSession) return;
+    setCreatingSession(true);
+    try {
+      await createSession('新任务');
+    } finally {
+      setCreatingSession(false);
+    }
+  };
+
+  const openAssistantConfig = () => {
+    window.dispatchEvent(new CustomEvent('tanva:open-report-builder'));
+  };
+
   return (
-    <main className="flex min-w-[420px] flex-1 flex-col overflow-hidden bg-white">
+    <main data-desktop-thread className="flex min-w-[420px] flex-1 flex-col overflow-hidden bg-white">
       <header className={`flex h-12 flex-none items-center gap-2 overflow-hidden border-b border-slate-200 pr-4 ${sidebarVisible ? 'pl-4' : 'pl-20'}`}>
         {!sidebarVisible && (
           <button
@@ -212,6 +237,64 @@ export default function DesktopTaskThread() {
           <div className="truncate text-sm font-semibold text-slate-900">
             {currentSession?.name || '新任务'}
           </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void createNewTask()}
+          disabled={creatingSession}
+          className="flex h-8 flex-none items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-950 disabled:opacity-50"
+          title="新建对话（保留已选技能）"
+          aria-label="新建对话（保留已选技能）"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          新建对话
+        </button>
+        <button
+          type="button"
+          onClick={openAssistantConfig}
+          className="flex h-8 flex-none items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-950"
+          title="修改助手配置"
+          aria-label="修改助手配置"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          修改配置
+        </button>
+        <div className="relative flex-none">
+          <button
+            type="button"
+            onClick={() => setSkillsOpen((open) => !open)}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-950"
+            title="选择本次对话使用的技能"
+            aria-label="选择技能"
+            aria-expanded={skillsOpen}
+          >
+            技能 {selectedSkills.length}
+          </button>
+          {skillsOpen && (
+            <div className="absolute left-0 top-10 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              <div className="px-2 py-1 text-[11px] font-semibold text-slate-500">本次对话使用的技能</div>
+              <div className="mt-1 max-h-72 space-y-0.5 overflow-y-auto">
+                {DESKTOP_SKILLS.map((skill) => {
+                  const checked = selectedSkills.some((selected) => selected.id === skill.id);
+                  return (
+                    <label key={skill.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleDesktopSkill(skill.id)}
+                        className="mt-0.5 accent-slate-800"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-medium text-slate-800">{skill.name}</span>
+                        <span className="block text-[10px] leading-4 text-slate-500">{skill.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-1 border-t border-slate-100 px-2 pt-1 text-[10px] text-slate-400">新建对话会保留当前技能选择</div>
+            </div>
+          )}
         </div>
         <div className="flex h-8 flex-none items-center whitespace-nowrap rounded-lg bg-slate-100 p-0.5" aria-label="任务类型">
           <button

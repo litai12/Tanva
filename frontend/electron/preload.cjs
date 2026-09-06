@@ -32,11 +32,13 @@ contextBridge.exposeInMainWorld(
     clipboard: Object.freeze({
       writeText: (text) => ipcRenderer.invoke('tanva:clipboard:write-text', text),
     }),
+    openTarget: (target, kind = 'url') => ipcRenderer.invoke('tanva:open-target', { target, kind }),
     connectors: Object.freeze({
       list: () => ipcRenderer.invoke('tanva:connectors:list'),
       configure: (connectorId) => ipcRenderer.invoke('tanva:connectors:configure', connectorId),
       launch: (connectorId) => ipcRenderer.invoke('tanva:connectors:launch', connectorId),
       configureMcp: (connectorId) => ipcRenderer.invoke('tanva:connectors:configure-mcp', connectorId),
+      connectMcpUrl: (connectorId, config) => ipcRenderer.invoke('tanva:connectors:connect-mcp-url', connectorId, config),
       connectMcp: (connectorId) => ipcRenderer.invoke('tanva:connectors:connect-mcp', connectorId),
       disconnectMcp: (connectorId) => ipcRenderer.invoke('tanva:connectors:disconnect-mcp', connectorId),
       listTools: (connectorId) => ipcRenderer.invoke('tanva:connectors:list-tools', connectorId),

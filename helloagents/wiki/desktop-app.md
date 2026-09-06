@@ -58,9 +58,10 @@ Tanva 桌面端采用“Codex 式任务线程、画布按需作为工具面、�
 - 新增 `tanva.media-preview` 媒体预览工具面：Electron 聊天图片点击后只在任务右侧展开，不进入最大化或全屏，支持原图下载与同组图片切换；网页端继续使用原图片预览；
 - 左下角 Tanva 余额与 new-api 模型渠道额度是两套账。任何 facade 返回 `402/team_insufficient_credits` 时，前后端都会在 Luna、Terra、DeepSeek 三条线路间去重回退；用户余额充足时禁止展示“请充值”这类模型供应侧错误，全部线路均不可用才提示服务线路暂时不可用；
 - “扩展”只展示/管理插件，不直接启动画布；当前任务顶栏是唯一手动开关，小T仍可自动唤起同一工具面；
-- 新增 `tanva.desktop-connectors` 可信内置插件，通过受控 IPC 自动检测、手动指定并启动五类专业软件；“已找到应用”与“MCP 已连接”严格分开；小T只可打开管理工具面，不可静默启动外部应用；
-- 新增官方 MCP TypeScript Client 驱动的 stdio Capability Host，可导入绝对路径配置、连接/断开并发现真实工具；小T先按需查询工具 schema，再请求调用，Electron Main 每次显示一次性原生确认。工具结果过滤二进制、内联 URL、base64 和超长文本；
+- 新增 `tanva.desktop-connectors` 可信内置插件，通过受控 IPC 自动检测、手动指定并启动参考包中的 SketchUp、Rhino、Grasshopper、AutoCAD、Photoshop、3ds Max、Revit、Illustrator、InDesign 连接器；另提供 Windows MCP 能力入口。“已找到应用”与“MCP 已连接”严格分开；小T只可打开管理工具面，不可静默启动外部应用；
+- 新增官方 MCP TypeScript Client 驱动的 Capability Host，可导入绝对路径 stdio 配置或受控 HTTPS/本机回环 HTTP（Streamable HTTP/SSE）配置，连接/断开并发现真实工具；小T先按需查询工具 schema，再请求调用，Electron Main 每次显示一次性原生确认。工具结果过滤二进制、内联 URL、base64 和超长文本；
+- 桌面任务头提供技能选择器，建筑设计、专业软件 MCP、PPT/XLSX、DOCX/PDF 等选择保存在设备偏好；新建对话沿用选择，并把当前技能清单作为小T宿主上下文的一部分，未选择的专业技能不会被模型臆造调用；
 - 新增桌面浏览器验收，覆盖项目内直接发起会话、Work/项目/Chat 折叠、拖拽归属、项目与会话菜单、失焦、`⌘K`、`⌘B`、画布边界、PPT/Excel 文件工作台和连接器工具面；
 - macOS arm64 未签名目录包已经完成实际启动验证。
 
-当前尚未实现五类专业软件桥接的随包分发、HTTP MCP、Utility Process 隔离、外部插件安装、签名/完整性、自动更新和正式签名公证。详细实现见 `frontend/docs/desktop/02-Electron与工具面插件实现.md`，逐项对齐状态见 `frontend/docs/desktop/04-Codex交互对齐清单.md`，JZXZ 证据与映射见 `frontend/docs/desktop/03-JZXZ能力拆解与Tanva映射.md`。
+当前尚未实现专业软件桥接的随包分发、Utility Process 隔离、外部插件安装、签名/完整性、自动更新和正式签名公证。HTTP MCP 已支持受控 HTTPS/本机回环 HTTP（Streamable HTTP/SSE），但仍需在 Windows 及对应专业软件环境完成正式桥接和端到端验收。详细实现见 `frontend/docs/desktop/02-Electron与工具面插件实现.md`，逐项对齐状态见 `frontend/docs/desktop/04-Codex交互对齐清单.md`，JZXZ 证据与映射见 `frontend/docs/desktop/03-JZXZ能力拆解与Tanva映射.md`。

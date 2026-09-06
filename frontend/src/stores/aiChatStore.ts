@@ -167,6 +167,7 @@ import {
   TANVA_CANVAS_PLUGIN_ID,
   TANVA_DESKTOP_CONNECTORS_PLUGIN_ID,
 } from "@/desktop/plugins/pluginIds";
+import { getSelectedDesktopSkills } from "@/desktop/desktopSkillState";
 import {
   resolveDesktopTaskMode,
   useDesktopTaskContextStore,
@@ -8874,6 +8875,11 @@ export const useAIChatStore = create<AIChatState>()(
                 connectorName: connector.connectorName,
                 tools: connector.tools.slice(0, 80),
               })),
+              selectedSkills: getSelectedDesktopSkills().map((skill) => ({
+                id: skill.id,
+                name: skill.name,
+                description: skill.description,
+              })),
               hostTools: [
                 ...TANVA_CAPABILITY_MANIFEST.hostTools,
                 ...(window.tanvaDesktop?.isElectron
@@ -8882,6 +8888,12 @@ export const useAIChatStore = create<AIChatState>()(
                         name: "open_desktop_connectors",
                         description:
                           "打开 Tanva 桌面版的本机应用连接中心。用户要连接、检测、配置或启动 SketchUp、Rhino、Grasshopper、AutoCAD、Photoshop 时调用；宿主只打开受控管理界面，不自动启动外部应用。",
+                        parameters: {},
+                      },
+                      {
+                        name: "open_report_builder",
+                        description:
+                          "打开作品汇报制作器，配置章节、素材、展示形式、页面样式和播放效果；用户要生成建筑作品汇报时调用。",
                         parameters: {},
                       },
                       ...(desktopMcpTools.length > 0
@@ -8948,6 +8960,7 @@ export const useAIChatStore = create<AIChatState>()(
                     : ""
                 }；视频生成优先用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9），但纯文本→视频若该模型仅支持图生，请改用支持文生的模型（见 notes 视频两路径）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
                 `【生成规格偏好】用户当前图片比例=${state.aspectRatio ?? "自动"}、图片尺寸=${state.imageSize ?? "自动"}；视频比例=${state.videoAspectRatio ?? "自动"}、视频时长=${state.videoDurationSeconds ? `${state.videoDurationSeconds}秒` : "自动"}。用户本轮文字明确指定规格时以文字为准，否则创建图片/视频节点时必须采用这些结构化偏好。`,
+                `【当前桌面技能】${getSelectedDesktopSkills().map((skill) => skill.name).join("、")}。涉及本机软件或文件时优先遵循已选技能；未选技能不得臆造对应工具。`,
               ],
             };
             // 视频节点改写目标解析（用户明确选择 = 强制对齐，高于小T自选）：
@@ -9305,7 +9318,73 @@ export const useAIChatStore = create<AIChatState>()(
                   event.data?.arguments && typeof event.data.arguments === "object"
                     ? (event.data.arguments as Record<string, unknown>)
                     : {};
-                if (toolName === "open_desktop_connectors") {
+                if (toolName === "query_canvas") {
+                  hostToolHandled = true;
+                  const scope =
+                    toolArgs.scope === "selected" ||
+                    toolArgs.scope === "ids" ||
+                    toolArgs.scope === "neighbors" ||
+                    toolArgs.scope === "search"
+                      ? toolArgs.scope
+                      : "summary";
+                  const requestedIds = Array.isArray(toolArgs.nodeIds)
+                    ? toolArgs.nodeIds
+                        .filter((value): value is string => typeof value === "string")
+                        .slice(0, 12)
+                    : [];
+                  const query =
+                    typeof toolArgs.query === "string"
+                      ? toolArgs.query.trim().toLowerCase()
+                      : "";
+                  const includedNodes = snapshot.nodes.filter((node) => {
+                    if (scope === "selected") return node.selected === true;
+                    if (scope === "ids") return requestedIds.includes(String(node.id || ""));
+                    if (scope === "search") {
+                      return `${node.id || ""} ${node.type || ""} ${JSON.stringify(node.data || {})}`
+                        .toLowerCase()
+                        .includes(query);
+                    }
+                    return true;
+                  }).slice(0, scope === "summary" ? 0 : 12);
+                  const canvasResult = scope === "summary"
+                    ? buildXiaotCanvasRequestContext(snapshot, input).summary
+                    : {
+                        scope,
+                        nodes: includedNodes,
+                        edges: snapshot.edges.filter((edge) =>
+                          includedNodes.some((node) =>
+                            String(node.id || "") === String(edge.source || "") ||
+                            String(node.id || "") === String(edge.target || "")
+                          )
+                        ).slice(0, 16),
+                      };
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: `已查询画布（${scope}）：\n\n${JSON.stringify(canvasResult, null, 2)}`,
+                    metadata: { ...(msg.metadata || {}), xiaotHostTool: toolName, canvasQueryScope: scope },
+                  }));
+                } else if (toolName === "query_capabilities") {
+                  hostToolHandled = true;
+                  const requestedTypes = Array.isArray(toolArgs.nodeTypes)
+                    ? toolArgs.nodeTypes
+                        .filter((value): value is string => typeof value === "string")
+                        .slice(0, 12)
+                    : [];
+                  const capabilities = TANVA_CAPABILITY_MANIFEST.nodeSpecs.filter((spec) =>
+                    requestedTypes.includes(spec.type)
+                  );
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: capabilities.length > 0
+                      ? `已查询节点能力：\n\n${JSON.stringify(capabilities, null, 2)}`
+                      : "没有找到请求的节点能力，请使用当前能力清单中的 type。",
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      xiaotHostTool: toolName,
+                      capabilityQueryTypes: requestedTypes,
+                    },
+                  }));
+                } else if (toolName === "open_desktop_connectors") {
                   hostToolHandled = true;
                   requestDesktopSurface({
                     pluginId: TANVA_DESKTOP_CONNECTORS_PLUGIN_ID,
@@ -9318,6 +9397,79 @@ export const useAIChatStore = create<AIChatState>()(
                     metadata: {
                       ...(msg.metadata || {}),
                       xiaotHostTool: toolName,
+                    },
+                  }));
+                } else if (toolName === "open_report_builder") {
+                  hostToolHandled = true;
+                  window.dispatchEvent(new CustomEvent("tanva:open-report-builder"));
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: "已打开作品汇报制作器。配置素材、章节和页面样式后，可以提交给小T生成汇报网页。",
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      xiaotHostTool: toolName,
+                    },
+                  }));
+                } else if (toolName === "query_desktop_tools") {
+                  hostToolHandled = true;
+                  const requestedConnectorId =
+                    typeof toolArgs.connectorId === "string"
+                      ? toolArgs.connectorId
+                      : "";
+                  const query =
+                    typeof toolArgs.query === "string"
+                      ? toolArgs.query.trim().toLowerCase()
+                      : "";
+                  const requestedNames = Array.isArray(toolArgs.toolNames)
+                    ? toolArgs.toolNames
+                        .filter((value): value is string => typeof value === "string")
+                        .map((value) => value.trim())
+                        .filter(Boolean)
+                        .slice(0, 12)
+                    : [];
+                  const candidates = desktopMcpTools
+                    .filter(
+                      (connector) =>
+                        !requestedConnectorId ||
+                        connector.connectorId === requestedConnectorId
+                    )
+                    .flatMap((connector) =>
+                      connector.tools.map((tool) => ({ connector, tool }))
+                    )
+                    .filter(({ tool }) => {
+                      if (
+                        requestedNames.length > 0 &&
+                        !requestedNames.includes(tool.name)
+                      ) {
+                        return false;
+                      }
+                      if (!query) return true;
+                      return `${tool.name} ${tool.description || ""}`
+                        .toLowerCase()
+                        .includes(query);
+                    })
+                    .slice(0, 20);
+                  const resultText = candidates.length > 0
+                    ? `已查询到 ${candidates.length} 个本机工具：\n\n${candidates
+                        .map(
+                          ({ connector, tool }) =>
+                            `- ${connector.connectorName} / ${tool.name} [${tool.risk}]${
+                              tool.description ? `：${tool.description}` : ""
+                            }\n  参数 schema：${JSON.stringify(tool.inputSchema || {}, null, 2)}`
+                        )
+                        .join("\n")}`
+                    : "没有找到符合条件的本机工具。请先在本机应用连接中心连接 MCP 服务。";
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: resultText,
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      xiaotHostTool: toolName,
+                      desktopToolQuery: {
+                        connectorId: requestedConnectorId || null,
+                        query: query || null,
+                        count: candidates.length,
+                      },
                     },
                   }));
                 } else if (toolName === "call_desktop_tool") {

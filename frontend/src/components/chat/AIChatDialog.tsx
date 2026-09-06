@@ -114,6 +114,17 @@ import XiaotCards from "@/components/chat/XiaotCards";
 import XiaotStyleAnchorButton from "@/components/chat/XiaotStyleAnchorButton";
 import { openDesktopMediaPreview } from "@/desktop/media/mediaPreviewState";
 
+const openDesktopTarget = (href: unknown): boolean => {
+  const target = typeof href === "string" ? href.trim() : "";
+  const bridge = window.tanvaDesktop;
+  if (!target || !bridge?.isElectron || typeof bridge.openTarget !== "function") return false;
+  const isUrl = /^https?:\/\//i.test(target);
+  const isPath = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(target);
+  if (!isUrl && !isPath) return false;
+  void bridge.openTarget(target, isUrl ? "url" : "path").catch(() => undefined);
+  return true;
+};
+
 type ManualModeOption = {
   value: ManualAIMode;
   label: string;
@@ -246,6 +257,68 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
 
   return null;
 };
+
+const MarkdownCodeBlock = ({ children, className, inline }: any) => {
+  const [copied, setCopied] = useState(false);
+  const isInline = Boolean(inline);
+  const code = String(children ?? "").replace(/\n$/, "");
+
+  if (isInline) {
+    return <code className='rounded bg-gray-100 px-1 text-xs'>{children}</code>;
+  }
+
+  const language = String(className).replace(/^.*language-/, "").trim();
+  const copyCode = async () => {
+    if (!code) return;
+    try {
+      await writeClipboardText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // The surrounding chat already exposes message-level copy feedback.
+    }
+  };
+
+  return (
+    <div className='mb-1 overflow-hidden rounded border border-slate-200 bg-gray-100'>
+      <div className='flex items-center justify-between border-b border-slate-200 px-2 py-1 text-[10px] text-slate-500'>
+        <span>{language || "code"}</span>
+        <button
+          type='button'
+          onClick={(event) => {
+            event.stopPropagation();
+            void copyCode();
+          }}
+          className='rounded px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-white hover:text-slate-950'
+          aria-label='复制代码'
+          title='复制代码'
+        >
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+      <pre className='overflow-x-auto p-2 text-xs'>
+        <code>{children}</code>
+      </pre>
+    </div>
+  );
+};
+
+// The block renderer owns its outer <pre>; without this override
+// react-markdown would wrap the toolbar card in a second, invalid <pre>.
+const MarkdownPre = ({ children }: any) => <>{children}</>;
+
+const markdownToPlainText = (markdown: string) => markdown
+  .replace(/```[^\n]*\n?/g, '')
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+  .replace(/^\s*[-*+]\s+/gm, '• ')
+  .replace(/^\s*\d+\.\s+/gm, '')
+  .replace(/(^|\s)([*_~]{1,3})(?=\S)/g, '$1')
+  .replace(/(?<=\S)([*_~]{1,3})(?=\s|$)/g, '')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
 
 interface AIChatDialogProps {
   presentation?: "floating" | "embedded";
@@ -1241,6 +1314,13 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
     };
   }, [isPromptPanelOpen]);
 
+  useEffect(() => {
+    const openDesktopConfig = () => setIsPromptPanelOpen(true);
+    window.addEventListener("tanva:open-desktop-config", openDesktopConfig);
+    return () =>
+      window.removeEventListener("tanva:open-desktop-config", openDesktopConfig);
+  }, []);
+
   // 智能历史记录显示：改为默认关闭，只有用户点击才展开
 
   // 自动滚动到最新消息
@@ -1919,7 +1999,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
 
   const handleCopyMessage = useCallback(
     async (message: ChatMessage) => {
-      const text = message.content?.trim();
+      const text = message.type === "ai"
+        ? markdownToPlainText(message.content || "")
+        : message.content?.trim();
       if (!text) {
         showToast("没有可复制的内容", "error");
         return;
@@ -1934,6 +2016,65 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
     },
     [showToast]
   );
+
+  const handleCopyMarkdown = useCallback(
+    async (message: ChatMessage) => {
+      const markdown = message.content?.trim();
+      if (!markdown) {
+        showToast("没有可复制的 Markdown", "error");
+        return;
+      }
+      try {
+        await writeClipboardText(markdown);
+        showToast("已复制 Markdown");
+      } catch (error) {
+        console.error("复制 Markdown 失败", error);
+        showToast("复制失败，请手动复制", "error");
+      }
+    },
+    [showToast]
+  );
+
+  const renderAiMessageActions = (message: ChatMessage) => {
+    if (message.type !== "ai") return null;
+    const hasContent = Boolean(message.content?.trim());
+    return (
+      <div className='mt-1.5 flex items-center gap-1'>
+        <button
+          type='button'
+          disabled={!hasContent}
+          className={cn(
+            "rounded-md p-1.5 text-black transition-colors hover:bg-gray-100/50",
+            !hasContent && "cursor-not-allowed opacity-40 hover:bg-transparent"
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasContent) void handleCopyMessage(message);
+          }}
+          title={hasContent ? "复制" : "暂无可复制的文本"}
+          aria-label={hasContent ? "复制 AI 消息" : "暂无可复制的文本"}
+        >
+          <Copy className='h-3.5 w-3.5' />
+        </button>
+        <button
+          type='button'
+          disabled={!hasContent}
+          className={cn(
+            "rounded-md p-1.5 text-black transition-colors hover:bg-gray-100/50",
+            !hasContent && "cursor-not-allowed opacity-40 hover:bg-transparent"
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasContent) void handleCopyMarkdown(message);
+          }}
+          title={hasContent ? "复制 Markdown" : "暂无可复制的 Markdown"}
+          aria-label={hasContent ? "复制 Markdown" : "暂无可复制的 Markdown"}
+        >
+          <FileText className='h-3.5 w-3.5' />
+        </button>
+      </div>
+    );
+  };
 
   const handleResendMessage = useCallback(
     (message: ChatMessage, resendInfo: ResendInfo | null) => {
@@ -3356,6 +3497,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
       >
         <div
         ref={dialogRef}
+        data-chat-presentation={presentation}
         data-prevent-add-panel
         // 文档拖拽落点 = 整个对话框：用户拖文件时不会精准瞄准底部输入条，
         // 只挂输入区会让人以为"拖了没反应"。挂根节点后对话框任意位置都能接。
@@ -3535,6 +3677,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
           {/* 输入区域 */}
           <div
             ref={inputAreaRef}
+            data-chat-composer
             className={cn(
               "order-2 flex-shrink-0 relative",
               showHistory && !isMaximized && "mt-auto",
@@ -5404,20 +5547,23 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                           ? "失败"
                                           : "执行中";
                                     return (
-                                      <div className='mb-2 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-[2px]'>
-                                        <div className='mb-1.5 flex items-center justify-between gap-2'>
+                                      <details
+                                        open={agentTrace.status !== "completed"}
+                                        className='mb-2 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-[2px]'
+                                      >
+                                        <summary className='flex cursor-pointer list-none items-center justify-between gap-2'>
                                           <div className='flex min-w-0 items-center gap-1.5 font-medium text-slate-800'>
                                             <Brain className='h-3.5 w-3.5 shrink-0 text-slate-500' />
                                             <span className='truncate'>
-                                              Agent 计划
+                                              执行过程
                                             </span>
                                           </div>
                                           <span className='shrink-0 text-[11px] text-slate-500'>
                                             {statusLabel}
                                           </span>
-                                        </div>
-                                        <div className='space-y-1'>
-                                          {steps.slice(0, 5).map((step) => {
+                                        </summary>
+                                        <div className='mt-1.5 space-y-1'>
+                                          {steps.slice(0, 12).map((step) => {
                                             const isRunning =
                                               step.status === "running";
                                             const isDone =
@@ -5463,7 +5609,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                             {agentTrace.error}
                                           </div>
                                         ) : null}
-                                      </div>
+                                      </details>
                                     );
                                   })()}
                                   {(() => {
@@ -5633,20 +5779,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                           {children}
                                         </h3>
                                       ),
+                                      pre: MarkdownPre,
                                       code: ({ children, ...props }: any) => {
-                                        const inline = !(
-                                          "className" in props &&
-                                          props.className?.includes("language-")
-                                        );
-                                        return inline ? (
-                                          <code className='px-1 text-xs bg-gray-100 rounded'>
-                                            {children}
-                                          </code>
-                                        ) : (
-                                          <pre className='p-1 mb-1 overflow-x-auto text-xs bg-gray-100 rounded'>
-                                            <code>{children}</code>
-                                          </pre>
-                                        );
+                                        return <MarkdownCodeBlock {...props}>{children}</MarkdownCodeBlock>;
                                       },
                                       blockquote: ({ children }) => (
                                         <blockquote className='pl-2 mb-1 text-xs italic border-l-2 border-gray-300'>
@@ -5659,6 +5794,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                           className='text-blue-600 hover:underline'
                                           target='_blank'
                                           rel='noopener noreferrer'
+                                          onClick={(event) => {
+                                            if (openDesktopTarget(href)) event.preventDefault();
+                                          }}
                                         >
                                           {children}
                                         </a>
@@ -5732,6 +5870,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                       void processUserInput(text);
                                     }}
                                   />
+                                  {renderAiMessageActions(message)}
                                 </div>
                               ) : null;
                               const resendInfo =
@@ -5747,6 +5886,8 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                               return (
                                 <div
                                   key={message.id}
+                                  data-message-id={message.id}
+                                  data-message-type={message.type}
                                   className={cn(
                                     "p-2 transition-colors text-sm",
                                     message.type === "user" &&
@@ -6336,25 +6477,12 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                       {children}
                                                     </h3>
                                                   ),
+                                                  pre: MarkdownPre,
                                                   code: ({
                                                     children,
                                                     ...props
                                                   }: any) => {
-                                                    const inline = !(
-                                                      "className" in props &&
-                                                      props.className?.includes(
-                                                        "language-"
-                                                      )
-                                                    );
-                                                    return inline ? (
-                                                      <code className='px-1 text-xs bg-gray-100 rounded'>
-                                                        {children}
-                                                      </code>
-                                                    ) : (
-                                                      <pre className='p-1 mb-1 overflow-x-auto text-xs bg-gray-100 rounded'>
-                                                        <code>{children}</code>
-                                                      </pre>
-                                                    );
+                                                    return <MarkdownCodeBlock {...props}>{children}</MarkdownCodeBlock>;
                                                   },
                                                   blockquote: ({
                                                     children,
@@ -6369,6 +6497,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                       className='text-blue-600 hover:underline'
                                                       target='_blank'
                                                       rel='noopener noreferrer'
+                                                      onClick={(event) => {
+                                                        if (openDesktopTarget(href)) event.preventDefault();
+                                                      }}
                                                     >
                                                       {children}
                                                     </a>
@@ -6444,31 +6575,12 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                               {children}
                                             </h3>
                                           ),
+                                          pre: MarkdownPre,
                                           code: ({
                                             children,
                                             ...props
                                           }: any) => {
-                                            const inline = !(
-                                              "className" in props &&
-                                              props.className?.includes(
-                                                "language-"
-                                              )
-                                            );
-                                            return inline ? (
-                                              <code
-                                                className='bg-gray-100 px-0.5 rounded'
-                                                style={{ fontSize: "0.7rem" }}
-                                              >
-                                                {children}
-                                              </code>
-                                            ) : (
-                                              <pre
-                                                className='bg-gray-100 p-0.5 rounded overflow-x-auto mb-0.5'
-                                                style={{ fontSize: "0.7rem" }}
-                                              >
-                                                <code>{children}</code>
-                                              </pre>
-                                            );
+                                            return <MarkdownCodeBlock {...props}>{children}</MarkdownCodeBlock>;
                                           },
                                           blockquote: ({ children }) => (
                                             <blockquote className='border-l-2 border-gray-300 pl-1 italic mb-0.5'>
@@ -6481,6 +6593,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                               className='text-blue-600 hover:underline'
                                               target='_blank'
                                               rel='noopener noreferrer'
+                                              onClick={(event) => {
+                                                if (openDesktopTarget(href)) event.preventDefault();
+                                              }}
                                             >
                                               {children}
                                             </a>

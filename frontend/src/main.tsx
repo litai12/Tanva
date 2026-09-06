@@ -50,6 +50,7 @@ function RootRoutes() {
   return (
     <>
       <Routes>
+        {import.meta.env.DEV && <Route path="/electro-preview" element={<Navigate to="/?desktopPreview=1" replace />} />}
         <Route path="/" element={<Home />} />
         <Route path="/auth/login" element={<LoginPage />} />
         <Route path="/auth/register" element={<RegisterPage />} />

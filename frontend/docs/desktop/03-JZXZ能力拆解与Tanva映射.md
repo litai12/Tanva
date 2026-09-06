@@ -72,17 +72,20 @@ JZXZ 的主要价值不是一组文档工具，也不是它的 Windows 外壳，
 ### 已落地：桌面连接基础
 
 - `tanva.desktop-connectors` 作为第二个可信内置插件注册；
-- Electron Main 通过白名单 IPC 检测、手动指定并启动 SketchUp、Rhino、Grasshopper、AutoCAD、Photoshop；
+- Electron Main 通过白名单 IPC 检测、手动指定并启动 SketchUp、Rhino、Grasshopper、AutoCAD、Photoshop、3ds Max、Revit、Illustrator、InDesign；Windows MCP 作为无宿主应用的系统能力入口；
 - 配置保存在 Electron `userData/connectors.json`，Renderer 不获得文件系统或任意 Shell；
 - 小T获得 `open_desktop_connectors` 宿主工具，只能打开管理工具面，不能静默启动外部应用；
-- UI 把“应用已找到”和“MCP 已连接”分开；用户可导入无密钥 stdio 配置，Main 使用官方 MCP Client 完成握手并展示真实工具；
+- UI 把“应用已找到”和“MCP 已连接”分开；用户可导入无密钥 stdio 或受控 HTTPS/本机回环 HTTP（Streamable HTTP/SSE）配置，Main 使用官方 MCP Client 完成握手并展示真实工具；
+- 连接器工具面提供本机 HTTP MCP 快速入口，Grasshopper 默认使用 `http://127.0.0.1:26929/mcp`，也可替换为其他受控 SSE/Streamable HTTP 地址；
+- MCP 导入器兼容参考包 `MCP.Servers` 配置数组和运行时占位符，导入 `appsettings.json` 后会按连接器名称选择对应服务并在 Capability Host 校验前解析路径；
+- `electron-builder` 已接入 `desktop-bundle` 资源槽位，内置 MCP 模板仅在运行时和 launcher 文件均存在时标记为已配置；资源缺失不会生成虚假的可用连接状态；
 - 小T通过 `query_desktop_tools` 按需读取真实工具名、风险和 schema，再用 `call_desktop_tool` 请求执行；Main 每次显示原生确认，用户取消时绝不调用；
 - 工具结果只回传受限文本；二进制、内联 URL、长 base64 和超长结果被清除或截断；
 - “扩展”中只有需要配置的连接器提供一个“管理”入口，Tanva 画布继续只由小T按需唤起。
 
 ### 已落地的 Capability Host 基础与下一步
 
-1. 已实现 stdio 生命周期、工具发现、四级风险分类和逐次确认；下一步补 Streamable HTTP，旧 SSE 仅作兼容；
+1. 已实现 stdio 与 Streamable HTTP/SSE 生命周期、工具发现、四级风险分类和逐次确认；HTTP 仅允许 HTTPS 或本机回环 HTTP，配置头禁止携带凭据；
 2. 为每个连接器固定来源、版本、哈希、命令、环境变量白名单与输出根目录；
 3. 把当前通用结果文本升级为结构化回执：目标文档、前后版本、输出资产、日志和重试语义；
 4. 将 Main 内的 host 迁移到 Utility Process，外部服务崩溃不得影响窗口生命周期；
@@ -98,7 +101,7 @@ JZXZ 的主要价值不是一组文档工具，也不是它的 Windows 外壳，
 
 ## 6. 完成定义
 
-“拥有 JZXZ 能力”不能以显示五个软件图标为完成标准。至少要同时满足：
+“拥有 JZXZ 能力”不能以显示软件图标为完成标准。至少要同时满足：
 
 1. 真实连接并列出工具；
 2. 小T可在当前任务中请求工具，但未经授权不能执行高风险动作；

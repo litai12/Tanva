@@ -8,6 +8,7 @@ import {
   TANVA_ARTIFACTS_PLUGIN_ID,
   TANVA_CANVAS_PLUGIN_ID,
   TANVA_MEDIA_PREVIEW_PLUGIN_ID,
+  TANVA_REPORT_BUILDER_PLUGIN_ID,
 } from './plugins/builtins';
 import {
   DESKTOP_ARTIFACT_OPEN_EVENT,
@@ -43,6 +44,12 @@ export default function DesktopShell() {
   const previousSessionId = useRef(currentSessionId);
   const sidebarVisible = useDesktopTaskContextStore((state) => state.sidebarVisible);
   const toggleSidebar = useDesktopTaskContextStore((state) => state.toggleSidebar);
+
+  useEffect(() => {
+    const openReportBuilder = () => openSurface(TANVA_REPORT_BUILDER_PLUGIN_ID, 'docked');
+    window.addEventListener('tanva:open-report-builder', openReportBuilder);
+    return () => window.removeEventListener('tanva:open-report-builder', openReportBuilder);
+  }, [openSurface]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {

@@ -14,6 +14,10 @@ dist
 dist-ssr
 frontend/release
 frontend/tmp/desktop-acceptance/
+# User-supplied professional-app runtimes are staged locally and are not
+# committed to the repository. Keep the audited bundle layout and importer
+# script versioned while allowing a machine-specific Settings tree.
+frontend/desktop-bundle/Settings/
 *.local
 
 # Editor directories and files

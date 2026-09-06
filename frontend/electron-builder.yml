@@ -10,10 +10,17 @@ files:
   - app-lifecycle.mjs
   - preload.cjs
   - capability-host.mjs
+  - desktop-runtime.mjs
+  - mcp-config-normalizer.mjs
+  - desktop-mcp-templates.mjs
   - package.json
 extraResources:
   - from: ../dist
     to: renderer
+    filter:
+      - "**/*"
+  - from: ../desktop-bundle
+    to: desktop-bundle
     filter:
       - "**/*"
 extraMetadata:

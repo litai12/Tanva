@@ -159,14 +159,14 @@ npm run pack:desktop
 - `pack:desktop` 先构建前端，再产生未签名的本机目录包；
 - `build:desktop` 产生平台安装包，正式分发前仍需完成 Apple/Windows 签名、公证与更新通道配置。
 
-Electron 冒烟模式会在页面加载后等待真实 React 渲染，并要求 `#root` 具有子节点与非空文本，同时验证连接器 IPC 返回五个内置连接器。仅存在空 `#root` 不再被视为启动成功。Main 进程也会记录 `did-fail-load` 和 Renderer warning/error，便于定位安装包环境特有问题。
+Electron 冒烟模式会在页面加载后等待真实 React 渲染，并要求 `#root` 具有子节点与非空文本，同时验证连接器 IPC 返回内置连接器。仅存在空 `#root` 不再被视为启动成功。Main 进程也会记录 `did-fail-load` 和 Renderer warning/error，便于定位安装包环境特有问题。
 
 macOS arm64 验证产物位于 `frontend/release/mac-arm64/Tanva.app`。该目录属于本地构建产物，不应提交版本库。
 
 ## 8. 下一阶段
 
-1. 为五类专业应用锁定并审计具体开源桥接版本，提供签名安装器和真实软件版本矩阵；
-2. 在 stdio 之外补充 Streamable HTTP；旧 SSE 只作为受限兼容层；
+1. 为各类专业应用锁定并审计具体开源桥接版本，提供签名安装器和真实软件版本矩阵；
+2. 已补充受控 Streamable HTTP/SSE；远程仅允许 HTTPS，本机调试仅允许回环 HTTP，凭据不进入 MCP 配置文件；
 3. 把 MCP 工具活动统一接到 `pluginId + action + resourceId`，保存调用证据、目标文档版本和结果资产；
 4. 将 Capability Host 进一步移入独立 Utility Process，增加 CPU/内存/超时/崩溃恢复和输出目录隔离；
 5. 增加本地项目 RAG、macOS/Windows 签名、公证、自动更新与回滚；

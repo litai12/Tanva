@@ -154,6 +154,12 @@ function ChoicesCard({
 }) {
   const record = asRecord(payload);
   const question = typeof record?.question === "string" ? record.question : "";
+  const allowOther = record?.allowOther === true || record?.allow_other === true;
+  const stillPending = record?.stillPending !== false && record?.answered !== true;
+  const restoredChoice =
+    typeof record?.chosenValue === "string" ? record.chosenValue.trim() : "";
+  const [otherOpen, setOtherOpen] = React.useState(false);
+  const [otherValue, setOtherValue] = React.useState("");
   const options: ChoiceOption[] = Array.isArray(record?.options)
     ? (record!.options as unknown[])
         .map((opt): ChoiceOption | null => {
@@ -168,6 +174,14 @@ function ChoicesCard({
         .filter((opt): opt is ChoiceOption => opt !== null)
     : [];
   if (options.length === 0) return null;
+  const disabledChoice = Boolean(disabled) || !stillPending || Boolean(restoredChoice);
+  const submitOther = () => {
+    const value = otherValue.trim();
+    if (!value || disabledChoice) return;
+    onSend(value);
+    setOtherValue("");
+    setOtherOpen(false);
+  };
   return (
     <div className={cardShellClass}>
       {question && (
@@ -178,11 +192,11 @@ function ChoicesCard({
           <button
             key={`${option.label}-${idx}`}
             type='button'
-            disabled={disabled}
+            disabled={disabledChoice}
             onClick={() => onSend(option.label)}
             className={cn(
               "rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1.5 text-left transition-colors dark:border-white/15 dark:bg-white/10",
-              disabled
+              disabledChoice
                 ? "cursor-not-allowed opacity-50"
                 : "hover:border-slate-400 hover:bg-slate-100 dark:hover:border-white/40 dark:hover:bg-white/20"
             )}
@@ -196,6 +210,49 @@ function ChoicesCard({
           </button>
         ))}
       </div>
+      {allowOther && (
+        <div className='mt-1.5'>
+          {!otherOpen ? (
+            <button
+              type='button'
+              disabled={disabledChoice}
+              onClick={() => setOtherOpen(true)}
+              className={cn(
+                'rounded-md border border-dashed border-slate-300 bg-white px-2.5 py-1.5 text-left text-[11px] text-slate-600 dark:border-white/25 dark:bg-white/10 dark:text-slate-300',
+                disabledChoice ? 'cursor-not-allowed opacity-50' : 'hover:border-slate-400 hover:bg-slate-100 dark:hover:bg-white/20'
+              )}
+            >
+              其他…
+            </button>
+          ) : (
+            <div className='flex items-center gap-1.5'>
+              <input
+                autoFocus
+                value={otherValue}
+                onChange={(event) => setOtherValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitOther();
+                  if (event.key === 'Escape') setOtherOpen(false);
+                }}
+                placeholder='输入你的答案…'
+                aria-label='其他答案'
+                className='min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-slate-400 dark:border-white/20 dark:bg-white/10'
+              />
+              <button
+                type='button'
+                disabled={!otherValue.trim() || disabledChoice}
+                onClick={submitOther}
+                className='rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40'
+              >
+                提交
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {restoredChoice && (
+        <div className='mt-1.5 text-[11px] text-slate-500'>已选择：{restoredChoice}</div>
+      )}
     </div>
   );
 }

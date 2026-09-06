@@ -31,11 +31,13 @@ declare global {
       clipboard: Readonly<{
         writeText: (text: string) => Promise<boolean>;
       }>;
+      openTarget: (target: string, kind?: 'url' | 'path') => Promise<{ ok: boolean; error?: string }>;
       connectors: Readonly<{
         list: () => Promise<DesktopConnectorStatus[]>;
         configure: (connectorId: string) => Promise<boolean | null>;
         launch: (connectorId: string) => Promise<{ ok: boolean; error?: string }>;
         configureMcp: (connectorId: string) => Promise<DesktopMcpStatus | null>;
+        connectMcpUrl: (connectorId: string, config: { type: 'sse' | 'streamable-http'; url: string }) => Promise<DesktopMcpStatus | null>;
         connectMcp: (connectorId: string) => Promise<DesktopMcpStatus>;
         disconnectMcp: (connectorId: string) => Promise<DesktopMcpStatus>;
         listTools: (connectorId: string) => Promise<DesktopMcpTool[]>;
@@ -55,6 +57,7 @@ declare global {
     available: boolean;
     source: 'configured' | 'discovered' | 'missing';
     transport: DesktopMcpTransportStatus;
+    protocol: DesktopMcpProtocol;
     toolCount: number;
     error: string | null;
   }
@@ -68,9 +71,12 @@ declare global {
 
   interface DesktopMcpStatus {
     transport: DesktopMcpTransportStatus;
+    protocol: DesktopMcpProtocol;
     toolCount: number;
     error: string | null;
   }
+
+  type DesktopMcpProtocol = 'stdio' | 'streamable-http' | 'sse';
 
   interface DesktopMcpTool {
     name: string;

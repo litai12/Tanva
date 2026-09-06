@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-09-05：依据 jzxz_pc_1.1.15 安装包实际 WebUI 结构，将桌面聊天皮肤与 Tanva 真实 DesktopShell 合并；本机 MCP 工具面新增风险标记、逐次执行按钮与主进程授权结果反馈。
+- 2026-09-05：补齐小T本机 MCP 工具查询事件处理；查询结果会回写当前任务，随后可继续走 Electron 一次性授权与真实工具执行。
+- 2026-09-05：桌面任务头部新增“新建对话（保留已选技能）”与“修改配置”，分别复用会话状态和现有助手配置面板。
+- 2026-09-05：Capability Host 增加受控 Streamable HTTP / SSE MCP 传输；仅允许 HTTPS 或本机回环 HTTP，禁止在配置头中携带认证密钥。
+- 2026-09-05：MCP 工具执行在主进程授权前增加 inputSchema 必填字段、基础类型、整数、枚举和数组项校验，减少无效或误参数调用外部应用。
+- 2026-09-05：连接器工具面新增本机 HTTP MCP 地址快捷连接，Grasshopper 默认填充 `http://127.0.0.1:26929/mcp`；地址仍由 Capability Host 按 SSE/Streamable HTTP 白名单校验并经 Electron 原生确认后连接。
+- 2026-09-05：AI 消息补齐参考 WebUI 的复制与复制 Markdown 操作，统一经过 Tanva 剪贴板桥接并在无内容时禁用。
+- 2026-09-05：桌面连接器目录扩展到参考包中的 3ds Max、Revit、Illustrator、InDesign 与 Windows MCP；统一复用应用发现、配置、MCP 连接、工具查询和逐次授权链路。
+- 2026-09-05：桌面技能选择器按参考包 `Settings/Skills` 扩展到 Grasshopper、Revit、3ds Max、Illustrator、InDesign、Windows、网页汇报、建筑案例素材和 MCP 配置，并兼容旧版 DOCX/PDF 偏好值。
+- 2026-09-05：MCP 导入器支持参考包 `MCP.Servers` 数组格式，兼容 `Name/Type/Endpoint/Command/Args/Cwd/Env` 字段和 `GrasshopperMCP` 等带后缀服务名；可直接解析随包运行时占位符。
+- 2026-09-05：新增桌面 Skill/runtime 安装资源槽位 `desktop-bundle`、内置 MCP launcher 模板和存在性检查；有完整资源时连接器可直接连接，缺少运行时或入口文件时不会标记为已配置。
+
 - 2026-09-04：统一免费积分衰减资格。非 VIP/白名单用户的注册赠送 `promo` 批次及未被 CreditLot 覆盖的历史非付费余额（无已支付订单）也进入每日衰减，不再因旧账缺少 lot 标记而永久保留；付费用户的无法追溯混合余额仍不自动扣除。
 
 - 2026-09-04：Flow 前端移除 Seedance 2.0/2.5 参考视频与参考音频的时长预检，不再因 15.1 秒等容器尾差在浏览器本地拦截；原始远程引用直接提交给上游，素材数量、任务类型、输出规格及后端计费时长探测保持不变。
@@ -1219,3 +1231,21 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 登录页与登录弹窗的二维码刷新增加 5 秒可见冷却；请求期间和冷却期间禁止重复点击，刷新时保留当前二维码直到新会话创建成功。
 - 二维码创建接口按匿名浏览器 visitor ID（旧客户端回退真实 IP + User-Agent）实施 5 秒服务端限流；Redis 可用时跨实例原子生效，绕过前端的重复请求返回 HTTP 429。
 - 同一进程并发获取微信公众号 access token 时复用 in-flight 请求，避免微信缓存未命中时并发穿透。
+# 2026-09-05 — JZXZ 核心宿主能力继续对齐
+
+- 桌面小T补齐 `query_canvas` 与 `query_capabilities` 宿主事件：可按范围读取当前项目画布摘要/选中节点/邻接关系，并按节点类型查询可用能力规格，结果回写到真实会话消息元数据。
+- 复刻对照文档更新为当前事实：Capability Host 已支持受控 HTTPS/本机回环 HTTP 的 Streamable HTTP/SSE MCP；尚未完成项收敛为专业软件桥接随包分发、Windows Utility Process、外部插件安装、签名/更新和正式 Windows 验收。
+- 小T `choices` 卡补齐参考 WebUI 的交互闭环：可点选、输入“其他”、回车提交，并能根据回放数据显示已选项；旧桌面状态缺少 protocol 字段时连接器面仍按 stdio 兼容渲染。
+- 桌面任务头新增技能选择器，内置建筑设计、专业软件 MCP、PPT/XLSX、DOCX/PDF 等技能；选择写入设备级桌面偏好，新建对话沿用选择，并随每次小T请求下发当前技能清单。
+- 桌面 AI 消息中的 HTTP(S) 链接和绝对本地路径接入受控 `tanva:open-target` IPC：分别交给系统浏览器或系统默认应用打开，网页端仍使用原生链接行为。
+- 连接器工具面支持在快速连接时选择 SSE 或 Streamable HTTP；参考程序导出的 UTF-8 BOM `appsettings.json` 可直接导入；AI 消息“复制”复制渲染后的纯文本，“复制 Markdown”保留原始 Markdown。
+- Electron 打包显式包含桌面运行时解析、参考 MCP 配置归一化和内置模板模块，并随包带 `desktop-bundle` 资源槽位；当前仅验证目录与模板机制，未伪造专业软件运行时或桥接资源。
+- 小T执行过程卡片改为可折叠时间线，完成回合默认收拢、执行中保持展开，并展示最多 12 个步骤；本机工具查询结果同时回传真实 `inputSchema`，便于下一步调用使用准确参数。
+- 新增 `scripts/importDesktopBundle.mjs`：可从用户提供的参考安装目录导入隔离 Python/Node、MCP Skills 及其依赖到 `desktop-bundle/Settings`，先 dry-run 统计文件量，再用 `--force` 写入；跨平台状态检查不会把 Windows `.exe` 误报为 macOS 可执行。
+- 增加 `pack:desktop:win` NSIS 构建入口，并让运行时解析器支持显式 Windows 平台测试；参考 WindowsMCP 的 `serve` 启动参数和资源路径已纳入安装包模板。
+## 2026-09-06
+
+- **桌面版作品汇报主流程**：新增与参考程序对应的作品汇报制作工具面，支持素材上传到 OSS、章节启停与自定义、网页/PPT 展示形式、语言、页面风格、播放动画和演示者模式；配置按会话之外的本地偏好保存，持久化素材只保留远程引用，生成时提交完整 JSON 给小T并复用现有 HTML/PPT 产物链路。
+- **桌面版宿主工具**：新增 `open_report_builder` 宿主工具，使小T可以按用户意图打开作品汇报制作器。
+- **作品汇报产物路线**：网页模式明确加载 `design-presentation-web` 并要求生成可编辑 HTML、打开文件工作台；PPT 模式明确加载 `pptx-generator`、校验真实 PPTX 并通过 `present_file` 交付，避免回退到旧模板工具。
+- **配置交付**：作品汇报制作器新增配置 JSON 和大纲 Markdown 下载；导出前过滤 `data:`、`blob:`、`flow-asset:` 等临时资源，只输出远程 URL/路径引用。

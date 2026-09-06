@@ -5,14 +5,29 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   DesktopCapabilityHost,
-  validateStdioServerConfig,
+  validateMcpServerConfig,
+  validateToolArguments,
 } from './capability-host.mjs';
 import { createQuitCoordinator } from './app-lifecycle.mjs';
+import {
+  resolveDesktopRuntimePaths,
+  resolveMcpConfigPlaceholders,
+} from './desktop-runtime.mjs';
+import { parseJsonDocument, selectMcpServer } from './mcp-config-normalizer.mjs';
+import {
+  getBundledMcpConfig,
+  isBundledMcpConfigAvailable,
+} from './desktop-mcp-templates.mjs';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(currentDir, '..');
 const devRendererUrl = process.env.ELECTRON_RENDERER_URL?.trim() || null;
 const trustedDevOrigin = devRendererUrl ? new URL(devRendererUrl).origin : null;
+const desktopRuntimePaths = resolveDesktopRuntimePaths({
+  packaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  frontendRoot,
+});
 
 const connectorDefinitions = Object.freeze({
   sketchup: {
@@ -40,6 +55,31 @@ const connectorDefinitions = Object.freeze({
     name: 'Photoshop',
     darwin: ['/Applications/Adobe Photoshop 2026/Adobe Photoshop 2026.app', '/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app', '/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app'],
     win32: ['Adobe/Adobe Photoshop 2026/Photoshop.exe', 'Adobe/Adobe Photoshop 2025/Photoshop.exe', 'Adobe/Adobe Photoshop 2024/Photoshop.exe'],
+  },
+  '3dsmax': {
+    name: '3ds Max',
+    darwin: [],
+    win32: ['Autodesk/3ds Max 2026/3dsmax.exe', 'Autodesk/3ds Max 2025/3dsmax.exe', 'Autodesk/3ds Max 2024/3dsmax.exe'],
+  },
+  revit: {
+    name: 'Revit',
+    darwin: [],
+    win32: ['Autodesk/Revit 2026/Revit.exe', 'Autodesk/Revit 2025/Revit.exe', 'Autodesk/Revit 2024/Revit.exe'],
+  },
+  illustrator: {
+    name: 'Illustrator',
+    darwin: ['/Applications/Adobe Illustrator 2026/Adobe Illustrator.app', '/Applications/Adobe Illustrator 2025/Adobe Illustrator.app'],
+    win32: ['Adobe/Adobe Illustrator 2026/Support Files/Contents/Windows/Illustrator.exe', 'Adobe/Adobe Illustrator 2025/Support Files/Contents/Windows/Illustrator.exe'],
+  },
+  indesign: {
+    name: 'InDesign',
+    darwin: ['/Applications/Adobe InDesign 2026/Adobe InDesign.app', '/Applications/Adobe InDesign 2025/Adobe InDesign.app'],
+    win32: ['Adobe/Adobe InDesign 2026/InDesign.exe', 'Adobe/Adobe InDesign 2025/InDesign.exe'],
+  },
+  windows: {
+    name: 'Windows',
+    darwin: [],
+    win32: [],
   },
 });
 
@@ -151,11 +191,34 @@ const installClipboardIpc = () => {
   });
 };
 
+const installExternalTargetIpc = () => {
+  ipcMain.handle('tanva:open-target', async (event, value) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted external target request');
+    const target = typeof value?.target === 'string' ? value.target.trim() : '';
+    const kind = value?.kind === 'path' ? 'path' : 'url';
+    if (!target || target.length > 8 * 1024 || /[\u0000\u0001-\u0008\u000b\u000c\u000e-\u001f]/.test(target)) {
+      throw new Error('打开目标无效');
+    }
+    if (kind === 'url') {
+      let url;
+      try { url = new URL(target); } catch { throw new Error('外部链接无效'); }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('只允许打开 HTTP(S) 链接');
+      }
+      await shell.openExternal(url.toString());
+      return { ok: true };
+    }
+    if (!isAbsolute(target)) throw new Error('本地路径必须是绝对路径');
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+};
+
 const getConnectorSettingsPath = () => join(app.getPath('userData'), 'connectors.json');
 
 const readConnectorSettings = async () => {
   try {
-    const parsed = JSON.parse(await readFile(getConnectorSettingsPath(), 'utf8'));
+    const parsed = parseJsonDocument(await readFile(getConnectorSettingsPath(), 'utf8'));
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
@@ -191,9 +254,18 @@ const resolveConnectors = async () => {
     const configuredPath = typeof settings[id] === 'string' ? settings[id] : null;
     const validConfiguredPath = configuredPath && existsSync(configuredPath) ? configuredPath : null;
     const executablePath = validConfiguredPath || discoverConnectorPath(definition);
+    const savedMcpConfig = settings.mcpServers?.[id]
+      ? resolveMcpConfigPlaceholders(settings.mcpServers[id], desktopRuntimePaths)
+      : null;
+    const bundledMcpConfig = getBundledMcpConfig(id, desktopRuntimePaths);
+    const effectiveMcpConfig = savedMcpConfig ||
+      (isBundledMcpConfigAvailable(bundledMcpConfig) ? bundledMcpConfig : null);
     const mcpStatus = capabilityHost.getStatus(
       id,
-      Boolean(settings.mcpServers?.[id])
+      Boolean(effectiveMcpConfig),
+      effectiveMcpConfig?.type === 'sse' || effectiveMcpConfig?.type === 'streamable-http'
+        ? effectiveMcpConfig.type
+        : 'stdio'
     );
     return {
       id,
@@ -208,12 +280,10 @@ const resolveConnectors = async () => {
 };
 
 const getMcpConfigFromDocument = (document, connectorId) => {
-  if (!document || typeof document !== 'object') throw new Error('MCP 配置文件不是有效对象');
-  const candidate = document.mcpServers?.[connectorId] || document;
-  if (candidate?.type && candidate.type !== 'stdio') {
-    throw new Error('当前版本只接受 stdio MCP 配置');
-  }
-  return candidate;
+  return resolveMcpConfigPlaceholders(
+    selectMcpServer(document, connectorId),
+    desktopRuntimePaths
+  );
 };
 
 const redactToolArguments = (value, depth = 0) => {
@@ -285,7 +355,7 @@ const installConnectorIpc = () => {
     if (!definition) throw new Error('Unknown connector');
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
-      title: `导入 ${definition.name} 的 stdio MCP 配置`,
+      title: `导入 ${definition.name} 的 MCP 配置`,
       properties: ['openFile'],
       filters: [{ name: 'MCP JSON 配置', extensions: ['json'] }],
     };
@@ -295,11 +365,16 @@ const installConnectorIpc = () => {
     if (result.canceled || !result.filePaths[0]) return null;
     const raw = await readFile(result.filePaths[0], 'utf8');
     if (raw.length > 128 * 1024) throw new Error('MCP 配置文件过大');
-    const config = validateStdioServerConfig(
-      getMcpConfigFromDocument(JSON.parse(raw), connectorId)
+    const config = validateMcpServerConfig(
+      getMcpConfigFromDocument(parseJsonDocument(raw), connectorId)
     );
-    if (!existsSync(config.command)) throw new Error('MCP command 不存在');
-    if (config.cwd && !existsSync(config.cwd)) throw new Error('MCP cwd 不存在');
+    if (config.type === 'stdio') {
+      if (!existsSync(config.command)) throw new Error('MCP command 不存在');
+      if (config.cwd && !existsSync(config.cwd)) throw new Error('MCP cwd 不存在');
+    }
+    const connectionTarget = config.type === 'stdio'
+      ? `程序：${config.command}\n参数：${config.args.join(' ').slice(0, 2_000)}${config.cwd ? `\n工作目录：${config.cwd}` : ''}`
+      : `传输：${config.type === 'sse' ? 'SSE' : 'Streamable HTTP'}\n地址：${config.url}`;
     const confirmationOptions = {
       type: 'warning',
       buttons: ['取消', '连接并启动'],
@@ -307,8 +382,8 @@ const installConnectorIpc = () => {
       cancelId: 0,
       noLink: true,
       title: '确认启动本机 MCP 服务',
-      message: `允许 Tanva 启动 ${definition.name} 的 MCP 服务？`,
-      detail: `程序：${config.command}\n参数：${config.args.join(' ').slice(0, 2_000)}${config.cwd ? `\n工作目录：${config.cwd}` : ''}\n\n服务将作为本机子进程运行。工具执行仍会逐次询问。`,
+      message: `允许 Tanva 连接 ${definition.name} 的 MCP 服务？`,
+      detail: `${connectionTarget}\n\n工具执行仍会逐次询问。`,
     };
     const confirmation = owner
       ? await dialog.showMessageBox(owner, confirmationOptions)
@@ -329,15 +404,63 @@ const installConnectorIpc = () => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
     const settings = await readConnectorSettings();
-    const config = settings.mcpServers?.[connectorId];
+    const savedConfig = settings.mcpServers?.[connectorId]
+      ? resolveMcpConfigPlaceholders(settings.mcpServers[connectorId], desktopRuntimePaths)
+      : null;
+    const bundledConfig = getBundledMcpConfig(connectorId, desktopRuntimePaths);
+    const config = savedConfig ||
+      (isBundledMcpConfigAvailable(bundledConfig) ? bundledConfig : null);
     if (!config) throw new Error('尚未导入 MCP 配置');
     return capabilityHost.connect(connectorId, config);
+  });
+  ipcMain.handle('tanva:connectors:connect-mcp-url', async (event, connectorId, rawConfig) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
+    const definition = connectorDefinitions[connectorId];
+    if (!definition) throw new Error('Unknown connector');
+    const config = validateMcpServerConfig(rawConfig);
+    if (config.type !== 'sse' && config.type !== 'streamable-http') {
+      throw new Error('本机地址连接只支持 HTTP MCP');
+    }
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const confirmationOptions = {
+      type: 'warning',
+      buttons: ['取消', '连接并启动'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: '确认连接 MCP 地址',
+      message: `允许 Tanva 连接 ${definition.name} 的 MCP 服务？`,
+      detail: `传输：${config.type === 'sse' ? 'SSE' : 'Streamable HTTP'}\n地址：${config.url}\n\n工具执行仍会逐次询问。`,
+    };
+    const confirmation = owner
+      ? await dialog.showMessageBox(owner, confirmationOptions)
+      : await dialog.showMessageBox(confirmationOptions);
+    if (confirmation.response !== 1) return null;
+    const status = await capabilityHost.connect(connectorId, config);
+    const settings = await readConnectorSettings();
+    settings.mcpServers = {
+      ...(settings.mcpServers && typeof settings.mcpServers === 'object' ? settings.mcpServers : {}),
+      [connectorId]: config,
+    };
+    await writeConnectorSettings(settings);
+    return status;
   });
   ipcMain.handle('tanva:connectors:disconnect-mcp', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
     await capabilityHost.disconnect(connectorId);
-    return capabilityHost.getStatus(connectorId, true);
+    const settings = await readConnectorSettings();
+    const savedConfig = settings.mcpServers?.[connectorId]
+      ? resolveMcpConfigPlaceholders(settings.mcpServers[connectorId], desktopRuntimePaths)
+      : null;
+    const bundledConfig = getBundledMcpConfig(connectorId, desktopRuntimePaths);
+    const effectiveConfig = savedConfig ||
+      (isBundledMcpConfigAvailable(bundledConfig) ? bundledConfig : null);
+    const configuredProtocol = effectiveConfig?.type === 'sse' ||
+      effectiveConfig?.type === 'streamable-http'
+      ? effectiveConfig.type
+      : 'stdio';
+    return capabilityHost.getStatus(connectorId, Boolean(effectiveConfig), configuredProtocol);
   });
   ipcMain.handle('tanva:connectors:list-tools', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
@@ -352,6 +475,10 @@ const installConnectorIpc = () => {
       .listTools(connectorId)
       .find((candidate) => candidate.name === toolName);
     if (!tool) throw new Error('MCP 工具不存在或尚未连接');
+    // Reject malformed arguments before showing a native approval prompt. This
+    // keeps the confirmation dialog meaningful and avoids approving a call that
+    // the MCP server will reject immediately.
+    validateToolArguments(tool.inputSchema, args);
     const encodedArgs = JSON.stringify(args || {});
     if (encodedArgs.length > 64 * 1024) throw new Error('MCP 工具参数过大');
     const owner = BrowserWindow.fromWebContents(event.sender);
@@ -508,7 +635,7 @@ const createMainWindow = async () => {
       console.log(
         `[tanva-smoke] renderer-ready=${smoke.rendererReady} connector-count=${smoke.connectorCount} broken-app-images=${smoke.brokenAppImageCount}`
       );
-      app.exit(smoke.rendererReady && smoke.connectorCount === 5 ? 0 : 1);
+      app.exit(smoke.rendererReady && smoke.connectorCount === Object.keys(connectorDefinitions).length ? 0 : 1);
     });
   }
 
@@ -536,6 +663,7 @@ app.whenReady().then(async () => {
   installConnectorIpc();
   installAuthSessionIpc();
   installClipboardIpc();
+  installExternalTargetIpc();
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const trusted = isTrustedAppUrl(webContents.getURL());

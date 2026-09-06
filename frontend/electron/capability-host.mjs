@@ -1,4 +1,8 @@
-import { Client } from '@modelcontextprotocol/client';
+import {
+  Client,
+  SSEClientTransport,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 import {
   StdioClientTransport,
   getDefaultEnvironment,
@@ -10,6 +14,7 @@ const MAX_ENV_KEYS = 64;
 const MAX_TOOLS = 500;
 const MAX_SCHEMA_CHARS = 12_000;
 const MAX_RESULT_CHARS = 24_000;
+const MAX_HTTP_HEADERS = 32;
 
 const withTimeout = async (promise, timeoutMs, message) => {
   let timer;
@@ -61,6 +66,46 @@ export const validateStdioServerConfig = (value) => {
   };
 };
 
+export const validateHttpServerConfig = (value) => {
+  if (!value || typeof value !== 'object') throw new Error('MCP 配置必须是对象');
+  const type = value.type === 'sse' ? 'sse' : 'streamable-http';
+  const rawUrl = typeof value.url === 'string' ? value.url.trim() : '';
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error('HTTP MCP url 必须是有效 URL');
+  }
+  const localHttp = url.protocol === 'http:' &&
+    ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !localHttp) {
+    throw new Error('HTTP MCP 只允许 HTTPS，或本机 localhost HTTP');
+  }
+  const rawHeaders = value.headers && typeof value.headers === 'object' ? value.headers : {};
+  const entries = Object.entries(rawHeaders);
+  if (
+    entries.length > MAX_HTTP_HEADERS ||
+    entries.some(([key, item]) => !/^[A-Za-z0-9-]+$/.test(key) || typeof item !== 'string' || item.length > 2048)
+  ) {
+    throw new Error(`HTTP MCP headers 必须是不超过 ${MAX_HTTP_HEADERS} 项的短字符串`);
+  }
+  if (entries.some(([key]) => /(authorization|token|key|secret|password|credential)/i.test(key))) {
+    throw new Error('HTTP MCP 配置不能内含密钥；凭据必须进入系统安全存储');
+  }
+  return {
+    type,
+    url: url.toString(),
+    ...(entries.length > 0 ? { headers: Object.fromEntries(entries) } : {}),
+  };
+};
+
+export const validateMcpServerConfig = (value) => {
+  if (value?.type === 'streamable-http' || value?.type === 'sse' || value?.url) {
+    return validateHttpServerConfig(value);
+  }
+  return { type: 'stdio', ...validateStdioServerConfig(value) };
+};
+
 export const classifyDesktopToolRisk = (name) => {
   const normalized = String(name || '').toLowerCase();
   if (/(eval|execute|run[_-]?script|shell|command|terminal)/.test(normalized)) return 'script';
@@ -87,6 +132,54 @@ const sanitizeTools = (tools) =>
     inputSchema: sanitizeSchema(tool?.inputSchema),
     risk: classifyDesktopToolRisk(tool?.name),
   }));
+
+const describeType = (value) => {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value;
+};
+
+export const validateToolArguments = (schema, args) => {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('MCP 工具参数必须是对象');
+  }
+  const root = schema && typeof schema === 'object' ? schema : {};
+  const walk = (value, node, path) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node.enum) && !node.enum.some((candidate) => Object.is(candidate, value))) {
+      throw new Error(`${path} 不在允许的枚举值中`);
+    }
+    if (typeof node.type === 'string') {
+      const actual = describeType(value);
+      const expected = node.type === 'integer' ? 'number' : node.type;
+      if (expected === 'number' && (actual !== 'number' || !Number.isFinite(value))) {
+        throw new Error(`${path} 必须是数字`);
+      }
+      if (expected !== 'number' && actual !== expected) {
+        throw new Error(`${path} 必须是 ${expected}`);
+      }
+      if (node.type === 'integer' && !Number.isInteger(value)) {
+        throw new Error(`${path} 必须是整数`);
+      }
+    }
+    if (node.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const properties = node.properties && typeof node.properties === 'object' ? node.properties : {};
+      for (const required of Array.isArray(node.required) ? node.required : []) {
+        if (typeof required === 'string' && !(required in value)) {
+          throw new Error(`${path}.${required} 为必填参数`);
+        }
+      }
+      for (const [key, child] of Object.entries(properties)) {
+        if (key in value) walk(value[key], child, `${path}.${key}`);
+      }
+    }
+    if (node.type === 'array' && Array.isArray(value) && node.items) {
+      value.slice(0, 100).forEach((item, index) => walk(item, node.items, `${path}[${index}]`));
+    }
+  };
+  walk(args, root, '参数');
+  return args;
+};
 
 const sanitizeToolResult = (result) => {
   const textParts = [];
@@ -116,17 +209,19 @@ export class DesktopCapabilityHost {
     this.connectTimeoutMs = options.connectTimeoutMs || 45_000;
   }
 
-  getStatus(connectorId, configured = false) {
+  getStatus(connectorId, configured = false, configuredProtocol = 'stdio') {
     const connection = this.connections.get(connectorId);
     if (!connection) {
       return {
         transport: configured ? 'configured' : 'not-configured',
+        protocol: configuredProtocol,
         toolCount: 0,
         error: null,
       };
     }
     return {
       transport: connection.status,
+      protocol: connection.protocol,
       toolCount: connection.tools.length,
       error: connection.error,
     };
@@ -141,9 +236,7 @@ export class DesktopCapabilityHost {
     if (!connection || connection.status !== 'connected') throw new Error('MCP 尚未连接');
     const tool = connection.tools.find((item) => item.name === toolName);
     if (!tool) throw new Error('MCP 工具不存在或工具清单已变化');
-    if (!args || typeof args !== 'object' || Array.isArray(args)) {
-      throw new Error('MCP 工具参数必须是对象');
-    }
+    validateToolArguments(tool.inputSchema, args);
     const result = await withTimeout(
       connection.client.callTool({ name: toolName, arguments: args }),
       120_000,
@@ -153,24 +246,33 @@ export class DesktopCapabilityHost {
   }
 
   async connect(connectorId, rawConfig) {
-    const config = validateStdioServerConfig(rawConfig);
+    const config = validateMcpServerConfig(rawConfig);
     await this.disconnect(connectorId);
 
     const client = new Client(
       { name: 'tanva-desktop', version: '0.1.0' },
       { versionNegotiation: { mode: 'legacy' } }
     );
-    const transport = new StdioClientTransport({
-      command: config.command,
-      args: config.args,
-      ...(config.cwd ? { cwd: config.cwd } : {}),
-      env: { ...getDefaultEnvironment(), ...config.env },
-      stderr: 'pipe',
-      maxBufferSize: 10 * 1024 * 1024,
-    });
+    const transport = config.type === 'streamable-http'
+      ? new StreamableHTTPClientTransport(new URL(config.url), {
+          ...(config.headers ? { requestInit: { headers: config.headers } } : {}),
+        })
+      : config.type === 'sse'
+        ? new SSEClientTransport(new URL(config.url), {
+            ...(config.headers ? { requestInit: { headers: config.headers } } : {}),
+          })
+        : new StdioClientTransport({
+            command: config.command,
+            args: config.args,
+            ...(config.cwd ? { cwd: config.cwd } : {}),
+            env: { ...getDefaultEnvironment(), ...config.env },
+            stderr: 'pipe',
+            maxBufferSize: 10 * 1024 * 1024,
+          });
     const connection = {
       client,
       transport,
+      protocol: config.type,
       status: 'connecting',
       tools: [],
       error: null,
