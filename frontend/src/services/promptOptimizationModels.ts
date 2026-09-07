@@ -1,20 +1,18 @@
 export const PROMPT_OPTIMIZATION_MODELS = [
-  "gpt-5.6-luna",
-  "gpt-5.6-terra",
+  "deepseek-v4-flash",
 ] as const;
 
 export type PromptOptimizationModel =
   (typeof PROMPT_OPTIMIZATION_MODELS)[number];
 
 export const DEFAULT_PROMPT_OPTIMIZATION_MODEL: PromptOptimizationModel =
-  "gpt-5.6-terra";
+  "deepseek-v4-flash";
 
 export const PROMPT_OPTIMIZATION_MODEL_OPTIONS: ReadonlyArray<{
   label: string;
   value: PromptOptimizationModel;
 }> = [
-  { label: "GPT-5.6 Luna", value: "gpt-5.6-luna" },
-  { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
+  { label: "DeepSeek V4 Flash", value: "deepseek-v4-flash" },
 ];
 
 export const resolvePromptOptimizationModel = (

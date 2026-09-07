@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   );
   const textChatResult = await allowed.harness.textChat(
     {
-      prompt: 'Text Chat shares the prompt optimizer Right route',
+      prompt: 'Text Chat shares the prompt optimizer DeepSeek route',
       model: 'gpt-5.6-luna',
       aiProvider: 'banana-2.5',
       billingTag: 'text_chat',
@@ -111,20 +111,20 @@ async function main(): Promise<void> {
   assert.equal(allowed.providerCalls[0]?.requestModel, 'deepseek-v4-flash-260425');
   assert.match(allowed.providerCalls[0]?.prompt || '', /待审核请求/);
   assert.deepEqual(allowed.providerCalls[1], {
-    gatewayModel: 'tanvas-right-gpt-5.6-luna',
+    gatewayModel: 'deepseek-v4-flash',
     providerName: 'new-api',
-    requestModel: 'tanvas-right-gpt-5.6-luna',
-    prompt: 'Text Chat shares the prompt optimizer Right route',
+    requestModel: 'deepseek-v4-flash',
+    prompt: 'Text Chat shares the prompt optimizer DeepSeek route',
     providerOptions: undefined,
   });
   assert.deepEqual(allowed.billingCalls[0], {
     serviceType: 'gemini-text',
-    model: 'gpt-5.6-luna',
+    model: 'deepseek-v4-flash',
   });
 
   await allowed.harness.textChat(
     {
-      prompt: 'Prompt Optimizer uses the same direct Right route',
+      prompt: 'Prompt Optimizer uses the same direct DeepSeek route',
       model: 'gpt-5.6-terra',
       aiProvider: 'midjourney',
       billingTag: 'prompt_optimize',
@@ -134,15 +134,15 @@ async function main(): Promise<void> {
   );
   assert.equal(allowed.providerCalls[2]?.requestModel, 'deepseek-v4-flash-260425');
   assert.deepEqual(allowed.providerCalls[3], {
-    gatewayModel: 'tanvas-right-gpt-5.6-terra',
+    gatewayModel: 'deepseek-v4-flash',
     providerName: 'new-api',
-    requestModel: 'tanvas-right-gpt-5.6-terra',
-    prompt: 'Prompt Optimizer uses the same direct Right route',
+    requestModel: 'deepseek-v4-flash',
+    prompt: 'Prompt Optimizer uses the same direct DeepSeek route',
     providerOptions: undefined,
   });
   assert.deepEqual(allowed.billingCalls[1], {
     serviceType: 'gemini-prompt-optimize',
-    model: 'gpt-5.6-terra',
+    model: 'deepseek-v4-flash',
   });
 
   const rejected = createHarness(

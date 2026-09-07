@@ -176,40 +176,40 @@ export const CREDIT_PRICING_CONFIG = {
     },
   },
 
-  // GPT 文字服务（统一经 new-api 网关）
+  // DeepSeek 文字服务（统一经 new-api 网关）
   'gemini-text': {
-    serviceName: 'GPT-5.6 文字对话',
+    serviceName: 'DeepSeek V4 Flash 文字对话',
     provider: 'new-api',
     creditsPerCall: 5,
-    description: '通过 new-api 使用 GPT-5.6 Terra 进行文字对话',
+    description: '通过 new-api 使用 DeepSeek V4 Flash 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-prompt-optimize': {
-    serviceName: 'GPT-5.6 提示词优化',
+    serviceName: 'DeepSeek V4 Flash 提示词优化',
     provider: 'new-api',
     creditsPerCall: 5,
-    description: '通过 new-api Right 使用 GPT-5.6 优化提示词',
+    description: '通过 new-api 使用 DeepSeek V4 Flash 优化提示词',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-tool-selection': {
-    serviceName: 'GPT-5.6 工具选择',
+    serviceName: 'DeepSeek V4 Flash 工具选择',
     provider: 'new-api',
     creditsPerCall: 0,
-    description: '通过 new-api Right 使用 GPT-5.6 进行智能工具选择',
+    description: '通过 new-api 使用 DeepSeek V4 Flash 进行智能工具选择',
   },
   'gemini-paperjs': {
-    serviceName: 'GPT-5.6 Paper.js 生成',
+    serviceName: 'DeepSeek V4 Flash Paper.js 生成',
     provider: 'new-api',
     creditsPerCall: 10,
-    description: '通过 new-api 使用 GPT-5.6 生成 Paper.js 矢量代码',
+    description: '通过 new-api 使用 DeepSeek V4 Flash 生成 Paper.js 矢量代码',
   },
   'gemini-img2vector': {
-    serviceName: 'GPT-5.6 图像转矢量',
+    serviceName: 'DeepSeek V4 Flash 图像转矢量',
     provider: 'new-api',
     creditsPerCall: 16,
-    description: '通过 new-api 使用 GPT-5.6 将图像转换为 Paper.js 矢量代码',
+    description: '通过 new-api 使用 DeepSeek V4 Flash 将图像转换为 Paper.js 矢量代码',
   },
   'gemini-video-analyze': {
     serviceName: '视频分析',

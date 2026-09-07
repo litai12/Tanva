@@ -44,17 +44,6 @@ type ResearchKeywordExtractionMode = 'hybrid' | 'ai' | 'rule';
 type ResearchKeywordExtractionSource = 'hybrid' | 'ai' | 'rule' | 'rule_fallback' | 'prompt_fallback';
 
 const RUN_TTL_MS = 60 * 60 * 1000;
-const PROVIDER_DEFAULT_TEXT_MODELS: Record<string, string> = {
-  gemini: 'gpt-5.6-luna',
-  'gemini-pro': 'gpt-5.6-luna',
-  banana: 'gpt-5.6-luna',
-  'banana-2.5': 'gpt-5.6-luna',
-  'banana-3.1': 'gpt-5.6-luna',
-  runninghub: 'gpt-5.6-luna',
-  midjourney: 'gpt-5.6-luna',
-  nano2: 'gpt-5.6-luna',
-  seedream5: 'gpt-5.6-luna',
-};
 
 @Injectable()
 export class AgentRuntimeService {
@@ -703,13 +692,8 @@ export class AgentRuntimeService {
     return providerName && providerName !== 'gemini' ? providerName : null;
   }
 
-  private resolveResearchTextModel(providerName: string | null, requestedModel?: string): string {
-    const model = requestedModel?.trim();
-    if (model?.length) return model;
-    if (providerName) {
-      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gpt-5.6-luna';
-    }
-    return PROVIDER_DEFAULT_TEXT_MODELS.gemini;
+  private resolveResearchTextModel(_providerName: string | null, _requestedModel?: string): string {
+    return 'deepseek-v4-flash';
   }
 
   private async extractResearchKeywordsWithMode(options: {

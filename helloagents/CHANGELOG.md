@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-07 剩余 GPT 文本入口统一 DeepSeek（本地）
+
+- 提示词优化、普通 Text Chat、工具选择、Paper.js/HTML PPT、Agent 研究与默认文本请求统一使用 DeepSeek V4 Flash；迁移旧 GPT/Right 模型参数并移除 GPT 文本能力展示。
+- 带图文本及图像转矢量改为 Gemini 识图后交 DeepSeek；识图失败阻止后续生成。GPT Image 2 保留。前后端构建和定向路由/终态/计费回归通过；未部署。
+
 ## 2026-09-07 小T固定 DeepSeek V4 Flash（本地）
 
 - 网页、桌面、作品汇报统一仅提供 DeepSeek；迁移历史 GPT 模型偏好，移除桌面强制 Luna 及前后端跨模型失败重试。

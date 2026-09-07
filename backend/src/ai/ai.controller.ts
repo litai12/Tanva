@@ -198,17 +198,17 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gpt-5.6-terra',
-    'gemini-pro': 'gpt-5.6-terra',
-    banana: 'gpt-5.6-terra',
-    'banana-2.5': 'gpt-5.6-terra',
-    'banana-3.1': 'gpt-5.6-terra',
-    'deepseek-v4-flash': 'gpt-5.6-terra',
-    'deepseek-v4-pro': 'gpt-5.6-terra',
-    runninghub: 'gpt-5.6-terra',
-    midjourney: 'gpt-5.6-terra',
-    nano2: 'gpt-5.6-terra',
-    seedream5: 'gpt-5.6-terra',
+    gemini: 'deepseek-v4-flash',
+    'gemini-pro': 'deepseek-v4-flash',
+    banana: 'deepseek-v4-flash',
+    'banana-2.5': 'deepseek-v4-flash',
+    'banana-3.1': 'deepseek-v4-flash',
+    'deepseek-v4-flash': 'deepseek-v4-flash',
+    'deepseek-v4-pro': 'deepseek-v4-flash',
+    runninghub: 'deepseek-v4-flash',
+    midjourney: 'deepseek-v4-flash',
+    nano2: 'deepseek-v4-flash',
+    seedream5: 'deepseek-v4-flash',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.5-flash',
@@ -1078,10 +1078,9 @@ export class AiController {
     const aiProvider = providerName || 'gemini';
     const requestModel =
       typeof extraParams?.model === 'string' ? extraParams.model.trim().toLowerCase() : '';
-    const isGatewayGptTextRequest =
+    const isGatewayTextRequest =
       requestModel === 'gpt-5.4' ||
       requestModel === 'gpt-5.6-luna' ||
-      requestModel === 'gpt-5.6-terra' ||
       requestModel === 'deepseek-v4-flash';
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
@@ -1091,7 +1090,7 @@ export class AiController {
         ? extraParams.channelHint.trim()
         : undefined;
     const channelHint =
-      isGatewayGptTextRequest
+      isGatewayTextRequest
         ? 'new-api'
         : bananaImageRoute === 'stable'
         ? 'tencent'
@@ -1109,7 +1108,7 @@ export class AiController {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
-      ...(!isGatewayGptTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
+      ...(!isGatewayTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
     };
   }
 
@@ -3723,16 +3722,8 @@ export class AiController {
     throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
   }
 
-  private resolveTextModel(providerName: string | null, requestedModel?: string): string {
-    const model = requestedModel?.trim();
-    if (model?.length) {
-      this.logger.debug(`[${providerName || 'default'}] Using requested text model: ${model}`);
-      return model;
-    }
-    if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gpt-5.6-terra';
-    }
-    return this.providerDefaultTextModels.gemini;
+  private resolveTextModel(_providerName: string | null, requestedModel?: string): string {
+    return resolvePromptOptimizationModel(requestedModel);
   }
 
   private hasVectorIntent(prompt: string): boolean {
@@ -4855,23 +4846,23 @@ export class AiController {
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
-    const usesDirectRightTextRoute =
+    const usesBusinessTextRoute =
       dto.billingTag === 'prompt_optimize' || dto.billingTag === 'text_chat';
-    // Flow Text Chat 与提示词优化共享 Tanvas new-api 的 Right 直连入口；
+    // Flow Text Chat 与提示词优化共享 Tanvas new-api 的 DeepSeek 直连入口；
     // 显式 billingTag 只区分计费产品，不得进入 xiaot-agent facade / durable turn。
     // 未声明 billingTag 的其他历史文本能力保持各自的普通模型链路。
     const providerName =
-      usesDirectRightTextRoute
+      usesBusinessTextRoute
         ? null
         : dto.aiProvider && dto.aiProvider !== 'gemini'
           ? dto.aiProvider
           : null;
     const model =
-      usesDirectRightTextRoute
+      usesBusinessTextRoute
         ? resolvePromptOptimizationModel(dto.model)
         : this.resolveTextModel(providerName, dto.model);
     const gatewayModel =
-      usesDirectRightTextRoute
+      usesBusinessTextRoute
         ? resolvePromptOptimizationGatewayModel(model)
         : model;
     const serviceType: ServiceType =
@@ -4893,7 +4884,7 @@ export class AiController {
 
     return this.withCredits(req, serviceType, model, async () => {
       if (!customApiKey) {
-        if (usesDirectRightTextRoute) {
+        if (usesBusinessTextRoute) {
           const safetyProvider = this.factory.getProvider(
             BUSINESS_TEXT_SAFETY_MODEL,
             'new-api',
@@ -4927,8 +4918,8 @@ export class AiController {
           model: gatewayModel,
           imageUrls: imageUrls.length ? imageUrls : undefined,
           enableWebSearch: dto.enableWebSearch,
-          // 图片线路配置（stable/ultra）不能改变业务文本 token 分组；Right 文本固定走 default。
-          providerOptions: usesDirectRightTextRoute ? undefined : dto.providerOptions,
+          // 图片线路配置（stable/ultra）不能改变业务文本 token 分组；DeepSeek 文本固定走 default。
+          providerOptions: usesBusinessTextRoute ? undefined : dto.providerOptions,
         });
         return requireTerminalTextResult(result);
       }

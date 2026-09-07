@@ -10,7 +10,7 @@ export type BusinessTextSafetyVerdict = {
 
 export function buildBusinessTextSafetyPrompt(input: string): string {
   return [
-    '你是业务文本请求的前置安全审核器。请判断下方“待审核请求”是否可以放行给后续 GPT 模型。',
+    '你是业务文本请求的前置安全审核器。请判断下方“待审核请求”是否可以放行给后续文本模型。',
     '放行必须同时满足：不违反政治合规要求，并且不包含敏感话题。',
     '你只审核用户真正要求生成、转换或讨论的目标内容；不要仅因为外层任务说明中出现“政治”“敏感”等政策词就拒绝。',
     '只输出一个合法 JSON 对象，不要 Markdown、代码围栏、前后缀或额外解释。',

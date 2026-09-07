@@ -1052,8 +1052,8 @@ const withBananaRouteProviderOptions = (
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const STANDARD_TEXT_MODEL = "gpt-5.6-terra";
-const ADVANCED_TEXT_MODEL = "gpt-5.6-luna";
+const STANDARD_TEXT_MODEL = "deepseek-v4-flash";
+const ADVANCED_TEXT_MODEL = "deepseek-v4-flash";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
@@ -8070,7 +8070,7 @@ export const useAIChatStore = create<AIChatState>()(
           snapshotReadyAt = performance.now();
 
           // 2️⃣ 用户消息 + 占位 AI 消息。普通 Auto 模式已经创建过消息时复用它们，
-          // 避免“GPT 工具选择气泡 + 小T气泡”重复出现。
+          // 避免“工具选择气泡 + 小T气泡”重复出现。
           const xiaotUserMessage = !options?.override
             ? get().addMessage({
               type: "user",

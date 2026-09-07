@@ -1,17 +1,15 @@
 export const PROMPT_OPTIMIZATION_MODELS = [
-  'gpt-5.6-luna',
-  'gpt-5.6-terra',
+  'deepseek-v4-flash',
 ] as const;
 
 export type PromptOptimizationModel =
   (typeof PROMPT_OPTIMIZATION_MODELS)[number];
 
 export const DEFAULT_PROMPT_OPTIMIZATION_MODEL: PromptOptimizationModel =
-  'gpt-5.6-terra';
+  'deepseek-v4-flash';
 
 export const PROMPT_OPTIMIZATION_GATEWAY_MODELS = {
-  'gpt-5.6-luna': 'tanvas-right-gpt-5.6-luna',
-  'gpt-5.6-terra': 'tanvas-right-gpt-5.6-terra',
+  'deepseek-v4-flash': 'deepseek-v4-flash',
 } as const satisfies Record<PromptOptimizationModel, string>;
 
 export type PromptOptimizationGatewayModel =

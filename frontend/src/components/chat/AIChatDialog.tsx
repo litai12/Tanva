@@ -770,13 +770,13 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
     t("chat.labels.selectMode");
   const providerButtonLabel =
     manualAIMode === "text"
-      ? "new-api · 小T-5.4"
+      ? "new-api · DeepSeek V4 Flash"
       : manualAIMode === "analyze"
-        ? "new-api · 小T-5.6 Luna"
+        ? "new-api · Gemini"
         : currentProviderOption
           ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
           : t("chat.labels.domesticModel");
-  const isFixedGptMode = manualAIMode === "text" || manualAIMode === "analyze";
+  const isFixedTextOrAnalyzeMode = manualAIMode === "text" || manualAIMode === "analyze";
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -4179,7 +4179,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                       <Button
                         size='sm'
                         variant='outline'
-                        disabled={generationStatus.isGenerating || isFixedGptMode}
+                        disabled={generationStatus.isGenerating || isFixedTextOrAnalyzeMode}
                         data-dropdown-trigger='true'
                         className={cn(
                           "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
@@ -4189,13 +4189,13 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                             : "opacity-50 cursor-not-allowed text-gray-400"
                         )}
                         title={
-                          isFixedGptMode
+                          isFixedTextOrAnalyzeMode
                             ? providerButtonLabel
                             : t("chat.labels.quickSwitchDomesticModel")
                         }
                       >
                         <span className='font-medium'>{providerButtonLabel}</span>
-                        {!isFixedGptMode && (
+                        {!isFixedTextOrAnalyzeMode && (
                           <ChevronDown className='h-3.5 w-3.5 opacity-60' />
                         )}
                       </Button>

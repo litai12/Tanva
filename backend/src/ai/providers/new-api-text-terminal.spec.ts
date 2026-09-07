@@ -235,7 +235,7 @@ async function main(): Promise<void> {
   });
   assert.equal(defaultTextModel.success, true);
   assert.equal(defaultTextModel.data?.text, 'default terra answer');
-  assert.equal(requests.at(-1)?.body.model, 'gpt-5.6-terra');
+  assert.equal(requests.at(-1)?.body.model, 'deepseek-v4-flash');
 
   enqueue(200, {
     error: {

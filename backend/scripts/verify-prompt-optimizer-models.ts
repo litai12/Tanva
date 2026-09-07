@@ -33,16 +33,15 @@ globalThis.fetch = async (_input, init) => {
 
 async function main(): Promise<void> {
   assert.deepEqual(PROMPT_OPTIMIZATION_MODELS, [
-    'gpt-5.6-luna',
-    'gpt-5.6-terra',
+    'deepseek-v4-flash',
   ]);
-  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'gpt-5.6-terra');
-  assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'gpt-5.6-terra');
-  assert.equal(resolvePromptOptimizationModel('GPT-5.6-TERRA'), 'gpt-5.6-terra');
-  assert.equal(resolvePromptOptimizationModel('deepseek-v4-flash'), 'gpt-5.6-terra');
+  assert.equal(DEFAULT_PROMPT_OPTIMIZATION_MODEL, 'deepseek-v4-flash');
+  assert.equal(resolvePromptOptimizationModel('gpt-5.4'), 'deepseek-v4-flash');
+  assert.equal(resolvePromptOptimizationModel('GPT-5.6-TERRA'), 'deepseek-v4-flash');
+  assert.equal(resolvePromptOptimizationModel('deepseek-v4-flash'), 'deepseek-v4-flash');
   assert.equal(
     resolvePromptOptimizationGatewayModel('gpt-5.4'),
-    'tanvas-right-gpt-5.6-terra',
+    'deepseek-v4-flash',
   );
 
   const provider = new NewApiProvider(
@@ -67,7 +66,7 @@ async function main(): Promise<void> {
       (model) => PROMPT_OPTIMIZATION_GATEWAY_MODELS[model],
     ),
   );
-  console.log('prompt optimizer verified direct Right routing passed');
+  console.log('prompt optimizer fixed DeepSeek routing passed');
 }
 
 main()
