@@ -180,6 +180,11 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "720p", cnyPerSecond: 0.8000},
 		{resolution: "1080p", cnyPerSecond: 1.2000},
 	},
+	"wan3.0-video": {
+		{resolution: "480p", cnyPerSecond: 0.45},
+		{resolution: "720p", cnyPerSecond: 0.90},
+		{resolution: "1080p", cnyPerSecond: 1.80},
+	},
 	"wan2.7-i2v": {
 		{resolution: "720p", cnyPerSecond: 0.8000},
 		{resolution: "1080p", cnyPerSecond: 1.2000},

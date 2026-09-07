@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import { CollabEventBus, channelForTeam } from '../team-collab/collab-event-bus.service';
 import type { CollabEnvelope, TeamProjectsChangeAction, TeamProjectsChangedPayload } from '../team-collab/types';
@@ -306,6 +306,34 @@ export class ProjectsService {
         updatedAt: project.updatedAt,
       };
     }
+  }
+
+  /** Operational architecture/BIM/procurement state lives outside design JSON. */
+  async getEngineering(userId: string, id: string, role?: string) {
+    const project = await this.prisma.project.findUnique({ where: { id }, select: { id: true, userId: true } });
+    if (!project) throw new NotFoundException('项目不存在');
+    if (!this.isSuperAdmin(role) && project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    const row = await this.prisma.projectEngineeringState.findUnique({ where: { projectId: id } });
+    return { projectId: id, state: row?.state ?? {}, version: row?.version ?? 1, updatedAt: row?.updatedAt ?? null };
+  }
+
+  async updateEngineering(userId: string, id: string, state: Record<string, unknown>, version?: number, role?: string) {
+    const project = await this.prisma.project.findUnique({ where: { id }, select: { id: true, userId: true } });
+    if (!project) throw new NotFoundException('项目不存在');
+    if (!this.isSuperAdmin(role) && project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    const bytes = Buffer.byteLength(JSON.stringify(state), 'utf8');
+    if (bytes > 8 * 1024 * 1024) throw new BadRequestException('工程业务状态超过 8MB 限制');
+    const current = await this.prisma.projectEngineeringState.findUnique({ where: { projectId: id }, select: { version: true } });
+    if (!current) {
+      if (version !== undefined && version !== 1) throw new ConflictException('工程状态版本已变化，请重新读取');
+      const created = await this.prisma.projectEngineeringState.create({ data: { projectId: id, state: state as Prisma.InputJsonValue, version: 1 } });
+      return { projectId: id, state: created.state, version: created.version, updatedAt: created.updatedAt };
+    }
+    if (version !== undefined && version !== current.version) throw new ConflictException('工程状态版本已变化，请重新读取');
+    const updated = await this.prisma.projectEngineeringState.updateMany({ where: { projectId: id, version: current.version }, data: { state: state as Prisma.InputJsonValue, version: { increment: 1 } } });
+    if (updated.count !== 1) throw new ConflictException('工程状态版本已变化，请重新读取');
+    const row = await this.prisma.projectEngineeringState.findUniqueOrThrow({ where: { projectId: id } });
+    return { projectId: id, state: row.state, version: row.version, updatedAt: row.updatedAt };
   }
 
   async updateContent(

@@ -83,6 +83,7 @@ import Sora2CharacterNode from "./nodes/Sora2CharacterNode";
 import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
 import HappyhorseR2VNode from "./nodes/HappyhorseR2VNode";
+import Wan30VideoNode from "./nodes/Wan30VideoNode";
 import Wan27VideoNode from "./nodes/Wan27VideoNode";
 import OmniFlashExtVideoNode from "./nodes/OmniFlashExtVideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
@@ -201,6 +202,7 @@ import {
   generateWan26R2VViaAPI,
   generateHappyhorseVideoViaAPI,
   generateWan27I2VViaAPI,
+  generateWan30ViaAPI,
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
@@ -1104,6 +1106,7 @@ const rawNodeTypes = guardFlowNodeTypes({
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
   happyhorseR2V: HappyhorseR2VNode,
+  wan30Video: Wan30VideoNode,
   wan27Video: Wan27VideoNode,
   omniFlashExtVideo: OmniFlashExtVideoNode,
   klingVideo: KlingVideoNode,
@@ -1341,6 +1344,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "wan30Video",
   "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
@@ -1417,6 +1421,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "wan30Video",
   "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
@@ -1915,6 +1920,7 @@ const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
   { key: "wan26", zh: "Wan2.6", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 Reference Video", category: "video" },
   { key: "happyhorseR2V", zh: "快乐马", en: "HappyHorse", category: "video" },
+  { key: "wan30Video", zh: "Wan3.0 视频", en: "Wan3.0 Video", category: "video" },
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
   { key: "omniFlashExtVideo", zh: "Gemini Omni Flash", en: "Gemini Omni Flash", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
@@ -2034,6 +2040,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   wan26: "video",
   wan2R2V: "video",
   happyhorseR2V: "video",
+  wan30Video: "video",
   wan27Video: "video",
   omniFlashExtVideo: "video",
   klingVideo: "video",
@@ -2095,6 +2102,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   wan26: { w: 300, h: 320 },
   wan2R2V: { w: 300, h: 360 },
   happyhorseR2V: { w: 300, h: 460 },
+  wan30Video: { w: 300, h: 360 },
   wan27Video: { w: 300, h: 420 },
   omniFlashExtVideo: { w: 300, h: 360 },
   klingVideo: { w: 280, h: 260 },
@@ -2444,6 +2452,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan26: ["video"],
   wan2R2V: ["video"],
   happyhorseR2V: ["video"],
+  wan30Video: ["video"],
   wan27Video: ["video"],
   omniFlashExtVideo: ["video"],
   klingVideo: ["video"],
@@ -2498,6 +2507,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan26: ["image", "text", "audio"],
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
+  wan30Video: ["text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
   omniFlashExtVideo: ["image", "video", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
@@ -2616,6 +2626,10 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "seed-2": "seedVideo",
   "seed-2.0": "seedVideo",
   "seed-2.0-video": "seedVideo",
+  wan30: "wan30Video",
+  "wan3.0": "wan30Video",
+  "wan-3.0": "wan30Video",
+  "wan3.0-video": "wan30Video",
   wan27: "wan27Video",
   "wan-27": "wan27Video",
   "wan2.7": "wan27Video",
@@ -3129,6 +3143,7 @@ const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "wan30Video",
   "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
@@ -3207,6 +3222,7 @@ const resolveVideoDefaultResolution = (
   if (typeof nodeData?.resolution === "string" && nodeData.resolution.trim()) {
     return nodeData.resolution.trim().toUpperCase();
   }
+  if (nodeType === "wan30Video") return "480P";
   if (nodeType === "wan27Video") return "1080P";
   if (
     nodeType === "wan26" ||
@@ -11110,6 +11126,8 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "wan30Video"
+          ? { status: "idle" as const, resolution: "480P", duration: 5, ratio: "adaptive", history: [], boxW: size.w, boxH: size.h }
           : type === "wan27Video"
           ? {
               status: "idle" as const,
@@ -11597,6 +11615,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "wan30Video",
       "omniFlashExtVideo",
       "klingVideo",
       "kling26Video",
@@ -12330,6 +12349,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "wan30Video",
       "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
@@ -12358,6 +12378,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "wan30Video",
       "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
@@ -12391,6 +12412,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
             "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
@@ -12448,6 +12470,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
             "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
@@ -12542,6 +12565,7 @@ function FlowInner() {
             "happyhorseR2V",
             "wan26",
             "wan27Video",
+            "wan30Video",
             "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
@@ -12673,6 +12697,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
             "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
@@ -12731,7 +12756,7 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
-          return ["video", "sora2Video", "wan26", "wan2R2V", "happyhorseR2V", "wan27Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video", "seedVideo", "volcEnhanceVideo"].includes(sourceNode.type || "");
+          return ["video", "sora2Video", "wan26", "wan2R2V", "happyhorseR2V", "wan27Video", "wan30Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video", "seedVideo", "volcEnhanceVideo"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -12800,6 +12825,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
           ].includes(sourceNode.type || "");
         return false;
       }
@@ -12813,6 +12839,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -12839,6 +12866,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "wan30Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -13370,6 +13398,7 @@ function FlowInner() {
           "wan2R2V",
           "happyhorseR2V",
           "wan27Video",
+          "wan30Video",
           "storyboardSplit",
           "midjourneyV7",
           "niji7",
@@ -16508,7 +16537,13 @@ function FlowInner() {
           if (latestData.status !== "running" || latestData.taskId !== taskId) return;
 
           try {
-            const result = await queryVideoTask(provider, taskId);
+            const result: Awaited<ReturnType<typeof queryVideoTask>> = data.videoTaskProvider === "dashscope"
+              ? await (async () => {
+                  const queried = await queryDashscopeTask(taskId);
+                  if (!queried.success) throw new Error(queried.error?.message || "任务查询失败");
+                  return { status: queried.status || "queued", videoUrl: queried.videoUrl, error: queried.error?.message };
+                })()
+              : await queryVideoTask(provider, taskId);
             consecutiveErrors = 0;
             const status = String(result.status || "").toLowerCase();
             if (status === "succeeded" || status === "success") {
@@ -16674,6 +16709,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "wan30Video",
   "sora2Video",
   "klingVideo",
   "kling26Video",
@@ -17852,6 +17888,31 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         return { finalPrompt, errors };
       };
+
+      if (node.type === "wan30Video") {
+        const patchWan30 = (patch: Record<string, unknown>) => setNodes((ns) => ns.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+        try {
+          const { text } = getTextPromptForNode(nodeId);
+          const prompt = text?.trim();
+          if (!prompt) throw new Error("请连接 TextPrompt 并填写视频提示词");
+          patchWan30({ status: "running", error: undefined });
+          const result = await generateWan30ViaAPI({
+            prompt, resolution: String(node.data.resolution || "480P"),
+            duration: Number(node.data.duration ?? 5),
+            clientProjectId: useProjectContentStore.getState().projectId || undefined,
+            clientNodeId: nodeId, clientRunId,
+          });
+          if (!result.success) throw new Error(result.error?.message || "任务提交失败");
+          const taskId = result.data?.taskId || result.data?.task_id;
+          if (!taskId) throw new Error("未返回任务 ID");
+          patchWan30({ status: "running", taskId, apiUsageId: result.apiUsageId,
+            pendingVideoPrompt: prompt, videoTaskProvider: "dashscope", videoTaskStartedAt: Date.now(), error: undefined });
+        } catch (error) {
+          patchWan30({ status: "failed", error: error instanceof Error ? error.message : "任务提交失败" });
+        }
+        return;
+      }
 
       if (node.type === "wan27Video") {
         const projectId = useProjectContentStore.getState().projectId;
@@ -26637,6 +26698,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           n.type === "wan26" ||
           n.type === "wan2R2V" ||
           n.type === "happyhorseR2V" ||
+          n.type === "wan30Video" ||
           n.type === "wan27Video" ||
           n.type === "klingVideo" ||
           n.type === "kling26Video" ||

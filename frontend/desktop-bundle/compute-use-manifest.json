@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "name": "tanva-compute-use",
+  "description": "Canonical action surface for desktop software, local runtimes, project knowledge and renovation operations.",
+  "execution": {"approval": "per-call", "host": "capability-host", "rendererAccess": false, "builtInProjectScope": "construction-store"},
+  "domains": ["sketchup", "blender", "rhino", "grasshopper", "autocad", "revit", "3dsmax", "photoshop", "illustrator", "indesign", "windows", "knowledge", "runtime", "updates", "business", "architecture"],
+  "resultContract": {"requiresTaskId": true, "requiresProjectBinding": true, "assetsMustBeDurableReferences": true}
+}

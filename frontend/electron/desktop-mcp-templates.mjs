@@ -13,7 +13,7 @@ const stdioTemplate = (runtime, skill, script, extra = {}) => ({
  * Return the reference package's built-in MCP configuration for one connector.
  * The template is only usable when the corresponding bundled files exist.
  */
-export const getBundledMcpConfig = (connectorId, runtimePaths, platform = process.platform) => {
+export const getBundledMcpConfig = (connectorId, runtimePaths, platform = process.platform, applicationPath = null) => {
   const baseDir = runtimePaths?.baseDir || '';
   const skillsRoot = join(baseDir, 'Settings', 'Skills');
   if (!baseDir || !runtimePaths) return null;
@@ -44,6 +44,18 @@ export const getBundledMcpConfig = (connectorId, runtimePaths, platform = proces
       cwd: '.',
       env: { MCP_TOOL_PROFILE: 'full', NO_COLOR: '1', PYTHONDONTWRITEBYTECODE: '1' },
     });
+  }
+  if (connectorId === 'blender') {
+    const blenderBinary = applicationPath && platform === 'darwin' && applicationPath.endsWith('.app')
+      ? join(applicationPath, 'Contents', 'MacOS', 'Blender')
+      : applicationPath;
+    const config = stdioTemplate(blenderBinary || runtimePaths.pythonExe, 'blender-mcp', 'blender_bridge.py', {
+      skillsRoot,
+      cwd: '.',
+      env: { NO_COLOR: '1', PYTHONDONTWRITEBYTECODE: '1' },
+    });
+    if (blenderBinary) config.args = ['--background', '--python', ...config.args];
+    return config;
   }
   if (connectorId === 'photoshop') {
     return stdioTemplate(runtimePaths.nodeExe, 'PhotoshopMCP', join('server', 'dist', 'index.js'), {

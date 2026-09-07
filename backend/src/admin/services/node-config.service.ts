@@ -1653,6 +1653,20 @@ export class NodeConfigService {
         description: '参考视频生成',
       },
       {
+        nodeKey: 'wan30Video', nameZh: 'Wan3.0视频生成', nameEn: 'Wan3.0 Video',
+        category: 'video', sortOrder: 35, creditsPerCall: 225,
+        serviceType: 'wan30-video', priceYuan: 2.25,
+        description: 'Wan3.0 文生视频，通过 new-api 阿里渠道生成',
+        metadata: { ...buildVodNodeMetadata(
+          { type: 'wan30Video', provider: 'new-api', supportedModels: ['wan3.0-video'],
+            defaultData: { resolution: '480P', duration: 5, ratio: 'adaptive' } },
+          { label: 'Wan 3.0', modelName: 'Wan', modelVersion: '3.0-video',
+            outputConfig: { durations: [5, 10, 15, 20, 25, 30], resolutions: ['480P', '720P', '1080P'] },
+            inputModes: ['text'], notes: ['当前开放文生视频，自适应画幅'] },
+          { nodeKind: 'new_api_video_generation', upstreamDomain: 'dashscope.aliyuncs.com' },
+        ) },
+      },
+      {
         nodeKey: 'wan27Video',
         nameZh: 'Wan2.7视频生成',
         nameEn: 'Wan2.7 I2V',
@@ -2384,6 +2398,20 @@ export class NodeConfigService {
         serviceType: 'wan26-r2v',
         priceYuan: 6,
         description: '参考视频生成',
+      },
+      {
+        nodeKey: 'wan30Video', nameZh: 'Wan3.0视频生成', nameEn: 'Wan3.0 Video',
+        category: 'video', sortOrder: 35, creditsPerCall: 225,
+        serviceType: 'wan30-video', priceYuan: 2.25,
+        description: 'Wan3.0 文生视频，通过 new-api 阿里渠道生成',
+        metadata: { ...buildVodNodeMetadata(
+          { type: 'wan30Video', provider: 'new-api', supportedModels: ['wan3.0-video'],
+            defaultData: { resolution: '480P', duration: 5, ratio: 'adaptive' } },
+          { label: 'Wan 3.0', modelName: 'Wan', modelVersion: '3.0-video',
+            outputConfig: { durations: [5, 10, 15, 20, 25, 30], resolutions: ['480P', '720P', '1080P'] },
+            inputModes: ['text'], notes: ['当前开放文生视频，自适应画幅'] },
+          { nodeKind: 'new_api_video_generation', upstreamDomain: 'dashscope.aliyuncs.com' },
+        ) },
       },
       {
         nodeKey: 'wan27Video',

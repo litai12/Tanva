@@ -98,3 +98,29 @@ func TestConvertToAliRequestPreservesWanReferenceVideos(t *testing.T) {
 		t.Fatalf("unexpected parameters: %+v", got.Parameters)
 	}
 }
+
+func TestWan30RequestAndResolutionBilling(t *testing.T) {
+	for resolution, multiplier := range map[string]float64{"480P": 1, "720P": 2, "1080P": 4} {
+		t.Run(resolution, func(t *testing.T) {
+			adaptor := &TaskAdaptor{}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+			req := relaycommon.TaskSubmitReq{Model: "wan3.0-video", Prompt: "a cat running",
+				Metadata: map[string]interface{}{"parameters": map[string]interface{}{"resolution": resolution, "ratio": "adaptive", "duration": 5}}}
+			got, err := adaptor.convertToAliRequest(info, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Model != "wan3.0-video" || got.Parameters.Resolution != resolution || got.Parameters.Duration != 5 || got.Parameters.Ratio != "adaptive" || got.Parameters.PromptExtend {
+				t.Fatalf("incorrect Wan3.0 request: %+v", got)
+			}
+			ratios, err := ProcessAliOtherRatios(got)
+			if err != nil || ratios["resolution-"+resolution] != multiplier {
+				t.Fatalf("billing ratios: %v, %v", ratios, err)
+			}
+			req.Metadata["parameters"].(map[string]interface{})["resolution"] = "4K"
+			if _, err := adaptor.convertToAliRequest(info, req); err == nil {
+				t.Fatal("expected unsupported resolution error")
+			}
+		})
+	}
+}

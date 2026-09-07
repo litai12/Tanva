@@ -2058,6 +2058,12 @@ export class AiController {
 
       apiUsageId = chargeHandle.apiUsageId;
       this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
+      if (serviceType === 'wan30-video' && chargeHandle.duplicate) {
+        return { success: true, apiUsageId, data: {
+          taskId: `usage:${apiUsageId}`,
+          status: 'processing',
+        } } as T;
+      }
       creditOptions?.onApiUsageId?.(apiUsageId);
 
       // 执行实际操作
@@ -2095,6 +2101,11 @@ export class AiController {
         }
       }
 
+      if (serviceType === 'wan30-video' && apiUsageId && (result as any)?.data?.taskId) {
+        await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+          taskId: (result as any).data.taskId,
+        });
+      }
       const executionChannel = this.extractExecutionChannel(result);
 
       if (apiUsageId) {
@@ -3359,7 +3370,7 @@ export class AiController {
   private buildWanCreditRequestParams(
     body: any,
     options: {
-      managedModelKey: 'wan-2.6' | 'wan-2.6-r2v' | 'wan-2.7';
+      managedModelKey: 'wan-2.6' | 'wan-2.6-r2v' | 'wan-2.7' | 'wan-3.0';
       generationMode: 't2v' | 'i2v' | 'r2v';
       requestPrompt?: string | null;
       requestThumbnailUrls?: unknown[];
@@ -6616,7 +6627,7 @@ export class AiController {
    */
   @Get('video-task/:provider/:taskId')
   async queryVideoTask(
-    @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao' | 'hailuo',
+    @Param('provider') provider: 'wan2.7' | 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao' | 'hailuo',
     @Param('taskId') taskId: string,
     @Req() req: any,
   ) {
@@ -7458,8 +7469,46 @@ export class AiController {
   }
 
   /**
-   * Wan2.7-i2v compatibility endpoint; new-api owns the DashScope channel.
+   * Wan3.0 text-to-video; new-api owns the DashScope channel.
    */
+  @Post('dashscope/generate-wan3-0-video')
+  async generateWan30Video(@Body() body: any, @Req() req: any) {
+    const prompt = typeof body?.input?.prompt === 'string' ? body.input.prompt.trim() : '';
+    const resolution = body?.parameters?.resolution ?? '480P';
+    const ratio = body?.parameters?.ratio ?? 'adaptive';
+    const duration = body?.parameters?.duration ?? 5;
+    if (!prompt) throw new BadRequestException('请输入视频提示词');
+    if (!['480P', '720P', '1080P'].includes(resolution)) {
+      throw new BadRequestException('Wan3.0 分辨率仅支持 480P / 720P / 1080P');
+    }
+    if (ratio !== 'adaptive') throw new BadRequestException('Wan3.0 当前仅开放自适应画幅');
+    if (!Number.isInteger(duration) || duration < 1 || duration > 30) {
+      throw new BadRequestException('Wan3.0 时长须为 1–30 秒整数');
+    }
+    if (body?.model && body.model !== 'wan3.0-video') {
+      throw new BadRequestException('此接口仅支持 wan3.0-video');
+    }
+    if (Object.keys(body?.input || {}).some((key) => key !== 'prompt')) {
+      throw new BadRequestException('Wan3.0 当前仅开放文生视频输入');
+    }
+    const normalizedBody = { model: 'wan3.0-video', input: { prompt }, parameters: { resolution, ratio, duration } };
+    return this.withCredits(
+      req, 'wan30-video', 'wan3.0-video',
+      async () => this.submitDashscopeVideoViaNewApi(normalizedBody),
+      undefined, undefined, undefined,
+      {
+        ...this.buildWanCreditRequestParams(normalizedBody, {
+          managedModelKey: 'wan-3.0', generationMode: 't2v', requestPrompt: prompt,
+        }),
+        clientProjectId: body?.clientProjectId,
+        clientNodeId: body?.clientNodeId,
+        clientRunId: body?.clientRunId,
+      },
+      { treatReturnedFailureAsError: true,
+        skipFinalizeSuccessIf: (result: any) => this.isDashscopeVideoAsyncPending(result) },
+    );
+  }
+
   @Post('dashscope/generate-wan2-7-i2v')
   async generateWan27I2VViaDashscope(@Body() body: any, @Req() req: any) {
     const normalizedBody = this.normalizeWan27I2VBodyForUpstream(body);
@@ -7493,9 +7542,11 @@ export class AiController {
    * through the gateway; no DashScope credential is present in this service.
    */
   @Get('dashscope/task/:taskId')
-  async getDashscopeTaskStatus(@Param('taskId') taskId: string) {
+  async getDashscopeTaskStatus(@Param('taskId') taskId: string, @Req() req?: any) {
     try {
-      const result = await this.videoProviderService.queryTask('wan2.7', taskId);
+      const result: { status: string; videoUrl?: string; thumbnailUrl?: string; error?: string } = taskId.startsWith('usage:')
+        ? await this.queryVideoTask('wan2.7', taskId, req)
+        : await this.videoProviderService.queryTask('wan2.7', taskId);
       return {
         success: true,
         data: {

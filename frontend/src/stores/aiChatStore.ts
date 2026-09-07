@@ -77,6 +77,7 @@ import {
   type EditPresentationArguments,
 } from "@/services/xiaotPresentationTool";
 import { createSpreadsheetFromXiaot } from "@/services/xiaotSpreadsheetTool";
+import { recordEngineeringOperation } from "@/services/projectEngineeringApi";
 import {
   buildDesktopArtifactEditPrompt,
   openDesktopArtifact,
@@ -8831,6 +8832,16 @@ export const useAIChatStore = create<AIChatState>()(
               connectorName: string;
               tools: DesktopMcpTool[];
             }> = [];
+            let desktopWorkspace: { selected: boolean; rootName: string | null } = { selected: false, rootName: null };
+            if (window.tanvaDesktop?.workspace) {
+              try {
+                const workspaceStatus = await window.tanvaDesktop.workspace.status();
+                const root = typeof workspaceStatus?.root === "string" ? workspaceStatus.root : "";
+                desktopWorkspace = { selected: Boolean(root), rootName: root ? root.split(/[\\/]/).pop() || null : null };
+              } catch (error) {
+                console.warn("[xiaot] 读取工作文件夹状态失败:", error);
+              }
+            }
             if (window.tanvaDesktop?.connectors) {
               try {
                 const connectors = await window.tanvaDesktop.connectors.list();
@@ -8875,6 +8886,7 @@ export const useAIChatStore = create<AIChatState>()(
                 connectorName: connector.connectorName,
                 tools: connector.tools.slice(0, 80),
               })),
+              workspace: desktopWorkspace,
               selectedSkills: getSelectedDesktopSkills().map((skill) => ({
                 id: skill.id,
                 name: skill.name,
@@ -8895,6 +8907,26 @@ export const useAIChatStore = create<AIChatState>()(
                         description:
                           "打开作品汇报制作器，配置章节、素材、展示形式、页面样式和播放效果；用户要生成建筑作品汇报时调用。",
                         parameters: {},
+                      },
+                      {
+                        name: "choose_workspace",
+                        description: "打开本机文件夹选择器，为当前任务选择一个工作文件夹；选择后小T可列出、读取其中的项目文件。",
+                        parameters: {},
+                      },
+                      {
+                        name: "list_workspace_files",
+                        description: "列出已授权工作文件夹内的文件和子目录，最多返回 500 项。",
+                        parameters: { path: { type: "string", description: "工作文件夹内的相对路径，默认为根目录" } },
+                      },
+                      {
+                        name: "read_workspace_file",
+                        description: "读取已授权工作文件夹内不超过 2MB 的文本文件，用于整理项目资料。",
+                        parameters: { path: { type: "string", description: "工作文件夹内的相对文件路径" } },
+                      },
+                      {
+                        name: "write_workspace_file",
+                        description: "把生成的文本交付到已授权工作文件夹；覆盖或新建前由 Electron 弹窗确认。",
+                        parameters: { path: { type: "string" }, content: { type: "string" } },
                       },
                       ...(desktopMcpTools.length > 0
                         ? [
@@ -9410,6 +9442,28 @@ export const useAIChatStore = create<AIChatState>()(
                       xiaotHostTool: toolName,
                     },
                   }));
+                } else if (toolName === "choose_workspace" || toolName === "list_workspace_files" || toolName === "read_workspace_file" || toolName === "write_workspace_file") {
+                  hostToolHandled = true;
+                  const workspace = window.tanvaDesktop?.workspace;
+                  if (!workspace) throw new Error("当前环境没有工作文件夹能力");
+                  pendingHostTools.push((async () => {
+                    let result: unknown;
+                    if (toolName === "choose_workspace") result = await workspace.choose();
+                    else if (toolName === "list_workspace_files") result = await workspace.list(typeof toolArgs.path === "string" ? toolArgs.path : "");
+                    else if (toolName === "read_workspace_file") {
+                      if (typeof toolArgs.path !== "string" || !toolArgs.path.trim()) throw new Error("缺少文件路径");
+                      result = await workspace.read(toolArgs.path);
+                    } else {
+                      if (typeof toolArgs.path !== "string" || !toolArgs.path.trim() || typeof toolArgs.content !== "string") throw new Error("写入参数不完整");
+                      result = await workspace.write(toolArgs.path, toolArgs.content);
+                    }
+                    const textResult = JSON.stringify(result, null, 2);
+                    get().updateMessage(aiMessage.id, (msg) => ({
+                      ...msg,
+                      content: `${toolName === "read_workspace_file" ? "已读取工作文件" : toolName === "write_workspace_file" ? "已处理工作文件写入" : "已处理工作文件"}：\n\n${textResult}`,
+                      metadata: { ...(msg.metadata || {}), xiaotHostTool: toolName, workspaceResult: result },
+                    }));
+                  })());
                 } else if (toolName === "query_desktop_tools") {
                   hostToolHandled = true;
                   const requestedConnectorId =
@@ -9490,6 +9544,14 @@ export const useAIChatStore = create<AIChatState>()(
                         !Array.isArray(toolArgs.arguments)
                           ? (toolArgs.arguments as Record<string, unknown>)
                           : {};
+                      const scopedDesktopToolArgs =
+                        connectorId === "architecture" || connectorId === "business"
+                          ? {
+                              ...desktopToolArgs,
+                              taskId: sessionId,
+                              ...(projectId ? { projectId } : {}),
+                            }
+                          : desktopToolArgs;
                       const bridge = window.tanvaDesktop?.connectors;
                       if (!bridge || !connectorId || !desktopToolName) {
                         throw new Error("本机 MCP 工具参数不完整");
@@ -9507,8 +9569,17 @@ export const useAIChatStore = create<AIChatState>()(
                       const result = await bridge.callTool(
                         connectorId,
                         desktopToolName,
-                        desktopToolArgs
+                        scopedDesktopToolArgs
                       );
+                      if (!result.cancelled && !result.isError && projectId && (connectorId === "architecture" || connectorId === "business")) {
+                        void recordEngineeringOperation(projectId, {
+                          connectorId,
+                          action: desktopToolName,
+                          taskId: sessionId,
+                          completedAt: new Date().toISOString(),
+                          result: result.text || null,
+                        }).catch(() => undefined);
+                      }
                       const completionText = result.cancelled
                         ? `已取消本机工具 ${desktopToolName}，没有执行任何操作。`
                         : result.isError
@@ -10441,7 +10512,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
-          // 🤖 小T单轨：纯文本请求固定先进入小T；带图片/PDF附件暂走宿主兼容能力。
+          // 小T单轨：纯文本请求固定先进入小T；带图片/PDF附件继续走对应宿主兼容能力。
           if (
             state.sourceImagesForBlending.length === 0 &&
             !state.sourceImageForEditing &&

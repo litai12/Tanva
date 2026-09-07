@@ -31,6 +31,7 @@ JZXZ 的主要价值不是一组文档工具，也不是它的 Windows 外壳，
 | Grasshopper | SSE/MCP | 默认连接 `127.0.0.1:26929/mcp` |
 | AutoCAD | stdio → Python | 独立 launcher 与专业绘图/恢复规则 |
 | Photoshop | stdio → Node | 独立服务、用户数据目录与禁用遥测配置 |
+| Blender | stdio → Python | Tanva 统一通过 harness compute-use 承接场景、材质、灯光、渲染与 GLB 导出 |
 | Windows | stdio → Python | 操作系统级能力，连接超时显著高于普通工具 |
 
 这说明“插件”必须分为两个层次：Renderer 中的工具面只负责交互；真正接触外部进程、文件和专业软件 API 的部分必须位于受控 Capability Host，不能给 React 插件直接开放 Node 或 Shell。
@@ -80,6 +81,7 @@ JZXZ 的主要价值不是一组文档工具，也不是它的 Windows 外壳，
 - MCP 导入器兼容参考包 `MCP.Servers` 配置数组和运行时占位符，导入 `appsettings.json` 后会按连接器名称选择对应服务并在 Capability Host 校验前解析路径；
 - `electron-builder` 已接入 `desktop-bundle` 资源槽位，内置 MCP 模板仅在运行时和 launcher 文件均存在时标记为已配置；资源缺失不会生成虚假的可用连接状态；
 - 小T通过 `query_desktop_tools` 按需读取真实工具名、风险和 schema，再用 `call_desktop_tool` 请求执行；Main 每次显示原生确认，用户取消时绝不调用；
+- Blender 通过 `blender-mcp` 连接器进入同一工具面；标准动作映射为 `inspect_scene`、`create_mesh`、`assign_material`、`render_scene` 和 `export_glb`，实际执行统一经过 `compute-use`；
 - 工具结果只回传受限文本；二进制、内联 URL、长 base64 和超长结果被清除或截断；
 - “扩展”中只有需要配置的连接器提供一个“管理”入口，Tanva 画布继续只由小T按需唤起。
 

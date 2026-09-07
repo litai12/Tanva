@@ -114,6 +114,18 @@ async function main(): Promise<void> {
   ]);
   assert.equal(captured[1]?.body.metadata?.parameters?.shot_type, 'multi');
 
+  const wan30 = await service.createDashscopeVideoTask({
+    model: 'wan3.0-video', input: { prompt: 'a cat running on a rooftop' },
+    parameters: { resolution: '480P', ratio: 'adaptive', duration: 5 },
+  });
+  assert.equal(wan30.taskId, 'newapi:gateway-task-3');
+  assert.equal(captured[2]?.url, 'https://new-api.test/v1/videos');
+  assert.equal(captured[2]?.body.model, 'wan3.0-video');
+  assert.deepEqual(captured[2]?.body.metadata, {
+    input: { prompt: 'a cat running on a rooftop' },
+    parameters: { resolution: '480P', ratio: 'adaptive', duration: 5 },
+  });
+
   const controllerSource = readFileSync(
     join(process.cwd(), 'src/ai/ai.controller.ts'),
     'utf8',

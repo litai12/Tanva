@@ -2510,6 +2510,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
     { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
     { value: "happyhorseR2V", label: "快乐马节点", category: "video" },
+    { value: "wan30Video", label: "Wan 3.0 视频节点", category: "video" },
     { value: "wan27Video", label: "Wan 2.7 视频节点", category: "video" },
   ],
   audio: [
@@ -2547,6 +2548,7 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "wan-2.6") return "wan26";
   if (modelKey === "wan-2.6-r2v") return "wan2R2V";
   if (modelKey === "happyhorse-1.0-r2v") return "happyhorseR2V";
+  if (modelKey === "wan-3.0") return "wan30Video";
   if (modelKey === "wan-2.7") return "wan27Video";
   if (
     modelKey === "doubao-seed-audio-1-0" ||
@@ -2582,6 +2584,7 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "wan-2.6-r2v",
     "happyhorse-1.0-r2v",
     "wan-2.7",
+    "wan-3.0",
     "doubao-seed-audio-1-0",
     "minimax-speech-2.6-hd",
     "minimax-speech-2.5",
@@ -3873,6 +3876,34 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
     ],
   },
   {
+    modelKey: "wan-3.0", modelName: "Wan 3.0", taskType: "video", enabled: true,
+    defaultVendor: "new_api",
+    metadata: { nodeConfig: buildManagedNodeConfig(
+      { modelKey: "wan-3.0", taskType: "video", vendors: [{ vendorKey: "new_api", creditsPerCall: 225 }], defaultVendor: "new_api" },
+      { flowNodeType: "wan30Video", nodeKey: "wan30Video", category: "video", creditsPerCall: 225, description: "Wan 3.0 文生视频" },
+    ) },
+    vendors: [{ vendorKey: "new_api", platformKey: "new_api", label: "阿里百炼", enabled: true,
+      route: "legacy", provider: "new-api", modelName: "Wan", modelVersion: "3.0-video",
+      creditsPerCall: 225, priceYuan: 2.25,
+      pricing: {
+        version: "v2", defaults: { credits: 225, priceYuan: 2.25 },
+        dimensions: [createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], { required: true }),
+          createNumberDimension("durationSec", "时长（秒）", { required: true })],
+        consumerPolicies: [],
+        matchingRules: ["480P", "720P", "1080P"].map((resolution) => ({
+          ruleKey: `wan30_${resolution}`, label: `Wan3.0 ${resolution}`, enabled: true, priority: 100,
+          evaluatorKey: resolution, conditions: { all: [{ field: "resolution", op: "eq" as const, value: resolution }], any: [] },
+        })),
+        evaluators: {
+          "480P": { type: "linear", unitField: "durationSec", unitPriceYuan: 0.45 },
+          "720P": { type: "linear", unitField: "durationSec", unitPriceYuan: 0.9 },
+          "1080P": { type: "linear", unitField: "durationSec", unitPriceYuan: 1.8 },
+        },
+        displayConfig: { specAxes: ["resolution", "durationSec"], defaultSelections: { resolution: "480P", durationSec: 5 } },
+      },
+    }],
+  },
+  {
     modelKey: "wan-2.7",
     modelName: "Wan 2.7",
     taskType: "video",
@@ -4949,6 +4980,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
   "wan-2.6-r2v": ["wan2.6-r2v"],
   "happyhorse-1.0-r2v": ["happyhorse-1.0-r2v"],
+  "wan-3.0": ["wan3.0-video"],
   "wan-2.7": ["wan2.7-i2v"],
   "gemini-3-pro-image": ["gemini-3-pro-image-preview"],
   "gemini-3.1-image": ["gemini-3.1-flash-image-preview"],
@@ -4978,6 +5010,7 @@ const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "wan-2.6": "wan26-video",
   "wan-2.6-r2v": "wan26-r2v",
   "happyhorse-1.0-r2v": "happyhorse-r2v-video",
+  "wan-3.0": "wan30-video",
   "wan-2.7": "wan27-video",
   "gemini-3-pro-image": "gemini-3-pro-image",
   "gemini-3.1-image": "gemini-3.1-image",
@@ -5068,6 +5101,7 @@ const MANAGED_MODEL_OUTPUT_CONFIG_MAP: Record<
     resolutions: ["720P", "1080P"],
     audioGeneration: true,
   },
+  "wan-3.0": { aspectRatios: ["adaptive"], durations: [5, 10, 15, 20, 25, 30], resolutions: ["480P", "720P", "1080P"] },
   "wan-2.7": {
     durations: [5, 10, 15],
     resolutions: ["720P", "1080P"],
@@ -5425,6 +5459,9 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       referenceCount: 1,
       watermark: false,
     };
+  } else if (model.modelKey === "wan-3.0") {
+    metadata.defaultData = { managedModelKey: model.modelKey,
+      vendorKey: "new_api", platformKey: "new_api", resolution: "480P", duration: 5, ratio: "adaptive" };
   } else if (model.modelKey === "wan-2.7") {
     metadata.defaultData = {
       provider: defaultVendor?.provider || "dashscope",

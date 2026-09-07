@@ -32,6 +32,30 @@ declare global {
         writeText: (text: string) => Promise<boolean>;
       }>;
       openTarget: (target: string, kind?: 'url' | 'path') => Promise<{ ok: boolean; error?: string }>;
+      screen: Readonly<{
+        capture: () => Promise<{ path: string; width: number; height: number }>;
+      }>;
+      updates: Readonly<{
+        check: () => Promise<{
+          status: 'unconfigured' | 'available' | 'up-to-date';
+          currentVersion: string;
+          latestVersion?: string | null;
+          releaseUrl?: string | null;
+        }>;
+      }>;
+      workspace: Readonly<{
+        choose: () => Promise<{ selected: boolean; root: string | null }>;
+        status: () => Promise<{ root: string | null }>;
+        list: (relativePath?: string) => Promise<{ root: string; entries: Array<{ path: string; kind: 'file' | 'directory'; size?: number; modifiedAt?: string }> }>;
+        read: (relativePath: string) => Promise<{ path: string; size: number; content: string }>;
+        write: (relativePath: string, content: string) => Promise<{ written: boolean; cancelled?: boolean; path?: string; size?: number }>;
+        reveal: (relativePath?: string) => Promise<{ ok: boolean }>;
+      }>;
+      codex: Readonly<{
+        startThread: (params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        resumeThread: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        startTurn: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      }>;
       connectors: Readonly<{
         list: () => Promise<DesktopConnectorStatus[]>;
         configure: (connectorId: string) => Promise<boolean | null>;
@@ -54,6 +78,7 @@ declare global {
     id: string;
     name: string;
     hostedBy: string | null;
+    internal?: boolean;
     available: boolean;
     source: 'configured' | 'discovered' | 'missing';
     transport: DesktopMcpTransportStatus;

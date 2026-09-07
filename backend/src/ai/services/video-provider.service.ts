@@ -242,6 +242,7 @@ export class VideoProviderService {
     "wan2.6-i2v",
     "wan2.6-r2v",
     "wan2.7-i2v",
+    "wan3.0-video",
     "happyhorse-1.0-t2v",
     "happyhorse-1.0-i2v",
     "happyhorse-1.0-r2v",

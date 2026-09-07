@@ -6,6 +6,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectContentDto } from './dto/update-project-content.dto';
 import { ShareProjectDto } from './dto/share-project.dto';
+import { UpdateProjectEngineeringDto } from './dto/update-project-engineering.dto';
 
 @ApiTags('projects')
 @ApiCookieAuth('access_token')
@@ -78,6 +79,16 @@ export class ProjectsController {
       }));
       throw err;
     }
+  }
+
+  @Get(':id/engineering')
+  async getEngineering(@Req() req: any, @Param('id') id: string) {
+    return this.projects.getEngineering(req.user.sub, id, req.user.role);
+  }
+
+  @Put(':id/engineering')
+  async updateEngineering(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProjectEngineeringDto) {
+    return this.projects.updateEngineering(req.user.sub, id, dto.state, dto.version, req.user.role);
   }
 
   @Get(':id/workflow-history')

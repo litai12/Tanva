@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -18,6 +18,10 @@ import {
   getBundledMcpConfig,
   isBundledMcpConfigAvailable,
 } from './desktop-mcp-templates.mjs';
+import { computeUse } from './compute-use.mjs';
+import { isComputeUseAction } from './compute-use-actions.mjs';
+import { LocalCodexClient } from './local-codex-client.mjs';
+import { ConstructionCapabilityHost, constructionToolDefinitions } from './construction-host.mjs';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(currentDir, '..');
@@ -61,6 +65,11 @@ const connectorDefinitions = Object.freeze({
     darwin: [],
     win32: ['Autodesk/3ds Max 2026/3dsmax.exe', 'Autodesk/3ds Max 2025/3dsmax.exe', 'Autodesk/3ds Max 2024/3dsmax.exe'],
   },
+  blender: {
+    name: 'Blender',
+    darwin: ['/Applications/Blender.app', '/Applications/Blender 4.5/Blender.app', '/Applications/Blender 4.4/Blender.app'],
+    win32: ['Blender Foundation/Blender 4.5/blender.exe', 'Blender Foundation/Blender 4.4/blender.exe', 'Blender Foundation/Blender/blender.exe'],
+  },
   revit: {
     name: 'Revit',
     darwin: [],
@@ -81,6 +90,8 @@ const connectorDefinitions = Object.freeze({
     darwin: [],
     win32: [],
   },
+  architecture: { name: '建筑工程计算', internal: true, darwin: [], win32: [] },
+  business: { name: '采购与供应链', internal: true, darwin: [], win32: [] },
 });
 
 app.setName('Tanva');
@@ -90,9 +101,20 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
 let mainWindow = null;
+let desktopWorkspaceRoot = null;
 const capabilityHost = new DesktopCapabilityHost();
+const constructionHost = new ConstructionCapabilityHost(app.getPath('userData'));
+const localCodex = new LocalCodexClient({
+  executable: process.env.TANVA_CODEX_EXECUTABLE || process.env.CODEX_EXEC_PATH,
+  cwd: frontendRoot,
+  xiaotBridgePath: join(currentDir, 'xiaot-agent-mcp-bridge.mjs'),
+  xiaotEndpoint: process.env.TANVA_XIAOT_AGENT_URL,
+});
 const quitCoordinator = createQuitCoordinator({
-  cleanup: () => capabilityHost.disconnectAll(),
+  cleanup: async () => {
+    await capabilityHost.disconnectAll();
+    await localCodex.close();
+  },
   quit: () => app.quit(),
 });
 
@@ -214,6 +236,109 @@ const installExternalTargetIpc = () => {
   });
 };
 
+// Safe desktop "hands": capture the trusted renderer and expose update
+// discovery without granting the renderer filesystem or process access.
+const installDesktopCapabilityIpc = () => {
+  ipcMain.handle('tanva:workspace:choose', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner) throw new Error('Window unavailable');
+    const result = await dialog.showOpenDialog(owner, { properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled || !result.filePaths[0]) return { selected: false, root: null };
+    desktopWorkspaceRoot = resolve(result.filePaths[0]);
+    return { selected: true, root: desktopWorkspaceRoot };
+  });
+  ipcMain.handle('tanva:workspace:status', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    return { root: desktopWorkspaceRoot };
+  });
+  const resolveWorkspacePath = (relativePath = '') => {
+    if (!desktopWorkspaceRoot) throw new Error('请先选择工作文件夹');
+    if (typeof relativePath !== 'string' || relativePath.length > 1024 || /[\u0000-\u001f]/.test(relativePath)) throw new Error('文件路径无效');
+    const candidate = resolve(desktopWorkspaceRoot, relativePath);
+    if (!isPathWithin(candidate, desktopWorkspaceRoot)) throw new Error('文件路径必须位于工作文件夹内');
+    return candidate;
+  };
+  ipcMain.handle('tanva:workspace:list', async (event, relativePath = '') => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    const root = resolveWorkspacePath(relativePath);
+    const output = [];
+    const visit = async (directory, prefix, depth) => {
+      if (depth > 4 || output.length >= 500) return;
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const child = join(directory, entry.name);
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) { output.push({ path: rel, kind: 'directory' }); await visit(child, rel, depth + 1); }
+        else if (entry.isFile()) { const info = await stat(child); output.push({ path: rel, kind: 'file', size: info.size, modifiedAt: info.mtime.toISOString() }); }
+      }
+    };
+    await visit(root, relativePath.replaceAll('\\', '/').replace(/^\/+|\/+$/g, ''), 0);
+    return { root: desktopWorkspaceRoot, entries: output };
+  });
+  ipcMain.handle('tanva:workspace:read', async (event, relativePath) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    const target = resolveWorkspacePath(relativePath);
+    const info = await stat(target);
+    if (!info.isFile()) throw new Error('只能读取文件');
+    if (info.size > 2 * 1024 * 1024) throw new Error('文件超过 2MB，请通过附件上传');
+    const content = await readFile(target, 'utf8');
+    return { path: relativePath, size: info.size, content };
+  });
+  ipcMain.handle('tanva:workspace:write', async (event, relativePath, content) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    if (typeof content !== 'string' || content.length > 2 * 1024 * 1024) throw new Error('写入内容超过 2MB');
+    const target = resolveWorkspacePath(relativePath);
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const answer = await dialog.showMessageBox(owner, { type: 'question', buttons: ['写入文件', '取消'], defaultId: 1, cancelId: 1, title: '确认写入工作文件夹', message: `允许写入 ${relativePath} 吗？` });
+    if (answer.response !== 0) return { written: false, cancelled: true };
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content, 'utf8');
+    return { written: true, path: relativePath, size: Buffer.byteLength(content) };
+  });
+  ipcMain.handle('tanva:workspace:reveal', async (event, relativePath = '') => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted workspace request');
+    const target = resolveWorkspacePath(relativePath);
+    shell.showItemInFolder(target);
+    return { ok: true };
+  });
+  ipcMain.handle('tanva:codex:thread-start', async (event, params = {}) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted Codex request');
+    return localCodex.startThread({ ...params, ephemeral: params.ephemeral !== false });
+  });
+  ipcMain.handle('tanva:codex:thread-resume', async (event, params = {}) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted Codex request');
+    return localCodex.resumeThread(params);
+  });
+  ipcMain.handle('tanva:codex:turn-start', async (event, params = {}) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted Codex request');
+    return localCodex.startTurn(params);
+  });
+  ipcMain.handle('tanva:screen:capture', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted screenshot request');
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner) throw new Error('Window unavailable');
+    const image = await owner.webContents.capturePage();
+    const output = join(app.getPath('temp'), `tanva-screenshot-${Date.now()}.png`);
+    await writeFile(output, image.toPNG(), { mode: 0o600 });
+    return { path: output, width: image.getSize().width, height: image.getSize().height };
+  });
+  ipcMain.handle('tanva:update:check', async (event) => {
+    if (!isTrustedSender(event)) throw new Error('Untrusted update request');
+    const manifestUrl = process.env.TANVA_UPDATE_MANIFEST_URL?.trim();
+    const currentVersion = app.getVersion();
+    if (!manifestUrl) return { status: 'unconfigured', currentVersion };
+    let url;
+    try { url = new URL(manifestUrl); } catch { throw new Error('更新地址无效'); }
+    if (url.protocol !== 'https:') throw new Error('更新地址必须使用 HTTPS');
+    const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`更新检查失败（${response.status}）`);
+    const manifest = await response.json();
+    const latestVersion = typeof manifest?.version === 'string' ? manifest.version : null;
+    return { status: latestVersion && latestVersion !== currentVersion ? 'available' : 'up-to-date', currentVersion, latestVersion, releaseUrl: typeof manifest?.url === 'string' ? manifest.url : null };
+  });
+};
+
 const getConnectorSettingsPath = () => join(app.getPath('userData'), 'connectors.json');
 
 const readConnectorSettings = async () => {
@@ -251,13 +376,20 @@ const discoverConnectorPath = (definition) => {
 const resolveConnectors = async () => {
   const settings = await readConnectorSettings();
   return Object.entries(connectorDefinitions).map(([id, definition]) => {
+    if (definition.internal) {
+      return {
+        id, name: definition.name, hostedBy: null, internal: true, available: true, source: 'configured',
+        transport: 'connected', protocol: 'stdio',
+        toolCount: (constructionToolDefinitions[id] || []).length, error: null,
+      };
+    }
     const configuredPath = typeof settings[id] === 'string' ? settings[id] : null;
     const validConfiguredPath = configuredPath && existsSync(configuredPath) ? configuredPath : null;
     const executablePath = validConfiguredPath || discoverConnectorPath(definition);
     const savedMcpConfig = settings.mcpServers?.[id]
       ? resolveMcpConfigPlaceholders(settings.mcpServers[id], desktopRuntimePaths)
       : null;
-    const bundledMcpConfig = getBundledMcpConfig(id, desktopRuntimePaths);
+    const bundledMcpConfig = getBundledMcpConfig(id, desktopRuntimePaths, process.platform, executablePath);
     const effectiveMcpConfig = savedMcpConfig ||
       (isBundledMcpConfigAvailable(bundledMcpConfig) ? bundledMcpConfig : null);
     const mcpStatus = capabilityHost.getStatus(
@@ -271,6 +403,7 @@ const resolveConnectors = async () => {
       id,
       name: definition.name,
       hostedBy: definition.hostedBy || null,
+      internal: false,
       available: Boolean(executablePath),
       source: validConfiguredPath ? 'configured' : executablePath ? 'discovered' : 'missing',
       executablePath,
@@ -316,6 +449,7 @@ const installConnectorIpc = () => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     const definition = connectorDefinitions[connectorId];
     if (!definition) throw new Error('Unknown connector');
+    if (definition.internal) return false;
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
       title: `选择 ${definition.name} 应用`,
@@ -344,6 +478,7 @@ const installConnectorIpc = () => {
   ipcMain.handle('tanva:connectors:launch', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
+    if (connectorDefinitions[connectorId].internal) return { ok: false, error: '这是 Tanva 内置工程能力，不需要启动外部应用' };
     const connector = (await resolveConnectors()).find((item) => item.id === connectorId);
     if (!connector?.executablePath) return { ok: false, error: '应用尚未安装或配置' };
     const error = await shell.openPath(connector.executablePath);
@@ -353,6 +488,7 @@ const installConnectorIpc = () => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     const definition = connectorDefinitions[connectorId];
     if (!definition) throw new Error('Unknown connector');
+    if (definition.internal) return { transport: 'connected', protocol: 'stdio', toolCount: (constructionToolDefinitions[connectorId] || []).length, error: null };
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
       title: `导入 ${definition.name} 的 MCP 配置`,
@@ -403,11 +539,14 @@ const installConnectorIpc = () => {
   ipcMain.handle('tanva:connectors:connect-mcp', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
+    if (connectorDefinitions[connectorId].internal) {
+      return { transport: 'connected', protocol: 'stdio', toolCount: (constructionToolDefinitions[connectorId] || []).length, error: null };
+    }
     const settings = await readConnectorSettings();
     const savedConfig = settings.mcpServers?.[connectorId]
       ? resolveMcpConfigPlaceholders(settings.mcpServers[connectorId], desktopRuntimePaths)
       : null;
-    const bundledConfig = getBundledMcpConfig(connectorId, desktopRuntimePaths);
+    const bundledConfig = getBundledMcpConfig(connectorId, desktopRuntimePaths, process.platform, discoverConnectorPath(connectorDefinitions[connectorId]));
     const config = savedConfig ||
       (isBundledMcpConfigAvailable(bundledConfig) ? bundledConfig : null);
     if (!config) throw new Error('尚未导入 MCP 配置');
@@ -417,6 +556,7 @@ const installConnectorIpc = () => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     const definition = connectorDefinitions[connectorId];
     if (!definition) throw new Error('Unknown connector');
+    if (definition.internal) return { transport: 'connected', protocol: 'stdio', toolCount: (constructionToolDefinitions[connectorId] || []).length, error: null };
     const config = validateMcpServerConfig(rawConfig);
     if (config.type !== 'sse' && config.type !== 'streamable-http') {
       throw new Error('本机地址连接只支持 HTTP MCP');
@@ -448,6 +588,9 @@ const installConnectorIpc = () => {
   ipcMain.handle('tanva:connectors:disconnect-mcp', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
+    if (connectorDefinitions[connectorId].internal) {
+      return { transport: 'connected', protocol: 'stdio', toolCount: (constructionToolDefinitions[connectorId] || []).length, error: null };
+    }
     await capabilityHost.disconnect(connectorId);
     const settings = await readConnectorSettings();
     const savedConfig = settings.mcpServers?.[connectorId]
@@ -465,14 +608,16 @@ const installConnectorIpc = () => {
   ipcMain.handle('tanva:connectors:list-tools', async (event, connectorId) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     if (!connectorDefinitions[connectorId]) throw new Error('Unknown connector');
-    return capabilityHost.listTools(connectorId);
+    return connectorDefinitions[connectorId].internal
+      ? constructionHost.listTools(connectorId)
+      : capabilityHost.listTools(connectorId);
   });
   ipcMain.handle('tanva:connectors:call-tool', async (event, connectorId, toolName, args) => {
     if (!isTrustedSender(event)) throw new Error('Untrusted connector request');
     const definition = connectorDefinitions[connectorId];
     if (!definition) throw new Error('Unknown connector');
-    const tool = capabilityHost
-      .listTools(connectorId)
+    const internal = connectorDefinitions[connectorId].internal;
+    const tool = (internal ? await constructionHost.listTools(connectorId) : capabilityHost.listTools(connectorId))
       .find((candidate) => candidate.name === toolName);
     if (!tool) throw new Error('MCP 工具不存在或尚未连接');
     // Reject malformed arguments before showing a native approval prompt. This
@@ -497,8 +642,15 @@ const installConnectorIpc = () => {
       ? await dialog.showMessageBox(owner, options)
       : await dialog.showMessageBox(options);
     if (approval.response !== 1) return { approved: false, cancelled: true };
-    const execution = await capabilityHost.callTool(connectorId, toolName, args);
-    return { approved: true, cancelled: false, ...execution.result };
+    const result = await computeUse({
+      host: internal ? constructionHost : capabilityHost,
+      connectorId,
+      toolName,
+      args,
+      action: isComputeUseAction(connectorId, toolName) ? toolName : null,
+      taskId: event.sender.id ? String(event.sender.id) : null,
+    });
+    return { approved: true, cancelled: false, ...result };
   });
 };
 
@@ -533,7 +685,10 @@ const createMainWindow = async () => {
     height: 960,
     minWidth: 980,
     minHeight: 680,
-    show: false,
+    // Show the native shell immediately. Large renderer bundles and first-run
+    // WebView initialization can delay ready-to-show; keeping the window
+    // hidden until then makes the packaged app appear to be hung.
+    show: true,
     backgroundColor: '#ffffff',
     title: 'Tanva',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
@@ -584,7 +739,10 @@ const createMainWindow = async () => {
 
   window.on('maximize', () => sendMaximizedState(window));
   window.on('unmaximize', () => sendMaximizedState(window));
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    window.show();
+    window.focus();
+  });
   window.on('close', (event) => {
     if (quitCoordinator.isReadyToQuit()) return;
     event.preventDefault();
@@ -664,6 +822,7 @@ app.whenReady().then(async () => {
   installAuthSessionIpc();
   installClipboardIpc();
   installExternalTargetIpc();
+  installDesktopCapabilityIpc();
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const trusted = isTrustedAppUrl(webContents.getURL());

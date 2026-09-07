@@ -1,4 +1,19 @@
 # Changelog
+- 2026-09-06：作品汇报生成增加阶段进度面板，按配置校验、远程素材提交和交付验收显示当前阶段；只有真实小T请求完成后才关闭工具面。
+- 2026-09-06：作品汇报章节模板按参考包补齐建筑 8 章、室内/景观/规划 7 章和通用叙事结构；切换项目类型会同步替换对应章节与内容提示，生成提示词可据此安排素材和页面。
+- 2026-09-06：作品汇报素材导入增加内容角色识别提示（效果图、平面/剖面/立面、分析图、概念图、数据和现场照片），识别结果展示在素材卡并随远程引用提交给小T；仍要求生成前以实际内容复核。
+- 2026-09-06：修复 Electron 桌面包启动时遗漏运行时模块导致渲染器空白的问题；打包白名单补齐 compute-use、动作宿主和本机 Codex 客户端，主窗口现可正常显示并通过 renderer-ready 冒烟检查。
+- 2026-09-06：作品汇报素材导入补齐运行时检查。图片读取像素尺寸、比例方向，视频读取封面尺寸与时长；检查结果随远程引用进入配置和小T生成提示词，页面样式预设新增可视化预览卡，保持不落库 data/blob/base64。
+- 2026-09-06：Blender 无安装时不再让 `export_glb` 只返回虚假路径；桥接现在用纯 Python 写出合法 glTF 2.0 GLB，真实渲染仍明确要求 Blender 渲染引擎。
+- 2026-09-06：Blender 桥接新增 `create_floor_plan_meshes`，可直接接收建筑平面房间多边形并按高度批量挤出为可编辑网格，打通方案几何到 Blender 建模的参数链。
+- 2026-09-06：增加受项目范围保护的 DXF 平面几何导出；建筑构件现在可输出 OBJ、DXF、IFC 三种中间/交付格式，导出动作和产物清单仍由 Electron compute-use 统一管理。
+- 2026-09-06：新增独立 `ProjectEngineeringState` 项目工程状态表与 `/api/projects/:id/engineering` 读写 API。建筑/BIM/采购操作记录与设计 JSON 分离，支持项目访问控制、8MB 上限和乐观版本冲突保护；Electron 小T成功执行建筑/采购动作后会追加受限操作回执。
+
+- 2026-09-06：建筑模型交付新增受项目范围保护的 OBJ/IFC 导出。OBJ 可作为 Blender/SketchUp 等建模工具的中间几何，IFC 生成结构化项目、场地和构件交付文件；导出结果记录到当前项目状态并标记后续上传要求。
+
+- 2026-09-06：建筑方案排布从中心点占位改为确定性矩形排布。按矩形边界、目标面积、数量和间距生成不重叠房间多边形，返回已放置/未放置状态，并对复杂边界明确拒绝，结果可直接作为 Blender/SketchUp 建模输入。
+
+- 2026-09-06：补齐 Electron 内置建筑与供应链业务链。新增受 Capability Host 约束的场地指标、空间计划、面积计算、显式规则校验、窗地比/疏散/无障碍筛查、BIM 构件版本、工程量提取、设计版本、图纸目录/结构检查、交付索引，以及材料清单、报价比较、预算、采购申请、采购订单、分批收货和设计变更逻辑。状态绑定现有项目并原子持久化，新增结构化回归测试；实际专业软件文件导出和地区规范认证仍需对应 MCP/专业软件执行。
 
 - 2026-09-05：依据 jzxz_pc_1.1.15 安装包实际 WebUI 结构，将桌面聊天皮肤与 Tanva 真实 DesktopShell 合并；本机 MCP 工具面新增风险标记、逐次执行按钮与主进程授权结果反馈。
 - 2026-09-05：补齐小T本机 MCP 工具查询事件处理；查询结果会回写当前任务，随后可继续走 Electron 一次性授权与真实工具执行。
@@ -1110,11 +1125,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## 2026-05-12 Seedance Update
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
-- Flow/Seedance Video: added mode inputs eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
+- Flow/Seedance Video: added mode inputs 
+eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
 
 ## [AI Chat Canvas Placeholder Timeout - 2026-06-08]
-### Fixed
 - AI Chat image-generation error status now dispatches a canvas placeholder remove event as a generic fallback.
 - Canvas AI predictive placeholders now carry `createdAt/expiresAt` metadata and `useQuickImageUpload` removes expired or orphaned placeholders, preventing stuck 95% waiting boxes after task timeout or missed remove events.
 
@@ -1249,3 +1264,49 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - **桌面版宿主工具**：新增 `open_report_builder` 宿主工具，使小T可以按用户意图打开作品汇报制作器。
 - **作品汇报产物路线**：网页模式明确加载 `design-presentation-web` 并要求生成可编辑 HTML、打开文件工作台；PPT 模式明确加载 `pptx-generator`、校验真实 PPTX 并通过 `present_file` 交付，避免回退到旧模板工具。
 - **配置交付**：作品汇报制作器新增配置 JSON 和大纲 Markdown 下载；导出前过滤 `data:`、`blob:`、`flow-asset:` 等临时资源，只输出远程 URL/路径引用。
+- **配置器对齐**：补齐参考程序的页面风格九项、动画推荐组合与自由多选、页面排版/文字排版/色彩搭配；增加使用教程、示例作品入口和按项目类型的章节模板。
+- **桌面聊天容错**：本地 Codex 可执行文件未配置或启动失败时，普通桌面聊天自动回退到远程小T，并复用同一轮消息，避免桌面包出现无响应对话。
+# 2026-09-06
+
+- 建筑能力继续补齐：新增 `validate_structure`（跨度、柱网间距的方案阶段筛查）和 `estimate_mep_loads`（按房间面积、人数、单位面积功率/用水量估算电气、冷负荷和日用水），两者均通过 Electron 内置 `architecture` Capability Host 暴露，结果写入项目工程操作回执并带有明确的专业复核边界。
+- 平面方案实体化链路已接通：`generate_floor_plan` 输出的房间多边形可经 `materialize_floor_plan_model` 生成 BIM 房间构件和 Blender 挤出网格参数，再交给 `blender.create_floor_plan_meshes`，避免“只有计算结果、无法进入建模”的断点。
+- 新增 `generate_building_mass`：根据建筑轮廓、层数和层高生成建筑级 BIM 体量及 Blender 挤出网格，场地分析结果可以继续流入建筑体量推演，而不是只能停留在指标报告。
+- 新增 `generate_section_elevation`：从建筑轮廓、层数和层高生成结构化剖面/立面线稿、楼层标高和专业软件下一步动作，补齐建筑表达从体量到视图的过渡。
+- 新增 `run_construction_workflow`：一次调用串联空间计划、矩形平面排布、房间 BIM/Blender 网格、工程量和材料清单，支持 `allowPartial` 明确控制超容量方案是否继续处理已放置空间。
+- 工程量提取现在按语义处理建筑体量（m³）和房间饰面（m²），并新增供应商登记、设计变更审批，避免采购链只有草稿创建而没有主数据和状态闭环。
+- `run_construction_workflow` 支持 `idempotencyKey`：同一项目任务重复请求会重放已完成结果而不重复创建 BIM 构件和材料清单，降低桌面端重试造成的重复工程数据。
+- 工程工作流失败时恢复执行前的项目工程状态，避免在实体化或提量失败后留下半套 BIM、工程量和材料清单。
+- 连接中心手工调用内置建筑/采购工具时，自动注入当前项目 ID 和面板任务 ID；未选择项目时阻止调用并给出提示，避免工程数据脱离项目范围。
+- 连接中心手工调用建筑/采购工具后也写入项目工程操作回执，与小T自动调用共享同一审计记录结构。
+- 新增 `generate_construction_schedule`：按施工任务依赖生成可持久化的开始/结束日期、楼层/专业任务和总工期，并拒绝缺失前置任务与循环依赖。
+- 新增 `record_construction_progress`：回填任务进度和实际时间，自动更新计划总进度/状态，并阻止前置任务未完成时推进后续任务。
+- 新增 `record_site_inspection`：记录现场质量检查项、证据和不合格项，自动生成 `continue_construction` 或 `create_rectification_order` 下一步。
+- 补齐整改闭环：新增 `create_rectification_order` 和 `close_rectification_order`，支持由不合格检查项生成整改单、分配负责人/截止日期，复验通过后关闭或重新打开。
+- 新增 `validate_site_setbacks`：按场地与建筑包围盒计算左/右/前/后退界，支持统一侧向退界和分方向阈值，输出逐栋违规证据，供方案筛查进入后续建筑体量与报规流程。
+- 新增 `validate_parking_access`：校验停车位、无障碍车位、进场道路宽度、消防车道宽度和转弯半径等项目阈值，输出逐项证据及 `continue_design` / `revise_site_plan` 下一步动作。
+- 新增 `estimate_energy_performance`：按围护结构面积、传热系数、度日和内部负荷估算方案能耗与 EUI，并支持项目输入的 EUI 上限校验，供方案比较和 BIM 交付前筛查。
+- 新增 `reconcile_purchase_order`：按采购订单逐行汇总已交、已验收、拒收和未交数量，持久化对账记录并返回关闭订单、继续收货或处理异常的下一步动作，补齐供应链收口。
+- 新增 `close_purchase_order`：在全部订单行交付且无拒收物料时关闭采购订单，记录关闭人/时间并把下一步交给应付交接；未完成或有拒收时明确拒绝关闭。
+- 新增 `handover_to_accounts_payable`：基于已关闭采购订单生成应付交接单，汇总含税应付金额、发票号和付款条款并持久化，补齐采购到财务交接。
+- 新增 `review_payment_handover` 与 `record_payment`：应付交接单支持审核、驳回/挂起、分次付款和余额追踪，付款完成后进入财务收口，补齐订单到付款执行的状态链。
+- 新增 `close_finance`：付款余额清零后关闭财务交接，记录关闭人/时间并返回采购周期完成状态，消除财务链末端未实现的下一步。
+- 工程操作回执写入增加 409 乐观锁冲突的有限重试，AI 和连接中心并发记录时会重新读取最新版本再追加，减少审计丢失。
+
+- 修复 Electron 桌面聊天误走“只提交不回流”的本地 Codex 分支，统一恢复小T流式执行与画布/工具交付链路。
+- 作品汇报配置器补齐会话级生成模型选择、章节上下移动和内嵌示例预览。
+- Electron 增加受控工作文件夹：目录选择、递归列举、文本读取、确认写入和系统文件夹定位，并作为小T宿主工具提供。
+
+- 采购异常闭环补齐：新增 `resolve_delivery_discrepancy`，支持拒收批次按数量复验接收或退货，退货后可按未交数量补货；对账改为按交付台账计算净收货量、拒收量、退货量并按单位汇总，关闭订单会再次校验台账。
+- 应付异常闭环补齐：审核驳回或挂起后可通过 `revise_payment_handover` 修改发票号、付款条款和税率并保留审核历史后重新提交；财务关闭返回 `workflowStatus: complete` 与空下一步，采购到付款链路不再指向未实现动作。
+
+- 建筑网格输出修正：体量与房间挤出模型现在按底面/顶面连续顶点生成，面索引与顶点布局一致；剖面/立面线段坐标改为稳定的小数精度，避免交给 Blender/SketchUp 时出现错面或异常坐标。
+
+- 装修能力补齐：新增 `generate_renovation_scope`，按房间面积、周长、层高和门窗洞口估算地面/墙面/顶面饰面工程量，支持损耗率与材料编码，结果可直接进入 BOM、Blender 和 SketchUp 后续动作。
+
+- 建筑到装修采购的一键流程已串联：`run_construction_workflow` 可接收 `renovationRooms`，把地面/墙面/顶面饰面工程量与建筑构件工程量合并进入 BOM，并返回 Blender/SketchUp 后续动作。
+
+## 2026-09-07 — Wan3.0 文生视频
+
+- 新增 Wan3.0 画布节点、模型目录/后台模板、API、异步任务恢复、历史与视频输出连接。
+- 继续走 new-api 阿里渠道，新增跨数据库幂等注册命令。
+- 官方标准价 × 1.5：45/90/180 积分每秒；新增路由、参数、积分与网关注册验证。

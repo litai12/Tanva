@@ -33,6 +33,25 @@ contextBridge.exposeInMainWorld(
       writeText: (text) => ipcRenderer.invoke('tanva:clipboard:write-text', text),
     }),
     openTarget: (target, kind = 'url') => ipcRenderer.invoke('tanva:open-target', { target, kind }),
+    screen: Object.freeze({
+      capture: () => ipcRenderer.invoke('tanva:screen:capture'),
+    }),
+    updates: Object.freeze({
+      check: () => ipcRenderer.invoke('tanva:update:check'),
+    }),
+    workspace: Object.freeze({
+      choose: () => ipcRenderer.invoke('tanva:workspace:choose'),
+      status: () => ipcRenderer.invoke('tanva:workspace:status'),
+      list: (relativePath) => ipcRenderer.invoke('tanva:workspace:list', relativePath || ''),
+      read: (relativePath) => ipcRenderer.invoke('tanva:workspace:read', relativePath),
+      write: (relativePath, content) => ipcRenderer.invoke('tanva:workspace:write', relativePath, content),
+      reveal: (relativePath) => ipcRenderer.invoke('tanva:workspace:reveal', relativePath || ''),
+    }),
+    codex: Object.freeze({
+      startThread: (params) => ipcRenderer.invoke('tanva:codex:thread-start', params),
+      resumeThread: (params) => ipcRenderer.invoke('tanva:codex:thread-resume', params),
+      startTurn: (params) => ipcRenderer.invoke('tanva:codex:turn-start', params),
+    }),
     connectors: Object.freeze({
       list: () => ipcRenderer.invoke('tanva:connectors:list'),
       configure: (connectorId) => ipcRenderer.invoke('tanva:connectors:configure', connectorId),

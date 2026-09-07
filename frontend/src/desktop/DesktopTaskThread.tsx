@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   BriefcaseBusiness,
   Check,
+  FolderOpen,
   MessageSquare,
   MoreHorizontal,
   PanelLeftOpen,
@@ -67,6 +68,7 @@ export default function DesktopTaskThread() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const selectedSkills = useSelectedDesktopSkills();
   const currentSession = sessions.find((session) => session.sessionId === currentSessionId);
   const taskProjectId = currentSessionId ? projectBySessionId[currentSessionId] : null;
@@ -83,6 +85,22 @@ export default function DesktopTaskThread() {
     showDialog();
     setXiaotMode(true);
   }, [setXiaotMode, showDialog]);
+
+  useEffect(() => {
+    let active = true;
+    void window.tanvaDesktop?.workspace?.status().then((status) => {
+      if (active) setWorkspaceRoot(status.root);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  const chooseWorkspace = async () => {
+    const result = await window.tanvaDesktop?.workspace?.choose();
+    if (result?.selected) {
+      setWorkspaceRoot(result.root);
+      window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'success', message: '已选择工作文件夹，小T可以读取和交付其中的项目文件。' } }));
+    }
+  };
 
   useEffect(() => {
     // DeepSeek facade 当前可能因独立路由额度返回 402。桌面端先落到已验证
@@ -259,6 +277,7 @@ export default function DesktopTaskThread() {
           <Settings2 className="h-3.5 w-3.5" />
           修改配置
         </button>
+        {window.tanvaDesktop?.workspace && <button type="button" onClick={() => void chooseWorkspace()} className={`flex h-8 max-w-[170px] flex-none items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium ${workspaceRoot ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'}`} title={workspaceRoot ? `工作文件夹：${workspaceRoot}` : '选择工作文件夹'}><FolderOpen className="h-3.5 w-3.5" /><span className="truncate">{workspaceRoot ? workspaceRoot.split(/[\\/]/).pop() : '工作文件夹'}</span></button>}
         <div className="relative flex-none">
           <button
             type="button"

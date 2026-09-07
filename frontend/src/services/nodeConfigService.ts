@@ -162,6 +162,7 @@ function getDefaultConfigs(): NodeConfig[] {
     },
 
     // 视频节点
+    { nodeKey: "wan30Video", nameZh: "Wan3.0视频生成", nameEn: "Wan3.0 Video", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan30-video", priceYuan: 2.25 },
     { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan27-video", priceYuan: 6 },
     { nodeKey: "seedVideo", nameZh: "Seed 2.0视频生成", nameEn: "Seed 2.0", category: "video", status: "normal", sortOrder: 36, creditsPerCall: 600, serviceType: "doubao-video" },
     { nodeKey: "volcEnhanceVideo", nameZh: "视频画质增强", nameEn: "Video Enhance", category: "video", status: "normal", sortOrder: 37, creditsPerCall: 0, serviceType: "volc-enhance-video" },

@@ -176,11 +176,23 @@ model Project {
   workflowHistory WorkflowHistory[]
   teamShares      TeamProjectShare[]
   commentThreads  CanvasCommentThread[]
+  engineeringState ProjectEngineeringState?
 
   // 索引优化：加速项目列表查询
   @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
   @@index([userId, updatedAt])     // 用户项目列表，按更新时间倒序
   @@index([createdAt])             // 全局项目统计
+}
+
+/// Architecture, BIM and procurement state is kept separate from Project.contentJson.
+/// This prevents operational records from entering the design JSON/OSS snapshot.
+model ProjectEngineeringState {
+  projectId  String   @id
+  version    Int      @default(1)
+  state      Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 /// 画布评论线程（Figma 式）：锚定到画布坐标(x/y, flow 坐标系)，pin 随平移缩放移动。

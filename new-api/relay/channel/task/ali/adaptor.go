@@ -202,6 +202,7 @@ func sizeToResolution(size string) (string, error) {
 func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) {
 	otherRatios := make(map[string]float64)
 	aliRatios := map[string]map[string]float64{
+		"wan3.0-video": {"480P": 1, "720P": 2, "1080P": 4},
 		"wan2.6-i2v": {
 			"720P":  1,
 			"1080P": 1 / 0.6,
@@ -305,7 +306,9 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 				aliReq.Parameters.Size = "1280*720"
 			}
 		} else {
-			if strings.HasPrefix(req.Model, "wan2.6") {
+			if upstreamModel == "wan3.0-video" {
+				aliReq.Parameters.Resolution = "480P"
+			} else if strings.HasPrefix(req.Model, "wan2.6") {
 				aliReq.Parameters.Resolution = "1080P"
 			} else if strings.HasPrefix(req.Model, "wan2.5") {
 				aliReq.Parameters.Resolution = "1080P"
@@ -349,6 +352,23 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		return nil, errors.New("can't change model with metadata")
 	}
 
+	if upstreamModel == "wan3.0-video" {
+		aliReq.Parameters.PromptExtend = false
+		if aliReq.Parameters.Ratio == "" {
+			aliReq.Parameters.Ratio = "adaptive"
+		}
+		if aliReq.Input.Prompt == "" {
+			return nil, errors.New("wan3.0-video requires a prompt")
+		}
+		if aliReq.Parameters.Duration < 1 || aliReq.Parameters.Duration > 30 {
+			return nil, errors.New("wan3.0-video duration must be 1-30 seconds")
+		}
+		switch aliReq.Parameters.Resolution {
+		case "480P", "720P", "1080P":
+		default:
+			return nil, errors.New("wan3.0-video resolution must be 480P, 720P or 1080P")
+		}
+	}
 	return aliReq, nil
 }
 

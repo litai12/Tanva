@@ -14,6 +14,7 @@ export const DESKTOP_SKILLS: readonly DesktopSkill[] = [
   { id: 'autocad-mcp', name: 'AutoCAD MCP', description: '读取和编辑 AutoCAD 图纸' },
   { id: 'revit-mcp', name: 'Revit MCP', description: '读取和操作 Revit 建筑模型' },
   { id: '3dsmax-mcp', name: '3ds Max MCP', description: '查询和修改 3ds Max 场景' },
+  { id: 'blender-mcp', name: 'Blender MCP', description: '查询和修改 Blender 场景、材质、灯光与渲染' },
   { id: 'photoshop-mcp', name: 'Photoshop MCP', description: '处理 Photoshop 当前文档' },
   { id: 'illustrator-mcp', name: 'Illustrator MCP', description: '处理 Illustrator 当前文档' },
   { id: 'indesign-mcp', name: 'InDesign MCP', description: '处理 InDesign 当前文档' },

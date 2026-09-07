@@ -11,6 +11,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { recordEngineeringOperation } from '@/services/projectEngineeringApi';
 
 const statusText = (connector: DesktopConnectorStatus): string => {
   if (!connector.available) return '未找到应用';
@@ -27,8 +28,9 @@ const mcpStatusText = (connector: DesktopConnectorStatus): string => {
   return 'MCP 未配置';
 };
 
-export default function DesktopConnectorsSurface() {
+export default function DesktopConnectorsSurface({ projectId }: { projectId: string | null }) {
   const desktopBridge = window.tanvaDesktop;
+  const [panelTaskId] = useState(() => `desktop-connector-${Date.now().toString(36)}`);
   const [connectors, setConnectors] = useState<DesktopConnectorStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -163,7 +165,23 @@ export default function DesktopConnectorsSurface() {
         setNotice(error instanceof Error ? error.message : '参数格式错误');
         return;
       }
-      const result = await desktopBridge.connectors.callTool(connectorId, tool.name, args);
+      if ((connectorId === 'architecture' || connectorId === 'business') && !projectId) {
+        setNotice('请先选择一个项目，再执行建筑或采购工程工具');
+        return;
+      }
+      const scopedArgs = connectorId === 'architecture' || connectorId === 'business'
+        ? { ...args, projectId: args.projectId || projectId, taskId: args.taskId || panelTaskId }
+        : args;
+      const result = await desktopBridge.connectors.callTool(connectorId, tool.name, scopedArgs);
+      if ((connectorId === 'architecture' || connectorId === 'business') && projectId && !result.cancelled && !result.isError) {
+        void recordEngineeringOperation(projectId, {
+          connectorId,
+          action: tool.name,
+          taskId: panelTaskId,
+          completedAt: new Date().toISOString(),
+          result: result.text || null,
+        }).catch(() => undefined);
+      }
       if (result.cancelled) setNotice(`已取消 ${tool.name}`);
       else if (result.isError) setNotice(result.text || `${tool.name} 执行失败`);
       else setNotice(result.text || `${tool.name} 执行完成`);
@@ -220,14 +238,14 @@ export default function DesktopConnectorsSurface() {
                     {connector.available && <CheckCircle2 className="h-3.5 w-3.5 flex-none text-emerald-600" />}
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                    {statusText(connector)}
+                    {connector.internal ? 'Tanva 内置能力' : statusText(connector)}
                     {connector.hostedBy ? ` · 由 ${connector.hostedBy === 'rhino' ? 'Rhino' : connector.hostedBy} 承载` : ''}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void configure(connector.id)}
-                  disabled={busyId === connector.id || !desktopBridge}
+                  disabled={connector.internal || busyId === connector.id || !desktopBridge}
                   className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
                 >
                   <FolderCog className="h-3.5 w-3.5" />
@@ -236,7 +254,7 @@ export default function DesktopConnectorsSurface() {
                 <button
                   type="button"
                   onClick={() => void launch(connector)}
-                  disabled={!connector.available || busyId === connector.id || !desktopBridge}
+                  disabled={connector.internal || !connector.available || busyId === connector.id || !desktopBridge}
                   className="flex h-8 items-center gap-1.5 rounded-lg bg-slate-950 px-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -258,11 +276,11 @@ export default function DesktopConnectorsSurface() {
                     工具
                   </button>
                 )}
-                <button type="button" onClick={() => void configureMcp(connector)} disabled={busyId === connector.id || !desktopBridge} className="flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+                <button type="button" onClick={() => void configureMcp(connector)} disabled={connector.internal || busyId === connector.id || !desktopBridge} className="flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50">
                   <FileJson className="h-3 w-3" />
                   导入 MCP
                 </button>
-                <div className="flex min-w-0 flex-1 items-center gap-1">
+                {!connector.internal && <div className="flex min-w-0 flex-1 items-center gap-1">
                   <select
                     value={protocolByConnector[connector.id] || 'sse'}
                     onChange={(event) => setProtocolByConnector((current) => ({
@@ -286,7 +304,7 @@ export default function DesktopConnectorsSurface() {
                     <PlugZap className="h-3 w-3" />
                     连接地址
                   </button>
-                </div>
+                </div>}
                 {connector.transport !== 'not-configured' && (
                   <button type="button" onClick={() => void toggleMcp(connector)} disabled={busyId === connector.id || connector.transport === 'connecting' || !desktopBridge} className="flex h-7 items-center gap-1 rounded-md bg-blue-50 px-2 text-[10px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
                     {connector.transport === 'connected' ? <Unplug className="h-3 w-3" /> : <PlugZap className="h-3 w-3" />}

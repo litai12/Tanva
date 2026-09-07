@@ -157,6 +157,7 @@ const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
   'sora-hd',
   'wan26-video',
   'wan27-video',
+  'wan30-video',
   'kling-video',
   'kling-2.6-video',
   'kling-3.0-video',
@@ -177,6 +178,7 @@ const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
   'sora-hd',
   'wan26-video',
   'wan27-video',
+  'wan30-video',
   'wan26-r2v',
   'kling-video',
   'kling-2.6-video',
@@ -1956,7 +1958,7 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
-    if (serviceType !== 'happyhorse-r2v-video') return defaultCredits;
+    if (serviceType !== 'happyhorse-r2v-video' && serviceType !== 'wan30-video') return defaultCredits;
     const pricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
     const matrix = pricing?.dynamicPricing?.perSecondByResolution as
       | Record<string, number>

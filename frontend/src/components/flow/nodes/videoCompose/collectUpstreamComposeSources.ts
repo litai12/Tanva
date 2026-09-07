@@ -14,6 +14,7 @@ const VIDEO_SOURCE_NODE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "wan30Video",
   "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",

@@ -13,6 +13,12 @@ files:
   - desktop-runtime.mjs
   - mcp-config-normalizer.mjs
   - desktop-mcp-templates.mjs
+  - construction-model.mjs
+  - procurement-model.mjs
+  - construction-host.mjs
+  - compute-use.mjs
+  - compute-use-actions.mjs
+  - local-codex-client.mjs
   - package.json
 extraResources:
   - from: ../dist

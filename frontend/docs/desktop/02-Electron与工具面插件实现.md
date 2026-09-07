@@ -33,6 +33,8 @@
 
 本轮没有实现外部插件下载、第三方代码动态执行、插件签名、自动更新或独立 Utility Process。当前 Capability Host 位于 Electron Main；“多插件”指多个随应用编译发布、遵循同一合同的可信工具面，不把未经验证的远程脚本加载进 Renderer。
 
+所有外部软件的实际操作统一经过 `electron/compute-use.mjs`。Electron 只负责可信来源校验、参数校验和逐次授权；`compute-use` 再把请求交给 Capability Host，由 MCP 服务连接 SketchUp、Blender、Rhino、CAD 或其他本机工具。业务代码不得绕过该边界直接启动进程、读写专业软件文件或调用 MCP。
+
 ## 2. 运行结构
 
 ```mermaid

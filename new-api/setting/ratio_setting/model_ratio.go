@@ -385,6 +385,7 @@ var defaultModelPrice = map[string]float64{
 	"wan2.6-t2v":                 4.0,
 	"wan2.6-i2v":                 4.0,
 	"wan2.6-r2v":                 4.0,
+	"wan3.0-video":               0.45, // 0.45 CNY/s (official standard price x 1.5)
 	"wan2.7-i2v":                 4.0,
 	"wan-2.6":                    4.0,
 	"wan-2.6-r2v":                4.0,

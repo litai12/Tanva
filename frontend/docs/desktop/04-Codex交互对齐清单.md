@@ -51,6 +51,12 @@
 
 ## 4. 自动验收
 
+## 5. Codex 手脚能力（Electron Harness）
+
+Electron harness 通过受信 IPC 向小T提供两类桌面能力：`tanvaDesktop.screen.capture()` 捕获当前 Tanva 窗口并写入临时 PNG（仅返回临时文件引用），以及 `tanvaDesktop.updates.check()` 查询 HTTPS 更新清单。截图不会把 base64 或 `data:` URL 写入设计 JSON；更新清单由 `TANVA_UPDATE_MANIFEST_URL` 配置，返回 `available`、`up-to-date` 或 `unconfigured` 状态。
+
+这些能力只接受受信 renderer 请求，截图文件使用用户临时目录和 0600 权限；更新检查限制 HTTPS、10 秒超时，不执行未经用户确认的安装。它们可作为 Codex harness 的基础“手脚”，供小T子智能体在任务中调用。
+
 桌面回归必须至少执行：
 
 ```bash

@@ -231,3 +231,10 @@
 - `image-tasks` Worker 保持 1000 并发上限；结果下载和 base64 解码均受 `IMAGE_TASK_OUTPUT_MAX_MB`（默认 64MB）约束，上传复用已有 Buffer，避免流适配器再次聚合出完整副本。
 - Sharp 对唯一生成图片关闭持久缓存，默认 native concurrency=1，并限制输入像素；PDF/Skia 只在 PDF 分析请求到达时动态加载。
 - 生产 ecosystem 优先使用 jemalloc，并在 RSS 超过 2GB 且 Worker 无 active job 时关闭 consumer，再经 Nest/Fastify shutdown hook 排空普通 HTTP 请求后安全退出。PM2 6GB RSS 重启阈值只作紧急保险；监控必须展示真实配置和 allocator。
+
+### Wan3.0 文生视频（2026-09-07）
+
+- 新增 `dashscope/generate-wan3-0-video`，校验提示词、分辨率、整数时长和 adaptive 画幅，模型固定为 `wan3.0-video`，经 new-api type=17 提交。
+- `wan30-video` 独立按秒计费：480P/720P/1080P = 45/90/180 积分每秒；对应后台 `wan-3.0` 定价模板和 new-api catalog 一致。
+- 并发重复请求复用原任务；usage 别名在认证后查询原 taskId，任务身份持久化支持刷新恢复。
+- 部署注册与支持范围见 `frontend/docs/Wan3.0接入说明.md`；多模态字段尚未开放。

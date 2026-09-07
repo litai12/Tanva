@@ -2595,8 +2595,68 @@ export async function generateHappyhorseVideoViaAPI(request: {
 }
 
 /**
- * 调用后端保留的 new-api 兼容入口生成 Wan2.7-i2v 视频
+ * 通过 new-api 阿里渠道生成 Wan3.0 文生视频
  */
+export async function generateWan30ViaAPI(request: {
+  prompt: string; resolution: string; duration: number;
+  clientProjectId?: string; clientNodeId: string; clientRunId: string;
+}): Promise<AIServiceResponse<{ taskId?: string; task_id?: string }> & { apiUsageId?: string }> {
+  const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "wan3.0-video",
+    input: {
+      prompt: request.prompt,
+    },
+    parameters: { resolution: request.resolution, duration: request.duration, ratio: "adaptive" },
+    clientProjectId: request.clientProjectId, clientNodeId: request.clientNodeId, clientRunId: request.clientRunId,
+  };
+
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-wan3-0-video`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": `vnode-${request.clientNodeId}-${request.clientRunId}` },
+        body: JSON.stringify(dashscopeRequest),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-wan3-0-video", startedAt, {
+        success: false,
+        status: response.status,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-wan3-0-video", startedAt, { success: true });
+    return data;
+  } catch (error) {
+    logApiTiming("generate-wan3-0-video", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+
 export async function generateWan27I2VViaAPI(request: {
   prompt?: string;
   media: Array<{

@@ -1,6 +1,7 @@
 package ali
 
 var ModelList = []string{
+	"wan3.0-video",              // 万相3.0 文生视频
 	"wan2.6-t2v",                // 万相2.6 文生视频
 	"wan2.6-i2v",                // 万相2.6 图生视频
 	"wan2.6-r2v",                // 万相2.6 参考视频生成

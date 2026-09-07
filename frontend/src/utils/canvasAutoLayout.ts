@@ -17,7 +17,7 @@ const positiveDimension = (value: unknown): number | null => {
 // 网格换行后的第二行会压进第一行。
 const VIDEO_LAYOUT_TYPES: ReadonlySet<string> = new Set([
   "video", "sora2Video", "wan26", "wan2R2V", "happyhorseR2V",
-  "wan27Video", "omniFlashExtVideo", "klingVideo", "kling26Video",
+  "wan27Video", "wan30Video", "omniFlashExtVideo", "klingVideo", "kling26Video",
   "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo",
   "seedance20Video", "seedVideo", "volcEnhanceVideo",
 ]);
@@ -123,6 +123,7 @@ const TYPE_CATEGORY: Record<string, TidyCategory> = {
   wan26: "video",
   wan2R2V: "video",
   happyhorseR2V: "video",
+  wan30Video: "video",
   wan27Video: "video",
   omniFlashExtVideo: "video",
   klingVideo: "video",

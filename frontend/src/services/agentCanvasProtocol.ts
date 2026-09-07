@@ -148,6 +148,7 @@ export const DEFAULT_NODE_HANDLES: Record<
   seedance20Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   sora2Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   kling26Video: { textIn: "text", imageIn: "image", videoOut: "video" },
+  wan30Video: { textIn: "text", videoOut: "video" },
   wan27Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   viduQ3: { textIn: "text", imageIn: "image", videoOut: "video" },
   doubaoVideo: { textIn: "text", imageIn: "image", videoOut: "video" },
@@ -693,6 +694,7 @@ export const VIDEO_MAX_DURATION: Record<string, number> = {
   klingVideo: 10,
   kling30Video: 10,
   klingO1Video: 10,
+  wan30Video: 30,
   wan27Video: 15,
   wan26: 15,
   viduQ3: 16,
@@ -702,6 +704,7 @@ export const VIDEO_MAX_DURATION: Record<string, number> = {
 // 各视频模型承载时长的 data 字段名：仅 Wan27 是标准节点用 duration，其余
 // (Seedance/Doubao/Seed/Kling/Vidu 都走 GenericVideoNode) 用 clipDuration。缺省 clipDuration。
 export const VIDEO_DURATION_FIELD: Record<string, string> = {
+  wan30Video: "duration",
   wan27Video: "duration",
 };
 
@@ -714,6 +717,7 @@ export function videoDurationField(nodeType: string): string {
 // doubaoVideo/1.5-Pro）。注意 seedance-2 与 seedance-1.5 都含"seedance"，
 // 必须先判 1.5 再判 2 做互斥区分。规则按数组顺序短路。
 const REQUESTED_VIDEO_MODEL_RULES: Array<[RegExp, string]> = [
+  [/wan[\s\-]?3(?:\.0)?|万相[\s\-]?3(?:\.0)?/i, "wan30Video"],
   // seedance / 即梦 1.5（含 1.5-pro）→ doubaoVideo（先判，避免被 2 规则误吞）
   [/seedance[\s\-]?1\.?5|即梦[\s\-]?1\.?5|1\.5[\s\-]?pro/i, "doubaoVideo"],
   // seedance / 即梦 2.0 → seedance20Video
@@ -744,6 +748,7 @@ const VIDEO_TYPE_LABELS: Record<string, string> = {
   kling26Video: "可灵2.6",
   kling30Video: "可灵3.0",
   sora2Video: "Sora 2",
+  wan30Video: "Wan 3.0",
   wan27Video: "Wan 2.7",
   viduQ3: "Vidu Q3",
 };
