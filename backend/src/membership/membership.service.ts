@@ -10,6 +10,7 @@ import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { isFreeCreditDecayLot } from '../credits/free-credit-decay-policy';
+import { materializeLegacyReferralLots } from '../credits/legacy-referral-lots';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
 import {
@@ -1448,6 +1449,8 @@ export class MembershipService {
         });
         if (alreadyDecayed > 0) return null;
 
+        await materializeLegacyReferralLots(tx, account.id);
+
         const candidateLots = await tx.creditLot.findMany({
           where: {
             accountId: account.id,
@@ -1510,41 +1513,6 @@ export class MembershipService {
             0,
             accountBalance - (activeLotBalance._sum.remainingAmount ?? 0),
           );
-          const legacyReferralTransactions = await tx.creditTransaction.findMany({
-            where: {
-              accountId: account.id,
-              type: 'REFERRAL_REWARD',
-              creditLotId: null,
-              amount: { gt: 0 },
-              isExpired: false,
-            },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          });
-
-          for (const transaction of legacyReferralTransactions) {
-            if (remainingDecay <= 0 || legacyBalance <= 0 || accountBalance <= 0) break;
-            const remainingReward = Math.max(0, transaction.amount - transaction.expiredAmount);
-            const amount = Math.min(remainingDecay, legacyBalance, accountBalance, remainingReward);
-            if (amount <= 0) continue;
-
-            const nextExpiredAmount = transaction.expiredAmount + amount;
-            await tx.creditTransaction.update({
-              where: { id: transaction.id },
-              data: {
-                expiredAmount: nextExpiredAmount,
-                isExpired: nextExpiredAmount >= transaction.amount,
-              },
-            });
-            deductions.push({
-              kind: 'legacy_referral',
-              transactionId: transaction.id,
-              amount,
-            });
-            remainingDecay -= amount;
-            legacyBalance -= amount;
-            accountBalance -= amount;
-          }
-
           // 没有任何已支付订单的用户，账户中未被 lot 覆盖的历史余额也按
           // 非付费积分处理（例如旧注册赠送/签到/退款余额）。已付费用户
           // 不做这一步，避免把无法追溯来源的混合余额误扣为免费积分。

@@ -1656,7 +1656,7 @@ export class NodeConfigService {
         nodeKey: 'wan30Video', nameZh: 'Wan3.0视频生成', nameEn: 'Wan3.0 Video',
         category: 'video', sortOrder: 35, creditsPerCall: 225,
         serviceType: 'wan30-video', priceYuan: 2.25,
-        description: 'Wan3.0 文生视频，通过 new-api 阿里渠道生成',
+        description: 'Wan3.0 文生 / 图生 / 参考视频生成，通过 new-api 阿里渠道生成',
         metadata: { ...buildVodNodeMetadata(
           { type: 'wan30Video', provider: 'new-api', supportedModels: ['wan3.0-video'],
             defaultData: { resolution: '480P', duration: 5, ratio: 'adaptive' } },
@@ -2403,7 +2403,7 @@ export class NodeConfigService {
         nodeKey: 'wan30Video', nameZh: 'Wan3.0视频生成', nameEn: 'Wan3.0 Video',
         category: 'video', sortOrder: 35, creditsPerCall: 225,
         serviceType: 'wan30-video', priceYuan: 2.25,
-        description: 'Wan3.0 文生视频，通过 new-api 阿里渠道生成',
+        description: 'Wan3.0 文生 / 图生 / 参考视频生成，通过 new-api 阿里渠道生成',
         metadata: { ...buildVodNodeMetadata(
           { type: 'wan30Video', provider: 'new-api', supportedModels: ['wan3.0-video'],
             defaultData: { resolution: '480P', duration: 5, ratio: 'adaptive' } },

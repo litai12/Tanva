@@ -357,11 +357,11 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		if aliReq.Parameters.Ratio == "" {
 			aliReq.Parameters.Ratio = "adaptive"
 		}
-		if aliReq.Input.Prompt == "" {
-			return nil, errors.New("wan3.0-video requires a prompt")
+		if aliReq.Input.Prompt == "" && len(aliReq.Input.Media) == 0 {
+			return nil, errors.New("wan3.0-video requires a prompt or media")
 		}
-		if aliReq.Parameters.Duration < 1 || aliReq.Parameters.Duration > 30 {
-			return nil, errors.New("wan3.0-video duration must be 1-30 seconds")
+		if aliReq.Parameters.Duration < 2 || aliReq.Parameters.Duration > 30 {
+			return nil, errors.New("wan3.0-video duration must be 2-30 seconds")
 		}
 		switch aliReq.Parameters.Resolution {
 		case "480P", "720P", "1080P":

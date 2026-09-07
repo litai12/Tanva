@@ -115,14 +115,14 @@ async function main(): Promise<void> {
   assert.equal(captured[1]?.body.metadata?.parameters?.shot_type, 'multi');
 
   const wan30 = await service.createDashscopeVideoTask({
-    model: 'wan3.0-video', input: { prompt: 'a cat running on a rooftop' },
+    model: 'wan3.0-video', input: { prompt: 'a cat running on a rooftop', media: [{ type: 'reference_video', url: 'https://assets.test/ref.mp4' }, { type: 'reference_image', url: 'https://assets.test/ref.png' }] },
     parameters: { resolution: '480P', ratio: 'adaptive', duration: 5 },
   });
   assert.equal(wan30.taskId, 'newapi:gateway-task-3');
   assert.equal(captured[2]?.url, 'https://new-api.test/v1/videos');
   assert.equal(captured[2]?.body.model, 'wan3.0-video');
   assert.deepEqual(captured[2]?.body.metadata, {
-    input: { prompt: 'a cat running on a rooftop' },
+    input: { prompt: 'a cat running on a rooftop', media: [{ type: 'reference_video', url: 'https://assets.test/ref.mp4' }, { type: 'reference_image', url: 'https://assets.test/ref.png' }] },
     parameters: { resolution: '480P', ratio: 'adaptive', duration: 5 },
   });
 
@@ -134,6 +134,12 @@ async function main(): Promise<void> {
   assert.doesNotMatch(
     controllerSource,
     /https:\/\/dashscope\.aliyuncs\.com\/api\/v1\/services\/aigc\/video-generation/,
+  );
+
+  globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+  await assert.rejects(
+    () => service.createDashscopeVideoTask({ model: 'wan3.0-video', input: { prompt: 'unavailable gateway' } }),
+    (error: any) => error.getStatus() === 503 && /视频网关暂时无法连接/.test(error.message),
   );
 
   delete process.env.NEW_API_KEY;

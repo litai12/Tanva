@@ -74,8 +74,8 @@ function run(): void {
       amount: item.amount,
     })),
     [
-      { lotId: 'membership-lot', amount: 50 },
       { lotId: 'gift-lot', amount: 70 },
+      { lotId: 'membership-lot', amount: 50 },
     ],
   );
 

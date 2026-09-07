@@ -1,3 +1,5 @@
+import { isFreeCreditDecayLot } from './free-credit-decay-policy';
+
 export type CreditLotSourceType =
   | 'subscription'
   | 'recharge'
@@ -24,6 +26,7 @@ export type CreditLotStatus =
   | 'revoked';
 
 export interface CreditLotCandidate {
+  metadata?: unknown;
   id: string;
   sourceType: CreditLotSourceType;
   validityType: CreditLotValidityType;
@@ -275,6 +278,12 @@ function compareLots(
   policy: CreditConsumePolicy,
   scope?: CreditConsumeScope,
 ): number {
+  // 免费优先是业务不变量，旧数据库排序、有效期类型和自定义权重不能覆盖。
+  // 签到与待审计旧邀请批次虽不参与每日衰减，仍属于优先消费的免费积分。
+  const isFree = (lot: CreditLotCandidate) =>
+    lot.sourceType === 'gift' || lot.sourceType === 'promo' || isFreeCreditDecayLot(lot);
+  const freeOrder = Number(isFree(right)) - Number(isFree(left));
+  if (freeOrder !== 0) return freeOrder;
   const leftPriority = left.priority ?? 0;
   const rightPriority = right.priority ?? 0;
   if (leftPriority < 0 || rightPriority < 0) {

@@ -499,7 +499,8 @@ Flow 鑺傜偣鎷栨嫿鏀寔涓庡叾浠栬妭鐐硅繘琛岃竟锟?涓�
 - Failed/timeout task messages are surfaced as node errors; credit refund is handled by backend async task status flow.
 
 ## 2026-05-12 Seedance Update
-- Seedance video node model selector now uses Seedance 2.0 + Seed 2.0 Lite (removed 2.0 Fast UI option), and mode selector now supports eference_images / irst_frame / start_end / smart_frames with mode-specific validation and limit tips.
+- Seedance video node model selector now uses Seedance 2.0 + Seed 2.0 Lite (removed 2.0 Fast UI option), and mode selector now supports 
+eference_images / irst_frame / start_end / smart_frames with mode-specific validation and limit tips.
 
 # 导演台（Director Console）
 
@@ -514,3 +515,7 @@ Flow 鑺傜偣鎷栨嫿鏀寔涓庡叾浠栬妭鐐硅繘琛岃竟锟?涓�
 - 顶栏整理按钮发送 `scope: selection-or-all`：存在选区时仅整理选中的原子节点或节点组，未选中的节点不写入目标位置；没有选区时回退为全画布按类别整理。
 - 节点组继续作为原子整理单元。选中组容器会让组成员跟随同一位移；单独选中组成员不会把成员从组中拆出重排。
 - 小T新增节点触发的自动整理不声明选区范围，始终使用全画布布局，避免用户遗留选区使新节点漏排。
+
+### Wan3.0 节点
+
+Wan3.0 使用 `Wan30VideoNode` 薄包装复用 Seedance 同一 `GenericVideoNode`，保留 DashScope 执行链路。支持文本、图片、尾帧和参考视频输入；`isValidConnection`、`canAcceptConnection` 及句柄映射同步支持各输入，分别限制参考图 10 张、尾帧 1 张、参考视频 5 段。单图使用首帧，多图或与视频同时使用时转参考图，尾帧禁止与参考模式混用。控件、小T和执行入口统一使用 `clipDuration`，渲染与执行兼容旧 `duration`。回归命令：`cd frontend && node scripts/verifyWan30Connections.mjs`。

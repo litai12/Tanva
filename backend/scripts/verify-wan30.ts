@@ -4,6 +4,10 @@ import { CreditsService } from '../src/credits/credits.service';
 
 async function main() {
   const controller = Object.create(AiController.prototype) as any;
+  controller.oss = { allowedPublicHosts: () => ['assets.example.com'] };
+  controller.logger = { debug() {}, warn() {} };
+  let videoDuration = 5;
+  controller.referenceVideoDuration = { sumDurations: async (urls: string[]) => ({ durations: [...new Set(urls)].map(url => ({ url, durationSec: videoDuration })) }) };
   let submitted: any;
   let quote: any;
   controller.withCredits = async (_req: any, service: string, model: string, operation: () => unknown, _a: any, _b: any, _c: any, params: any) => {
@@ -23,12 +27,29 @@ async function main() {
     assert.equal(quote.managedModelKey, 'wan-3.0');
     assert.equal(credits.resolveHappyhorseR2VCredits('wan30-video', 225, quote), rate * 5);
   }
-  for (const parameters of [{ resolution: '4K' }, { duration: 0 }, { duration: 31 }, { duration: 5.5 }, { ratio: '16:9' }]) {
+  for (const parameters of [{ resolution: '4K' }, { duration: 0 }, { duration: 1 }, { duration: 31 }, { duration: 5.5 }, { ratio: '16:9' }]) {
     await assert.rejects(() => controller.generateWan30Video({ input: { prompt: 'cat' }, parameters }, {}));
   }
   await assert.rejects(() => controller.generateWan30Video({ input: { prompt: '' } }, {}));
   await assert.rejects(() => controller.generateWan30Video({ model: 'wan2.7-i2v', input: { prompt: 'cat' } }, {}));
-  await assert.rejects(() => controller.generateWan30Video({ input: { prompt: 'cat', media: [] } }, {}));
+  const frame = { type: 'first_frame', url: 'https://assets.example.com/frame.png' };
+  const tail = { type: 'last_frame', url: 'https://assets.example.com/tail.png' };
+  const image = { ...frame, type: 'reference_image' };
+  const video = { type: 'reference_video', url: 'https://assets.example.com/video.mp4' };
+  for (const media of [[frame], [frame, tail], [image, video], [video], [image, { ...image, url: 'https://assets.example.com/second.png' }]]) {
+    await controller.generateWan30Video({ input: { media }, parameters: { duration: 10 } }, {});
+    assert.deepEqual(submitted.input.media, media);
+    assert.equal(quote.generationMode, media.some(item => item.type === 'reference_video') ? 'r2v' : 'i2v');
+    assert.equal(credits.resolveHappyhorseR2VCredits('wan30-video', 225, quote), 450);
+  }
+  for (const media of [[tail], [frame, video], [frame, image], Array(11).fill(image), Array(6).fill(video), [{ ...frame, url: 'data:image/png;base64,AAA' }], [{ ...video, url: 'http://localhost/video.mp4' }], [{ type: 'unknown', url: frame.url }], {}]) {
+    await assert.rejects(() => controller.generateWan30Video({ input: { prompt: 'cat', media } }, {}));
+  }
+  videoDuration = 16;
+  await assert.rejects(() => controller.generateWan30Video({ input: { media: [video] } }, {}));
+  videoDuration = 10;
+  await assert.rejects(() => controller.generateWan30Video({ input: { media: [video] }, parameters: { duration: 25 } }, {}));
+  await assert.rejects(() => controller.generateWan30Video({ input: { media: [video, video] } }, {}));
   const dedupController = Object.create(AiController.prototype) as any;
   dedupController.logger = { debug() {} };
   dedupController.getUserId = () => 'user-1';

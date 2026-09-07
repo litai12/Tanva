@@ -211,8 +211,20 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		hasInputReference = true
 	}
 
-	if taskErr := validatePrompt(prompt); taskErr != nil {
-		return taskErr
+	// Wan3.0 accepts a prompt OR its typed metadata.input.media array.
+	// Keep the prompt requirement unchanged for every other model.
+	wan30HasMedia := false
+	if model == "wan3.0-video" {
+		if input, ok := req.Metadata["input"].(map[string]interface{}); ok {
+			if media, ok := input["media"].([]interface{}); ok {
+				wan30HasMedia = len(media) > 0
+			}
+		}
+	}
+	if !wan30HasMedia {
+		if taskErr := validatePrompt(prompt); taskErr != nil {
+			return taskErr
+		}
 	}
 
 	action := constant.TaskActionTextGenerate

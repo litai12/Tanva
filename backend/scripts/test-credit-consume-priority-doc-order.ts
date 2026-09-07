@@ -39,6 +39,7 @@ function run(): void {
       },
       {
         id: 'monthly_lot',
+        metadata: { grantedBy: 'free_user_monthly_quota' },
         sourceType: 'subscription',
         validityType: 'fixed_window',
         scopeType: 'global',
@@ -72,7 +73,7 @@ function run(): void {
 
   assert.deepEqual(
     ordered.map((item) => item.id),
-    ['vip_monthly_lot', 'monthly_lot', 'gift_lot', 'fixed_lot'],
+    ['monthly_lot', 'gift_lot', 'vip_monthly_lot', 'fixed_lot'],
   );
 }
 

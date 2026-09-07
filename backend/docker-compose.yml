@@ -45,6 +45,8 @@ services:
       PGPASSWORD: ${NEW_API_PG_PASSWORD:-new_api_pass}
       PG_USER: ${NEW_API_PG_USER:-new_api}
       PG_DB: ${NEW_API_PG_DB:-new_api}
+      XIAOT_API_KEY: ${XIAOT_API_KEY:-}
+      XIAOT_BASE_URL: ${XIAOT_BASE_URL:-}
     volumes:
       - ../new-api/patches:/patches:ro
     command: ["sh", "/patches/_apply.sh"]

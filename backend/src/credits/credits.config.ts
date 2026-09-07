@@ -259,7 +259,7 @@ export const CREDIT_PRICING_CONFIG = {
     serviceName: 'Wan3.0 生成视频',
     provider: 'new-api',
     creditsPerCall: 225,
-    description: 'Wan3.0 文生视频，官方标准价 × 1.5 按秒计费',
+    description: 'Wan3.0 文生 / 图生 / 参考视频生成，官方标准价 × 1.5 按秒计费',
     dynamicPricing: { perSecondByResolution: { '480P': 45, '720P': 90, '1080P': 180 } },
   },
   'wan27-video': {

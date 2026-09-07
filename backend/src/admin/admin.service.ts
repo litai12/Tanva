@@ -177,7 +177,7 @@ const API_USAGE_MODEL_NODES: ApiUsageModelNode[] = [
   { key: 'hailuo', name: 'MINIMAX H3 VIDEO' },
   { key: 'kling', name: 'KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO' },
   { key: 'vidu', name: 'VIDU Q2 / VIDU Q3 VIDEO' },
-  { key: 'wan', name: 'WAN 2.6 / WAN 2.7 VIDEO' },
+  { key: 'wan', name: 'WAN 2.6 / WAN 2.7 / WAN 3.0 VIDEO' },
   { key: 'happyhorse', name: 'HAPPYHORSE 1.0 R2V VIDEO' },
   { key: 'omni', name: 'OMNI FLASH EXT VIDEO' },
   { key: 'video-analyze', name: 'GEMINI VIDEO ANALYSIS' },
@@ -420,7 +420,7 @@ export class AdminService {
       key = 'kling';
     } else if (serviceType.includes('vidu') || this.includesAny(search, ['vidu', 'q2', 'q3'])) {
       key = 'vidu';
-    } else if (serviceType.includes('wan') || this.includesAny(search, ['wan2.6', 'wan2.7', 'wan-2.7'])) {
+    } else if (serviceType.includes('wan') || this.includesAny(search, ['wan2.6', 'wan2.7', 'wan-2.7', 'wan3.0', 'wan-3.0'])) {
       key = 'wan';
     } else if (serviceType.includes('happyhorse') || search.includes('happyhorse')) {
       key = 'happyhorse';

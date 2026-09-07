@@ -57,8 +57,8 @@ function run(): void {
   assert.equal(plan.sufficient, true);
   assert.equal(plan.totalDeducted, 150);
   assert.deepEqual(plan.deductions, [
-    { kind: 'lot', lotId: 'membership', amount: 50 },
     { kind: 'lot', lotId: 'gift', amount: 70 },
+    { kind: 'lot', lotId: 'membership', amount: 50 },
     { kind: 'legacy_balance', amount: 30 },
   ]);
 

@@ -2507,7 +2507,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan26: ["image", "text", "audio"],
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
-  wan30Video: ["text"],
+  wan30Video: ["text", "image", "image-2", "video"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
   omniFlashExtVideo: ["image", "video", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
@@ -11127,7 +11127,7 @@ function FlowInner() {
               boxH: size.h,
             }
           : type === "wan30Video"
-          ? { status: "idle" as const, resolution: "480P", duration: 5, ratio: "adaptive", history: [], boxW: size.w, boxH: size.h }
+          ? { status: "idle" as const, resolution: "480P", clipDuration: 5, ratio: "adaptive", history: [], boxW: size.w, boxH: size.h }
           : type === "wan27Video"
           ? {
               status: "idle" as const,
@@ -12428,6 +12428,13 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "wan30Video") {
+        if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "image" || targetHandle === "image-2") return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video") return videoSourceTypes.includes(sourceNode.type || "") && (sourceHandle === "video" || sourceHandle === "video-out");
+        return false;
+      }
+
       if (targetNode.type === "wan26") {
         if (targetHandle === "text") {
           return canSourceProvideText(sourceNode, sourceHandle);
@@ -12950,6 +12957,7 @@ function FlowInner() {
       isTextHandle,
       isImageHandle,
       textSourceTypes,
+      videoSourceTypes,
       isTextSourceHandle,
       isImageSourceHandle,
       canKlingNodeUseAudioInput,
@@ -13038,6 +13046,13 @@ function FlowInner() {
       }
       if (targetNode?.type === "sora2Character") {
         if (params.targetHandle === "video") return true;
+      }
+      if (targetNode?.type === "wan30Video") {
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "image") return incoming.length < 10;
+        if (params.targetHandle === "image-2") return incoming.length < 1;
+        if (params.targetHandle === "video") return incoming.length < 5;
+        return false;
       }
       if (targetNode?.type === "wan26") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -17893,13 +17908,36 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         const patchWan30 = (patch: Record<string, unknown>) => setNodes((ns) => ns.map((n) =>
           n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
         try {
-          const { text } = getTextPromptForNode(nodeId);
-          const prompt = text?.trim();
-          if (!prompt) throw new Error("请连接 TextPrompt 并填写视频提示词");
           patchWan30({ status: "running", error: undefined });
+          const { text } = getTextPromptForNode(nodeId);
+          const prompt = text?.trim() || "";
+          const incoming = rf.getEdges().filter((edge) => edge.target === nodeId);
+          const imageEdges = incoming.filter((edge) => edge.targetHandle === "image");
+          const tailEdges = incoming.filter((edge) => edge.targetHandle === "image-2");
+          const videoEdges = incoming.filter((edge) => edge.targetHandle === "video");
+          if (imageEdges.length > 10 || tailEdges.length > 1 || videoEdges.length > 5) throw new Error("Wan3.0 最多 10 张参考图、1 张尾帧和 5 段参考视频");
+          if (tailEdges.length && (imageEdges.length !== 1 || videoEdges.length)) throw new Error("首尾帧模式须连接一张首帧和一张尾帧，不能同时连接参考视频");
+          const projectId = useProjectContentStore.getState().projectId;
+          const media: NonNullable<Parameters<typeof generateWan30ViaAPI>[0]["media"]> = [];
+          for (const edge of [...imageEdges, ...tailEdges]) {
+            // Resolve the currently displayed asset, including crop/transform, as other Wan nodes do.
+            const images = await resolveEdgesAsDataUrls([edge]);
+            if (images.length !== 1 || !images[0]) throw new Error("请确保每条图片连接提供一张可用图片");
+            const image = images[0].trim();
+            const url = isRemoteUrl(image) ? normalizeStableRemoteUrl(image) : await uploadImageToOSS(ensureDataUrl(image), projectId);
+            if (!url || !isRemoteUrl(url)) throw new Error("图片上传失败，请重试");
+            media.push({ type: edge.targetHandle === "image-2" ? "last_frame" : videoEdges.length || imageEdges.length > 1 ? "reference_image" : "first_frame", url });
+          }
+          for (const edge of videoEdges) {
+            const sourceData = (rf.getNode(edge.source)?.data || {}) as any;
+            const url = sourceData.videoUrl || sourceData.video_url || sourceData.output?.video_url || sourceData.raw?.output?.video_url || sourceData.url || sourceData.src || sourceData.history?.[0]?.videoUrl;
+            if (typeof url !== "string" || !isRemoteUrl(url.trim())) throw new Error("请确保参考视频已上传或生成完成");
+            media.push({ type: "reference_video", url: normalizeStableRemoteUrl(url.trim()) });
+          }
+          if (!prompt && !media.length) throw new Error("请连接提示词、图片或参考视频");
           const result = await generateWan30ViaAPI({
-            prompt, resolution: String(node.data.resolution || "480P"),
-            duration: Number(node.data.duration ?? 5),
+            prompt, media, resolution: String(node.data.resolution || "480P"),
+            duration: Number(node.data.clipDuration ?? node.data.duration ?? 5),
             clientProjectId: useProjectContentStore.getState().projectId || undefined,
             clientNodeId: nodeId, clientRunId,
           });

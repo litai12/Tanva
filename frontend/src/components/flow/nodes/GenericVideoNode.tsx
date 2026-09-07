@@ -44,7 +44,7 @@ import {
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "hailuo";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "hailuo" | "wan30";
 type ViduModel = ViduModelValue;
 type SeedanceModel =
   | "seedance-1.5-pro"
@@ -227,6 +227,7 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
   hailuo: { name: "Hailuo", zh: "海螺 Hailuo" },
+  wan30: { name: "Wan3.0", zh: "Wan3.0" },
 };
 
 const resolveVideoServiceType = (
@@ -251,6 +252,7 @@ const resolvePreviewVideoBillingModel = (
   data: Props["data"],
   viduModelVariant?: ViduModel
 ): string => {
+  if (provider === "wan30") return "wan3.0-video";
   if (provider === "vidu" || provider === "viduq3-pro") {
     return viduModelVariant || data.viduModel || provider;
   }
@@ -751,6 +753,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? probedVideoDuration.totalDurationSec
       : inputVideoDurationHintSec;
   const provider = data.provider || "kling";
+  const isWan30Model = provider === "wan30";
   const [hailuoCatalog, setHailuoCatalog] = React.useState<HailuoModelCatalog | null>(null);
   const [hailuoCatalogError, setHailuoCatalogError] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -799,6 +802,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const sanitizedVendorKey = React.useMemo(
     () => {
+      if (provider === "wan30") return "new_api";
       // Seedance 2.5 is currently available only through the official Ark
       // default route. Ignore a stale Tencent/VIP selection from older nodes.
       if (provider === "doubao" && seedanceModel === "seedance-2.5") {
@@ -988,6 +992,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const visibleHandleSignature = React.useMemo(
     () =>
       [
+        isWan30Model ? "wan30-media" : "",
         canUseKlingImage2Input ? "k2" : "",
         isViduNode ? "vidu" : "",
         (isSeedanceModel || isHailuoModel) ? (capabilityModeSpec?.visibleHandles || []).join(",") : "",
@@ -998,6 +1003,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           : "",
       ].join("|"),
     [
+      isWan30Model,
       canUseKlingImage2Input,
       isViduNode,
       isSeedanceModel,
@@ -1010,7 +1016,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     updateNodeInternals(id);
   }, [id, visibleHandleSignature, updateNodeInternals]);
-  const previewVideoMode = isViduNode
+  const previewVideoMode = isWan30Model
+    ? hasVideoInput ? "r2v" : hasImageInput || hasImage2Input ? "i2v" : "t2v"
+    : isViduNode
     ? viduRequestSemantics?.videoMode
     : isSeedanceModel
     ? seedanceMode
@@ -1191,12 +1199,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const previewRequestParams = React.useMemo(
     () => ({
       ...pricingContext,
-      aiProvider: data.provider,
+      aiProvider: data.provider === "wan30" ? "new-api" : data.provider,
       managedModelKey: data.managedModelKey,
       modelKey: data.managedModelKey,
       // Resolved route is already Tencent-free (sanitized) — never preview/send tencent_vod.
       vendorKey: selectedManagedRoute?.vendorKey ?? sanitizedVendorKey,
-      platformKey: selectedManagedRoute?.platformKey ?? selectedManagedRoute?.vendorKey,
+      platformKey: data.provider === "wan30" ? "new_api" : selectedManagedRoute?.platformKey ?? selectedManagedRoute?.vendorKey,
       route: selectedManagedRoute?.route,
       providerChannel:
         selectedManagedRoute?.platformKey ?? selectedManagedRoute?.vendorKey,
@@ -1515,6 +1523,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const getDurationOptions = () => {
+    if (isWan30Model) return [5, 10, 15, 20, 25, 30].map((value) => ({ label: lt(`${value}秒`, `${value}s`), value }));
     if (provider === "hailuo") {
       const duration = hailuoParam("duration");
       const min = Number(duration?.min);
@@ -1582,6 +1591,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const aspectOptions = React.useMemo(() => {
+    if (provider === "wan30") return [{ label: lt("自适应", "Adaptive"), value: "adaptive" }];
     if (provider === "hailuo") {
       return (hailuoParam("size")?.options || []).map((option) => ({ label: option.label, value: String(option.value) }));
     }
@@ -1854,6 +1864,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return isContiguous ? { min, max } : null;
   }, [durationOptionValues]);
   const shouldShowAspectSelector =
+    isWan30Model ? true :
     provider === "doubao" &&
     seedanceModel === "seedance-2.5" &&
     (seedanceMode === "video_editing" || seedanceMode === "video_extend")
@@ -1881,6 +1892,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
+      if (provider === "wan30") return ["480P", "720P", "1080P"];
       if (provider === "hailuo") return (hailuoParam("resolution")?.options || []).map((option) => String(option.value));
       if (provider === "doubao" && isSeedance20Model) {
         if (vodResolutionOptions.length === 0) return seedance20ResolutionList;
@@ -3140,7 +3152,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         />
       )}
       {/* image-2 句柄: Seedance/Vidu 与 Kling(2.6或Pro模式)可见 */}
-      {(((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("image-2")) ||
+      {(isWan30Model || ((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("image-2")) ||
         canUseKlingImage2Input ||
         (isViduNode && viduInputMode === "start_end")) && (
         <Handle
@@ -3152,12 +3164,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("video")) && (
+      {(isWan30Model || ((isSeedanceModel || isHailuoModel) && capabilityModeSpec?.visibleHandles.includes("video"))) && (
         <Handle
           type='target'
           position={Position.Left}
           id='video'
-          style={{ top: seedanceHandleTopMap.video || "78%" }}
+          style={{ top: isWan30Model ? "90%" : seedanceHandleTopMap.video || "78%" }}
           onMouseEnter={() => setHover("video-in")}
           onMouseLeave={() => setHover(null)}
         />
@@ -3202,7 +3214,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             transform: "translate(-100%, -50%)",
           }}
         >
-          {isSeedanceModel
+          {isWan30Model ? lt("图片：单张作首帧，多张作参考（最多 10 张）", "Image: first frame or up to 10 references") : isSeedanceModel
             ? isSeedance20Model
               ? seedanceMode === "reference_images"
                 ? seedanceModel === "seedance-2.5"
@@ -3232,7 +3244,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             transform: "translate(-100%, -50%)",
           }}
         >
-          image-2 (图2)
+          {isWan30Model ? lt("尾帧：须同时连接一张首帧", "End frame: requires one first frame") : "image-2 (图2)"}
         </div>
       )}
       {hover === "video-in" && (
@@ -3240,11 +3252,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{
             left: -8,
-            top: (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.video || "78%" : "78%",
+            top: isWan30Model ? "90%" : (isSeedanceModel || isHailuoModel) ? seedanceHandleTopMap.video || "78%" : "78%",
             transform: "translate(-100%, -50%)",
           }}
         >
-          {isSeedanceModel
+          {isWan30Model ? lt("参考视频：最多 5 段，总长 ≤ 15 秒", "Reference video: up to 5 clips, total ≤ 15s") : isSeedanceModel
             ? seedanceModel === "seedance-2.5"
               ? "video (1-10; duration validated upstream)"
               : "video (1-3; duration validated upstream)"
@@ -3430,6 +3442,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+
+      {isWan30Model && (
+        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
+          {hasVideoInput ? lt("参考视频生成 / 编辑 · 按提示词处理", "Video reference / editing · follows your prompt")
+            : hasImage2Input ? lt("首尾帧生视频", "First and last frame to video")
+            : imageInputCount > 1 ? lt("多图参考生视频", "Reference images to video")
+            : hasImageInput ? lt("首帧图生视频", "First frame to video")
+            : lt("文生视频 · 可连接图片或参考视频", "Text to video · connect images or reference videos")}
+        </div>
+      )}
 
       {downloadFeedback && feedbackColors && (
         <div

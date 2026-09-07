@@ -15,6 +15,8 @@ export function isFreeCreditDecayLot(lot: FreeCreditDecayLotLike): boolean {
   const metadata = asRecord(lot.metadata);
 
   if (lot.sourceType === 'gift') {
+    // 旧邀请流水没有可信的未消费额；只允许消费迁移批次，审计确认前禁止衰减。
+    if (metadata?.grantedBy === 'legacy_referral_migration' && metadata?.legacyReferralUnverified === true) return false;
     // 签到积分单独按凌晨 3 点业务日边界整批清理；不能再叠加每日 50 衰减。
     if (metadata?.reason === 'daily_reward') return false;
     return true;

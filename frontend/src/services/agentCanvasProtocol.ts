@@ -148,7 +148,7 @@ export const DEFAULT_NODE_HANDLES: Record<
   seedance20Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   sora2Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   kling26Video: { textIn: "text", imageIn: "image", videoOut: "video" },
-  wan30Video: { textIn: "text", videoOut: "video" },
+  wan30Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   wan27Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   viduQ3: { textIn: "text", imageIn: "image", videoOut: "video" },
   doubaoVideo: { textIn: "text", imageIn: "image", videoOut: "video" },
@@ -704,7 +704,7 @@ export const VIDEO_MAX_DURATION: Record<string, number> = {
 // 各视频模型承载时长的 data 字段名：仅 Wan27 是标准节点用 duration，其余
 // (Seedance/Doubao/Seed/Kling/Vidu 都走 GenericVideoNode) 用 clipDuration。缺省 clipDuration。
 export const VIDEO_DURATION_FIELD: Record<string, string> = {
-  wan30Video: "duration",
+  wan30Video: "clipDuration",
   wan27Video: "duration",
 };
 

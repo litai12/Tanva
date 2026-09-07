@@ -44,3 +44,8 @@ Compose 自动执行：
 - `apps/new-api/web` 通过 `VITE_REACT_APP_SERVER_URL` 配置后端 API 地址
 - 同域部署时可以为空，前端会直接请求相对路径 `/api/*`
 - 分域部署时必须在构建时显式注入 `VITE_REACT_APP_SERVER_URL=https://<new-api-domain>`
+
+
+### 可选小T渠道配置
+
+Compose 的 `new-api-patch` 支持 `XIAOT_API_KEY` 和 `XIAOT_BASE_URL`。首次安装未配置时，runner 暂缓 `2026-07-13/001-add-xiaot-agent-channel.sql`；依赖 xiaot-agent 渠道的补丁也暂缓，不写入 schema_migrations，不阻塞其他模型补丁。配置后再次运行 patch 服务即可补齐。其他 SQL 错误仍立即中止，不会被吞掉。

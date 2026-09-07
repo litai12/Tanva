@@ -24,6 +24,7 @@ $PSQL -q -c "
 cd /patches
 applied=0
 skipped=0
+deferred=0
 for f in $(find . -name '*.sql' | sort); do
   key=${f#./}
   exists=$($PSQL -tA -c "SELECT 1 FROM schema_migrations WHERE filename = '${key}'")
@@ -31,9 +32,33 @@ for f in $(find . -name '*.sql' | sort); do
     skipped=$((skipped + 1))
     continue
   fi
-  echo "Applying ${key}"
-  $PSQL -f "${f}"
+  case "$key" in
+    *xiaot*.sql)
+      if [ "$key" != "2026-07-13/001-add-xiaot-agent-channel.sql" ]; then
+        xiaot_exists=$($PSQL -tA -c "SELECT 1 FROM channels WHERE name='xiaot-agent' AND type=1 LIMIT 1")
+        if [ -z "$xiaot_exists" ]; then
+          echo "Deferred ${key}: xiaot-agent channel is not configured"
+          deferred=$((deferred + 1))
+          continue
+        fi
+      fi
+      ;;
+  esac
+  if [ "$key" = "2026-07-13/001-add-xiaot-agent-channel.sql" ]; then
+    if [ -z "${XIAOT_API_KEY:-}" ] || [ -z "${XIAOT_BASE_URL:-}" ]; then
+      echo "Deferred ${key}: XIAOT_API_KEY and XIAOT_BASE_URL are required"
+      deferred=$((deferred + 1))
+      continue
+    fi
+    xiaot_key_sql=$(printf '%s' "$XIAOT_API_KEY" | sed "s/'/''/g")
+    xiaot_base_sql=$(printf '%s' "$XIAOT_BASE_URL" | sed "s/'/''/g")
+    echo "Applying ${key}"
+    $PSQL -v "xiaot_key='$xiaot_key_sql'" -v "xiaot_base='$xiaot_base_sql'" -f "${f}"
+  else
+    echo "Applying ${key}"
+    $PSQL -f "${f}"
+  fi
   $PSQL -q -c "INSERT INTO schema_migrations (filename) VALUES ('${key}')"
   applied=$((applied + 1))
 done
-echo "Patches done. applied=${applied}  skipped(already-applied)=${skipped}"
+echo "Patches done. applied=${applied}  skipped(already-applied)=${skipped}  deferred(missing-config)=${deferred}"

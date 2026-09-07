@@ -9,6 +9,7 @@ import {
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { findCreditAccountForUpdate } from './credit-account-lock.util';
+import { materializeLegacyReferralLots } from './legacy-referral-lots';
 import {
   diffDailyRewardBusinessDays,
   getDailyRewardBusinessDayAnchor,
@@ -2307,6 +2308,7 @@ export class CreditsService {
   }
 
   private toCreditLotCandidate(lot: {
+    metadata?: unknown;
     id: string;
     sourceType: string;
     validityType: string;
@@ -2322,6 +2324,7 @@ export class CreditsService {
   }): CreditLotCandidate {
     return {
       id: lot.id,
+      metadata: lot.metadata,
       sourceType: lot.sourceType as CreditLotCandidate['sourceType'],
       validityType: lot.validityType as CreditLotCandidate['validityType'],
       scopeType: (lot.scopeType ?? 'global') as CreditLotCandidate['scopeType'],
@@ -4691,12 +4694,14 @@ export class CreditsService {
       }
 
       // 个人模式：完整的积分扣除流程
+      await materializeLegacyReferralLots(tx, account.id);
       const activeLots = await tx.creditLot.findMany({
         where: {
           accountId: account.id,
           status: 'active',
         },
         select: {
+          metadata: true,
           id: true,
           sourceType: true,
           validityType: true,
@@ -4946,9 +4951,11 @@ export class CreditsService {
       }
 
       // 个人模式：复用 lot 扣减原语。
+      await materializeLegacyReferralLots(tx, account.id);
       const activeLots = await tx.creditLot.findMany({
         where: { accountId: account.id, status: 'active' },
         select: {
+          metadata: true,
           id: true,
           sourceType: true,
           validityType: true,
@@ -5608,12 +5615,14 @@ export class CreditsService {
           return;
         }
 
+        await materializeLegacyReferralLots(tx, account.id);
         const activeLots = await tx.creditLot.findMany({
           where: {
             accountId: account.id,
             status: 'active',
           },
           select: {
+            metadata: true,
             id: true,
             sourceType: true,
             validityType: true,
@@ -6173,9 +6182,11 @@ export class CreditsService {
       } else if (creditDifference > 0) {
         const amountToCharge = creditDifference;
 
+        await materializeLegacyReferralLots(tx, account.id);
         const activeLots = await tx.creditLot.findMany({
           where: { accountId: account.id, status: 'active' },
           select: {
+            metadata: true,
             id: true, sourceType: true, validityType: true, scopeType: true,
             scopeValue: true, totalAmount: true, remainingAmount: true,
             grantedAt: true, activeAt: true, expiresAt: true, priority: true, status: true,

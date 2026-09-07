@@ -712,6 +712,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
   .react-flow__node-sora2Video,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :not(button):not(input):not(select):not(textarea)[style*="background: #fff"],
@@ -726,6 +727,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
   .react-flow__node-sora2Video,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :not(button):not(input):not(select):not(textarea)[style*="background:#fff"] {
@@ -1889,6 +1891,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button {
@@ -1907,6 +1910,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :is(
@@ -1934,6 +1938,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button:not(.tanva-video-header-btn)[style*="background: transparent"] {
@@ -1954,6 +1959,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :is(
@@ -2016,6 +2022,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
   .react-flow__node-seedVideo,
+  .react-flow__node-wan30Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button:not(.tanva-video-header-btn):disabled {

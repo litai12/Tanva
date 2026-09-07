@@ -7469,7 +7469,7 @@ export class AiController {
   }
 
   /**
-   * Wan3.0 text-to-video; new-api owns the DashScope channel.
+   * Wan3.0 multimodal video; new-api owns the DashScope channel.
    */
   @Post('dashscope/generate-wan3-0-video')
   async generateWan30Video(@Body() body: any, @Req() req: any) {
@@ -7477,28 +7477,62 @@ export class AiController {
     const resolution = body?.parameters?.resolution ?? '480P';
     const ratio = body?.parameters?.ratio ?? 'adaptive';
     const duration = body?.parameters?.duration ?? 5;
-    if (!prompt) throw new BadRequestException('请输入视频提示词');
     if (!['480P', '720P', '1080P'].includes(resolution)) {
       throw new BadRequestException('Wan3.0 分辨率仅支持 480P / 720P / 1080P');
     }
     if (ratio !== 'adaptive') throw new BadRequestException('Wan3.0 当前仅开放自适应画幅');
-    if (!Number.isInteger(duration) || duration < 1 || duration > 30) {
-      throw new BadRequestException('Wan3.0 时长须为 1–30 秒整数');
+    if (!Number.isInteger(duration) || duration < 2 || duration > 30) {
+      throw new BadRequestException('Wan3.0 时长须为 2–30 秒整数');
     }
     if (body?.model && body.model !== 'wan3.0-video') {
       throw new BadRequestException('此接口仅支持 wan3.0-video');
     }
-    if (Object.keys(body?.input || {}).some((key) => key !== 'prompt')) {
-      throw new BadRequestException('Wan3.0 当前仅开放文生视频输入');
+    if (Object.keys(body?.input || {}).some((key) => !['prompt', 'media'].includes(key))) {
+      throw new BadRequestException('Wan3.0 输入仅支持 prompt 和 media');
     }
-    const normalizedBody = { model: 'wan3.0-video', input: { prompt }, parameters: { resolution, ratio, duration } };
+    if (body?.input?.media !== undefined && !Array.isArray(body.input.media)) {
+      throw new BadRequestException('Wan3.0 media 必须是数组');
+    }
+    const limits: Record<string, number> = { first_frame: 1, last_frame: 1, reference_image: 10, reference_video: 5 };
+    const counts: Record<string, number> = {};
+    const media: Array<{ type: string; url: string }> = (body?.input?.media ?? []).map((item: any) => {
+      if (!item || !Object.prototype.hasOwnProperty.call(limits, item.type) || typeof item.url !== 'string') {
+        throw new BadRequestException('Wan3.0 媒体须为首帧、尾帧、参考图片或参考视频');
+      }
+      counts[item.type] = (counts[item.type] || 0) + 1;
+      if (counts[item.type] > limits[item.type]) throw new BadRequestException('Wan3.0 媒体数量超出限制');
+      const url = item.url.trim();
+      if (!/^https?:\/\//i.test(url)) throw new BadRequestException('请先上传素材，Wan3.0 仅接受远程 HTTP(S) 地址');
+      this.parseAndValidateAllowedUrl(url);
+      return { type: String(item.type), url };
+    });
+    if (!prompt && !media.length) throw new BadRequestException('请提供视频提示词或图片、视频素材');
+    if (prompt.length > 20000) throw new BadRequestException('Wan3.0 提示词不能超过 20000 字符');
+    if (counts.last_frame && !counts.first_frame) throw new BadRequestException('尾帧必须配合首帧使用');
+    if ((counts.first_frame || counts.last_frame) && (counts.reference_image || counts.reference_video)) {
+      throw new BadRequestException('首尾帧不能与参考图片或参考视频混用');
+    }
+    if (counts.reference_video) {
+      if (!this.referenceVideoDuration) throw new ServiceUnavailableException('参考视频时长探测服务不可用');
+      const probed = await this.referenceVideoDuration.sumDurations(
+        media.filter((item: any) => item.type === 'reference_video').map((item: any) => item.url),
+      );
+      const durationByUrl = new Map(probed.durations.map((item) => [item.url, item.durationSec]));
+      const durations = media.filter((item: any) => item.type === 'reference_video').map((item: any) => durationByUrl.get(item.url) ?? NaN);
+      const total = durations.reduce((sum, value) => sum + value, 0);
+      if (durations.some((value) => !Number.isFinite(value) || value < 1 || value > 15) || total > 15 || total + duration > 30) {
+        throw new BadRequestException('参考视频每段须为 1–15 秒，总时长不超过 15 秒，输入与输出合计不超过 30 秒');
+      }
+    }
+    const generationMode = counts.reference_video ? 'r2v' : media.length ? 'i2v' : 't2v';
+    const normalizedBody = { model: 'wan3.0-video', input: { prompt, ...(media.length ? { media } : {}) }, parameters: { resolution, ratio, duration } };
     return this.withCredits(
       req, 'wan30-video', 'wan3.0-video',
       async () => this.submitDashscopeVideoViaNewApi(normalizedBody),
       undefined, undefined, undefined,
       {
         ...this.buildWanCreditRequestParams(normalizedBody, {
-          managedModelKey: 'wan-3.0', generationMode: 't2v', requestPrompt: prompt,
+          managedModelKey: 'wan-3.0', generationMode, requestPrompt: prompt,
         }),
         clientProjectId: body?.clientProjectId,
         clientNodeId: body?.clientNodeId,

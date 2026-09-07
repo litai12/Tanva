@@ -2692,14 +2692,20 @@ export class VideoProviderService {
     init: RequestInit,
     apiKey = this.newApiKey,
   ): Promise<any> {
-    const response = await fetch(`${this.newApiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        ...(init.headers || {}),
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.newApiBaseUrl}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...(init.headers || {}),
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`new-api video gateway unavailable: ${error instanceof Error ? error.message : 'network error'}`);
+      throw new ServiceUnavailableException('视频网关暂时无法连接，请确认 new-api 服务已启动后重试');
+    }
     const text = await response.text();
     const data = text ? this.safeJsonParse(text) ?? text : {};
     if (!response.ok) {

@@ -2598,6 +2598,7 @@ export async function generateHappyhorseVideoViaAPI(request: {
  * 通过 new-api 阿里渠道生成 Wan3.0 文生视频
  */
 export async function generateWan30ViaAPI(request: {
+  media?: Array<{ type: "first_frame" | "last_frame" | "reference_image" | "reference_video"; url: string }>;
   prompt: string; resolution: string; duration: number;
   clientProjectId?: string; clientNodeId: string; clientRunId: string;
 }): Promise<AIServiceResponse<{ taskId?: string; task_id?: string }> & { apiUsageId?: string }> {
@@ -2606,6 +2607,7 @@ export async function generateWan30ViaAPI(request: {
     model: "wan3.0-video",
     input: {
       prompt: request.prompt,
+      ...(request.media?.length ? { media: request.media } : {}),
     },
     parameters: { resolution: request.resolution, duration: request.duration, ratio: "adaptive" },
     clientProjectId: request.clientProjectId, clientNodeId: request.clientNodeId, clientRunId: request.clientRunId,
