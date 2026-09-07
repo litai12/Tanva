@@ -125,7 +125,7 @@
 
 ## Agent Runtime
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.
-- 小T大脑只使用三种专属门面：`xiaot-agent-gpt-5-6-luna`、`xiaot-agent-gpt-5-6-terra`、`xiaot-agent-deepseek-v4-flash`，默认与非法值回退 Luna；外显为 `小T-5.6 Luna`、`小T-5.6 Terra`、`小T-DeepSeek V4 Flash`。new-api 的 `xiaot-agent` 渠道通过 `model_mapping` 翻译成 TapCanvas facade 真实模型；生产需执行幂等补丁 `new-api/patches/2026-08-19/001-xiaot-luna-terra-deepseek-models.sql`，它为 `default`、`auto`、`vip`、`svip` 同步 facade abilities，执行后需重载渠道缓存。
+- 小T大脑固定使用 `xiaot-agent-deepseek-v4-flash`，通过 new-api 门面映射为上游 `deepseek-v4-flash`，外显 `小T-DeepSeek V4 Flash`。网页、桌面和作品汇报只提供 DeepSeek；偏好版本 v9 将旧 GPT 值迁移到 DeepSeek。后端固定模型，旧请求、续跑参数与环境覆盖不能重新启用 GPT；前后端均移除额度不足时的跨模型重试。失败请求不结算成功对话积分。
 - 小T 对话计费为“成功回合固定 `2` 积分”，所有可选大脑同价。facade 终帧的 `usage.total_tokens` 仍写入 `requestParams.usageUnits` 供审计，但不再换算 Tanva 积分。`flow_patch/runNode`、`legacy_image_only`、`analyze_image` 等生成/分析任务继续由宿主 API 单独计费，不包含在这 `2` 积分中。可运行 `cd backend && npm run verify:xiaot-chat-pricing` 做无付费 mock 验证。
 - 小T facade 返回的 `flow_patch` 是待 Tanva 执行的宿主命令，不是节点已执行或异步供应商已受理的回执；含命令的 OpenAI-compatible 响应以 `finish_reason=tool_calls` 收口。前端必须串行执行节点创建、连线与 `runNode`，并以节点终态和 HTTP(S) 资产 URL 完成交付验收；没有真实资产时必须显式失败，不能把 facade 文案、tool success 或命令数量当成完成证据。
 - `XiaotAgentService` 要求 OpenAI-compatible 流同时满足三层终态证据：与交付通道一致的 `finish_reason`（纯正文=`stop`，任一宿主调用=`tool_calls`）、真实 `[DONE]`、以及正文/完整 `flow_patch`/`host_tool`/`host_ui` 至少一种。`xiaot_turn_suspended` 且 terminal 为 `suspended` 时，`host_execution_required` 与 `root_physical_execution_budget_exhausted` 都归一为桌面宿主交接，但这只是逻辑暂停，不能提前把传输标记为 `[DONE]`；其后、真实 `[DONE]` 前允许接收 usage 审计尾帧，真实 `[DONE]` 后仍严格禁止任何数据。宿主交接仍必须已有真实交付通道，否则失败。已受理回合若返回 `agents_bridge_stream_interrupted` 或在 `[DONE]` 前 EOF，服务会从 `chatcmpl-<turnId>` 提取稳定回合 ID，经 `${NEW_API_BASE_URL}/proxy/xiaot-agent/agents/chat/status` 使用现有渠道密钥续读同一 durable turn，不会再次调用 `/v1/chat/completions`。续读按 `toolCallId` 去重已投递宿主命令，并用 `afterEventId` 继续断开的事件流；正文只在终态验证后一次性交给前端，避免恢复诊断和失败前草稿外显。没有 turnId、事件缺口、终态错误或续读反复中断会原地失败且不结算成功回合。其他上游 `error`、工具参数截断、finish reason 冲突或空交付同样显式失败。稳定上游会话键硬切为 `xiaot-v2:<Tanva session>`；旧 v1 历史不删除，但不会进入 v2 模型上下文。所选模型不可用时原地返回错误，不允许静默改用 Fast。运行 `cd backend && npm run test:xiaot-agent-recovery` 可无付费验证“单次提交 → 同回合续读 → 补丁去重 → 安全正文”全链。
@@ -247,3 +247,8 @@
 本机 `4458` 网关使用 `tanva-new-api` 容器、`tanva-new-api-postgres` 和 `tanva-new-api-redis`，卷由 backend Compose 项目持久化。卷删除后仅能从备份恢复历史；本次无旧网关备份，从 SQL 补丁重建 38 个渠道、433 条能力，并从 backend 本地配置恢复调用令牌和 DashScope 凭据。已应用 161 个补丁，7 个小T相关补丁因缺少独立凭据暂缓，不标记已执行。凭据不写入文档或提交到仓库。
 
 视频网关网络异常由 `requestNewApiJson` 转为 503 与中文服务不可用提示，Controller 仍负责失败退款。已恢复数据库的宿主机备份在 `~/.config/tanva/backups/new-api-20260907-recovered.dump`；管理员凭据在受保护的 `~/.config/tanva/new-api-local-admin.json`。历史请求日志未恢复，其他上游渠道的凭据有效性需分别核验。
+
+
+### 2026-09-07 小T供应商断流与续跑所有权
+
+101 实际故障为 Luna 同模型两次 `provider_terminal_missing` 后，上游将 completion 归入 `waiting_for_evidence`，但没有已受理异步任务，导致 `async_continuation_owner_missing`（registrationStatus=not_required）。修复属于 TapCanvas：有界断流恢复耗尽转 `replan_required`，Hono 恢复优先消费真实 `runtime.suspension.physicalRunId/progressRevision`，避免逻辑 ticketId 抢占检查点身份。Tanva 不得放行无 owner 错误或重提原 prompt。本地补丁与验证见 `backend/patches/2026-09-07-xiaot-continuation/README.md`；仅本地交付，用户自行部署。模型本身仍可能断流，本次回归不等同于真实视频生产验收。

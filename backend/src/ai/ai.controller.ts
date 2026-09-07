@@ -1,3 +1,4 @@
+import { assertVideoNodeEnabled } from './services/video-node-availability';
 ﻿import {
   Body,
   Controller,
@@ -6124,6 +6125,10 @@ export class AiController {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
     this.normalizeSeedanceModelAlias(effectiveDto);
+    // Old chat clients and saved nodes must not bypass the admin 1.5 switch.
+    if (effectiveDto.provider === 'doubao' && !this.isSeedance20Model(effectiveDto.seedanceModel)) {
+      await assertVideoNodeEnabled(this.prisma, 'doubaoVideo');
+    }
     this.normalizeSeedance25OmniReferenceTaskType(effectiveDto);
     if (
       effectiveDto.provider === 'doubao' &&

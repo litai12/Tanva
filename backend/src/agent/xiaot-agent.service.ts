@@ -68,29 +68,11 @@ class XiaotTransportReadError extends Error {
   }
 }
 
-/** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
+/** 小T固定模型，与前端 xiaotChatModels.ts 保持一致。 */
 export const XIAOT_CHAT_MODELS = [
-  'xiaot-agent-gpt-5-6-luna',
-  'xiaot-agent-gpt-5-6-terra',
   'xiaot-agent-deepseek-v4-flash',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
-
-const isUpstreamRouteCreditsError = (status: number, detail: string): boolean =>
-  status === 402 ||
-  /team_insufficient_credits|insufficient credits?|积分不足|无法调用三方生成/i.test(
-    detail,
-  );
-
-const buildXiaotModelCandidates = (requestedModel: string): string[] =>
-  Array.from(
-    new Set([
-      requestedModel,
-      'xiaot-agent-gpt-5-6-luna',
-      'xiaot-agent-gpt-5-6-terra',
-      'xiaot-agent-deepseek-v4-flash',
-    ]),
-  );
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -123,14 +105,6 @@ export class XiaotAgentService {
       this.config.get<string>('NEW_API_TOKEN') ||
       ''
     );
-  }
-
-  private get model(): string {
-    const configured = this.config.get<string>('XIAOT_AGENT_MODEL')?.trim();
-    return configured &&
-      (XIAOT_CHAT_MODELS as readonly string[]).includes(configured)
-      ? configured
-      : DEFAULT_XIAOT_CHAT_MODEL;
   }
 
   /** 流式总时长上限（毫秒），默认 15 分钟；超时 abort 整个请求。 */
@@ -199,11 +173,8 @@ export class XiaotAgentService {
     teamId?: string,
     continuation?: RunContinuation,
   ): Promise<void> {
-    // 模型透传：仅白名单内的 dto.model 生效，其余一律回落默认模型。
-    let model = continuation?.model ||
-      (dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
-        ? dto.model
-        : this.model);
+    // 小T固定使用 DeepSeek；旧请求、环境配置和续跑参数均不能重新启用 GPT。
+    const model = DEFAULT_XIAOT_CHAT_MODEL;
 
     if (!continuation) {
       const localGreeting = resolveLocalGreeting(dto.prompt);
@@ -245,56 +216,22 @@ export class XiaotAgentService {
         host_user_id: hostScopeId,
         messages: this.buildMessages(dto, !continuation),
       };
-      let response: Response | null = null;
-      const routeFailures: Array<{ model: string; status: number; detail: string }> = [];
-      for (const candidate of buildXiaotModelCandidates(model)) {
-        const candidateResponse = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify({ ...requestBody, model: candidate }),
-          signal: controller.signal,
-        });
-        if (candidateResponse.ok && candidateResponse.body) {
-          if (candidate !== model) {
-            this.logger.warn(
-              `xiaot-agent route fallback ${model} -> ${candidate} for user ${userId}`,
-            );
-          }
-          model = candidate;
-          response = candidateResponse;
-          break;
-        }
-
+      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
         let detail = '';
         try {
-          detail = (await candidateResponse.text()).slice(0, 300);
+          detail = (await response.text()).slice(0, 300);
         } catch {}
-        if (!isUpstreamRouteCreditsError(candidateResponse.status, detail)) {
-          throw new Error(
-            `xiaot-agent upstream error: status=${candidateResponse.status} body=${detail}`,
-          );
-        }
-        routeFailures.push({
-          model: candidate,
-          status: candidateResponse.status,
-          detail,
-        });
-      }
-
-      if (!response?.body) {
-        this.logger.error(
-          `xiaot-agent all model routes unavailable for user ${userId}: ${JSON.stringify(
-            routeFailures.map(({ model: failedModel, status }) => ({
-              model: failedModel,
-              status,
-            })),
-          )}`,
-        );
         throw new Error(
-          '小T模型线路暂时不可用，与你的 Tanva 积分余额无关，请稍后重试',
+          `xiaot-agent upstream error: status=${response.status} body=${detail}`,
         );
       }
 

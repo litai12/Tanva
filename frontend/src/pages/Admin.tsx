@@ -1,3 +1,4 @@
+import UserCreditTransactions from "@/components/admin/UserCreditTransactions";
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
@@ -60,7 +61,6 @@ import {
   removeWhitelistUser,
   getPaidUsers,
   getCreditChangeRecords,
-  getAdminUserCreditTransactions,
   getCreditAnomalyRecords,
   getNodeConfigs,
   updateNodeConfig,
@@ -92,7 +92,6 @@ import {
   type PaidUser,
   type PaidUsersSortBy,
   type CreditChangeRecord,
-  type AdminUserCreditTransaction,
   type AdminUserRechargeOrders,
   type CreditAnomalyRecord,
   type NodeConfig,
@@ -5526,9 +5525,6 @@ function UsersTab({
     manualAdd: [],
     inviteReward: [],
   });
-  const [creditDetailTransactions, setCreditDetailTransactions] = useState<
-    AdminUserCreditTransaction[]
-  >([]);
   const [creditDetailRechargeOrders, setCreditDetailRechargeOrders] =
     useState<AdminUserRechargeOrders>(EMPTY_RECHARGE_ORDERS);
   const creditDetailRechargeOrderCount =
@@ -5848,10 +5844,9 @@ function UsersTab({
       userName: user.name || user.phone,
     });
     setCreditDetailLoading(true);
-    setCreditDetailTransactions([]);
     setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     try {
-      const [rechargeResult, manualAddResult, inviteResult, transactionResult, userDetail] =
+      const [rechargeResult, manualAddResult, inviteResult, userDetail] =
         await Promise.all([
           getCreditChangeRecords({
             userId: user.id,
@@ -5871,10 +5866,6 @@ function UsersTab({
             page: 1,
             pageSize: 100,
           }),
-          getAdminUserCreditTransactions(user.id, {
-            page: 1,
-            pageSize: 100,
-          }),
           getUserDetail(user.id),
         ]);
 
@@ -5883,7 +5874,6 @@ function UsersTab({
         manualAdd: manualAddResult.records,
         inviteReward: inviteResult.records,
       });
-      setCreditDetailTransactions(transactionResult.transactions || []);
       setCreditDetailRechargeOrders(userDetail.rechargeOrders || EMPTY_RECHARGE_ORDERS);
     } catch (error) {
       console.error("加载积分详情失败:", error);
@@ -5892,19 +5882,10 @@ function UsersTab({
         manualAdd: [],
         inviteReward: [],
       });
-      setCreditDetailTransactions([]);
       setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     } finally {
       setCreditDetailLoading(false);
     }
-  };
-
-  const formatChannelLabel = (channel: string | null | undefined): string => {
-    if (!channel) return "-";
-    const normalized = channel.trim().toLowerCase();
-    if (normalized.includes("apimart")) return "M";
-    if (normalized === "legacy" || normalized.includes("147")) return "A";
-    return channel;
   };
 
   const handleJumpToPage = (event: React.FormEvent) => {
@@ -6996,95 +6977,7 @@ function UsersTab({
                   </div>
                 </div>
 
-                <div className='border rounded-lg overflow-hidden'>
-                  <div className='px-4 py-3 bg-gray-50 border-b flex items-center justify-between'>
-                    <h4 className='font-medium text-gray-800'>细分积分明细</h4>
-                    <span className='text-xs text-gray-500'>
-                      {creditDetailTransactions.length} 条
-                    </span>
-                  </div>
-
-                  {creditDetailTransactions.length === 0 ? (
-                    <div className='py-10 text-center text-gray-500 text-sm'>暂无记录</div>
-                  ) : (
-                    <div className='max-h-[45vh] overflow-auto'>
-                      <table className='w-full text-sm'>
-                        <thead className='sticky top-0 bg-white z-10'>
-                          <tr className='border-b text-gray-500 text-xs bg-gray-50'>
-                            <th className='px-4 py-3 text-left'>项目</th>
-                            <th className='px-4 py-3 text-right'>积分</th>
-                            <th className='px-4 py-3 text-right'>剩余积分</th>
-                            <th className='px-4 py-3 text-left'>生成时间</th>
-                            <th className='px-4 py-3 text-left'>花费时间</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {creditDetailTransactions.map((tx) => {
-                            const durationSeconds =
-                              typeof tx.processingTime === "number"
-                                ? Math.max(0, Math.round(tx.processingTime / 1000))
-                                : null;
-                            const isPositive = tx.amount > 0;
-                            const billingRemark = formatCreditBillingRemark(tx.billingRemark);
-                            const quantityLabel =
-                              typeof tx.parallelGroupId === "string" && tx.parallelGroupId.trim()
-                                ? tx.parallelGroupIndex !== null && tx.parallelGroupTotal !== null
-                                  ? `批次：${Math.max(1, Math.floor(tx.parallelGroupIndex || 0))}/${Math.max(1, Math.floor(tx.parallelGroupTotal || 0))}`
-                                  : "批次"
-                                : typeof tx.outputImageCount === "number" && tx.outputImageCount > 1
-                                  ? `触发数量：x${Math.floor(tx.outputImageCount)}`
-                                  : null;
-
-                            return (
-                              <tr key={tx.id} className='border-b hover:bg-gray-50'>
-                                <td className='px-4 py-3'>
-                                  <div className='font-medium text-gray-800'>
-                                    {tx.description}
-                                  </div>
-                                  {quantityLabel && (
-                                    <div className='text-xs text-gray-500 mt-0.5'>
-                                      {quantityLabel}
-                                    </div>
-                                  )}
-                                  {tx.channel && (
-                                    <div className='text-xs text-gray-500 mt-0.5'>
-                                      渠道: {formatChannelLabel(tx.channel)}
-                                    </div>
-                                  )}
-                                  <div className='text-xs text-gray-500 mt-0.5'>
-                                    模型: {typeof tx.model === "string" && tx.model.trim().length > 0 ? tx.model : "--"}
-                                  </div>
-                                  {billingRemark && (
-                                    <div className='text-xs text-gray-400 mt-0.5 break-words'>
-                                      {billingRemark}
-                                    </div>
-                                  )}
-                                </td>
-                                <td
-                                  className={`px-4 py-3 text-right font-semibold ${
-                                    isPositive ? "text-green-600" : "text-orange-600"
-                                  }`}
-                                >
-                                  {isPositive ? "+" : ""}
-                                  {tx.amount}
-                                </td>
-                                <td className='px-4 py-3 text-right text-blue-600 font-medium'>
-                                  {tx.balanceAfter}
-                                </td>
-                                <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
-                                  {new Date(tx.createdAt).toLocaleString()}
-                                </td>
-                                <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
-                                  {durationSeconds !== null ? `${durationSeconds}秒` : "-"}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
+                <UserCreditTransactions key={creditDetailModal.userId} userId={creditDetailModal.userId} />
               </div>
             )}
           </div>

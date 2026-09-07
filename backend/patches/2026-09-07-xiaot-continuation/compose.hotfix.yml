@@ -1,0 +1,9 @@
+services:
+  api:
+    image: tanva-hotfix/api:20260907-continuation
+  agent-api-worker:
+    image: tanva-hotfix/api:20260907-continuation
+  workflow-runtime-worker:
+    image: tanva-hotfix/api:20260907-continuation
+  agents-bridge:
+    image: tanva-hotfix/agents-bridge:20260907-continuation

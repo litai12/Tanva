@@ -1,0 +1,8 @@
+FROM beqlee/tapcanvas-api:src-90892740069ff9656ae23f35
+COPY patch-runtime.mjs /tmp/tanva-continuation-patch.mjs
+RUN node /tmp/tanva-continuation-patch.mjs api /app/dist/main.js /app/dist/agent-api-worker.js /app/dist/inprocess-worker.js /app/dist/workflow-runtime-worker.js /app/dist/codex-remote-builder.js \
+    && node --check /app/dist/main.js \
+    && node --check /app/dist/agent-api-worker.js \
+    && node --check /app/dist/inprocess-worker.js \
+    && node --check /app/dist/workflow-runtime-worker.js \
+    && node --check /app/dist/codex-remote-builder.js

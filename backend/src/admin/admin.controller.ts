@@ -264,6 +264,9 @@ export class AdminController {
       page: query.page,
       pageSize: query.pageSize,
       type: query.type,
+      startDate: query.startDate,
+      endDate: query.endDate,
+      model: query.model,
     });
   }
 

@@ -85,8 +85,17 @@ test('web report prompt keeps the editable HTML delivery contract', () => {
 });
 
 test('report builder persists the selected model and includes it in the export', () => {
-  const state = { ...createDefaultReportBuilderState(), reportModel: 'xiaot-agent-gpt-5-6-terra' as const };
+  const state = { ...createDefaultReportBuilderState(), reportModel: 'xiaot-agent-deepseek-v4-flash' as const };
   const config = buildReportExportConfig(state);
-  assert.equal(config.reportModel, 'xiaot-agent-gpt-5-6-terra');
-  assert.match(buildReportGenerationPrompt(state), /xiaot-agent-gpt-5-6-terra/);
+  assert.equal(config.reportModel, 'xiaot-agent-deepseek-v4-flash');
+  assert.match(buildReportGenerationPrompt(state), /xiaot-agent-deepseek-v4-flash/);
+});
+
+
+test('report builder migrates saved GPT choices to fixed DeepSeek', () => {
+  for (const reportModel of ['xiaot-agent-gpt-5-6-luna', 'xiaot-agent-gpt-5-6-terra']) {
+    const state = normalizeReportBuilderState({ ...createDefaultReportBuilderState(), reportModel });
+    assert.equal(state.reportModel, 'xiaot-agent-deepseek-v4-flash');
+    assert.doesNotMatch(buildReportGenerationPrompt(state), /xiaot-agent-gpt/);
+  }
 });

@@ -1,6 +1,6 @@
 export type ReportPurpose = 'web' | 'slides';
 export type ReportLanguage = '中文' | '中英双语' | '英文';
-export type ReportModel = 'xiaot-agent-gpt-5-6-luna' | 'xiaot-agent-gpt-5-6-terra' | 'xiaot-agent-deepseek-v4-flash';
+export type ReportModel = 'xiaot-agent-deepseek-v4-flash';
 export type ReportAssetType = 'render' | 'photo' | 'video' | 'plan' | 'section' | 'elevation' | 'detail' | 'analysis' | 'concept' | 'data' | 'document' | 'unknown';
 
 export interface ReportChapter {
@@ -70,8 +70,6 @@ export const REPORT_STYLE_PRESETS = [
 ] as const;
 
 export const REPORT_MODEL_OPTIONS = [
-  { id: 'xiaot-agent-gpt-5-6-luna', label: '小T-5.6 Luna', description: '推荐：综合规划、结构和视觉表达' },
-  { id: 'xiaot-agent-gpt-5-6-terra', label: '小T-5.6 Terra', description: '适合长材料整理与复杂章节' },
   { id: 'xiaot-agent-deepseek-v4-flash', label: '小T-DeepSeek V4 Flash', description: '适合快速生成初稿' },
 ] as const;
 
@@ -232,7 +230,7 @@ export const createDefaultReportBuilderState = (): ReportBuilderState => ({
   projectType: '建筑',
   purpose: 'web',
   language: '中文',
-  reportModel: 'xiaot-agent-gpt-5-6-luna',
+  reportModel: 'xiaot-agent-deepseek-v4-flash',
   coverTitle: '',
   chapters: defaultChapters('建筑'),
   assets: [],

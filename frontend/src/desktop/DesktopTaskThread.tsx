@@ -39,8 +39,6 @@ export default function DesktopTaskThread() {
   const showDialog = useAIChatStore((state) => state.showDialog);
   const createSession = useAIChatStore((state) => state.createSession);
   const setXiaotMode = useAIChatStore((state) => state.setXiaotMode);
-  const xiaotModel = useAIChatStore((state) => state.xiaotModel);
-  const setXiaotModel = useAIChatStore((state) => state.setXiaotModel);
   const renameCurrentSession = useAIChatStore((state) => state.renameCurrentSession);
   const deleteSession = useAIChatStore((state) => state.deleteSession);
   const projects = useProjectStore((state) => state.projects);
@@ -101,14 +99,6 @@ export default function DesktopTaskThread() {
       window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'success', message: '已选择工作文件夹，小T可以读取和交付其中的项目文件。' } }));
     }
   };
-
-  useEffect(() => {
-    // DeepSeek facade 当前可能因独立路由额度返回 402。桌面端先落到已验证
-    // 可用的 Luna，runXiaotAgent 仍会在运行时做一次同样的自动恢复。
-    if (xiaotModel === 'xiaot-agent-deepseek-v4-flash') {
-      setXiaotModel('xiaot-agent-gpt-5-6-luna');
-    }
-  }, [setXiaotModel, xiaotModel]);
 
   useEffect(() => {
     if (!currentSessionId || taskMode !== 'work' || !taskProjectId) return;

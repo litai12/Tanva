@@ -119,13 +119,13 @@ async function main(): Promise<void> {
   );
   assert.equal(
     requestedModels[1],
-    'xiaot-agent-gpt-5-6-terra',
-    'Terra 必须通过小T专属门面名转发',
+    'xiaot-agent-deepseek-v4-flash',
+    '旧 Terra 请求必须统一使用 DeepSeek 专属门面',
   );
   assert.equal(
     requestedModels[2],
-    'xiaot-agent-gpt-5-6-luna',
-    '未指定模型时必须回落到小T-5.6 Luna',
+    'xiaot-agent-deepseek-v4-flash',
+    '未指定模型时必须使用 DeepSeek',
   );
   assert.equal(charges.length, 3);
   assert.deepEqual(

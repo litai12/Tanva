@@ -6573,29 +6573,64 @@ export class CreditsService {
       page?: number;
       pageSize?: number;
       type?: TransactionType;
+      startDate?: string;
+      endDate?: string;
+      model?: string;
     } = {},
   ) {
     const { page = 1, pageSize = 20, type } = options;
 
+    const startDate = options.startDate ? new Date(options.startDate) : undefined;
+    const endDate = options.endDate ? new Date(options.endDate) : undefined;
+    if ((startDate && !Number.isFinite(startDate.getTime())) ||
+        (endDate && !Number.isFinite(endDate.getTime())) ||
+        (startDate && endDate && startDate >= endDate)) {
+      throw new BadRequestException('积分流水日期范围无效');
+    }
+    const model = options.model?.trim();
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
       throw new NotFoundException('用户积分账户不存在');
     }
 
-    const where: any = { accountId: account.id };
+    const where: Prisma.CreditTransactionWhereInput = { accountId: account.id };
     if (type) {
       where.type = type;
     }
 
-    const [transactions, total] = await Promise.all([
-      this.prisma.creditTransaction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.creditTransaction.count({ where }),
-    ]);
+    if (startDate || endDate) {
+      where.createdAt = { gte: startDate, lt: endDate };
+    }
+
+    // EXISTS keeps model filtering and pagination in the database without loading
+    // every matching usage ID. The linked usage must belong to this user.
+    const modelFilter = Prisma.sql`
+      t."accountId" = ${account.id}
+      ${type ? Prisma.sql`AND t.type = ${type}` : Prisma.empty}
+      ${startDate ? Prisma.sql`AND t."createdAt" >= ${startDate}` : Prisma.empty}
+      ${endDate ? Prisma.sql`AND t."createdAt" < ${endDate}` : Prisma.empty}
+      AND EXISTS (SELECT 1 FROM "ApiUsageRecord" u
+        WHERE u.id = t."apiUsageId" AND u."userId" = ${userId}
+        AND strpos(lower(u.model), lower(${model || ''})) > 0)`;
+    const [transactions, total] = model
+      ? await Promise.all([
+          this.prisma.$queryRaw<Prisma.CreditTransactionGetPayload<{}>[]>(Prisma.sql`
+            SELECT t.* FROM "CreditTransaction" t WHERE ${modelFilter}
+            ORDER BY t."createdAt" DESC, t.id DESC
+            LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`),
+          this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+            SELECT COUNT(*)::int AS total FROM "CreditTransaction" t WHERE ${modelFilter}`)
+            .then(rows => rows[0]?.total ?? 0),
+        ])
+      : await Promise.all([
+          this.prisma.creditTransaction.findMany({
+            where,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+          }),
+          this.prisma.creditTransaction.count({ where }),
+        ]);
 
     const apiUsageIds = Array.from(
       new Set(

@@ -3,6 +3,7 @@
  * 管理对话框显示、输入内容和生成状态
  */
 
+import { DEFAULT_XIAOT_CHAT_MODEL, resolveXiaotChatModel } from "@/services/xiaotChatModels";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import paper from "paper";
@@ -25,7 +26,6 @@ import {
 import {
   createAgentRunViaAPI,
   streamAgentRunEvents,
-  XIAOT_CHAT_MODELS,
   type AgentRunEvent,
   type AgentToolName,
   type XiaotChatModel,
@@ -90,13 +90,6 @@ import {
 } from "@/stores/xiaotTerminalContent";
 import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
-import {
-  generateVideoByProvider,
-  markVideoTaskSuccess,
-  queryVideoTask,
-  refundVideoTask,
-  type VideoProvider,
-} from "@/services/videoProviderAPI";
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -104,7 +97,7 @@ import { useProjectStore } from "@/stores/projectStore";
 import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
-import { recordImageHistoryEntry, recordVideoHistoryEntry } from "@/services/imageHistoryService";
+import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
@@ -180,14 +173,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 8;
-const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-luna";
-const XIAOT_ROUTE_FALLBACK_MODELS: XiaotChatModel[] = [
-  "xiaot-agent-gpt-5-6-luna",
-  "xiaot-agent-gpt-5-6-terra",
-  "xiaot-agent-deepseek-v4-flash",
-];
-const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
+const AI_CHAT_PREFERENCES_VERSION = 9;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
 
 type DesktopCanvasLocalCommand = "open" | "close";
@@ -1086,7 +1072,6 @@ const RUNNINGHUB_REFERENCE_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_REFERENCE_NODE_ID ?? "158";
 const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
-const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 const VIDEO_FETCH_TIMEOUT_MS = 60000;
 const DEFAULT_PLACEHOLDER_EDGE = 512;
 const MIN_PLACEHOLDER_EDGE = 96;
@@ -1526,11 +1511,7 @@ const dispatchPlaceholderEvent = (
   }
 };
 
-type VideoPosterBuildResult = {
-  dataUrl: string;
-  origin: "thumbnail" | "videoFrame" | "placeholder";
-  sourceImageUrl?: string;
-};
+
 
 const GEMINI_FALLBACK_PROVIDERS: AIProviderType[] = ["gemini", "gemini-pro"];
 
@@ -2402,203 +2383,6 @@ const hydrateSessionLocalVideoUrls = async (
   return changed;
 };
 
-const captureVideoPosterFromBlob = async (
-  blob: Blob
-): Promise<string | null> => {
-  if (typeof document === "undefined") return null;
-  return new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.preload = "auto";
-    video.muted = true;
-    video.playsInline = true;
-    const objectUrl = URL.createObjectURL(blob);
-    let resolved = false;
-
-    const cleanup = () => {
-      if (resolved) return;
-      resolved = true;
-      URL.revokeObjectURL(objectUrl);
-    };
-
-    const fail = () => {
-      cleanup();
-      resolve(null);
-    };
-
-    video.addEventListener("error", fail);
-    video.addEventListener(
-      "loadeddata",
-      () => {
-        try {
-          const seekTime = Math.min(0.2, (video.duration || 1) * 0.1);
-          const handleSeeked = () => {
-            void (async () => {
-              const canvas = document.createElement("canvas");
-              canvas.width = video.videoWidth || 960;
-              canvas.height = video.videoHeight || 540;
-              const ctx = canvas.getContext("2d");
-              if (!ctx) {
-                fail();
-                return;
-              }
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const dataUrl = await canvasToDataUrl(canvas, "image/png");
-              cleanup();
-              resolve(dataUrl);
-            })().catch((error) => {
-              console.warn("⚠️ 无法捕获视频帧:", error);
-              fail();
-            });
-          };
-          if (seekTime > 0) {
-            video.currentTime = seekTime;
-            video.addEventListener("seeked", handleSeeked, { once: true });
-          } else {
-            handleSeeked();
-          }
-        } catch (error) {
-          console.warn("⚠️ 设置视频截帧失败:", error);
-          fail();
-        }
-      },
-      { once: true }
-    );
-
-    video.src = objectUrl;
-  });
-};
-
-const buildPlaceholderPoster = (
-  prompt: string,
-  videoUrl: string
-): string | null => {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = 960;
-  canvas.height = 540;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-
-  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  gradient.addColorStop(0, "#0f172a");
-  gradient.addColorStop(1, "#1e293b");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = "rgba(255,255,255,0.15)";
-  ctx.fillRect(40, 40, canvas.width - 80, canvas.height - 80);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = 'bold 48px "Inter", sans-serif';
-  ctx.fillText("🎬 视频占位", 80, 120);
-
-  ctx.font = '24px "Inter", sans-serif';
-  const maxWidth = canvas.width - 160;
-  const words = `${prompt}\n${videoUrl}`.split(/\s+/);
-  const lines: string[] = [];
-  let currentLine = "";
-  words.forEach((word) => {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (ctx.measureText(testLine).width > maxWidth) {
-      if (currentLine) lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
-  });
-  if (currentLine) lines.push(currentLine);
-
-  ctx.font = '24px "Inter", sans-serif';
-  lines.slice(0, 5).forEach((line, index) => {
-    ctx.fillText(line, 80, 180 + index * 36);
-  });
-
-  return canvas.toDataURL("image/png");
-};
-
-const buildVideoPoster = async (params: {
-  prompt: string;
-  videoUrl: string;
-  thumbnailUrl?: string;
-}): Promise<VideoPosterBuildResult | null> => {
-  if (params.thumbnailUrl) {
-    const downloaded = await downloadUrlAsDataUrl(params.thumbnailUrl);
-    if (downloaded) {
-      return {
-        dataUrl: downloaded,
-        origin: "thumbnail",
-        sourceImageUrl: params.thumbnailUrl,
-      };
-    }
-  }
-
-  const blob = await fetchVideoBlob(params.videoUrl);
-  if (blob) {
-    const captured = await captureVideoPosterFromBlob(blob);
-    if (captured) {
-      return {
-        dataUrl: captured,
-        origin: "videoFrame",
-        sourceImageUrl: params.videoUrl,
-      };
-    }
-  }
-
-  const placeholder = buildPlaceholderPoster(params.prompt, params.videoUrl);
-  if (!placeholder) return null;
-  return { dataUrl: placeholder, origin: "placeholder" };
-};
-
-const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
-  try {
-    const cached = contextManager.getCachedImage();
-    if (cached?.bounds) {
-      const offsetVertical =
-        useUIStore.getState().smartPlacementOffsetVertical || 552;
-      return {
-        x: cached.bounds.x + cached.bounds.width / 2,
-        y: cached.bounds.y + cached.bounds.height / 2 + offsetVertical,
-      };
-    }
-  } catch (error) {
-    console.warn("⚠️ 计算视频智能位置失败:", error);
-  }
-  return undefined;
-};
-
-const autoPlaceVideoOnCanvas = async (params: {
-  prompt: string;
-  videoUrl: string;
-  thumbnailUrl?: string;
-}) => {
-  if (typeof window === "undefined") return null;
-  try {
-    const poster = await buildVideoPoster(params);
-    if (!poster) return null;
-    const smartPosition = computeVideoSmartPosition();
-    window.dispatchEvent(
-      new CustomEvent("triggerQuickImageUpload", {
-        detail: {
-          imageData: poster.dataUrl,
-          fileName: `sora-video-${Date.now()}.png`,
-          operationType: "video",
-          smartPosition,
-          videoInfo: {
-            videoUrl: params.videoUrl,
-            sourceUrl: params.videoUrl,
-            thumbnailUrl: poster.sourceImageUrl ?? params.thumbnailUrl,
-            prompt: params.prompt,
-          },
-        },
-      })
-    );
-    return poster.dataUrl;
-  } catch (error) {
-    console.warn("⚠️ 自动投放视频缩略图失败:", error);
-    return null;
-  }
-};
-
 // ============================================================
 
 async function buildRunningHubProviderOptions(params: {
@@ -3243,7 +3027,7 @@ interface AIChatState {
   // 视频生成功能
   generateVideo: (
     prompt: string,
-    referenceImage?: string | null,
+    referenceImage?: string | string[] | null,
     options?: { override?: MessageOverride; metrics?: ProcessMetrics }
   ) => Promise<void>;
 
@@ -3270,7 +3054,8 @@ interface AIChatState {
     options?: {
       override?: MessageOverride;
       forceImageGeneration?: boolean;
-      attemptedModels?: XiaotChatModel[];
+      forceVideoGeneration?: boolean;
+      videoReferenceImages?: string[];
     }
   ) => Promise<void>;
   // 小T 是否正在流式运行（发送按钮据此在「发送/停止」间切换）
@@ -3717,7 +3502,7 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
         xiaotMode: false, // 默认使用旧图片编辑 / Auto；用户主动选择后进入小T Beta
-        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认使用小T-5.6 Luna 门面
+        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑固定使用 DeepSeek V4 Flash 门面
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
         xiaotStyleAnchor: null, // 小T风格锚定默认无
@@ -3730,7 +3515,7 @@ export const useAIChatStore = create<AIChatState>()(
         },
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
-        setXiaotModel: (model) => set({ xiaotModel: model }),
+        setXiaotModel: () => set({ xiaotModel: DEFAULT_XIAOT_CHAT_MODEL }),
         setXiaotMode: (enabled) => set({ xiaotMode: enabled }),
         setXiaotPreferredImage: (value) =>
           set({ xiaotPreferredImage: value }),
@@ -7183,407 +6968,21 @@ export const useAIChatStore = create<AIChatState>()(
           }
         },
 
-        // 🎬 视频生成方法
-        generateVideo: async (
-          prompt: string,
-          referenceImages?: string | string[] | null,
-          options?: { override?: MessageOverride; metrics?: ProcessMetrics }
-        ) => {
-          const metrics = options?.metrics;
-          logProcessStep(metrics, "generateVideo entered");
-
-          const override = options?.override;
-          let aiMessageId: string | undefined;
-
-          if (override) {
-            aiMessageId = override.aiMessageId;
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              content: "正在生成视频...",
-              expectsVideoOutput: true,
-              generationStatus: {
-                ...(msg.generationStatus || {
-                  isGenerating: true,
-                  progress: 0,
-                  error: null,
-                }),
-                isGenerating: true,
-                error: null,
-                stage: "准备视频生成",
-              },
-            }));
-          } else {
-            // 添加用户消息
-            get().addMessage({
-              type: "user",
-              content: prompt,
-            });
-
-            // 🔥 创建占位 AI 消息
-            const placeholderMessage: Omit<ChatMessage, "id" | "timestamp"> = {
-              type: "ai",
-              content: "正在生成视频...",
-              expectsVideoOutput: true,
-              generationStatus: {
-                isGenerating: true,
-                progress: 0,
-                error: null,
-                stage: "准备视频生成",
-              },
-              provider: get().aiProvider,
-            };
-
-            const storedPlaceholder = get().addMessage(placeholderMessage);
-            aiMessageId = storedPlaceholder.id;
-          }
-
-          if (!aiMessageId) {
-            console.error("❌ 无法获取AI消息ID");
-            return;
-          }
-          logProcessStep(metrics, "generateVideo message prepared");
-
-          try {
-            const state = get();
-            const provider: VideoProvider = "doubao";
-            const aspectRatio = state.videoAspectRatio ?? undefined;
-            const durationSeconds = state.videoDurationSeconds ?? undefined;
-
-            const referenceImageList = Array.isArray(referenceImages)
-              ? referenceImages
-              : referenceImages
-              ? [referenceImages]
-              : [];
-            const referenceImageUrls: string[] = [];
-
-            if (referenceImageList.length) {
-              get().updateMessageStatus(aiMessageId, {
-                isGenerating: true,
-                progress: 15,
-                error: null,
-                stage: "处理参考图像",
-              });
-
-              for (const img of referenceImageList) {
-                if (!img) continue;
-                try {
-                  const input = toRenderableImageSrc(img) ?? img;
-                  const dataUrl = await resolveImageToDataUrl(input, {
-                    preferProxy: true,
-                  });
-                  if (dataUrl) {
-                    referenceImageUrls.push(dataUrl);
-                  } else {
-                    console.warn("⚠️ 参考图像转换失败，继续生成视频");
-                  }
-                } catch (error) {
-                  console.warn("⚠️ 参考图像转换失败，继续生成视频", error);
-                }
-              }
-            }
-
-            get().updateMessageStatus(aiMessageId, {
-              isGenerating: true,
-              progress: 30,
-              error: null,
-              stage: "发送请求到 Seedance",
-            });
-
-            const videoRequestStartedAt = Date.now();
-            logProcessStep(metrics, "generateVideo calling video provider API");
-            const videoMode =
-              referenceImageUrls.length > 0 ? "reference_images" : "text";
-
-            const createResult = await generateVideoByProvider({
-              // 消息级幂等键：同一条 AI 消息短窗内重复创建在服务端被吸收，避免重复预扣。
-              idempotencyKey: `chatvid-${aiMessageId}`,
-              prompt,
-              referenceImages: referenceImageUrls.length
-                ? referenceImageUrls
-                : undefined,
-              duration: durationSeconds,
-              aspectRatio,
-              provider,
-              seedanceModel: AI_CHAT_SEEDANCE_MODEL,
-              videoMode,
-            });
-
-            logProcessStep(metrics, "generateVideo API response received");
-
-            if (!createResult.taskId && !createResult.videoUrl) {
-              throw new Error("视频任务创建失败");
-            }
-
-            const finalizeSuccess = async (
-              videoUrl: string,
-              thumbnailUrl?: string,
-              status?: string,
-              tokenUsage?: { inputTokens?: number; outputTokens?: number }
-            ) => {
-              if (createResult.apiUsageId) {
-                const processingTime = Math.max(0, Date.now() - videoRequestStartedAt);
-                void markVideoTaskSuccess(
-                  createResult.apiUsageId,
-                  processingTime,
-                  tokenUsage
-                ).catch(
-                  (markError) => {
-                    console.warn("❌ Seedance 成功状态回写失败", markError);
-                  }
-                );
-              }
-
-              const remoteVideoUrl = videoUrl;
-              void recordVideoHistoryEntry({
-                videoUrl: remoteVideoUrl,
-                thumbnail: thumbnailUrl,
-                title: prompt,
-                nodeId: aiMessageId,
-                nodeType: String(AI_CHAT_SEEDANCE_MODEL || "").includes("2.0")
-                  ? "seedance20Video"
-                  : "doubaoVideo",
-                projectId: useProjectContentStore.getState().projectId,
-                metadata: {
-                  source: "aiChat",
-                  provider,
-                  seedanceModel: AI_CHAT_SEEDANCE_MODEL,
-                  videoMode,
-                  aspectRatio,
-                  durationSeconds,
-                  taskId: createResult.taskId,
-                  apiUsageId: createResult.apiUsageId,
-                  status: status ?? "succeeded",
-                },
-              }).catch((error) => {
-                console.warn("⚠️ 视频全局历史写入失败:", error);
-              });
-              get().updateMessage(aiMessageId, (msg) => ({
-                ...msg,
-                type: "ai",
-                content: "Seedance 视频生成完成",
-                videoUrl: remoteVideoUrl,
-                videoSourceUrl: remoteVideoUrl,
-                videoTaskId: createResult.taskId ?? msg.videoTaskId ?? null,
-                videoStatus: status ?? "succeeded",
-                videoThumbnail: msg.videoThumbnail || thumbnailUrl,
-                videoMetadata: {
-                  ...(msg.videoMetadata || {}),
-                  provider,
-                  seedanceModel: AI_CHAT_SEEDANCE_MODEL,
-                  videoMode,
-                  aspectRatio,
-                  durationSeconds,
-                  apiUsageId: createResult.apiUsageId,
-                },
-                expectsVideoOutput: false,
-                generationStatus: {
-                  isGenerating: false,
-                  progress: 100,
-                  error: null,
-                  stage: "完成",
-                },
-              }));
-
-              const sessionId =
-                resolveSessionIdByMessageId(aiMessageId) ||
-                get().currentSessionId ||
-                contextManager.getCurrentSessionId();
-              if (sessionId) {
-                try {
-                  const localCached = await cacheVideoBlobForMessage({
-                    sessionId,
-                    messageId: aiMessageId,
-                    videoUrl: remoteVideoUrl,
-                  });
-                  if (localCached) {
-                    get().updateMessage(aiMessageId, (msg) => ({
-                      ...msg,
-                      videoSourceUrl: remoteVideoUrl,
-                      videoLocalAssetId: localCached.assetId,
-                      videoLocalUrl: localCached.objectUrl,
-                    }));
-                  }
-                } catch (cacheError) {
-                  console.warn("⚠️ 视频本地缓存失败，继续使用远程 URL:", cacheError);
-                }
-              }
-
-              if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
-                const placedPoster = await autoPlaceVideoOnCanvas({
-                  prompt,
-                  videoUrl,
-                  thumbnailUrl,
-                });
-                if (placedPoster && aiMessageId) {
-                  get().updateMessage(aiMessageId, (msg) => ({
-                    ...msg,
-                    videoThumbnail: msg.videoThumbnail || placedPoster,
-                  }));
-                }
-              }
-
-              contextManager.recordOperation({
-                type: "generateVideo",
-                input: prompt,
-                output: videoUrl,
-                success: true,
-                metadata: {
-                  provider,
-                  taskId: createResult.taskId,
-                  status: status ?? "succeeded",
-                  aspectRatio,
-                  durationSeconds,
-                },
-              });
-
-              await get().refreshSessions();
-            };
-
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              videoTaskId: createResult.taskId ?? null,
-              videoStatus: createResult.status ?? null,
-              videoMetadata: {
-                ...(msg.videoMetadata || {}),
-                provider,
-                aspectRatio,
-                durationSeconds,
-                apiUsageId: createResult.apiUsageId,
-              },
-            }));
-
-            if (createResult.videoUrl) {
-              await finalizeSuccess(
-                createResult.videoUrl,
-                createResult.thumbnailUrl,
-                createResult.status
-              );
-              logProcessStep(metrics, "generateVideo finished (immediate)");
-              return;
-            }
-
-            const taskId = createResult.taskId!;
-            const pollIntervalMs = 5000;
-            const maxAttempts = 180;
-
-            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-              if (attempt > 1) {
-                await new Promise((resolve) =>
-                  setTimeout(resolve, pollIntervalMs)
-                );
-              }
-
-              let queryResult:
-                | {
-                    status: string;
-                    videoUrl?: string;
-                    thumbnailUrl?: string;
-                    error?: string;
-                    inputTokens?: number;
-                    outputTokens?: number;
-                  }
-                | undefined;
-              try {
-                queryResult = await queryVideoTask(provider, taskId);
-              } catch (error) {
-                console.warn("❌ Seedance 任务查询失败，继续重试", error);
-                continue;
-              }
-
-              if (!queryResult) continue;
-              const rawStatus = queryResult.status || "queued";
-              const normalized = String(rawStatus).toLowerCase();
-
-              get().updateMessage(aiMessageId, (msg) => ({
-                ...msg,
-                videoStatus: rawStatus,
-              }));
-
-              if (
-                normalized === "succeeded" ||
-                normalized === "success" ||
-                normalized === "succeed"
-              ) {
-                if (!queryResult.videoUrl) {
-                  throw new Error("Seedance 返回空视频链接");
-                }
-                await finalizeSuccess(
-                  queryResult.videoUrl,
-                  queryResult.thumbnailUrl,
-                  rawStatus,
-                  {
-                    inputTokens: queryResult.inputTokens,
-                    outputTokens: queryResult.outputTokens,
-                  }
-                );
-                logProcessStep(metrics, "generateVideo finished (polled)");
-                return;
-              }
-
-              if (normalized === "failed" || normalized === "failure") {
-                if (createResult.apiUsageId) {
-                  try {
-                    await refundVideoTask(createResult.apiUsageId);
-                  } catch (refundError) {
-                    console.warn("❌ Seedance 退款失败", refundError);
-                  }
-                }
-                throw new Error(queryResult.error || "任务生成失败");
-              }
-
-              const progress = Math.min(
-                95,
-                35 + Math.round((attempt / maxAttempts) * 60)
-              );
-              get().updateMessageStatus(aiMessageId, {
-                isGenerating: true,
-                progress,
-                error: null,
-                stage: "视频生成中",
-              });
-            }
-
-            if (createResult.apiUsageId) {
-              try {
-                await refundVideoTask(createResult.apiUsageId);
-              } catch (refundError) {
-                console.warn("❌ Seedance 退款失败", refundError);
-              }
-            }
-            throw new Error("任务查询超时");
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : "视频生成失败";
-            console.error("❌ 视频生成异常:", error);
-
-            // 更新消息状态为错误
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              content: `视频生成失败: ${errorMessage}`,
-              expectsVideoOutput: false,
-              generationStatus: {
-                ...(msg.generationStatus || {
-                  isGenerating: true,
-                  progress: 0,
-                  error: null,
-                }),
-                isGenerating: false,
-                progress: 0,
-                error: errorMessage,
-                stage: "已终止",
-              },
-            }));
-
-            // 🧠 记录失败
-            contextManager.recordOperation({
-              type: "generateVideo",
-              input: prompt,
-              output: undefined,
-              success: false,
-            });
-
-            logProcessStep(metrics, "generateVideo failed");
-          }
+        // Chat video requests use the same canvas workflow and billing as node runs.
+        generateVideo: async (prompt, referenceImages, options) => {
+          const state = get();
+          const references = Array.isArray(referenceImages)
+            ? referenceImages
+            : referenceImages ? [referenceImages] : [
+                ...state.sourceImagesForBlending,
+                state.sourceImageForEditing,
+                state.sourceImageForAnalysis,
+              ].filter((source): source is string => Boolean(source));
+          await get().runXiaotAgent(prompt, {
+            override: options?.override,
+            forceVideoGeneration: true,
+            videoReferenceImages: references,
+          });
         },
 
         /**
@@ -8450,7 +7849,7 @@ export const useAIChatStore = create<AIChatState>()(
                   logProcessStep(metrics, "invoking generateVideo");
                   await store.generateVideo(
                     parameters.prompt,
-                    state.sourceImageForEditing,
+                    null,
                     { override: messageOverride, metrics }
                   );
                   logProcessStep(metrics, "generateVideo finished");
@@ -8542,7 +7941,8 @@ export const useAIChatStore = create<AIChatState>()(
           options?: {
             override?: MessageOverride;
             forceImageGeneration?: boolean;
-            attemptedModels?: XiaotChatModel[];
+            forceVideoGeneration?: boolean;
+            videoReferenceImages?: string[];
           }
         ) => {
           const state = get();
@@ -8981,6 +8381,9 @@ export const useAIChatStore = create<AIChatState>()(
               imageOutputCount,
               notes: [
                 ...TANVA_CAPABILITY_MANIFEST.notes,
+                ...(options?.forceVideoGeneration
+                  ? ["【视频生成必须落画布】按用户指定或优选模型创建视频生成节点，创建 textPrompt 并连线，将参考图片节点连入视频节点，再 runNode。计费、轮询、退款由画布节点统一处理。禁止直接调用视频生成工具或仅返回外部视频卡片；不得默认改成 Seedance 1.5。"]
+                  : []),
                 ...(options?.forceImageGeneration
                   ? [
                       "【本轮宿主已判定为生图任务·必须执行】只规划图片生成：整理用户需求为可执行提示词，选择合适的 GPT/图片生成节点，创建 textPrompt 并连接图片节点，然后 runNode。不要改成普通文字回答、视频或其他工具。",
@@ -9020,7 +8423,8 @@ export const useAIChatStore = create<AIChatState>()(
               ? requestedImageType
               : preferredImage.label;
             // 用户消息里的视频时长（如 15s）→ 建视频节点时确定性注入
-            const detectedDuration = detectVideoDuration(input);
+            const detectedDuration = detectVideoDuration(input) ??
+              (options?.forceVideoGeneration ? state.videoDurationSeconds : null);
             // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
             const styleAnchor = state.xiaotStyleAnchor;
             let generationContract:
@@ -9100,13 +8504,32 @@ export const useAIChatStore = create<AIChatState>()(
               })();
               return presentationAttachmentUrlsPromise;
             };
+            // References become durable, connectable canvas nodes before any run.
+            // Queue order guarantees they exist before the agent's connect/run patches.
+            if (options?.forceVideoGeneration) {
+              requestDesktopSurface({ pluginId: TANVA_CANVAS_PLUGIN_ID, reason: "chat-video-canvas" });
+              const references = Array.from(new Set(options.videoReferenceImages || []));
+              for (const [index, source] of references.entries()) {
+                const remote = normalizeRemoteUrl(source);
+                const imageUrl = remote && isLikelyBackendAllowedRemoteUrl(remote)
+                  ? remote : await uploadImageToOSS(source, projectId);
+                if (!imageUrl) throw new Error("视频参考图上传失败，请重新上传后重试。");
+                const id = `chat-video-ref-${aiMessage.id}-${index}`;
+                const node = { id, type: "image", selected: true, data: { imageUrl, label: `视频参考图 ${index + 1}` } };
+                if (!applyAgentPatch({ op: "addNode", node })) {
+                  throw new Error("无法向画布添加视频参考图");
+                }
+                snapshot.nodes.splice(index, 0, node);
+                patchCount += 1;
+              }
+            }
             const run = await createAgentRunViaAPI({
               prompt: agentInput,
               mode: "canvasAgent",
               model: state.xiaotModel,
               sessionId,
               projectId,
-              ...(isDesktopChatTask
+              ...(isDesktopChatTask && !options?.forceVideoGeneration
                 ? {}
                 : { canvasContext: buildXiaotCanvasRequestContext(snapshot, input) }),
               capabilityManifest:
@@ -10060,7 +9483,7 @@ export const useAIChatStore = create<AIChatState>()(
               .map(([nodeId]) => nodeId);
             const deferredLegacyImageOnly =
               deferredLegacyImageOnlyTools.at(-1);
-            if (deferredLegacyImageOnly) {
+            if (deferredLegacyImageOnly && !options?.forceVideoGeneration) {
               if (
                 shouldExecuteLegacyImageOnlyHostTool(executableImageNodeIds)
               ) {
@@ -10120,6 +9543,11 @@ export const useAIChatStore = create<AIChatState>()(
                 nodeId: resolveAgentNodeId(agentNodeId),
                 kind,
               }));
+            if (options?.forceVideoGeneration &&
+                (!expectedAssets.some(asset => asset.kind === "video") ||
+                 !patchExecutionReport.assets.some(asset => asset.kind === "video"))) {
+              throw new Error("视频尚未生成：请检查画布视频节点的模型、参考图或错误提示后重试。");
+            }
             const hostDelivery = verifyXiaotTurnDelivery({
               streamCompletedSuccessfully: !streamErrored,
               assistantText: assembled,
@@ -10333,38 +9761,6 @@ export const useAIChatStore = create<AIChatState>()(
               error instanceof Error ? error.message : "小T处理失败";
             const isRouteCreditsError =
               !wasAborted && isXiaotModelRouteCreditsError(rawErrorMessage);
-            const attemptedModels = new Set<XiaotChatModel>([
-              ...(options?.attemptedModels ?? []),
-              state.xiaotModel,
-            ]);
-            const nextFallbackModel = isRouteCreditsError
-              ? XIAOT_ROUTE_FALLBACK_MODELS.find(
-                  (candidate) => !attemptedModels.has(candidate),
-                )
-              : undefined;
-            if (nextFallbackModel && xiaotUserMessage) {
-              set({ xiaotModel: nextFallbackModel });
-              get().updateMessage(aiMessage.id, (msg) => ({
-                ...msg,
-                content: XIAOT_THINKING_CONTENT,
-                generationStatus: {
-                  ...(msg.generationStatus || {}),
-                  isGenerating: true,
-                  progress: Math.max(msg.generationStatus?.progress ?? 0, 10),
-                  error: null,
-                  stage: "正在切换可用模型",
-                },
-              }));
-              await get().runXiaotAgent(input, {
-                ...options,
-                attemptedModels: Array.from(attemptedModels),
-                override: {
-                  userMessageId: xiaotUserMessage.id,
-                  aiMessageId: aiMessage.id,
-                },
-              });
-              return;
-            }
             if (wasAborted) {
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
@@ -10511,6 +9907,11 @@ export const useAIChatStore = create<AIChatState>()(
           }
 
           get().refreshSessions();
+
+          if (state.manualAIMode === "video") {
+            await get().generateVideo(input);
+            return;
+          }
 
           // 小T单轨：纯文本请求固定先进入小T；带图片/PDF附件继续走对应宿主兼容能力。
           if (
@@ -10908,6 +10309,12 @@ export const useAIChatStore = create<AIChatState>()(
 
           // Auto 模式只用现有工具选择判断“是不是生图”。一旦命中，后续提示词理解、
           // GPT 图片模型选择与实际执行全部改由小T负责，不再进入旧 generateImage 直调链路。
+          if (selectedTool === "generateVideo") {
+            set({ autoSelectedTool: selectedTool });
+            await get().generateVideo(input, null, { override: messageOverride });
+            return;
+          }
+
           if (selectedTool === "generateImage") {
             set({ autoSelectedTool: selectedTool });
             await get().runXiaotAgent(input, {
@@ -11538,7 +10945,6 @@ export const useAIChatStore = create<AIChatState>()(
         const validVideoRatios = ["16:9", "9:16"];
         const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
         const validBananaImageRoutes = ["normal", "stable"];
-        const validXiaotModels = XIAOT_CHAT_MODELS as readonly string[];
 
         return {
           ...state,
@@ -11578,10 +10984,8 @@ export const useAIChatStore = create<AIChatState>()(
           // v7：极速线路暂停使用，历史 ultra/beqlee 偏好统一迁回普通线路。
           // v6：小T Beta 改为用户主动选择，旧版本曾强制写入 true，统一迁回旧入口。
           xiaotMode: false,
-          // v8：小T大脑仅保留 Luna/Terra/DeepSeek；旧值或未知值统一迁移到 Luna。
-          xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
-            ? (state.xiaotModel as XiaotChatModel)
-            : DEFAULT_XIAOT_CHAT_MODEL,
+          // v9：小T大脑固定 DeepSeek；旧 GPT 偏好统一迁移到 DeepSeek。
+          xiaotModel: resolveXiaotChatModel(state.xiaotModel),
         };
       },
       partialize: (state) => ({

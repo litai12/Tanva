@@ -502,12 +502,19 @@ export async function getAdminUserCreditTransactions(
     page?: number;
     pageSize?: number;
     type?: string;
+    startDate?: string;
+    endDate?: string;
+    model?: string;
   }
 ): Promise<{ transactions: AdminUserCreditTransaction[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.type) searchParams.set("type", params.type);
+
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.model) searchParams.set("model", params.model);
 
   const response = await request(
     `/api/admin/users/${userId}/credits/transactions?${searchParams}`

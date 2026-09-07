@@ -7,32 +7,13 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
 
-// 小T可选「大脑」模型清单。
-// 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
-// （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。
-export const XIAOT_CHAT_MODELS = [
-  "xiaot-agent-gpt-5-6-luna",
-  "xiaot-agent-gpt-5-6-terra",
-  "xiaot-agent-deepseek-v4-flash",
-] as const;
-export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
-
-// 用户侧统一以“小T”品牌外显；value 仍保留专属门面名供网关路由。
-export const XIAOT_CHAT_MODEL_OPTIONS: ReadonlyArray<{
-  label: string;
-  value: XiaotChatModel;
-}> = [
-  { label: "小T-5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
-  { label: "小T-5.6 Terra", value: "xiaot-agent-gpt-5-6-terra" },
-  {
-    label: "小T-DeepSeek V4 Flash",
-    value: "xiaot-agent-deepseek-v4-flash",
-  },
-];
-
-export const getXiaotChatModelLabel = (model: XiaotChatModel): string =>
-  XIAOT_CHAT_MODEL_OPTIONS.find((option) => option.value === model)?.label ??
-  XIAOT_CHAT_MODEL_OPTIONS[0].label;
+export {
+  XIAOT_CHAT_MODELS,
+  XIAOT_CHAT_MODEL_OPTIONS,
+  getXiaotChatModelLabel,
+  type XiaotChatModel,
+} from "./xiaotChatModels";
+import type { XiaotChatModel } from "./xiaotChatModels";
 
 export type AgentEventType =
   | "run_started"

@@ -76,6 +76,22 @@ export class TransactionHistoryQueryDto {
   @IsOptional()
   @IsEnum(TransactionType)
   type?: TransactionType;
+
+  @ApiPropertyOptional({ description: '流水开始时间（含）' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '流水结束时间（不含）' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ description: '模型关键词（忽略大小写）' })
+  @IsOptional()
+  @IsString()
+  model?: string;
+
 }
 
 export class ApiUsageQueryDto {

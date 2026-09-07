@@ -1,0 +1,68 @@
+--- a/apps/agents-cli/src/core/agent-loop.ts
++++ b/apps/agents-cli/src/core/agent-loop.ts
+@@ -4043,7 +4043,7 @@
+             const exhausted =
+               consecutiveProviderInterruptions >= maxConsecutiveProviderInterruptions;
+             session.recordTaskCompletionSignal(createTaskCompletionSignal({
+-              disposition: exhausted ? "waiting_for_evidence" : "repair_required",
++              disposition: exhausted ? "replan_required" : "repair_required",
+               // Provider output exhaustion is a precise interruption subtype in
+               // providerInterruptions, while the durable host continues to use
+               // its single canonical recoverable provider reason.
+--- a/apps/hono-api/src/modules/task/public-agents-chat.ts
++++ b/apps/hono-api/src/modules/task/public-agents-chat.ts
+@@ -1457,6 +1457,23 @@
+ 	meta: Record<string, unknown> | null,
+ ): RootPhysicalContinuationSuspension | null {
+ 	const runtime = readRecord(meta?.runtime);
++	// Resume fences use the physical executor identity, not the logical ticket ID.
++	const suspension = readRecord(runtime?.suspension);
++	const physicalRunId = typeof suspension?.physicalRunId === "string"
++		? suspension.physicalRunId.trim()
++		: "";
++	const progressRevision =
++		typeof suspension?.progressRevision === "number" &&
++		Number.isInteger(suspension.progressRevision) &&
++		suspension.progressRevision >= 0
++			? suspension.progressRevision
++			: null;
++	const reasonCode = typeof suspension?.reasonCode === "string"
++		? suspension.reasonCode.trim()
++		: "";
++	if (reasonCode && physicalRunId && progressRevision !== null) {
++		return { reasonCode, physicalRunId, progressRevision };
++	}
+ 	const physicalRunExit = readRecord(runtime?.physicalRunExit);
+ 	const continuationTicket = readRecord(physicalRunExit?.continuationTicket);
+ 	const ticketId = typeof continuationTicket?.ticketId === "string"
+@@ -1486,29 +1503,7 @@
+ 			progressRevision: ticketRevision,
+ 		};
+ 	}
+-	const suspension = readRecord(runtime?.suspension);
+-	const physicalRunId = typeof suspension?.physicalRunId === "string"
+-		? suspension.physicalRunId.trim()
+-		: "";
+-	const progressRevision =
+-		typeof suspension?.progressRevision === "number" &&
+-		Number.isInteger(suspension.progressRevision) &&
+-		suspension.progressRevision >= 0
+-			? suspension.progressRevision
+-			: null;
+-	const reasonCode = typeof suspension?.reasonCode === "string"
+-		? suspension.reasonCode.trim()
+-		: "";
+-	if (
+-		!reasonCode ||
+-		!physicalRunId ||
+-		progressRevision === null
+-	) return null;
+-	return {
+-		reasonCode,
+-		physicalRunId,
+-		progressRevision,
+-	};
++	return null;
+ }
+ 
+ /**

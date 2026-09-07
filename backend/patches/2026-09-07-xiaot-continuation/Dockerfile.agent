@@ -1,0 +1,4 @@
+FROM beqlee/tapcanvas-agents-bridge:src-f4d932fa65b6569b237ec52a
+COPY patch-runtime.mjs /tmp/tanva-continuation-patch.mjs
+RUN node /tmp/tanva-continuation-patch.mjs agent /opt/agents-cli/dist/core/agent-loop.js \
+    && node --check /opt/agents-cli/dist/core/agent-loop.js
