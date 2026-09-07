@@ -728,6 +728,7 @@ export class AdminController {
     body: {
       noWatermark?: boolean;
       vipEntitlementWhitelist?: boolean;
+      seedance2AccessWhitelist?: boolean;
       vipRechargeBonusEnabled?: boolean;
     },
   ) {

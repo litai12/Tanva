@@ -1586,6 +1586,7 @@ export async function adminRefreshYearlyMembershipQuota() {
 export interface WhitelistEntitlements {
   noWatermark: boolean;
   vipEntitlementWhitelist: boolean;
+  seedance2AccessWhitelist: boolean;
   vipRechargeBonusEnabled: boolean;
 }
 

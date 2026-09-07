@@ -272,18 +272,30 @@ export function buildDeductionPlan(params: {
   };
 }
 
+/** 跨来源固定顺序；有效期、作用范围和后台权重仅在同级内排序。 */
+function getCreditConsumptionRank(lot: CreditLotCandidate): number {
+  const metadata = lot.metadata && typeof lot.metadata === 'object' && !Array.isArray(lot.metadata)
+    ? lot.metadata as Record<string, unknown>
+    : null;
+  if (metadata?.reason === 'daily_reward') return 0;
+  if (lot.sourceType === 'manual' || metadata?.grantedBy === 'admin_add') return 1;
+  // 兼容尚未归一为 recharge 的历史充值赠送，随购买积分最后消费。
+  if (metadata?.grantType === 'recharge_bonus') return 4;
+  // 邀请奖励与其他系统免费额度同级，保留免费额度先于会员、购买积分的规则。
+  if (lot.sourceType === 'gift' || lot.sourceType === 'promo' || isFreeCreditDecayLot(lot)) return 2;
+  if (lot.sourceType === 'subscription') return 3;
+  return 4;
+}
+
 function compareLots(
   left: CreditLotCandidate,
   right: CreditLotCandidate,
   policy: CreditConsumePolicy,
   scope?: CreditConsumeScope,
 ): number {
-  // 免费优先是业务不变量，旧数据库排序、有效期类型和自定义权重不能覆盖。
-  // 签到与待审计旧邀请批次虽不参与每日衰减，仍属于优先消费的免费积分。
-  const isFree = (lot: CreditLotCandidate) =>
-    lot.sourceType === 'gift' || lot.sourceType === 'promo' || isFreeCreditDecayLot(lot);
-  const freeOrder = Number(isFree(right)) - Number(isFree(left));
-  if (freeOrder !== 0) return freeOrder;
+  // 签到 → 管理员手动充值 → 系统邀请 → 会员 → 单独购买。
+  const sourceOrder = getCreditConsumptionRank(left) - getCreditConsumptionRank(right);
+  if (sourceOrder !== 0) return sourceOrder;
   const leftPriority = left.priority ?? 0;
   const rightPriority = right.priority ?? 0;
   if (leftPriority < 0 || rightPriority < 0) {

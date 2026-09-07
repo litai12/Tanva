@@ -21,6 +21,7 @@ model User {
   status                     String                 @default("active")
   noWatermark                Boolean                @default(false)
   vipEntitlementWhitelist    Boolean                @default(false)
+  seedance2AccessWhitelist   Boolean                @default(false)
   vipRechargeBonusEnabled    Boolean                @default(false)
   googleCustomApiKey         String?
   googleKeyMode              String                 @default("official")
@@ -60,6 +61,7 @@ model User {
   @@index([email, status])  // 邮箱登录优化（如果支持）
   @@index([role, status])   // 角色筛选优化
   @@index([vipEntitlementWhitelist])
+  @@index([seedance2AccessWhitelist])
   @@index([wechatUnionId])
 }
 

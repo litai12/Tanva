@@ -2170,11 +2170,13 @@ export class AdminService {
   private buildWhitelistTags(user: {
     noWatermark: boolean;
     vipEntitlementWhitelist: boolean;
+    seedance2AccessWhitelist: boolean;
     vipRechargeBonusEnabled: boolean;
   }): string[] {
     return [
       ...(user.noWatermark ? ['去水印'] : []),
       ...(user.vipEntitlementWhitelist ? ['最高档年卡权益'] : []),
+      ...(user.seedance2AccessWhitelist ? ['SD2 使用权限'] : []),
       ...(user.vipRechargeBonusEnabled ? ['充值到账 120%'] : []),
     ];
   }
@@ -2189,6 +2191,7 @@ export class AdminService {
       OR: [
         { noWatermark: true },
         { vipEntitlementWhitelist: true },
+        { seedance2AccessWhitelist: true },
         { vipRechargeBonusEnabled: true },
       ],
     };
@@ -2217,6 +2220,7 @@ export class AdminService {
           name: true,
           noWatermark: true,
           vipEntitlementWhitelist: true,
+          seedance2AccessWhitelist: true,
           vipRechargeBonusEnabled: true,
           createdAt: true,
           updatedAt: true,
@@ -2247,15 +2251,17 @@ export class AdminService {
     input: {
       noWatermark?: boolean;
       vipEntitlementWhitelist?: boolean;
+      seedance2AccessWhitelist?: boolean;
       vipRechargeBonusEnabled?: boolean;
     },
   ) {
     const data = {
       noWatermark: input.noWatermark === true,
       vipEntitlementWhitelist: input.vipEntitlementWhitelist === true,
+      seedance2AccessWhitelist: input.seedance2AccessWhitelist === true,
       vipRechargeBonusEnabled: input.vipRechargeBonusEnabled === true,
     };
-    if (!data.noWatermark && !data.vipEntitlementWhitelist && !data.vipRechargeBonusEnabled) {
+    if (!data.noWatermark && !data.vipEntitlementWhitelist && !data.vipRechargeBonusEnabled && !data.seedance2AccessWhitelist) {
       throw new BadRequestException('至少选择一项白名单权益');
     }
 
@@ -2269,6 +2275,7 @@ export class AdminService {
         name: true,
         noWatermark: true,
         vipEntitlementWhitelist: true,
+        seedance2AccessWhitelist: true,
         vipRechargeBonusEnabled: true,
         createdAt: true,
         updatedAt: true,
@@ -2283,6 +2290,7 @@ export class AdminService {
       data: {
         noWatermark: false,
         vipEntitlementWhitelist: false,
+        seedance2AccessWhitelist: false,
         vipRechargeBonusEnabled: false,
       },
       select: {
@@ -2292,6 +2300,7 @@ export class AdminService {
         name: true,
         noWatermark: true,
         vipEntitlementWhitelist: true,
+        seedance2AccessWhitelist: true,
         vipRechargeBonusEnabled: true,
       },
     });

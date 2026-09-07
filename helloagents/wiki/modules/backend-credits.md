@@ -1,8 +1,8 @@
 # 后端模块：积分系统（backend-credits）
 
-## 2026-09-07 本地免费优先消费修复
+## 2026-09-07 积分来源消耗排序与旧账保护
 
-- 免费/付费分组在 consume policy 配置之前执行：gift、promo、免费月度/首次额度 subscription 优先消费；即使生产旧配置按有效期类型先排序，或付费批次有负 priority，也不能跳过免费余额。同组内保留原有配置，签到 -200 / 免费额度 -100 仍用于免费组内排序。资格过滤仍先排除未生效、过期、scope 不匹配等批次。
+- 来源排序在 consume policy 配置之前执行：签到 → 管理员手动充值 → 系统邀请 → 会员 → 单独购买。签到依据 `metadata.reason=daily_reward`，管理员依据 `sourceType=manual` 或 `metadata.grantedBy=admin_add`；其他 gift/promo 与系统免费额度归入邀请同级，充值加赠归入购买同级。即使旧策略优先有效期、作用范围或批次具有负 priority，也不能跨越这五级。同级继续采用原有配置；资格过滤仍先排除未生效、过期、scope 不匹配等批次。
 - 预扣、精确扣费、Seed2 结算补扣和图片数量调整补扣四个入口都透传批次 metadata，并在锁内调用 legacy-referral-lots。旧邀请奖励最多从 account.balance 减 active lot 余额的差额中划分，不新增余额；关联原奖励流水后重复执行不再分批。
 - 无法证明真实未消费额的旧奖励迁移批次标记 grantedBy=legacy_referral_migration / legacyReferralUnverified=true，优先消费，但审计前不自动衰减。已消费/退款以同一 lot 剩余额度为准；移除 membership 衰减中直接扣旧 REFERRAL_REWARD 原额的分支。新正常 gift 继续每日衰减，签到保留独立业务日规则。
 - 回归入口：npm run test:free-credit-consumption；覆盖生产旧排序、免费与充值混合扣费和原路退款、批次资格、迁移余额上限/幂等，以及实际 MembershipService 衰减与单日幂等。此节描述本地代码，尚未部署服务器。
@@ -187,7 +187,7 @@
 - consume policy：
   - 新增 `CreditConsumePolicy` 表，并在 migration 中初始化 `global_default`
   - 当前 `CreditsService` 先读取 `global_default`，缺失时回退内置默认策略
-  - 先强制免费组优先，再在同组内使用配置排序；付费会员、充值和 manual 批次不得排在免费 gift/promo/免费额度之前。来源判定和旧账规则见上方 2026-09-07 修复说明。
+  - 先强制签到 → 管理员手动充值 → 系统邀请 → 会员 → 单独购买的来源顺序，再在同级内使用配置排序。来源判定和旧账规则见上方 2026-09-07 说明。
 - 会员 P0 最小闭环：
   - 新增 `MembershipPlan`、`UserMembershipSubscription`、`MembershipEntitlementSnapshot` 三张基础表。
   - `PaymentOrder` 扩展支持 `orderType=membership`、`membershipPlanId`、`subscriptionId`、`planSnapshot`。

@@ -708,9 +708,10 @@ export class AiController {
     try {
       const user = await this.usersService.findById(userId);
       byAdmin = byAdmin || this.isPrivilegedAdminRole(user?.role);
-      byWhitelist = byAdmin || user?.noWatermark === true;
+      // SD2-only access must not grant membership or daily-credit retention.
+      byWhitelist = byAdmin || user?.noWatermark === true || user?.seedance2AccessWhitelist === true;
     } catch (e) {
-      this.logger.warn('Failed to resolve watermark whitelist for Seedance 2.x access check', e);
+      this.logger.warn('Failed to resolve whitelist for Seedance 2.x access check', e);
       byWhitelist = await this.canSkipWatermark(req);
     }
 

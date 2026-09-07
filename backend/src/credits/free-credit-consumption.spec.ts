@@ -26,6 +26,28 @@ async function run() {
   for (const free of [gift, promo, quota]) {
     assert.equal(buildDeductionPlan({ lots: [paid, free, bonus], amount: 100, now, policy }).deductions[0].lotId, free.id);
   }
+  const daily = lot('daily', { sourceType: 'gift', metadata: { reason: 'daily_reward' }, priority: 999 });
+  const admin = lot('admin', { sourceType: 'gift', metadata: { grantedBy: 'admin_add' } });
+  const manual = lot('manual', { sourceType: 'manual' });
+  const referral = lot('referral', { sourceType: 'gift', metadata: { grantedBy: 'referral_reward' }, priority: -999 });
+  const membership = lot('membership', { sourceType: 'subscription', validityType: 'membership_bound', priority: -9999 });
+  // Adversarial policy/weights and input ordering cannot override the five source levels.
+  for (const adminLot of [admin, manual]) {
+    const ordered = [daily, adminLot, referral, membership, paid];
+    const deduction = buildHybridCreditDeductionPlan({
+      lots: [...ordered].reverse(), accountBalance: 5000, amount: 4500, now, policy,
+    });
+    assert.deepEqual(deduction.deductions, ordered.map((l, index) => ({ kind: 'lot', lotId: l.id, amount: index === 4 ? 500 : 1000 })));
+    const spent = applyLotDeductionsToSnapshots({ lots: ordered, deductions: deduction.deductions });
+    const restored = applyLotRestorationsToSnapshots({ lots: spent, deductions: deduction.deductions });
+    assert.deepEqual(restored.map(l => l.remainingAmount), ordered.map(l => l.remainingAmount));
+    for (let index = 0; index < ordered.length; index++) {
+      assert.equal(buildDeductionPlan({ lots: ordered.slice(index).reverse(), amount: 1, now, policy }).deductions[0].lotId, ordered[index].id);
+    }
+  }
+  assert.equal(buildDeductionPlan({ lots: [admin, daily], amount: 1, now, policy }).deductions[0].lotId, 'daily');
+  const oldBonus = { ...bonus, sourceType: 'gift' as const };
+  assert.equal(buildDeductionPlan({ lots: [oldBonus, membership], amount: 1, now, policy }).deductions[0].lotId, 'membership');
   const plan = buildHybridCreditDeductionPlan({ lots: [paid, gift], accountBalance: 1150, amount: 200, now, policy });
   assert.deepEqual(plan.deductions, [{ kind: 'lot', lotId: 'gift', amount: 150 }, { kind: 'lot', lotId: 'paid', amount: 50 }]);
   const consumed = applyLotDeductionsToSnapshots({ lots: [paid, gift], deductions: plan.deductions });
@@ -101,6 +123,6 @@ async function run() {
   assert.equal(account.balance, 1230);
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
   assert.equal(recorded.length, 1);
-  console.log('Free consumption: production ordering, partial spend/refund, eligibility, legacy balance conservation and decay guards passed.');
+  console.log('Free consumption: five-level source ordering, partial spend/refund, eligibility, legacy balance conservation and decay guards passed.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

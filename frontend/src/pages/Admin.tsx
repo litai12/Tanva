@@ -8720,6 +8720,7 @@ function WhitelistTab() {
   const emptyEntitlements: WhitelistEntitlements = {
     noWatermark: false,
     vipEntitlementWhitelist: false,
+    seedance2AccessWhitelist: false,
     vipRechargeBonusEnabled: false,
   };
   const [whitelistUsers, setWhitelistUsers] = useState<WhitelistUser[]>([]);
@@ -8870,6 +8871,7 @@ function WhitelistTab() {
                       onClick={() => openEntitlementEditor(user, {
                         noWatermark: user.noWatermark,
                         vipEntitlementWhitelist: user.vipEntitlementWhitelist,
+                        seedance2AccessWhitelist: user.seedance2AccessWhitelist,
                         vipRechargeBonusEnabled: user.vipRechargeBonusEnabled,
                       })}
                     >
@@ -8936,6 +8938,7 @@ function WhitelistTab() {
                           }, {
                             noWatermark: false,
                             vipEntitlementWhitelist: false,
+                            seedance2AccessWhitelist: false,
                             vipRechargeBonusEnabled: false,
                           })}
                         >
@@ -8972,6 +8975,11 @@ function WhitelistTab() {
                   key: "vipEntitlementWhitelist",
                   label: "最高档年卡权益",
                   description: "继承最高档年卡功能权益，但不发放会员周期积分。",
+                },
+                {
+                  key: "seedance2AccessWhitelist",
+                  label: "SD2 使用权限",
+                  description: "仅开放 Seedance 2.0 / 2.5；无其他会员权益时，普通签到 50 积分，未用部分下一业务日凌晨 3 点清除。",
                 },
                 {
                   key: "vipRechargeBonusEnabled",

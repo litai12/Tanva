@@ -21,7 +21,7 @@
 - `helloagents/`：本知识库（SSOT）
 
 ## 开发约定
-- 个人积分消费的最高层排序是免费积分优先（gift/promo、带免费额度来源 metadata 的 subscription），然后才应用同组内的优先级、有效期与配置排序；后台旧排序不得让充值或付费会员批次插到免费批次前。预扣、精确扣费与两类终态补扣须共用该规则。旧无批次邀请奖励在账户锁内、仅从未被 active lot 覆盖的现有余额划分 gift 批次；消费与退款使用 lot remainingAmount，不再用旧邀请流水原额作衰减基数。旧奖励未消费额缺少证据的迁移批次标记 legacyReferralUnverified，只参与优先消费，审计前不得自动衰减；历史误扣返还走独立证据校验流程。
+- 个人积分消费的最高层排序固定为签到积分 → 管理员手动充值积分 → 系统邀请积分 → 会员积分 → 单独购买积分，然后才应用同组内的优先级、有效期与配置排序；后台旧排序和负 priority 不得跨越来源层级。管理员手动充值识别 `manual` 或 `metadata.grantedBy=admin_add`；其他系统免费赠送与免费额度归入邀请同级，充值加赠随购买积分消费。预扣、精确扣费与两类终态补扣须共用该规则。旧无批次邀请奖励在账户锁内、仅从未被 active lot 覆盖的现有余额划分 gift 批次；消费与退款使用 lot remainingAmount，不再用旧邀请流水原额作衰减基数。旧奖励未消费额缺少证据的迁移批次标记 legacyReferralUnverified，只参与优先消费，审计前不得自动衰减；历史误扣返还走独立证据校验流程。
 ### Node / 包管理
 - Node.js：建议 `>= 18`
 - 包管理：项目内主要使用 `npm`（`frontend/`、`backend/` 各自有 `package.json`）
@@ -132,3 +132,5 @@
 ## AI Metadata 同步
 - 修改代码或文档后，在仓库根目录运行：
   - `node "${CODEX_HOME:-$HOME/.codex}/Skills/ai-metadata-sync/scripts/sync-repo.mjs"`
+
+- SD2 独立白名单：`User.seedance2AccessWhitelist` 仅参与 Seedance 2.x 访问判定，不参与会员身份、签到额度、签到积分保留、免费积分衰减、去水印或充值加赠判定。仅开此权限的普通用户保持普通签到规则（当前基础 50 积分），未消费签到积分下一业务日凌晨 3:00 清除；真实会员及原有白名单权益继续按各自规则叠加。
