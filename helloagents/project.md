@@ -136,3 +136,7 @@
   - `node "${CODEX_HOME:-$HOME/.codex}/Skills/ai-metadata-sync/scripts/sync-repo.mjs"`
 
 - SD2 独立白名单：`User.seedance2AccessWhitelist` 仅参与 Seedance 2.x 访问判定，不参与会员身份、签到额度、签到积分保留、免费积分衰减、去水印或充值加赠判定。仅开此权限的普通用户保持普通签到规则（当前基础 50 积分），未消费签到积分下一业务日凌晨 3:00 清除；真实会员及原有白名单权益继续按各自规则叠加。
+
+### 小T宿主回执与恢复身份（2026-09-08）
+- 宿主工具的 emitted_to_host 仅表示发出指令。查询必须在物理轮次边界交回宿主，获得真实结果后继续；同步写入与 runNode 都不得在收到实际回执前宣称已执行。
+- 上下文续接必须携带当前 capability/context、返回所有已接收查询结果，并共用首次请求的绝对截止时间。OpenAI 首次调用与 durable continuation 共用同一持久 admission 预算；状态查询与失败传播必须复用执行时的 owner + hostUserId 隔离身份，不按任务编号前缀排除 UUID。

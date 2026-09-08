@@ -251,3 +251,7 @@
 ### 2026-09-07 小T供应商断流与续跑所有权
 
 101 实际故障为 Luna 同模型两次 `provider_terminal_missing` 后，上游将 completion 归入 `waiting_for_evidence`，但没有已受理异步任务，导致 `async_continuation_owner_missing`（registrationStatus=not_required）。修复属于 TapCanvas：有界断流恢复耗尽转 `replan_required`，Hono 恢复优先消费真实 `runtime.suspension.physicalRunId/progressRevision`，避免逻辑 ticketId 抢占检查点身份。Tanva 不得放行无 owner 错误或重提原 prompt。本地补丁与验证见 `backend/patches/2026-09-07-xiaot-continuation/README.md`；仅本地交付，用户自行部署。模型本身仍可能断流，本次回归不等同于真实视频生产验收。
+
+### 2026-09-08 小T宿主查询交接
+
+`XiaotAgentService` 在查询续接时保留当前 capability/context，去重但不丢弃第四条及后续查询，使用首次请求绝对截止时间并在下一物理请求前释放旧 reader。真实上下文读取发送 step_started/step_completed；完整回合只结算一次。上游对应修复详见 [诊断记录](../xiaot-host-handoff-20260908.md)。

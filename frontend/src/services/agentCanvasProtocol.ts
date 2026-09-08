@@ -181,6 +181,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
   // 每加一项都必须：① 在 XiaotCards.tsx 有对应 case（否则卡片静默丢弃）；
   // ② 该名已在 TapCanvas host-canvas-protocol.ts 的 HOST_UI_KINDS 里（否则整份 manifest 被 400 拒）。
   ui: [
+    "request_user_input",
     "choices",
     "suggestions",
     "media",

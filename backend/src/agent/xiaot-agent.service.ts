@@ -45,6 +45,7 @@ type ContextQueryRequest = {
 };
 type RunContinuation = {
   depth: number;
+  deadlineAt: number;
   usageUnits: number;
   text: string;
   patchCount: number;
@@ -201,7 +202,10 @@ export class XiaotAgentService {
 
     // 流式总时长上限：超时 abort fetch/reader，异常沿现有 catch 路径转成 error+done 事件。
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const deadlineAt = continuation?.deadlineAt ?? Date.now() + this.timeoutMs;
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) throw new Error('小T请求超时，未取得完整执行结果');
+    const timeout = setTimeout(() => controller.abort(), remainingMs);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const requestBody = {
@@ -214,7 +218,7 @@ export class XiaotAgentService {
         user: buildXiaotUpstreamSessionUser(dto.sessionId, userId),
         metadata: { host_user_id: hostScopeId },
         host_user_id: hostScopeId,
-        messages: this.buildMessages(dto, !continuation),
+        messages: this.buildMessages(dto, true),
       };
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
@@ -629,10 +633,10 @@ export class XiaotAgentService {
           throw new Error('xiaot-agent context query ended with an invalid tool-call state');
         }
         const depth = continuation?.depth || 0;
-        if (depth >= 2) {
-          throw new Error('xiaot-agent exceeded the maximum number of context queries');
-        }
-        const results = contextQueries.slice(0, 3).map((query) => ({
+        emit('step_started', { title: '正在读取画布与工具信息' });
+        const uniqueQueries = [...new Map(contextQueries.map((query) =>
+          [JSON.stringify(query), query] as const)).values()];
+        const results = uniqueQueries.map((query) => ({
           name: query.name,
           result:
             query.name === 'query_canvas'
@@ -641,6 +645,11 @@ export class XiaotAgentService {
                 ? queryDesktopTools(dto.capabilityManifest, query.arguments)
                 : queryCapabilityManifest(dto.capabilityManifest, query.arguments),
         }));
+        emit('step_completed', { title: '画布与工具信息已读取' });
+        this.logger.log(`xiaot-agent context handoff: queries=${results.length} depth=${depth + 1}`);
+        // Release this finished physical stream before opening its successor.
+        await reader?.cancel().catch(() => {});
+        clearTimeout(timeout);
         await this.run(
           {
             ...dto,
@@ -653,6 +662,7 @@ export class XiaotAgentService {
           teamId,
           {
             depth: depth + 1,
+            deadlineAt,
             usageUnits: nextUsageUnits,
             text: nextText,
             patchCount: nextPatchCount,

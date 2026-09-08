@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-08 小T宿主查询与续跑挂起修复（本地，未部署）
+
+- 根据生产项目请求确认首次预算采用 Agent 接入时间、恢复采用 Hono admission 时间，相差 39ms 后报 `logical_task_budget_changed_during_continuation`；上游统一使用持久 admission。
+- 上游宿主查询在命令回执边界交回执行权；Hono 对声明内宿主查询/同步命令支持零 runNode 的执行交接，不把它当作视频受理或完成。
+- UUID 根任务失败传播与 OpenAI 状态等待统一使用实际宿主隔离身份，避免子任务失败而用户界面继续等待。
+- Tanva 上下文续接保留 capability/context，完整回传去重后的查询，共用原回合截止时间；增加真实读取步骤事件。网页声明并展示 request_user_input，按现有聊天发送入口回复。
+- 诊断、验证、变更归属与发布范围见 `helloagents/wiki/xiaot-host-handoff-20260908.md`。未更改生产服务、项目数据或重投媒体任务。
+
 ## 2026-09-07 剩余 GPT 文本入口统一 DeepSeek（本地）
 
 - 提示词优化、普通 Text Chat、工具选择、Paper.js/HTML PPT、Agent 研究与默认文本请求统一使用 DeepSeek V4 Flash；迁移旧 GPT/Right 模型参数并移除 GPT 文本能力展示。

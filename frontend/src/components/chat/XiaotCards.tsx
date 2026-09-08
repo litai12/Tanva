@@ -939,6 +939,18 @@ export default function XiaotCards({
       {cardList.map((card, idx) => {
         const key = `${card?.kind}-${idx}`;
         switch (card?.kind) {
+          case "request_user_input": {
+            const request = asRecord(card.payload);
+            const questions = Array.isArray(request?.questions) ? request.questions : [];
+            return questions.map((raw, questionIndex) => {
+              const question = asRecord(raw);
+              if (!question || typeof question.question !== "string") return null;
+              return <ChoicesCard key={`${key}-${questionIndex}`}
+                payload={{ question: question.question, options: question.options, allowOther: true }}
+                onSend={(answer) => onSend(`${question.question}\n${answer}`)}
+                disabled={disabled} />;
+            });
+          }
           case "choices":
             return (
               <ChoicesCard
