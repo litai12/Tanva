@@ -88,7 +88,19 @@ function readReplayRequestTerminalStatus(frame: XiaotReplayFrame): string | null
 }
 
 export function isXiaotDeferredReplayFrame(frame: XiaotReplayFrame): boolean {
-  if (readReplayRequestTerminalStatus(frame) === 'suspended') return true;
+  if (readReplayRequestTerminalStatus(frame) === 'suspended') {
+    const response = readRecord(frame.data.response);
+    const registration = readRecord(readRecord(response?.trace)?.continuationRegistration);
+    // The external host must consume this result before execution can continue.
+    // Waiting for the logical terminal here deadlocks the host and the agent.
+    const hostHandoff = registration?.status === 'external_handoff' &&
+      registration.effectOwner === 'host_execution' &&
+      typeof registration.ticketId === 'string' && registration.ticketId.trim().length > 0 &&
+      Number.isInteger(registration.commandCount) && Number(registration.commandCount) > 0 &&
+      Number.isInteger(registration.runNodeCount) && Number(registration.runNodeCount) >= 0 &&
+      Number(registration.runNodeCount) <= Number(registration.commandCount);
+    return !hostHandoff;
+  }
   return frame.event === 'done' && frame.data.reason === 'physical_suspended';
 }
 
@@ -225,6 +237,7 @@ export async function replayXiaotTurn(
           if (frame.id) afterEventId = frame.id;
           if (frameIsTerminal(frame)) return frame;
         }
+        if (resyncCursor) break;
       }
       buffer += decoder.decode();
       const tail = parseReplayFrame(buffer);
@@ -242,6 +255,9 @@ export async function replayXiaotTurn(
         }
       }
     } finally {
+      // A terminal or resync frame can precede transport EOF. Release the
+      // connection instead of leaving an unconsumed SSE response alive.
+      await reader.cancel().catch(() => {});
       try {
         reader.releaseLock();
       } catch {}

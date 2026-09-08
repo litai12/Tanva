@@ -250,7 +250,7 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 
 	// 使用统一的文件服务获取文件类型
 	for _, file := range meta.Files {
-		if file.Source == nil {
+		if file.Source == nil || file.Source.IsURL() {
 			continue
 		}
 
@@ -273,7 +273,7 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 	for i, file := range meta.Files {
 		switch file.FileType {
 		case types.FileTypeImage:
-			if common.IsOpenAITextModel(model) {
+			if common.IsOpenAITextModel(model) && file.Source != nil && !file.Source.IsURL() {
 				token, err := getImageToken(c, file, model, info.IsStream)
 				if err != nil {
 					return 0, fmt.Errorf("error counting image token, media index[%d], identifier[%s], err: %v", i, file.GetIdentifier(), err)

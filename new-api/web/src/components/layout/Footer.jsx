@@ -110,10 +110,7 @@ const FooterBar = () => {
                   >
                     {t('安装指南')}
                   </a>
-                  <a
-                    href='/console/docs'
-                    className='!text-semi-color-text-1'
-                  >
+                  <a href='/console/docs' className='!text-semi-color-text-1'>
                     {t('API 文档')}
                   </a>
                 </div>
@@ -203,7 +200,7 @@ const FooterBar = () => {
               rel='noopener noreferrer'
               className='!text-semi-color-primary font-medium'
             >
-              tanvasMart
+              Tanvas
             </a>
           </div>
         </div>
@@ -235,7 +232,7 @@ const FooterBar = () => {
                 rel='noopener noreferrer'
                 className='!text-semi-color-primary font-medium'
               >
-                tanvasMart
+                Tanvas
               </a>
             </div>
           </div>

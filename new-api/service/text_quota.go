@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ import (
 )
 
 type textQuotaSummary struct {
+	BillingError             error
 	PromptTokens             int
 	CompletionTokens         int
 	TotalTokens              int
@@ -112,6 +114,20 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	if !relayInfo.PriceData.UsePrice {
+		baseModelRatio := relayInfo.PriceData.BaseModelRatio
+		baseCompletionRatio := relayInfo.PriceData.BaseCompletionRatio
+		if !relayInfo.PriceData.HasBaseTokenRatios {
+			if baseModelRatio == 0 {
+				baseModelRatio = relayInfo.PriceData.ModelRatio
+			}
+			baseCompletionRatio = relayInfo.PriceData.CompletionRatio
+		}
+		if tieredRatio, tiered := ratio_setting.ResolveModelRatioForPromptTokens(summary.ModelName, baseModelRatio, summary.PromptTokens); tiered {
+			summary.ModelRatio = tieredRatio
+			summary.CompletionRatio = ratio_setting.ResolveCompletionRatioForPromptTokens(summary.ModelName, baseCompletionRatio, summary.PromptTokens)
+		}
+	}
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
@@ -256,7 +272,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		if !ratio.IsZero() && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
 			quotaCalculateDecimal = decimal.NewFromInt(1)
 		}
-		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
+		summary.Quota, summary.BillingError = common.CheckedQuota(quotaCalculateDecimal)
 	} else {
 		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(dWebSearchQuota)
@@ -269,9 +285,12 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				quotaCalculateDecimal = quotaCalculateDecimal.Mul(decimal.NewFromFloat(otherRatio))
 			}
 		}
-		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
+		summary.Quota, summary.BillingError = common.CheckedQuota(quotaCalculateDecimal)
 	}
 
+	if summary.BillingError != nil {
+		return summary
+	}
 	if summary.TotalTokens == 0 {
 		summary.Quota = 0
 	} else if !ratio.IsZero() && summary.Quota == 0 {
@@ -302,6 +321,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	if summary.BillingError != nil {
+		RecordUnsettledBilling(ctx, relayInfo, summary.BillingError)
+		return
+	}
 
 	if summary.WebSearchCallCount > 0 {
 		extraContent = append(extraContent, fmt.Sprintf("Web Search 调用 %d 次，调用花费 %s", summary.WebSearchCallCount, decimal.NewFromFloat(summary.WebSearchPrice).Mul(decimal.NewFromInt(int64(summary.WebSearchCallCount))).Div(decimal.NewFromInt(1000)).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
@@ -328,7 +351,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+		RecordUnsettledBilling(ctx, relayInfo, err)
 	}
 
 	logModel := summary.ModelName

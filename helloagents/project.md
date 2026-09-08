@@ -1,6 +1,7 @@
 # Tanva — 技术约定（SSOT）
 
 ## 目标
+
 - 让新同学能在 30 分钟内跑起来前后端，并理解核心模块边界。
 - 对代码现实进行记录：当知识库与代码冲突时，以代码为准并同步回知识库。
 
@@ -21,6 +22,8 @@
 - `helloagents/`：本知识库（SSOT）
 
 ## 开发约定
+
+- 小T网页查询合同：首轮上下文保持最小披露，声明 `browserContextQueries` 后的 `query_canvas` 必须通过浏览器按范围读取当前项目真实节点，不能拿侧栏 80 字预览或首轮筛选结果充当完整工具查询。回传绑定用户、run、queryId，30 秒过期且单次消费。异步生成节点提交不等于完成，宿主等待真实成功/失败终态（15 分钟上限），运行中的历史资产不是本轮交付。
 - 个人积分消费的最高层排序固定为签到积分 → 管理员手动充值积分 → 系统邀请积分 → 会员积分 → 单独购买积分，然后才应用同组内的优先级、有效期与配置排序；后台旧排序和负 priority 不得跨越来源层级。管理员手动充值识别 `manual` 或 `metadata.grantedBy=admin_add`；其他系统免费赠送与免费额度归入邀请同级，充值加赠随购买积分消费。预扣、精确扣费与两类终态补扣须共用该规则。旧无批次邀请奖励在账户锁内、仅从未被 active lot 覆盖的现有余额划分 gift 批次；消费与退款使用 lot remainingAmount，不再用旧邀请流水原额作衰减基数。旧奖励未消费额缺少证据的迁移批次标记 legacyReferralUnverified，只参与优先消费，审计前不得自动衰减；历史误扣返还走独立证据校验流程。
 - 聊天视频生成统一交给小T画布工作流：采用用户点名/优选视频模型，创建外接提示词与参考图片节点并连线后运行视频节点。禁止聊天固定 `seedance-1.5-pro`、自行提交视频请求、轮询或退款；使用节点实际规格、渠道与计费链路。参考图先上传取得远程引用，只有画布真实视频结果可作为成功交付。后端提交 1.5 Pro 前读取 `doubaoVideo` 节点状态，非 normal 必须在预扣积分与上游调用之前拒绝旧客户端请求。
 
@@ -140,3 +143,14 @@
 ### 小T宿主回执与恢复身份（2026-09-08）
 - 宿主工具的 emitted_to_host 仅表示发出指令。查询必须在物理轮次边界交回宿主，获得真实结果后继续；同步写入与 runNode 都不得在收到实际回执前宣称已执行。
 - 上下文续接必须携带当前 capability/context、返回所有已接收查询结果，并共用首次请求的绝对截止时间。OpenAI 首次调用与 durable continuation 共用同一持久 admission 预算；状态查询与失败传播必须复用执行时的 owner + hostUserId 隔离身份，不按任务编号前缀排除 UUID。
+
+- 生产远程宿主执行返回 `AgentsToolExecuteResponse { ok, content, data }`，Agent 必须读取 data 内的真实交接回执；进程内工具回执同样要求 emitted_to_host/applied=false。Hono 对绑定有效 ticket 的 waiting_external 状态登记 external_handoff，不能套用仅供 active 状态使用的物理续跑判定。
+- 小T live SSE 收到 [DONE]、恢复流收到有效 host handoff/result/done 或 resync 时立即释放/切换连接，不以服务端关闭 TCP 作为交接前提。查询型 replay 与 live 使用同一上下文续接与单次结算合同；网页消费真实运行步骤，不伪造百分比或生成成功。
+- 小T意图由根模型在同次输出内自检并通过 record_user_intent 结构化冻结；不能再启动独立意图审批模型并无限 retryReview。持久续跑继承已冻结合同，实际交付仍需独立的真实证据校验；意图接入成功不代表用户任务完成。
+- 最终回答校验必须共享作者实际收到的调用方输入/宿主查询数据，作为 caller_input/source 保存并按内容哈希标识；不可只传最终正文和本物理轮工具记录而丢失跨宿主查询来源。此来源不能证明状态变更、供应商受理或媒体生成。
+
+- new-api token 按量计费：请求开始冻结基础输入/输出倍率，预扣分别计算输入和输出预算，最终使用实际 prompt token 重选上下文档位；固定价不应用 token 档位。费用越界不得扣入钱包，保留预扣和结果并记录 `billing_reconciliation_required` 待核账。同步边界与验证见 `wiki/new-api-token-billing-sync-20260908.md`。
+
+- new-api Responses 兼容：客户端 stream=false 时，收到上游 SSE 须先保留原始输出字段聚合为 JSON，再进入适配器；不得仅因上游 Content-Type 改变客户端传输合同。工具调用与正文可并存；缺失工具关联 ID 明确拒绝。远程媒体 token 预估不下载，最终计费仍消费 usage。详见 `wiki/new-api-capability-sync-20260908.md`。
+
+- new-api 管理台 UI 以 Tanvas 为默认企业标识，跨项目同步不得覆盖本地 logo/favicon。绘图日志结果图与参考图直接缩略展示并支持放大，内联历史图片仅转临时 Blob 预览、不回写日志；文档页同时兼容 `/docs` 与 `/console/docs`，数据依本地 pricing/OpenAPI 合同。

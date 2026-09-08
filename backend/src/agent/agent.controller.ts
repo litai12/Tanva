@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
-import { CreateAgentRunDto } from './dto/agent-run.dto';
+import { CreateAgentRunDto, AgentHostContextResultDto } from './dto/agent-run.dto';
 import { AgentRuntimeService } from './agent-runtime.service';
 
 const HEARTBEAT_MS = 25_000;
@@ -31,6 +31,11 @@ export class AgentController {
   @Get('runs/:runId')
   getRun(@Param('runId') runId: string, @Req() req: any) {
     return this.agentRuntime.getRun(runId, this.resolveUserId(req));
+  }
+
+  @Post('runs/:runId/host-context')
+  submitHostContext(@Param('runId') runId: string, @Body() dto: AgentHostContextResultDto, @Req() req: any) {
+    return this.agentRuntime.submitCanvasContext(runId, this.resolveUserId(req), dto.queryId, dto.result);
   }
 
   @Get('runs/:runId/events')

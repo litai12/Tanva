@@ -26,6 +26,7 @@ export type AgentEventType =
   | "assistant_delta"
   | "flow_patch"
   | "host_tool"
+  | "host_context_query"
   | "host_ui"
   | "final"
   | "error"
@@ -78,6 +79,7 @@ export interface CreateAgentRunRequest {
   context?: Record<string, unknown>;
   mode?: "research" | "canvasAgent";
   canvasContext?: Record<string, unknown>;
+  browserContextQueries?: boolean;
   capabilityManifest?: Record<string, unknown>;
   generationContract?: {
     version: "v1";
@@ -160,10 +162,19 @@ export async function streamAgentRunEvents(
     }
     throw new Error("Agent event stream ended without a done event");
   } finally {
+    await reader.cancel().catch(() => {});
     try {
       reader.releaseLock();
     } catch {}
   }
+}
+
+export async function submitAgentHostContext(runId: string, queryId: string, result: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/agent/runs/${encodeURIComponent(runId)}/host-context`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queryId, result }), signal,
+  });
+  if (!response.ok) throw new Error(`画布查询结果提交失败: HTTP ${response.status}`);
 }
 
 function parseSseEvent(chunk: string): AgentRunEvent | null {

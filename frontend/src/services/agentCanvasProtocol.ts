@@ -125,6 +125,54 @@ export function parseAgentFlowPatch(raw: unknown): AgentFlowPatch | null {
   return p;
 }
 
+/** Answer an explicit host query locally; undisclosed nodes stay in the browser. */
+export function queryXiaotCanvasContext(snapshot: CanvasSnapshot, args: Record<string, unknown>): Record<string, unknown> {
+  const scope = typeof args.scope === "string" ? args.scope : "summary";
+  const ids = new Set(Array.isArray(args.nodeIds) ? args.nodeIds.filter((id) => typeof id === "string").slice(0, 12) : []);
+  const query = typeof args.query === "string" ? args.query.trim().toLowerCase().slice(0, 120) : "";
+  if (scope === "summary") return {
+    ...(buildXiaotCanvasRequestContext(snapshot, "").summary as Record<string, unknown>),
+    nodes: snapshot.nodes.slice(0, 12).map((node) => ({ id: node.id, type: node.type })),
+    truncated: snapshot.nodes.length > 12,
+  };
+  if (scope === "neighbors") for (const edge of snapshot.edges) {
+    if (args.nodeIds instanceof Array && (args.nodeIds.includes(edge.source) || args.nodeIds.includes(edge.target))) {
+      if (typeof edge.source === "string") ids.add(edge.source);
+      if (typeof edge.target === "string") ids.add(edge.target);
+    }
+  }
+  if (!["selected", "ids", "neighbors", "search"].includes(scope)) return { error: `不支持的画布查询范围: ${scope}` };
+  const matches = snapshot.nodes.filter((node) => scope === "selected" ? node.selected === true
+    : scope === "search" ? Boolean(query && JSON.stringify(sanitizeXiaotCanvasValue(node)).toLowerCase().includes(query))
+    : typeof node.id === "string" && ids.has(node.id));
+  const nodes = matches.slice(0, 12);
+  const matchedIds = new Set(nodes.map((node) => node.id));
+  return {
+    scope, returnedNodeCount: nodes.length, truncated: matches.length > nodes.length,
+    nodes: nodes.map((node) => sanitizeXiaotCanvasValue(node)),
+    edges: snapshot.edges.filter((edge) => matchedIds.has(edge.source) || matchedIds.has(edge.target))
+      .slice(0, 24).map((edge) => sanitizeXiaotCanvasValue(edge)),
+  };
+}
+
+export function requestXiaotCanvasContext(args: Record<string, unknown>, projectId?: string | null): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const finish = (result: Record<string, unknown>) => {
+      window.clearTimeout(timer);
+      window.removeEventListener("flow:scoped-context-result", listener);
+      resolve(result);
+    };
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.requestId === requestId) finish(detail.result);
+    };
+    const timer = window.setTimeout(() => finish({ error: "当前项目画布不可用，请打开原项目后重试" }), 3000);
+    window.addEventListener("flow:scoped-context-result", listener);
+    window.dispatchEvent(new CustomEvent("flow:request-scoped-context", { detail: { requestId, expectedProjectId: projectId, arguments: args } }));
+  });
+}
+
 // 节点默认连线 handle（与 manifest nodeSpecs 同源；用于 agent 连线缺 handle 时补全）
 export const DEFAULT_NODE_HANDLES: Record<
   string,
@@ -445,6 +493,19 @@ export const TANVA_CAPABILITY_MANIFEST = {
       outputs: [{ handle: "video", emits: "video" }],
     },
     {
+      type: "wan30Video",
+      label: "Wan3.0 视频",
+      purpose: "阿里 Wan3.0：支持纯文生、首尾帧及参考视频；提示词须由 text 节点连入",
+      params: {
+        resolution: { type: "string", enum: ["480P", "720P", "1080P"] },
+        clipDuration: { type: "number", description: "5-30秒，默认5秒" },
+        aspectRatio: { type: "string" },
+      },
+      inputs: [{ handle: "text" }, { handle: "image", accepts: "image" },
+        { handle: "image-2", accepts: "image" }, { handle: "video", accepts: "video" }],
+      outputs: [{ handle: "video", emits: "video" }],
+    },
+    {
       type: "audioStudio",
       label: "音频工作台",
       purpose: "按 mode 生成语音/音乐/配音：mode 决定输入 handle 与必填参数",
@@ -633,6 +694,7 @@ export type XiaotPreferredVideoModel =
 
 // 画布已知的视频生成节点类型全集（与 nodeSpecs 第一/二层的视频节点对齐）
 export const VIDEO_NODE_TYPES = new Set([
+  "wan30Video",
   "sora2Video",
   "seedance20Video",
   "kling26Video",

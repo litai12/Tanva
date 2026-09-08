@@ -11,6 +11,7 @@ import (
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -158,6 +159,12 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *
 	var responseRecorder *responseTraceRecorder
 	if resp != nil {
 		httpResp = resp.(*http.Response)
+		if !info.IsStream && httpResp.StatusCode == http.StatusOK {
+			httpResp, NewAPIError = openaichannel.AggregateResponsesStream(httpResp)
+			if NewAPIError != nil {
+				return NewAPIError
+			}
+		}
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		httpResp, responseRecorder = attachResponseTraceRecorder(httpResp)
 

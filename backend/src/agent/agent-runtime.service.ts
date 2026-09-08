@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { AIProviderFactory } from '../ai/ai-provider.factory';
@@ -50,6 +50,12 @@ export class AgentRuntimeService {
   private readonly logger = new Logger(AgentRuntimeService.name);
   private readonly runs = new Map<string, AgentRunRecord>();
   private readonly subscribers = new Map<string, Set<AgentEventSubscriber>>();
+  private readonly contextQueries = new Map<string, {
+    runId: string;
+    resolve: (result: Record<string, unknown>) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor(
     private readonly volcResearchSearch: VolcResearchSearchService,
@@ -85,7 +91,10 @@ export class AgentRuntimeService {
         run.status = 'running';
         run.updatedAt = new Date();
         this.xiaotAgent
-          .run(dto, userId, (type, payload) => this.emit(run, type, payload), teamId)
+          .run(dto, userId, (type, payload) => this.emit(run, type, payload), teamId,
+            undefined, dto.browserContextQueries
+              ? (args) => this.requestCanvasContext(run, args)
+              : undefined)
           .then(() => {
             run.status = 'completed';
             run.completedAt = new Date();
@@ -132,6 +141,30 @@ export class AgentRuntimeService {
 
   getRun(runId: string, userId: string): AgentRunSummary {
     return this.toSummary(this.assertOwnedRun(runId, userId));
+  }
+
+  private requestCanvasContext(run: AgentRunRecord, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const queryId = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.contextQueries.delete(queryId);
+        reject(new Error('浏览器未返回画布查询结果，请保持当前项目打开后重试'));
+      }, 30_000);
+      this.contextQueries.set(queryId, { runId: run.id, resolve, reject, timer });
+      this.emit(run, 'host_context_query', { title: '正在读取当前画布', data: { queryId, arguments: args } });
+    });
+  }
+
+  submitCanvasContext(runId: string, userId: string, queryId: string, result: Record<string, unknown>) {
+    this.assertOwnedRun(runId, userId);
+    const pending = this.contextQueries.get(queryId);
+    if (!pending || pending.runId !== runId) throw new NotFoundException('画布查询已结束或不属于当前回合');
+    if (JSON.stringify(result).length > 256_000) throw new BadRequestException('画布查询结果过大');
+    this.contextQueries.delete(queryId);
+    clearTimeout(pending.timer);
+    if (typeof result.error === 'string') pending.reject(new Error(result.error));
+    else pending.resolve(result);
+    return { accepted: true };
   }
 
   getEvents(runId: string, userId: string): AgentRunEvent[] {

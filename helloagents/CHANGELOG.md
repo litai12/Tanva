@@ -1,12 +1,25 @@
 # Changelog
 
-## 2026-09-08 小T宿主查询与续跑挂起修复（本地，未部署）
+## 2026-09-08 小T本地页面端到端验证与补充修复（未发布）
+
+- 按用户要求从 101 定向同步本地 new-api 的小T/ARK 渠道、abilities 和相关计价条目，保留本地用户/令牌/历史并备份。补充普通 `deepseek-v4-flash` → ARK 日期型号的幂等迁移。
+- 浏览器首次仅披露摘要，后续 `query_canvas` 通过有归属验证的 `host_context_query` / `POST runs/:id/host-context` 按需回传；不能再用后端收到的局部首轮上下文代替完整查询。浏览器查询读取当前项目真实节点，避免误用侧栏 80 字预览。
+- 查询最多返回 12 个节点/24 条边，屏蔽运行时图片数据，结果请求有 30 秒期限、256KB 上限和单次消费，跨用户/回合返回被拒绝。
+- 修复小T执行过程完成后仍显示运行中、进度文字残留；Wan3.0 纳入能力清单与实际媒体执行校验。
+- 异步视频 `runNode` 提交后保持等待真实终态，最长 15 分钟；不再在供应商仍生成时仅等 5 秒误判失败，也不把运行中的旧视频 URL 当新结果。
+- 本地普通文字、查询续接、新增/复制节点已实测；最终 Wan3.0 5 秒 480P 真实出片后聊天正常交付并结束等待，未误用旧视频或重复投递。前端 16 项定向测试和前后端构建通过。独立本地应用库 `tanva_local_ai_20260908`；TapCanvas Pro 仍使用已部署服务，详见 `helloagents/wiki/xiaot-local-verification-20260908.md`。
+
+## 2026-09-08 小T宿主查询与续跑挂起修复（101 已部署）
 
 - 根据生产项目请求确认首次预算采用 Agent 接入时间、恢复采用 Hono admission 时间，相差 39ms 后报 `logical_task_budget_changed_during_continuation`；上游统一使用持久 admission。
 - 上游宿主查询在命令回执边界交回执行权；Hono 对声明内宿主查询/同步命令支持零 runNode 的执行交接，不把它当作视频受理或完成。
 - UUID 根任务失败传播与 OpenAI 状态等待统一使用实际宿主隔离身份，避免子任务失败而用户界面继续等待。
 - Tanva 上下文续接保留 capability/context，完整回传去重后的查询，共用原回合截止时间；增加真实读取步骤事件。网页声明并展示 request_user_input，按现有聊天发送入口回复。
-- 诊断、验证、变更归属与发布范围见 `helloagents/wiki/xiaot-host-handoff-20260908.md`。未更改生产服务、项目数据或重投媒体任务。
+- 真实远程工具回执按 data 解包；waiting_external 正确登记 external_handoff，公开 schema 接受零 runNode 查询交接。恢复流和 live [DONE] 及时释放连接，网页展示真实进度。
+- 补入上游已提交的根模型自检/结构化意图冻结与持久恢复修复，移除导致续接反复失败的独立意图审批；保持最终交付与资产证据校验。
+- 最终校验携带调用方原始输入/宿主查询结果作为只读来源，避免正确答案被误判无依据；这类来源不证明写入或资产完成。真实模型验收：查询回答 48.293s、查询后下发 addNode 21.255s，均自动续接并单次结算。
+- 101 定向更新 Tanva 前后端、Hono/API 三个关联 Worker、两个 Bridge 与 LB；基于原镜像构建，未发布上游其他混合改动，未重投原项目视频。Hono 78 项、定向 Bridge 55 项及 Tanva 宿主/恢复回归通过。
+- 诊断、真实模型验收、变更归属与回退范围见 `helloagents/wiki/xiaot-host-handoff-20260908.md` 与 `backend/patches/2026-09-08-xiaot-host-handoff/README.md`。
 
 ## 2026-09-07 剩余 GPT 文本入口统一 DeepSeek（本地）
 
@@ -1359,3 +1372,9 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 
 - 新增 `2026-09-07/001-add-wan3-0-video.sql`，接入现有 `_apply.sh`，完整 Compose 启动自动完成模型/渠道/价格注册。
 - 增加隔离 PostgreSQL 验证脚本，覆盖缺少源渠道回滚、重复启动跳过、SQL 幂等及人工禁用保护；更新部署说明。
+
+- 2026-09-08：定向同步 TapCanvas-pro new-api token 计费修复：实际上下文重选档位、冻结请求基础倍率、输入/输出分别预扣、额度越界拦截和异常核账日志。补充跨档/缓存/结算幂等回归；Go 构建与计费包测试通过，既有 stream scanner 测试失败已用修改前代码复现。详见 `wiki/new-api-token-billing-sync-20260908.md`。
+
+- 2026-09-08：继续定向同步 TapCanvas-pro new-api：Chat/Responses 参数与工具兼容、Responses SSE 终态与无损 JSON 聚合、流状态保留、远程媒体免下载 token 估算；补齐真实 Responses/Chat-via-Responses 入口接线。构建与相关回归通过，旧 Claude 文件测试及 helper 并行全局配置干扰见 `wiki/new-api-capability-sync-20260908.md`。
+
+- 2026-09-08：同步 new-api 全局主题、导航、首页与动态 API 文档 UI，保持 Tanvas logo/favicon 和企业标识；绘图日志结果图/参考图改为直接缩略图、点击放大，历史内联图片先转 Blob 展示。修复文档取消请求复用与浅色代码对比度，11 项测试通过。详见 `wiki/new-api-ui-sync-20260908.md`。

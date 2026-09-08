@@ -84,6 +84,10 @@ export class CreateAgentRunDto {
   canvasContext?: Record<string, unknown>;
 
   @IsOptional()
+  @IsBoolean()
+  browserContextQueries?: boolean;
+
+  @IsOptional()
   @IsObject()
   capabilityManifest?: Record<string, unknown>;
 
@@ -102,4 +106,13 @@ export class CreateAgentRunDto {
   @IsOptional()
   @IsString()
   styleReferenceUrl?: string;
+}
+
+export class AgentHostContextResultDto {
+  @IsString()
+  @IsNotEmpty()
+  queryId!: string;
+
+  @IsObject()
+  result!: Record<string, unknown>;
 }

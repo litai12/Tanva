@@ -15,12 +15,15 @@ export const resolveXiaotFinalText = (event: {
 export const resolveXiaotTerminalContent = (
   assembled: string,
   currentContent: string,
-  terminalState: "completed" | "stopped"
+  terminalState: "completed" | "stopped",
+  progressStage?: string
 ): string => {
   if (assembled.trim()) return assembled;
 
   const current = currentContent.trim();
-  if (current && current !== XIAOT_THINKING_CONTENT) return currentContent;
+  const stage = progressStage?.trim();
+  const isProgressContent = Boolean(stage && (current === stage || current === `${stage}...`));
+  if (current && current !== XIAOT_THINKING_CONTENT && !isProgressContent) return currentContent;
 
   return terminalState === "completed" ? "任务已完成" : "任务已停止";
 };

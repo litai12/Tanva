@@ -110,11 +110,7 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			}
 
 			if callID == "" {
-				inputItems = append(inputItems, map[string]any{
-					"role":    "user",
-					"content": fmt.Sprintf("[tool_output_missing_call_id] %v", output),
-				})
-				continue
+				return nil, fmt.Errorf("tool result requires tool_call_id")
 			}
 
 			inputItems = append(inputItems, map[string]any{
@@ -287,29 +283,18 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 
 	var toolsRaw json.RawMessage
 	if req.Tools != nil {
-		tools := make([]map[string]any, 0, len(req.Tools))
+		tools := make([]json.RawMessage, 0, len(req.Tools))
 		for _, tool := range req.Tools {
-			switch tool.Type {
-			case "function":
-				tools = append(tools, map[string]any{
-					"type":        "function",
-					"name":        tool.Function.Name,
-					"description": tool.Function.Description,
-					"parameters":  tool.Function.Parameters,
-				})
-			default:
-				// Best-effort: keep original tool shape for unknown types.
-				var m map[string]any
-				if b, err := common.Marshal(tool); err == nil {
-					_ = common.Unmarshal(b, &m)
-				}
-				if len(m) == 0 {
-					m = map[string]any{"type": tool.Type}
-				}
-				tools = append(tools, m)
+			encoded, err := encodeResponsesTool(tool)
+			if err != nil {
+				return nil, err
 			}
+			tools = append(tools, encoded)
 		}
-		toolsRaw, _ = common.Marshal(tools)
+		toolsRaw, err = common.Marshal(tools)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var toolChoiceRaw json.RawMessage
@@ -391,11 +376,8 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		out.MaxOutputTokens = lo.ToPtr(maxOutputTokens)
 	}
 
-	if req.ReasoningEffort != "" {
-		out.Reasoning = &dto.Reasoning{
-			Effort:  req.ReasoningEffort,
-			Summary: "detailed",
-		}
+	if err := preserveChatResponsesControls(req, out); err != nil {
+		return nil, err
 	}
 
 	return out, nil

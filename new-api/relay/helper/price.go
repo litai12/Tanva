@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"github.com/shopspring/decimal"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -68,6 +69,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 	var preConsumedQuota int
 	var modelRatio float64
+	var baseModelRatio, baseCompletionRatio float64
 	var completionRatio float64
 	var cacheRatio float64
 	var imageRatio float64
@@ -79,8 +81,8 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var freeModel bool
 	if !usePrice {
 		preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
-		if meta.MaxTokens != 0 {
-			preConsumedTokens += meta.MaxTokens
+		if meta.MaxTokens < 0 || promptTokens < 0 {
+			return types.PriceData{}, fmt.Errorf("negative token estimate")
 		}
 		var success bool
 		var matchName string
@@ -95,6 +97,10 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			}
 		}
 		completionRatio = ratio_setting.GetCompletionRatio(info.OriginModelName)
+		baseModelRatio = modelRatio
+		baseCompletionRatio = completionRatio
+		modelRatio, _ = ratio_setting.ResolveModelRatioForPromptTokens(info.OriginModelName, baseModelRatio, promptTokens)
+		completionRatio = ratio_setting.ResolveCompletionRatioForPromptTokens(info.OriginModelName, baseCompletionRatio, promptTokens)
 		cacheRatio, _ = ratio_setting.GetCacheRatio(info.OriginModelName)
 		cacheCreationRatio, _ = ratio_setting.GetCreateCacheRatio(info.OriginModelName)
 		cacheCreationRatio5m = cacheCreationRatio
@@ -103,13 +109,27 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		imageRatio, _ = ratio_setting.GetImageRatio(info.OriginModelName)
 		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
 		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
-		ratio := modelRatio * groupRatioInfo.GroupRatio
-		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
+		inputQuota, err := common.CheckedQuotaProduct(float64(preConsumedTokens), modelRatio, groupRatioInfo.GroupRatio)
+		if err != nil {
+			return types.PriceData{}, err
+		}
+		outputQuota, err := common.CheckedQuotaProduct(float64(meta.MaxTokens), modelRatio, completionRatio, groupRatioInfo.GroupRatio)
+		if err != nil {
+			return types.PriceData{}, err
+		}
+		preConsumedQuota, err = common.CheckedQuota(decimal.NewFromInt(int64(inputQuota)).Add(decimal.NewFromInt(int64(outputQuota))))
+		if err != nil {
+			return types.PriceData{}, err
+		}
 	} else {
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
-		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		var err error
+		preConsumedQuota, err = common.CheckedQuotaProduct(modelPrice, common.QuotaPerUnit, groupRatioInfo.GroupRatio)
+		if err != nil {
+			return types.PriceData{}, err
+		}
 	}
 
 	// check if free model pre-consume is disabled
@@ -133,6 +153,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 	priceData := types.PriceData{
 		FreeModel:            freeModel,
+		BaseModelRatio:       baseModelRatio,
+		BaseCompletionRatio:  baseCompletionRatio,
+		HasBaseTokenRatios:   !usePrice,
 		ModelPrice:           modelPrice,
 		ModelRatio:           modelRatio,
 		CompletionRatio:      completionRatio,

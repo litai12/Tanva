@@ -48,7 +48,7 @@ export function isRoot() {
 
 export function getSystemName() {
   let system_name = localStorage.getItem('system_name');
-  if (!system_name) return 'tanvasMart';
+  if (!system_name || system_name === 'tanvasMart') return 'Tanvas';
   return system_name;
 }
 

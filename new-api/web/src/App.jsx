@@ -156,6 +156,7 @@ function App() {
             </PrivateRoute>
           }
         />
+        <Route path='/docs' element={<Suspense fallback={<Loading />}><DocsPage /></Suspense>} />
         <Route
           path='/console/docs'
           element={

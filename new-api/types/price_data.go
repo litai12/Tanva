@@ -9,6 +9,10 @@ type GroupRatioInfo struct {
 }
 
 type PriceData struct {
+	// Base ratios are captured before tier selection and reused for actual-usage settlement.
+	BaseModelRatio       float64
+	BaseCompletionRatio  float64
+	HasBaseTokenRatios   bool
 	FreeModel            bool
 	ModelPrice           float64
 	ModelRatio           float64

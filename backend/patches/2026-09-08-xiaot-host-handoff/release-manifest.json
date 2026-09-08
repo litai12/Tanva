@@ -1,0 +1,46 @@
+{
+  "release": "host-handoff-20260908",
+  "verifiedAt": "2026-09-08T13:49:00+08:00",
+  "baseline": "da212ae18",
+  "apiImage": "tapcanvas-local/api:host-handoff-20260908-v3",
+  "bridgeImage": "tapcanvas-local/agents-bridge:host-handoff-20260908-v4",
+  "productionHost": "101.96.227.228",
+  "releasePath": "/opt/tapcanvas/releases/host-handoff-20260908",
+  "tests": {
+    "hono": 78,
+    "bridgeIntentStateAndHandoff": 55,
+    "bridgeCandidateReview": 30,
+    "knownBaselineFailures": [
+      "candidate-review-failed-receipts: settled succeeded receipt remains evidence (reproduced against da212ae18)"
+    ]
+  },
+  "liveChecks": [
+    {
+      "sessionId": "handoff-smoke-1788846531520",
+      "elapsedMs": 48293,
+      "submits": 2,
+      "contextHandoffs": 1,
+      "settlements": 1,
+      "result": "PASS"
+    },
+    {
+      "sessionId": "handoff-patch-smoke-1788846533099",
+      "elapsedMs": 21255,
+      "submits": 2,
+      "contextHandoffs": 1,
+      "settlements": 1,
+      "patchCount": 1,
+      "result": "PASS"
+    }
+  ],
+  "limitations": [
+    "in-memory canvas fixture",
+    "Tanva settlement counting stub",
+    "no real browser canvas mutation or video generation replay"
+  ],
+  "sha256": {
+    "backend/dist/agent/xiaot-agent.service.js": "fa883bf15a1926f0736bdb9f1214ee55894025b92a3fa91d512c5f576f649568",
+    "backend/dist/agent/xiaot-agent-recovery.js": "4f8977cd920ab16c50197af6369869cda8dc8ebf5b1ab88f953102a2ac2e3429",
+    "frontend/dist/index.html": "c72eb27da4b535ded7c98a7ea5faecf8aae8b3f7f58515ef2a6a397cc20a7483"
+  }
+}

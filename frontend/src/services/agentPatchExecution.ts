@@ -103,6 +103,35 @@ export const collectAgentNodeAssets = (
   return assets;
 };
 
+/** Submission is not completion: async video nodes return with a running task. */
+export async function waitForAgentNodeResult(
+  nodeId: string,
+  readData: () => Record<string, unknown> | undefined,
+  options: { deadlineAt?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<AgentPatchExecutionResult> {
+  const now = options.now || Date.now;
+  const sleep = options.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const startedAt = now();
+  const deadlineAt = options.deadlineAt ?? startedAt + 15 * 60 * 1000;
+  while (now() < deadlineAt) {
+    const data = readData();
+    const failed = (error: string): AgentPatchExecutionResult => ({ op: "runNode", ok: false, nodeId, assets: [], error });
+    if (!data) return failed("节点已移除或当前项目已切换");
+    const status = String(data.status || "");
+    if (["failed", "error", "cancelled", "canceled", "stopped"].includes(status)) {
+      return failed(typeof data.error === "string" && data.error.trim() ? data.error : "节点生成失败或已停止");
+    }
+    const pending = ["running", "pending", "queued", "processing"].includes(status);
+    if (!pending) {
+      const assets = collectAgentNodeAssets(data);
+      if (assets.length || status === "succeeded") return { op: "runNode", ok: true, nodeId, assets };
+      if (now() - startedAt >= 5000) return failed("节点运行结束后未产生可验证终态");
+    }
+    await sleep(pending ? 500 : 50);
+  }
+  return { op: "runNode", ok: false, nodeId, assets: [], error: "节点生成执行超时" };
+}
+
 export const buildAgentPatchExecutionReport = (
   results: AgentPatchExecutionResult[]
 ): AgentPatchExecutionReport => {

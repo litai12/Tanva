@@ -173,6 +173,7 @@ export class XiaotAgentService {
     emit: XiaotEmit,
     teamId?: string,
     continuation?: RunContinuation,
+    resolveCanvasQuery?: (args: Record<string, unknown>) => Promise<Record<string, unknown>>,
   ): Promise<void> {
     // 小T固定使用 DeepSeek；旧请求、环境配置和续跑参数均不能重新启用 GPT。
     const model = DEFAULT_XIAOT_CHAT_MODEL;
@@ -240,6 +241,7 @@ export class XiaotAgentService {
       }
 
       reader = response.body.getReader();
+      emit('step_started', { title: '小T已受理，正在处理请求' });
       const decoder = new TextDecoder('utf-8');
       // 跨 read 的行缓冲：一次 read 可能截断在行中间。
       let buffer = '';
@@ -271,6 +273,7 @@ export class XiaotAgentService {
 
         if (toolName === 'flow_patch') {
           patchCount += 1;
+          emit('step_started', { title: '正在执行画布操作' });
           emit('flow_patch', { data: { patch: parsedArgs } });
           return;
         }
@@ -422,13 +425,13 @@ export class XiaotAgentService {
             );
           }
           finishReason =
-            patchCount + hostToolCount + hostUiCount > 0 ? 'tool_calls' : 'stop';
+            patchCount + hostToolCount + hostUiCount + contextQueries.length > 0 ? 'tool_calls' : 'stop';
           doneReceived = true;
           return;
         }
         if (frame.event === 'done') {
           finishReason =
-            patchCount + hostToolCount + hostUiCount > 0 ? 'tool_calls' : 'stop';
+            patchCount + hostToolCount + hostUiCount + contextQueries.length > 0 ? 'tool_calls' : 'stop';
           doneReceived = true;
           return;
         }
@@ -566,6 +569,7 @@ export class XiaotAgentService {
           for (const line of lines) {
             handleLine(line);
           }
+          if (doneReceived) break;
         }
         buffer += decoder.decode();
         if (buffer.trim()) {
@@ -589,6 +593,10 @@ export class XiaotAgentService {
       const durableContinuationPending =
         isXiaotDurableContinuationPlaceholder(fullText);
       if ((interrupted || !doneReceived || durableContinuationPending) && upstreamTurnId) {
+        emit('step_started', {
+          title: '正在恢复已受理的任务',
+          data: { upstreamTurnId },
+        });
         this.logger.warn(
           durableContinuationPending
             ? `xiaot-agent physical window suspended; following durable turn ${upstreamTurnId}`
@@ -636,15 +644,17 @@ export class XiaotAgentService {
         emit('step_started', { title: '正在读取画布与工具信息' });
         const uniqueQueries = [...new Map(contextQueries.map((query) =>
           [JSON.stringify(query), query] as const)).values()];
-        const results = uniqueQueries.map((query) => ({
+        const results = await Promise.all(uniqueQueries.map(async (query) => ({
           name: query.name,
           result:
             query.name === 'query_canvas'
-              ? queryCanvasContext(dto.canvasContext, query.arguments)
+              ? resolveCanvasQuery
+                ? await resolveCanvasQuery(query.arguments)
+                : queryCanvasContext(dto.canvasContext, query.arguments)
               : query.name === 'query_desktop_tools'
                 ? queryDesktopTools(dto.capabilityManifest, query.arguments)
                 : queryCapabilityManifest(dto.capabilityManifest, query.arguments),
-        }));
+        })));
         emit('step_completed', { title: '画布与工具信息已读取' });
         this.logger.log(`xiaot-agent context handoff: queries=${results.length} depth=${depth + 1}`);
         // Release this finished physical stream before opening its successor.
@@ -671,6 +681,7 @@ export class XiaotAgentService {
             model,
             hostScopeId,
           },
+          resolveCanvasQuery,
         );
         return;
       }
@@ -701,6 +712,11 @@ export class XiaotAgentService {
         data: { text: nextText, patchCount: nextPatchCount, usageUnits: nextUsageUnits },
       });
       emit('done', {});
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('小T执行超时，未收到完整结果；已下发的画布操作和生成资产会保留，请查看画布状态');
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
       // 兜底释放上游 socket（正常读完 cancel 是幂等 no-op）。

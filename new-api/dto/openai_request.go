@@ -234,6 +234,7 @@ type ToolCallRequest struct {
 }
 
 type FunctionRequest struct {
+	Strict      *bool  `json:"strict,omitempty"`
 	Description string `json:"description,omitempty"`
 	Name        string `json:"name"`
 	Parameters  any    `json:"parameters,omitempty"`
@@ -946,6 +947,7 @@ func (r *OpenAIResponsesRequest) GetToolsMap() []map[string]any {
 }
 
 type Reasoning struct {
+	Context string `json:"context,omitempty"`
 	Effort  string `json:"effort,omitempty"`
 	Summary string `json:"summary,omitempty"`
 }

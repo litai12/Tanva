@@ -4,7 +4,32 @@ import { describe, it } from "node:test";
 import {
   buildAgentPatchExecutionReport,
   collectAgentNodeAssets,
+  waitForAgentNodeResult,
 } from "./agentPatchExecution.ts";
+
+it('waits beyond five seconds for a submitted video and ignores its old asset while running', async () => {
+  let clock = 0;
+  const result = await waitForAgentNodeResult('video', () => clock < 20_000
+    ? { status: 'running', taskId: 'accepted-task', videoUrl: 'https://assets.test/old.mp4' }
+    : { status: 'succeeded', videoUrl: 'https://assets.test/new.mp4' },
+    { now: () => clock, sleep: async (ms) => { clock += ms; } });
+  assert.equal(clock, 20_000);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.assets, [{ kind: 'video', url: 'https://assets.test/new.mp4' }]);
+});
+
+it('returns actual provider failures and bounds indefinitely pending jobs', async () => {
+  let clock = 0;
+  const options = { now: () => clock, sleep: async (ms: number) => { clock += ms; }, deadlineAt: 10_000 };
+  const failure = await waitForAgentNodeResult('video', () => clock < 6000
+    ? { status: 'running' } : { status: 'failed', error: 'provider rejected task' }, options);
+  assert.equal(failure.error, 'provider rejected task');
+  clock = 0;
+  const timeout = await waitForAgentNodeResult('video', () => ({ status: 'running' }), options);
+  assert.equal(timeout.ok, false);
+  assert.equal(clock, 10_000);
+  assert.match(timeout.error || '', /超时/);
+});
 
 describe("collectAgentNodeAssets", () => {
   it("collects and deduplicates durable image, video, and audio URLs", () => {

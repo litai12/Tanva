@@ -229,9 +229,9 @@ import {
 } from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
-import { DEFAULT_NODE_HANDLES } from "@/services/agentCanvasProtocol";
+import { DEFAULT_NODE_HANDLES, queryXiaotCanvasContext } from "@/services/agentCanvasProtocol";
 import {
-  collectAgentNodeAssets,
+  waitForAgentNodeResult,
   type AgentPatchExecutionResult,
 } from "@/services/agentPatchExecution";
 import {
@@ -16047,6 +16047,20 @@ function FlowInner() {
   // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
   React.useEffect(() => {
     const handler = (event: Event) => {
+      const request = (event as CustomEvent).detail;
+      if (!hydrated || !request?.requestId ||
+        (request.expectedProjectId && request.expectedProjectId !== projectId)) return;
+      // Read current full node data only for an explicit bounded query. The
+      // sidebar's 80-character preview is not a source for tool results.
+      const result = queryXiaotCanvasContext({ nodes: rf.getNodes(), edges: rf.getEdges() }, request.arguments || {});
+      window.dispatchEvent(new CustomEvent("flow:scoped-context-result", { detail: { requestId: request.requestId, result } }));
+    };
+    window.addEventListener("flow:request-scoped-context", handler);
+    return () => window.removeEventListener("flow:request-scoped-context", handler);
+  }, [hydrated, projectId, rf]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
       const request = (event as CustomEvent<{
         includePresentationDecks?: boolean;
         expectedProjectId?: string | null;
@@ -25112,48 +25126,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         return;
       }
       try {
+        const deadlineAt = Date.now() + 15 * 60 * 1000;
         await runNode(nodeId);
-        let latestNode = rf.getNode(nodeId);
-        let latestStatus = "";
-        for (let attempt = 0; attempt < 100; attempt += 1) {
-          const data =
-            latestNode?.data && typeof latestNode.data === "object"
-              ? (latestNode.data as Record<string, unknown>)
-              : {};
-          const status = typeof data.status === "string" ? data.status : "";
-          latestStatus = status;
-          const assets = collectAgentNodeAssets(data);
-          if (status === "failed") {
-            finish({
-              op: "runNode",
-              ok: false,
-              nodeId,
-              assets,
-              error:
-                typeof data.error === "string" && data.error.trim()
-                  ? data.error.trim()
-                  : "节点生成失败",
-            });
-            return;
-          }
-          if (assets.length > 0) {
-            finish({ op: "runNode", ok: true, nodeId, assets });
-            return;
-          }
-          await new Promise((resolve) => window.setTimeout(resolve, 50));
-          latestNode = rf.getNode(nodeId);
-        }
-        finish(
-          latestStatus === "succeeded"
-            ? { op: "runNode", ok: true, nodeId, assets: [] }
-            : {
-                op: "runNode",
-                ok: false,
-                nodeId,
-                assets: [],
-                error: "节点运行结束后未产生可验证终态",
-              }
-        );
+        finish(await waitForAgentNodeResult(nodeId, () => {
+          if (detail?.projectId && useProjectContentStore.getState().projectId !== detail.projectId) return undefined;
+          const latest = rf.getNode(nodeId);
+          return latest?.data as Record<string, unknown> | undefined;
+        }, { deadlineAt }));
       } catch (error) {
         finish({
           op: "runNode",

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import MjImageThumbnail from './MjImageThumbnail';
 import { Button, Progress, Tag, Typography } from '@douyinfe/semi-ui';
 import {
   Palette,
@@ -434,19 +435,19 @@ export const getMjLogsColumns = ({
       key: COLUMN_KEYS.IMAGE,
       title: t('结果图片'),
       dataIndex: 'image_url',
-      render: (text, record, index) => {
+      render: (text, record) => {
         if (!text) {
-          return t('无');
+          return record.status === 'SUCCESS'
+            ? t('未保存结果图片地址')
+            : t('无');
         }
         return (
-          <Button
-            size='small'
-            onClick={() => {
-              openImageModal(text);
-            }}
-          >
-            {t('查看图片')}
-          </Button>
+          <MjImageThumbnail
+            src={text}
+            alt={t('结果图片')}
+            onOpen={openImageModal}
+            t={t}
+          />
         );
       },
     },
@@ -520,7 +521,14 @@ export const getMjLogsColumns = ({
       key: COLUMN_KEYS.USER_ID,
       title: t('用户 ID'),
       dataIndex: 'user_id',
-      render: (text) => (text ? <Tag color='blue' shape='circle'>{text}</Tag> : t('无')),
+      render: (text) =>
+        text ? (
+          <Tag color='blue' shape='circle'>
+            {text}
+          </Tag>
+        ) : (
+          t('无')
+        ),
     },
     {
       key: COLUMN_KEYS.UPSTREAM_REQUEST,
@@ -550,13 +558,13 @@ export const getMjLogsColumns = ({
         return (
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {props.refImages.map((url, i) => (
-              <Button
-                key={i}
-                size='small'
-                onClick={() => openImageModal(url)}
-              >
-                {t('参考图')} {i + 1}
-              </Button>
+              <MjImageThumbnail
+                key={`${i}:${url}`}
+                src={url}
+                alt={`${t('参考图')} ${i + 1}`}
+                onOpen={openImageModal}
+                t={t}
+              />
             ))}
           </div>
         );

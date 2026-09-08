@@ -78,6 +78,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var streamError *types.NewAPIError
+	terminalEventReceived := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -90,9 +92,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
-		case "response.completed":
+
+		case "response.completed", "response.incomplete":
+			terminalEventReceived = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
+					if streamResponse.Type == "response.completed" && c.GetBool("responses_prewarm") &&
+						streamResponse.Response.Usage.InputTokens == 0 && streamResponse.Response.Usage.OutputTokens == 0 && streamResponse.Response.Usage.TotalTokens == 0 {
+						c.Set("responses_prewarm_no_usage", true)
+					}
+
 					if streamResponse.Response.Usage.InputTokens != 0 {
 						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
 					}
@@ -112,6 +121,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
 				}
 			}
+		case "error", "response.error", "response.failed", "response.cancelled", "response.canceled":
+			streamError = newResponsesStreamTerminalError(streamResponse)
+			sr.Stop(streamError)
+			return
 		case "response.output_text.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
@@ -130,6 +143,18 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
+	if streamError != nil {
+		return nil, streamError
+	}
+	if !terminalEventReceived {
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("responses stream ended without response.completed"),
+			types.ErrorCodeBadResponseBody,
+			http.StatusBadGateway,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
@@ -147,4 +172,48 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
 	return usage, nil
+}
+
+func newResponsesStreamTerminalError(streamResponse dto.ResponsesStreamResponse) *types.NewAPIError {
+	if streamResponse.Response != nil {
+		if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil &&
+			(oaiError.Type != "" || oaiError.Message != "" || oaiError.Code != nil) {
+			return types.WithOpenAIError(
+				*oaiError,
+				http.StatusBadGateway,
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
+	}
+	var eventError types.OpenAIError
+	if len(streamResponse.Error) > 0 && common.Unmarshal(streamResponse.Error, &eventError) == nil &&
+		(eventError.Type != "" || eventError.Message != "" || eventError.Code != nil) {
+		return types.WithOpenAIError(
+			eventError,
+			http.StatusBadGateway,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+
+	message := fmt.Sprintf("responses stream terminated with %s", streamResponse.Type)
+	if streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil &&
+		strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reasoning) != "" {
+		message += ": " + strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reasoning)
+	}
+	return types.NewOpenAIError(
+		fmt.Errorf("%s", message),
+		types.ErrorCodeBadResponse,
+		http.StatusBadGateway,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
+// OaiResponsesAggregateStreamHandler preserves the complete upstream response
+// while translating SSE into the JSON transport requested by the client.
+func OaiResponsesAggregateStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	aggregated, err := AggregateResponsesStream(resp)
+	if err != nil {
+		return nil, err
+	}
+	return OaiResponsesHandler(c, info, aggregated)
 }

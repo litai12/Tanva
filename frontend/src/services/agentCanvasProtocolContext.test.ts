@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildXiaotCanvasRequestContext } from "./agentCanvasProtocol.ts";
+import { buildXiaotCanvasRequestContext, queryXiaotCanvasContext, TANVA_CAPABILITY_MANIFEST, VIDEO_NODE_TYPES, EXECUTABLE_MEDIA_NODE_TYPES } from "./agentCanvasProtocol.ts";
 
 test("xiaot canvas request never sends the whole snapshot", () => {
   const nodes = Array.from({ length: 20 }, (_, index) => ({
@@ -27,6 +27,39 @@ test("a greeting sends only the summary when nothing is selected", () => {
   );
   assert.deepEqual(result.nodes, []);
   assert.doesNotMatch(JSON.stringify(result), /private/);
+});
+
+test("a later scoped query reads an unselected node omitted from the initial request", () => {
+  const snapshot = { nodes: [
+    { id: "note", type: "textNote", data: { text: "LOCAL_CANVAS_0908", preview: "data:image/png;base64,private" } },
+    { id: "other", type: "image", data: { text: "unrelated-secret" } },
+  ], edges: [] };
+  assert.deepEqual(buildXiaotCanvasRequestContext(snapshot, "读取文本节点").nodes, []);
+  const result = queryXiaotCanvasContext(snapshot, { scope: "ids", nodeIds: ["note"] });
+  assert.equal(result.returnedNodeCount, 1);
+  assert.match(JSON.stringify(result), /LOCAL_CANVAS_0908/);
+  assert.doesNotMatch(JSON.stringify(result), /unrelated-secret|data:image/);
+  assert.equal(queryXiaotCanvasContext(snapshot, { scope: "search", query: "textNote" }).returnedNodeCount, 1);
+});
+
+test("scoped canvas queries are bounded and reject unsupported scopes", () => {
+  const snapshot = { nodes: Array.from({ length: 30 }, (_, i) => ({ id: `note-${i}`, type: "textNote", data: { text: "text" } })), edges: [] };
+  const result = queryXiaotCanvasContext(snapshot, { scope: "search", query: "text" });
+  assert.equal(result.returnedNodeCount, 12);
+  assert.equal(result.truncated, true);
+  assert.ok(queryXiaotCanvasContext(snapshot, { scope: "all" }).error);
+});
+
+test("explicit queries use full node text beyond the sidebar preview", () => {
+  const text = '正文'.repeat(100) + '_TAIL';
+  const result = queryXiaotCanvasContext({ nodes: [{ id: 'long-note', type: 'textNote', data: { text } }], edges: [] }, { scope: 'ids', nodeIds: ['long-note'] });
+  assert.equal(((result.nodes as Array<{data:{text:string}}>)[0].data.text), text);
+});
+
+test("Wan3 is advertised and participates in actual media execution verification", () => {
+  assert.ok(TANVA_CAPABILITY_MANIFEST.nodeSpecs.some((node) => node.type === 'wan30Video'));
+  assert.ok(VIDEO_NODE_TYPES.has('wan30Video'));
+  assert.ok(EXECUTABLE_MEDIA_NODE_TYPES.has('wan30Video'));
 });
 
 test("a presentation request includes the relevant htmlPpt node", () => {

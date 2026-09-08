@@ -674,7 +674,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		if info.IsStream {
 			usage, err = OaiResponsesStreamHandler(c, info, resp)
 		} else {
-			usage, err = OaiResponsesHandler(c, info, resp)
+			usage, err = OaiResponsesAggregateStreamHandler(c, info, resp)
 		}
 	case relayconstant.RelayModeResponsesCompact:
 		usage, err = OaiResponsesCompactionHandler(c, resp)

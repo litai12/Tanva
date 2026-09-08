@@ -26,6 +26,7 @@ import {
 import {
   createAgentRunViaAPI,
   streamAgentRunEvents,
+  submitAgentHostContext,
   type AgentRunEvent,
   type AgentToolName,
   type XiaotChatModel,
@@ -46,6 +47,7 @@ import {
   externalizeInlinePrompt,
   EXECUTABLE_MEDIA_NODE_TYPES,
   buildXiaotCanvasRequestContext,
+  requestXiaotCanvasContext,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
   rewritePatchToImageType,
@@ -8116,6 +8118,7 @@ export const useAIChatStore = create<AIChatState>()(
           const patchBatchId = beginAgentPatchBatch();
 
           let assembled = "";
+          let lastProgressContent = XIAOT_THINKING_CONTENT;
           let patchCount = 0;
           let streamErrored = false;
           let streamErrorMessage: string | null = null;
@@ -8526,6 +8529,7 @@ export const useAIChatStore = create<AIChatState>()(
             const run = await createAgentRunViaAPI({
               prompt: agentInput,
               mode: "canvasAgent",
+              browserContextQueries: true,
               model: state.xiaotModel,
               sessionId,
               projectId,
@@ -8541,7 +8545,34 @@ export const useAIChatStore = create<AIChatState>()(
 
             await streamAgentRunEvents(run.id, (event) => {
               firstStreamEventAt ??= performance.now();
-              if (event.type === "assistant_delta") {
+              if (event.type === "host_context_query") {
+                const queryId = event.data?.queryId;
+                const args = event.data?.arguments;
+                if (typeof queryId !== "string" || !args || typeof args !== "object") return;
+                // Attach the rejection handler immediately while the SSE reader waits
+                // for the upstream continuation; otherwise failed POSTs go unhandled.
+                pendingHostTools.push(requestXiaotCanvasContext(args as Record<string, unknown>, projectId)
+                  .then((result) => submitAgentHostContext(run.id, queryId, result, controller.signal))
+                  .catch((error) => { streamErrored = true; streamErrorMessage = error instanceof Error ? error.message : String(error); }));
+              } else if (event.type === "run_started" || event.type === "step_started" || event.type === "step_completed") {
+                const title = event.title;
+                if (!assembled && !hostToolHandled && title) lastProgressContent = title;
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    agentTrace: applyAgentEventToTrace(msg.metadata?.agentTrace as AgentTraceState | undefined, event),
+                  },
+                  ...(!assembled && !hostToolHandled && title ? { content: title } : {}),
+                  generationStatus: {
+                    ...(msg.generationStatus || {}),
+                    isGenerating: true,
+                    progress: msg.generationStatus?.progress ?? 0,
+                    error: null,
+                    stage: title || msg.generationStatus?.stage || "小T处理中",
+                  },
+                }));
+              } else if (event.type === "assistant_delta") {
                 const delta =
                   typeof event.data?.delta === "string" ? event.data.delta : "";
                 if (!delta) return;
@@ -9730,8 +9761,20 @@ export const useAIChatStore = create<AIChatState>()(
                   : resolveXiaotTerminalContent(
                       assembled,
                       msg.content,
-                      "completed"
+                      "completed",
+                      lastProgressContent
                     ),
+                metadata: {
+                  ...(msg.metadata || {}),
+                  agentTrace: {
+                    ...(msg.metadata?.agentTrace || {}),
+                    status: "completed",
+                    steps: ((msg.metadata?.agentTrace?.steps || []) as AgentTraceStep[]).map((step) => ({
+                      ...step,
+                      status: step.status === "running" ? "completed" : step.status,
+                    })),
+                  },
+                },
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,
@@ -9767,7 +9810,8 @@ export const useAIChatStore = create<AIChatState>()(
                 content: resolveXiaotTerminalContent(
                   assembled,
                   msg.content,
-                  "stopped"
+                  "stopped",
+                  lastProgressContent
                 ),
                 generationStatus: {
                   ...(msg.generationStatus || {
@@ -9788,6 +9832,10 @@ export const useAIChatStore = create<AIChatState>()(
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
                 content: `处理失败: ${errorMessage}`,
+                metadata: {
+                  ...(msg.metadata || {}),
+                  agentTrace: { ...(msg.metadata?.agentTrace || {}), status: "failed", error: errorMessage },
+                },
                 generationStatus: {
                   ...(msg.generationStatus || {
                     isGenerating: true,

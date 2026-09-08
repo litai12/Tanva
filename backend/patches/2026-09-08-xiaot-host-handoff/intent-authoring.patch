@@ -1,0 +1,1031 @@
+diff --git a/apps/agents-cli/src/core/agent-loop.ts b/apps/agents-cli/src/core/agent-loop.ts
+index 20e07e225..84d69d372 100644
+--- a/apps/agents-cli/src/core/agent-loop.ts
++++ b/apps/agents-cli/src/core/agent-loop.ts
+@@ -111,7 +111,6 @@ import {
+   projectBoundReferenceReadTools,
+   projectFrozenUserIntentTool,
+   projectInitialUserIntentTool,
+-  projectPendingUserIntentRepairTool,
+   projectPendingUserIntentContractTools,
+   projectResponseDeliveryControlTools,
+   projectUniqueDurableFrontierTool,
+@@ -123,11 +122,6 @@ import {
+   type ToolSurfaceMetrics,
+ } from "./tool-surface.js";
+ import { readActionableDeliveryReferences } from "./actionable-delivery-reference.js";
+-import {
+-  formatPendingUserIntentRepairPrompt,
+-  normalizePendingUserIntentRepair,
+-  PENDING_USER_INTENT_REPAIR_META_KEY,
+-} from "./pending-user-intent-repair.js";
+ import {
+   projectCatalogOperationRepairTools,
+   readCatalogOperationRepairCheckpoint,
+@@ -315,14 +309,8 @@ import {
+   USER_INTENT_CONTRACT_TOOL_NAME,
+   type UserIntentContract,
+ } from "./intent-contract.js";
++import { resolveIntentReviewUserMessage } from "./intent-contract-review.js";
+ import { resolveIntentAuthoringSkills } from "./intent-authoring-routing.js";
+-import {
+-  executeUserIntentContractReviewWithRepair,
+-  readUserIntentContractReview,
+-  resolveIntentReviewUserMessage,
+-  USER_INTENT_CONTRACT_REVIEWER_META_KEY,
+-  USER_INTENT_CONTRACT_REVIEW_MAX_OUTPUT_TOKENS,
+-} from "./intent-contract-review.js";
+ import {
+   collectAcceptedAsyncDeliveryEvidence,
+ } from "./async-delivery-evidence.js";
+@@ -854,7 +842,7 @@ function buildStableSystemTier(
+     "仅当缺少回答所需事实，或用户要求的结果必须产生真实副作用时调用业务工具；上下文已足够的纯闭卷正文也必须通过首次 record_user_intent.responseDelivery 原子提交，不要先输出普通文本。",
+ 	"用户没有明确指定 aspect、resolution、size、clipCount 或其它媒体规格时，record_user_intent 必须省略这些字段，不能用模型常见默认值、工作流旧配置或推测的画幅/清晰度填充；用户明确给出的数字时长（例如 60s/60秒）必须逐字写入 delivery.durationSeconds，不能只写在 must 或 output 中。",
+ 	"只要本轮要生产图片、视频或其它视觉媒体，且用户已经明确提供了画风、色彩、材质或媒介事实，媒体副作用前必须先读取 tapcanvas_get_style_reference。若项目尚无文本风格锁（即使已经有风格参考图），先用当前用户事实创建一个 kind=text、productionLayer=anchors、semanticKind=projectLookBible 的视觉圣经来源节点，再调用 tapcanvas_project_look_bible_confirm 激活它；若本轮无法先持久化 Look Bible，则在 tapcanvas_equipped_workflow_run 的 triggerPayload.styleFacts 中原样传入同一组真实风格事实，让本次所有媒体节点共享同一 run-scoped styleLock。随后再启动媒体工作流。视觉圣经只能复述用户事实或已确认的一手项目事实，禁止凭空发明色卡/HEX/参考图；若用户未提供风格事实，则保持未知并记录诊断，不要伪造风格。",
+-	"每个 root 逻辑任务在尚无 UserIntentContract 时，首个模型回合只暴露 record_user_intent；先用它冻结 referenceResolution、must、forbid、prefer 与交付范围，再在下一回合读取 Skill、schema、项目事实或执行生产。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或工具事实的纯闭卷 response，或已加载本轮专业 Skill provenance 的 typed prompt response，必须在这一次调用里同时提交完整 responseDelivery.candidate，并用 criteria 按 must/forbid/prefer 各数组的零基索引逐项声明满足、避免或应用；不要在工具调用外重复正文，不要等待工具结果后再写第二遍。需要读取事实、未加载专业方法、当前状态、持久变更、真实资产或用户选择时不得提交 responseDelivery。async_artifact 已隐含至少一个真实资产；artifactCount 只在用户明确要求至少两个独立终态资产时填写，单资产交付和主体数量都必须省略。kind/output 为了语法完整可以使用‘一张图片/一条视频’等单数描述，这不等于填写 artifactCount。若系统列出 actionable_delivery_references，语义上继续、执行或修改既有产物时必须选定引用；selected_exact 的 executionTarget 逐字段不可漂移，用户明确修改才用 derived。存在两个以上仍合法候选且用户信息不足时，用 needs_user_choice + request_user_input，不得猜测或扩大范围。语义复核返回 needs_revision 时必须使用回执中的 baseContractHash 调 record_user_intent.repair，只 patch 指出的顶层字段，禁止整份重写并丢失 referenceResolution 或其它已确认字段。技能、子代理与编排只能实现当前合同，不能覆盖其 must/forbid。",
++	"每个 root 逻辑任务在尚无 UserIntentContract 时，首个模型回合只暴露 record_user_intent；在同一次模型输出内先逐项对照原始用户请求自检，再用它冻结 referenceResolution、must、forbid、prefer 与交付范围；不要另起模型审批意图，再在下一回合读取 Skill、schema、项目事实或执行生产。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或工具事实的纯闭卷 response，或已加载本轮专业 Skill provenance 的 typed prompt response，必须在这一次调用里同时提交完整 responseDelivery.candidate，并用 criteria 按 must/forbid/prefer 各数组的零基索引逐项声明满足、避免或应用；不要在工具调用外重复正文，不要等待工具结果后再写第二遍。需要读取事实、未加载专业方法、当前状态、持久变更、真实资产或用户选择时不得提交 responseDelivery。async_artifact 已隐含至少一个真实资产；artifactCount 只在用户明确要求至少两个独立终态资产时填写，单资产交付和主体数量都必须省略。kind/output 为了语法完整可以使用‘一张图片/一条视频’等单数描述，这不等于填写 artifactCount。若系统列出 actionable_delivery_references，语义上继续、执行或修改既有产物时必须选定引用；selected_exact 的 executionTarget 逐字段不可漂移，用户明确修改才用 derived。存在两个以上仍合法候选且用户信息不足时，用 needs_user_choice + request_user_input，不得猜测或扩大范围。提交前在同一次输出内修正遗漏和自造约束；runtime 只校验结构与引用权限，不再另起意图审批模型。技能、子代理与编排只能实现当前合同，不能覆盖其 must/forbid。",
+ 	"UserIntentContract.delivery.output 只描述用户明确要求的交付物和落点，不描述宿主如何执行。工具名、当前 App/画布上下文、可用持久化能力与执行便利性都不能自行新增画布、项目、节点、附件、存储或 execution identity；只有用户原话或已冻结的权威引用明确要求时才记录对应落点。",
+ 	"在任何不可逆、付费或持久交付动作之前，逐项核对已冻结 UserIntentContract.must。凡 must 明确要求先读取、核对或依据权威事实，必须先用当前已授权的只读工具取得成功回执并据此执行；下游 mutation 或 Workflow 自行读取上下文不能替代这项前置义务。相互独立的必要读取应同轮并行；只有 must 没有声明这类事实前置条件时，才可直接启动交付。",
+ 	"Agent 可根据语义把生成请求分类为正确的 delivery.mode/mediaType/promptMediaType，并用 kind/output 给出规范产物描述；该分类属于执行语义，不能自动复制进 must/forbid/prefer。交付的文本是可执行图片/视频生成提示词时（包括持久化文本），promptMediaType 分别为 image/video；普通回答、教程、策划、脚本、分析与真实媒体资产均为 null。must/forbid/prefer 只保留用户当前请求或权威既有合同明确表达的要求，不得为匹配所选媒体工具而补写媒介、格式、目的地、质量或数量。",
+@@ -867,7 +855,7 @@ function buildStableSystemTier(
+       : []),
+ 	"如果当前 UserIntentContract 已存在（系统上下文会提供 contractHash），record_user_intent 已完成，不得因为上下文压缩、Skill 加载或进入下一阶段而重复调用；直接继续当前合同中尚未满足的成功标准。只有用户明确改变范围或约束时才更新合同。",
+     "当前动作确需专业方法但尚无已选 Skill 时，再召回当前可见候选并依据合同覆盖、冲突与事实证据选择；存在多个候选时，加载 Skill 必须在 selection 中记录 candidateSetId、recallSource、candidates、rank、score、coversRequirementIds、conflictsRequirementIds、evidenceRefs 和 reason。不要把技能名称或编排默认当作用户要求。若携带 skillName 的精确召回返回空候选，说明该名称不是当前可见事实；必须移除 skillName，以当前原始请求执行一次通用候选召回，再依据候选证据选择，禁止把模型自造名称或空精确结果当作“无可用 Skill”的结论。",
+-    "每次工具调用都必须直接推进一个尚未满足的成功标准。首轮 record_user_intent 单独冻结合同；合同复核通过后，相互独立且都必要的 Skill、knowledge 与工具 schema 准备应在同一模型回合发出。取得 operationIndex 后，互不依赖的 Skill 精确读取与 selector schema 读取也应同轮提交。只有真实返回存在数据依赖时才串行等待。",
++    "每次工具调用都必须直接推进一个尚未满足的成功标准。首轮 record_user_intent 单独冻结合同；合同冻结后，相互独立且都必要的 Skill、knowledge 与工具 schema 准备应在同一模型回合发出。取得 operationIndex 后，互不依赖的 Skill 精确读取与 selector schema 读取也应同轮提交。只有真实返回存在数据依赖时才串行等待。",
+     "一旦真实交付已经满足就停止；不要为了展示过程而调用 TodoWrite、Task、读取或查询工具。",
+     "简单对话轮（寒暄、身份问答、基础计算和不依赖外部事实的问题）使用一次 record_user_intent.responseDelivery 直接终结，不要先写普通正文、不要另起验收模型、不要反射式调用 memory_search 或画布查询。仅当回答确实依赖长期记忆或当前画布/节点事实时才查；需要多项独立只读信息时在同一回合并行发起，严禁一个查询占一个回合。",
+     "信任你自己的编辑：写入/修改文件后不要再回头重读源文件来确认改动，改动是否成立用一次运行测试/命令来验证即可；同一个文件已经读过且你未再改它，就不要重复读取。优先用补丁/精确替换式编辑，读一遍→改→跑验证，而不是读→改→重读→再读。",
+@@ -900,7 +888,7 @@ function buildStableSystemTier(
+     "仅当回答依赖缺失事实或必须产生真实副作用时调用业务工具；上下文足够的纯闭卷正文通过首次 record_user_intent.responseDelivery 原子提交。",
+ 	"用户没有明确指定 aspect、resolution、size、clipCount 或其它媒体规格时，record_user_intent 必须省略这些字段，不能用模型常见默认值、工作流旧配置或推测的画幅/清晰度填充；用户明确给出的数字时长（例如 60s/60秒）必须逐字写入 delivery.durationSeconds，不能只写在 must 或 output 中。",
+ 	"只要本轮要生产图片、视频或其它视觉媒体，且用户已经明确提供了画风、色彩、材质或媒介事实，媒体副作用前必须先读取 tapcanvas_get_style_reference。若项目尚无文本风格锁（即使已经有风格参考图），先用当前用户事实创建一个 kind=text、productionLayer=anchors、semanticKind=projectLookBible 的视觉圣经来源节点，再调用 tapcanvas_project_look_bible_confirm 激活它；若本轮无法先持久化 Look Bible，则在 tapcanvas_equipped_workflow_run 的 triggerPayload.styleFacts 中原样传入同一组真实风格事实，让本次所有媒体节点共享同一 run-scoped styleLock。随后再启动媒体工作流。视觉圣经只能复述用户事实或已确认的一手项目事实，禁止凭空发明色卡/HEX/参考图；若用户未提供风格事实，则保持未知并记录诊断，不要伪造风格。",
+-		"每个 root 逻辑任务在尚无 UserIntentContract 时，首个模型回合只暴露当前可见的 record_user_intent；先用它冻结 referenceResolution、must、forbid、prefer 与交付范围，再在下一回合读取 Skill、schema、项目事实或执行生产。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或工具事实的纯闭卷 response，或已加载本轮专业 Skill provenance 的 typed prompt response，必须在这一次调用里同时提交完整 responseDelivery.candidate，并用 criteria 按 must/forbid/prefer 各数组零基索引逐项覆盖；不要另发普通正文或开启第二模型回合。需要读取事实、未加载专业方法、当前状态、持久变更、真实资产或用户选择时不得提交 responseDelivery。async_artifact 已隐含至少一个真实资产；artifactCount 只在用户明确要求至少两个独立终态资产时填写，单资产交付和主体数量都必须省略。kind/output 为了语法完整可以使用‘一张图片/一条视频’等单数描述，这不等于填写 artifactCount。若系统列出 actionable_delivery_references，语义上继续、执行或修改既有产物时必须选定引用；selected_exact 的 executionTarget 逐字段不可漂移，用户明确修改才用 derived。存在两个以上仍合法候选且用户信息不足时，用 needs_user_choice + request_user_input，让用户选择，不得猜测或扩大范围。语义复核返回 needs_revision 时必须使用回执中的 baseContractHash 调 record_user_intent.repair，只 patch 指出的顶层字段，禁止整份重写并丢失 referenceResolution 或其它已确认字段。技能、子代理与编排只能实现当前合同，不能覆盖其 must/forbid。",
++		"每个 root 逻辑任务在尚无 UserIntentContract 时，首个模型回合只暴露当前可见的 record_user_intent；在同一次模型输出内先逐项对照原始用户请求自检，再用它冻结 referenceResolution、must、forbid、prefer 与交付范围；不要另起模型审批意图，再在下一回合读取 Skill、schema、项目事实或执行生产。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或工具事实的纯闭卷 response，或已加载本轮专业 Skill provenance 的 typed prompt response，必须在这一次调用里同时提交完整 responseDelivery.candidate，并用 criteria 按 must/forbid/prefer 各数组零基索引逐项覆盖；不要另发普通正文或开启第二模型回合。需要读取事实、未加载专业方法、当前状态、持久变更、真实资产或用户选择时不得提交 responseDelivery。async_artifact 已隐含至少一个真实资产；artifactCount 只在用户明确要求至少两个独立终态资产时填写，单资产交付和主体数量都必须省略。kind/output 为了语法完整可以使用‘一张图片/一条视频’等单数描述，这不等于填写 artifactCount。若系统列出 actionable_delivery_references，语义上继续、执行或修改既有产物时必须选定引用；selected_exact 的 executionTarget 逐字段不可漂移，用户明确修改才用 derived。存在两个以上仍合法候选且用户信息不足时，用 needs_user_choice + request_user_input，让用户选择，不得猜测或扩大范围。提交前在同一次输出内修正遗漏和自造约束；runtime 只校验结构与引用权限，不再另起意图审批模型。技能、子代理与编排只能实现当前合同，不能覆盖其 must/forbid。",
+ 		"UserIntentContract.delivery.output 只描述用户明确要求的交付物和落点，不描述宿主如何执行。工具名、当前 App/画布上下文、可用持久化能力与执行便利性都不能自行新增画布、项目、节点、附件、存储或 execution identity；只有用户原话或已冻结的权威引用明确要求时才记录对应落点。",
+ 		"在任何不可逆、付费或持久交付动作之前，逐项核对已冻结 UserIntentContract.must。凡 must 明确要求先读取、核对或依据权威事实，必须先用当前已授权的只读工具取得成功回执并据此执行；下游 mutation 或 Workflow 自行读取上下文不能替代这项前置义务。相互独立的必要读取应同轮并行；只有 must 没有声明这类事实前置条件时，才可直接启动交付。",
+ 		"Agent 可根据语义把生成请求分类为正确的 delivery.mode/mediaType/promptMediaType，并用 kind/output 给出规范产物描述；该分类属于执行语义，不能自动复制进 must/forbid/prefer。交付的文本是可执行图片/视频生成提示词时（包括持久化文本），promptMediaType 分别为 image/video；普通回答、教程、策划、脚本、分析与真实媒体资产均为 null。must/forbid/prefer 只保留用户当前请求或权威既有合同明确表达的要求，不得为匹配所选媒体工具而补写媒介、格式、目的地、质量或数量。",
+@@ -908,7 +896,7 @@ function buildStableSystemTier(
+ 	"UserIntentContract.unresolved 只允许记录必须由用户补充、无法从当前请求/项目事实/实时目录推导的事实或授权。整章总时长、beat/clip 数、镜头拓扑、节奏、提示词和模型合法时长选择都是已授权 DAG 规划产物，不得放进 unresolved。",
+ 	"如果当前 UserIntentContract 已存在（系统上下文会提供 contractHash），record_user_intent 已完成，不得因为上下文压缩、Skill 加载或进入下一阶段而重复调用；直接继续当前合同中尚未满足的成功标准。只有用户明确改变范围或约束时才更新合同。",
+     "当前动作确需专业方法但尚无已选 Skill 时，再召回当前可见候选并依据合同覆盖、冲突与事实证据选择；存在多个候选时，加载 Skill 必须在 selection 中记录 candidateSetId、recallSource、candidates、rank、score、coversRequirementIds、conflictsRequirementIds、evidenceRefs 和 reason。不要把技能名称或编排默认当作用户要求。若携带 skillName 的精确召回返回空候选，说明该名称不是当前可见事实；必须移除 skillName，以当前原始请求执行一次通用候选召回，再依据候选证据选择，禁止把模型自造名称或空精确结果当作“无可用 Skill”的结论。",
+-    "每次工具调用必须直接推进尚未满足的成功标准。首轮 record_user_intent 单独冻结合同；合同复核通过后，相互独立且都必要的 Skill、knowledge 与工具 schema 准备应在同一模型回合发出。取得 operationIndex 后，互不依赖的 Skill 精确读取与 selector schema 读取也应同轮提交。只有真实返回存在数据依赖时才串行等待。",
++    "每次工具调用必须直接推进尚未满足的成功标准。首轮 record_user_intent 单独冻结合同；合同冻结后，相互独立且都必要的 Skill、knowledge 与工具 schema 准备应在同一模型回合发出。取得 operationIndex 后，互不依赖的 Skill 精确读取与 selector schema 读取也应同轮提交。只有真实返回存在数据依赖时才串行等待。",
+ 		"工具返回结构化 recoveryAction、recoveryRequired 或下一动作契约时，直接按该事实执行对应动作；不要再读取章节、execution 或其它无关上下文，也不要把一次动作失败改写成用户级终止。只有恢复动作明确报告证据不足时，才继续补齐其声明的证据。",
+ 		"上下文预算纪律：每次对话只携带当前任务必要事实。当前画布节点只使用最小元数据摘要；同一资源已成功读取后复用结果，不重复读取。章节默认使用 task_context，只有当前交付确实缺少原文证据时才显式读取 full；收到 warning/recovery 后只消费其中的结构化修复事实，不重放整份历史参数。",
+     "工具返回 assetRepairRequired/assetRepair 时，这不是用户级终止：严格按当前 assetRepair.requiredAssets 逐项推进。普通资产可用当前画布 nodeId 或项目 referenceAssetId；带 stateKey/stateVersionId 的人物状态锚必须以同名基准身份卡做 image edit，在节点逐字写入 roleName/stateKey/stateVersionId/visualStateFacts，并只用当前画布 nodeId 回填。每个已验真 binding 都会持久化并返回缩减后的 frontier，后续只处理剩余项。仍缺图片时，prompt 只能使用该项 sourceEvidence 与 visualFacts；图片 reconcile 后立即回填同一 run。禁止状态回退、跨状态复用、等待凑齐整批、重做已完成项、重提原视频或把补图责任退回用户。",
+@@ -2063,87 +2051,6 @@ export class AgentRunner {
+         );
+         readPreparationMode = rootExecutionBudget.snapshot.readPreparation.mode;
+       }
+-      if (depth === 0) {
+-        // Continuation prompts contain machine-owned recovery controls such as
+-        // the durable progress frontier. Audit the immutable task goal instead,
+-        // otherwise those controls are misclassified as user-authored demands.
+-        const originalUserMessage = resolveIntentReviewUserMessage({
+-          immutableTaskGoal: toolContextMeta.retrievalUserRequest,
+-          originalUserPrompt: options.originalUserPrompt,
+-          currentUserPrompt: userPrompt,
+-        });
+-        Object.defineProperty(toolContextMeta, USER_INTENT_CONTRACT_REVIEWER_META_KEY, {
+-          enumerable: false,
+-          configurable: true,
+-          writable: false,
+-          value: {
+-            review: async (input: {
+-              contract: import("./intent-contract.js").UserIntentContract;
+-              authoritativeContinuityContracts: readonly import("./intent-contract.js").UserIntentContract[];
+-              structuralRepair?: Readonly<{ parserError: string; invalidOutput: string }>;
+-            }) => {
+-              const configuredReviewTimeoutMs = options.postToolContinuationTimeoutMs ??
+-                resolvePostToolContinuationTimeoutMs();
+-              const remainingWallTimeMs = rootExecutionBudget?.remainingWallTimeMs();
+-              const deadline = createPostToolContinuationDeadline({
+-                timeoutMs: remainingWallTimeMs === undefined
+-                  ? configuredReviewTimeoutMs
+-                  : Math.max(1, Math.min(configuredReviewTimeoutMs, remainingWallTimeMs)),
+-                ...(options.abortSignal ? { externalSignal: options.abortSignal } : {}),
+-              });
+-              let reviewUsageTotalTokens: number | undefined;
+-              try {
+-                const execution = await executeUserIntentContractReviewWithRepair({
+-                  reviewInput: {
+-                    originalUserMessage,
+-                    contract: input.contract,
+-                    authoritativeContinuityContracts: input.authoritativeContinuityContracts,
+-                    ...(input.structuralRepair ? { structuralRepair: input.structuralRepair } : {}),
+-                  },
+-                  infer: async (request) => {
+-                    const result = await executeAtomicStructuredInferenceWithUsage(effectiveClient, {
+-                      prompt: request.prompt,
+-                      system: request.system,
+-                      model: effectiveModel,
+-                      responseFormat: { type: "json_object" },
+-                      resultSchema: request.resultSchema,
+-                      // Reasoning-capable providers may consume several thousand hidden
+-                      // completion tokens before emitting the small JSON attestation. Keep
+-                      // this atomic review bounded, but leave enough headroom for the
+-                      // provider to materialize the required structured result.
+-                      maxOutputTokens: USER_INTENT_CONTRACT_REVIEW_MAX_OUTPUT_TOKENS,
+-                      stream: false,
+-                      reasoningEffort: options.reasoningEffortOverride ?? this.config.reasoningEffort,
+-                      abortSignal: deadline.signal,
+-                    });
+-                    const attemptTokens = result.usage?.totalTokens;
+-                    if (typeof attemptTokens === "number" && Number.isFinite(attemptTokens)) {
+-                      reviewUsageTotalTokens = (reviewUsageTotalTokens ?? 0) + attemptTokens;
+-                    }
+-                    return result.text;
+-                  },
+-                });
+-                const review = execution.review;
+-                toolContextMeta.intentContractReviewTrace = {
+-                  contractHash: review.contractHash,
+-                  requestFingerprint: review.requestFingerprint,
+-                  reviewFingerprint: review.reviewFingerprint,
+-                  status: review.status,
+-                  attempts: execution.attempts,
+-                  structuralRepairErrors: [...execution.structuralRepairErrors],
+-                };
+-                return review;
+-              } finally {
+-                deadline.cleanup();
+-                rootExecutionBudget?.recordModelTurn(reviewUsageTotalTokens);
+-                if (rootExecutionBudget) {
+-                  toolContextMeta[ROOT_EXECUTION_LEDGER_META_KEY] = rootExecutionBudget.snapshot;
+-                }
+-              }
+-            },
+-          },
+-        });
+-      }
+       const persistRootReadPreparation = (): void => {
+         if (!rootExecutionBudget) return;
+         rootExecutionBudget.snapshot.readPreparation = {
+@@ -2816,14 +2723,10 @@ export class AgentRunner {
+             toolContextMeta.contractRequiredSkillDirectiveContractHash = contractHash;
+           }
+         }
+-        const pendingUserIntentRepair = normalizePendingUserIntentRepair(
+-          toolContextMeta[PENDING_USER_INTENT_REPAIR_META_KEY],
+-        );
+         const requiresUserIntentContractAdmission = depth === 0 &&
+           (options.physicalRootExecution === true || logicalTaskStore instanceof TaskStore) &&
+           currentUserIntentContract === null;
+-        const needsInitialUserIntentContract = requiresUserIntentContractAdmission &&
+-          pendingUserIntentRepair === null;
++        const needsInitialUserIntentContract = requiresUserIntentContractAdmission;
+         const activeDeliveryRepair = readActiveDeliveryRepairRequirement({
+           meta: toolContextMeta,
+           userIntentContract: currentUserIntentContract,
+@@ -3261,16 +3164,10 @@ export class AgentRunner {
+           tools: leanTools,
+           needsContract: needsInitialUserIntentContract,
+         });
+-        leanTools = projectPendingUserIntentRepairTool({
+-          tools: leanTools,
+-          pendingBaseContractHash: pendingUserIntentRepair?.contract.contractHash ?? null,
+-          retryReviewOnly: pendingUserIntentRepair?.reviewFailure !== undefined,
+-        });
+         leanTools = projectFrozenUserIntentTool({
+           tools: leanTools,
+-          hasFrozenContract: currentUserIntentContract !== null &&
+-            readUserIntentContractReview(toolContextMeta, currentUserIntentContract) !== null,
+-          hasPendingRepair: pendingUserIntentRepair !== null,
++          hasFrozenContract: currentUserIntentContract !== null,
++          hasPendingRepair: false,
+         });
+         leanTools = projectResponseDeliveryControlTools({
+           tools: leanTools,
+@@ -7038,18 +6935,13 @@ function buildVolatileSystemTier(meta: Record<string, unknown> | undefined, orig
+     );
+   }
+   const userIntentContract = readUserIntentContract(meta);
+-  const pendingUserIntentRepair = normalizePendingUserIntentRepair(
+-    meta?.[PENDING_USER_INTENT_REPAIR_META_KEY],
+-  );
+   const previousDeliveryContext = formatPreviousDeliveryContext(meta, userIntentContract);
+   if (previousDeliveryContext) lines.push(previousDeliveryContext);
+   const pendingDeliveryContext = formatPendingDeliveryContext(meta, originalUserRequest);
+   if (pendingDeliveryContext) lines.push(pendingDeliveryContext);
+   const userIntentBlock = formatUserIntentContract(userIntentContract);
+   const selectionTraceBlock = formatIntentSelectionTrace(meta);
+-  if (pendingUserIntentRepair) {
+-    lines.push(formatPendingUserIntentRepairPrompt(pendingUserIntentRepair));
+-  }
++
+   if (userIntentBlock) lines.push(userIntentBlock);
+   if (selectionTraceBlock) lines.push(selectionTraceBlock);
+   // Recent Tool Batch Summaries 已移出系统前缀（2026-06-25 缓存安全增量）：它每次工具批次都变，
+@@ -7737,14 +7629,11 @@ export function readRootMutationIntentContractViolation(input: {
+   meta?: Record<string, unknown>;
+ }): string {
+   const contract = readUserIntentContract(input.meta);
+-  const reviewedContract = contract && readUserIntentContractReview(input.meta, contract)
+-    ? contract
+-    : null;
+   if (
+     input.depth > 0 ||
+     input.logicalToolName === USER_INTENT_CONTRACT_TOOL_NAME ||
+     input.execution.sideEffect === "none" ||
+-    reviewedContract
++    contract
+   ) {
+     return "";
+   }
+@@ -9092,19 +8981,6 @@ export function readDeliveryCompletionBlock(input: {
+       userMessage: "尚未冻结用户意图合同。",
+     };
+   }
+-  if (!readUserIntentContractReview(input.meta, contract)) {
+-    return {
+-      reason: "user_intent_contract_review_missing",
+-      message: [
+-        "<runtime_delivery_envelope_repair>",
+-        "当前 UserIntentContract 尚未绑定原始用户请求的合同证明，不能进入终态验收。",
+-        "用 record_user_intent 原样提交当前合同；runtime 将按交付类型绑定 root 结构化证明或本轮实际模型复核 delivery.mode、mediaType、交付落点与全部显式要求。",
+-        "复核不通过时使用回执中的 baseContractHash 调 record_user_intent.repair，只 patch requiredActions 指出的顶层字段；未指出字段由 runtime 从候选原样保留，禁止整份重写或用正文迁就错误合同。",
+-        "</runtime_delivery_envelope_repair>",
+-      ].join("\n"),
+-      userMessage: "用户意图合同尚未完成合同证明。",
+-    };
+-  }
+   return null;
+ }
+ 
+diff --git a/apps/agents-cli/src/core/durable-session-state.ts b/apps/agents-cli/src/core/durable-session-state.ts
+index 8e5f6d9d0..7ecf6ef2f 100644
+--- a/apps/agents-cli/src/core/durable-session-state.ts
++++ b/apps/agents-cli/src/core/durable-session-state.ts
+@@ -18,11 +18,6 @@ import {
+   type DeliveryReviewEvidenceItem,
+ } from "./delivery/candidate-review.js";
+ import { normalizeDeliveryEvidence } from "./delivery/contracts.js";
+-import {
+-  normalizeUserIntentContractReview,
+-  USER_INTENT_CONTRACT_REVIEW_META_KEY,
+-  type UserIntentContractReviewV2,
+-} from "./intent-contract-review.js";
+ import {
+   AVAILABLE_ARTIFACT_REFS_META_KEY,
+   readAvailableArtifactRefs,
+@@ -61,7 +56,6 @@ export type DurableLogicalTaskSessionState = Readonly<{
+   version: typeof DURABLE_SESSION_STATE_VERSION;
+   logicalTaskId: string;
+   userIntentContract: UserIntentContract;
+-  userIntentContractReview: UserIntentContractReviewV2;
+   userIntentContractRevision: number;
+   intentSelectionTrace: IntentSelectionTrace[];
+   rootExecutionLedger: RootExecutionLedgerSnapshot;
+@@ -208,13 +202,7 @@ export function normalizeDurableLogicalTaskSessionState(
+   if (!logicalTaskId || !userIntentContract || !userIntentContractRevision) {
+     throw new Error("persisted logical task session state is incomplete");
+   }
+-  const userIntentContractReview = normalizeUserIntentContractReview(
+-    record.userIntentContractReview,
+-    userIntentContract,
+-  );
+-  if (!userIntentContractReview) {
+-    throw new Error("persisted logical task session state has no valid semantic intent review");
+-  }
++
+   const traceMeta: Record<string, unknown> = { intentSelectionTrace: record.intentSelectionTrace };
+   const availableArtifactRefs = readAvailableArtifactRefs({
+     [AVAILABLE_ARTIFACT_REFS_META_KEY]: record.availableArtifactRefs,
+@@ -223,7 +211,6 @@ export function normalizeDurableLogicalTaskSessionState(
+     version: DURABLE_SESSION_STATE_VERSION,
+     logicalTaskId,
+     userIntentContract,
+-    userIntentContractReview,
+     userIntentContractRevision,
+     intentSelectionTrace: readIntentSelectionTrace(traceMeta),
+     rootExecutionLedger: normalizeRootExecutionLedger(record.rootExecutionLedger),
+@@ -242,18 +229,11 @@ export function projectDurableLogicalTaskSessionState(
+   const userIntentContract = readUserIntentContract(meta);
+   const userIntentContractRevision = readPositiveInteger(meta.userIntentContractRevision);
+   if (!logicalTaskId || !userIntentContract || !userIntentContractRevision) return null;
+-  const userIntentContractReview = normalizeUserIntentContractReview(
+-    meta[USER_INTENT_CONTRACT_REVIEW_META_KEY],
+-    userIntentContract,
+-  );
+-  if (!userIntentContractReview) {
+-    throw new Error("cannot persist a logical task without a valid semantic intent review");
+-  }
++
+   return {
+     version: DURABLE_SESSION_STATE_VERSION,
+     logicalTaskId,
+     userIntentContract,
+-    userIntentContractReview,
+     userIntentContractRevision,
+     intentSelectionTrace: readIntentSelectionTrace(meta),
+     rootExecutionLedger: normalizeRootExecutionLedger(meta[ROOT_EXECUTION_LEDGER_META_KEY]),
+@@ -273,7 +253,6 @@ export function hydrateDurableLogicalTaskSessionState(
+   if (!state) return null;
+   meta.logicalTaskId = state.logicalTaskId;
+   meta.userIntentContract = state.userIntentContract;
+-  meta[USER_INTENT_CONTRACT_REVIEW_META_KEY] = state.userIntentContractReview;
+   meta.userIntentContractRevision = state.userIntentContractRevision;
+   meta.userIntentContractLocked = true;
+   meta.intentSelectionTrace = state.intentSelectionTrace;
+diff --git a/apps/agents-cli/src/core/memory/pg-session.ts b/apps/agents-cli/src/core/memory/pg-session.ts
+index f62f1c16b..dd9adc75e 100644
+--- a/apps/agents-cli/src/core/memory/pg-session.ts
++++ b/apps/agents-cli/src/core/memory/pg-session.ts
+@@ -6,10 +6,6 @@ import {
+   normalizeUserIntentContract,
+   type UserIntentContract,
+ } from "../intent-contract.js";
+-import {
+-  normalizeUserIntentContractReview,
+-  type UserIntentContractReviewV2,
+-} from "../intent-contract-review.js";
+ import {
+   normalizePendingTerminalDelivery,
+   type PendingTerminalDelivery,
+@@ -47,10 +43,6 @@ import {
+   normalizeSessionAuthorityFactContract,
+   type SessionAuthorityFactContractV1,
+ } from "../session-authority-fact-contract.js";
+-import {
+-  normalizePendingUserIntentRepair,
+-  type PendingUserIntentRepairV1,
+-} from "../pending-user-intent-repair.js";
+ import {
+   persistPgSessionStepWithTransientRetry,
+   type PgSessionPersistenceRetryDiagnostic,
+@@ -72,10 +64,6 @@ export type PgSessionMeta = {
+   rolloutState?: AgentRolloutState;
+   /** Root agent 已冻结的当前逻辑任务合同；物理窗口续跑必须原样恢复。 */
+   userIntentContract?: UserIntentContract;
+-  /** Same-model semantic review bound to the exact frozen contract. */
+-  userIntentContractReview?: UserIntentContractReviewV2;
+-  /** Semantically rejected candidate retained for a field-scoped repair call. */
+-  pendingUserIntentRepair?: PendingUserIntentRepairV1;
+   structuredOutputRepair?: StructuredOutputRepairCheckpoint;
+   /** Candidate delivery awaiting semantic review in a later physical run. */
+   pendingTerminalDelivery?: PendingTerminalDelivery;
+@@ -107,8 +95,6 @@ type PgSessionMetaRow = {
+   skillRetention?: unknown;
+   rolloutState?: unknown;
+   userIntentContract?: unknown;
+-  userIntentContractReview?: unknown;
+-  pendingUserIntentRepair?: unknown;
+   structuredOutputRepair?: unknown;
+   pendingTerminalDelivery?: unknown;
+   sessionIntentContinuityContracts?: unknown;
+@@ -133,7 +119,6 @@ type PgSessionHistorySnapshot = Readonly<{
+ export function buildPgSessionMetaRecord(meta: PgSessionMeta): postgres.JSONValue {
+   const terminalDeliveryState = normalizePgTerminalDeliveryState({
+     userIntentContract: meta.userIntentContract,
+-    userIntentContractReview: meta.userIntentContractReview,
+     pendingTerminalDelivery: meta.pendingTerminalDelivery,
+   }, "session metadata write");
+   const record = {
+@@ -141,8 +126,6 @@ export function buildPgSessionMetaRecord(meta: PgSessionMeta): postgres.JSONValu
+     requiredSkills: meta.requiredSkills ?? [],
+     rolloutState: meta.rolloutState ?? null,
+     userIntentContract: meta.userIntentContract ?? null,
+-    userIntentContractReview: terminalDeliveryState.userIntentContractReview ?? null,
+-    pendingUserIntentRepair: meta.pendingUserIntentRepair ?? null,
+     structuredOutputRepair: normalizeStructuredOutputRepair(meta.structuredOutputRepair),
+     pendingTerminalDelivery: terminalDeliveryState.pendingTerminalDelivery ?? null,
+     sessionIntentContinuityContracts: meta.sessionIntentContinuityContracts ?? [],
+@@ -162,40 +145,14 @@ function hasPersistedValue(value: unknown): boolean {
+ }
+ 
+ function normalizePgTerminalDeliveryState(
+-  input: Readonly<{
+-    userIntentContract: unknown;
+-    userIntentContractReview: unknown;
+-    pendingTerminalDelivery: unknown;
+-  }>,
++  input: Readonly<{ userIntentContract: unknown; pendingTerminalDelivery: unknown }>,
+   source: string,
+-): Readonly<{
+-  userIntentContractReview?: UserIntentContractReviewV2;
+-  pendingTerminalDelivery?: PendingTerminalDelivery;
+-}> {
+-  const hasReview = hasPersistedValue(input.userIntentContractReview);
+-  const hasPending = hasPersistedValue(input.pendingTerminalDelivery);
+-  if (!hasReview && !hasPending) return {};
+-
++): Readonly<{ pendingTerminalDelivery?: PendingTerminalDelivery }> {
++  if (!hasPersistedValue(input.pendingTerminalDelivery)) return {};
+   const contract = normalizeUserIntentContract(input.userIntentContract);
+-  if (!contract) {
+-    throw new Error(`${source} carries terminal review state without a valid frozen user intent contract`);
+-  }
+-  const userIntentContractReview = hasReview
+-    ? normalizeUserIntentContractReview(input.userIntentContractReview, contract)
+-    : null;
+-  if (hasReview && !userIntentContractReview) {
+-    throw new Error(`${source} user intent contract review does not match the frozen contract`);
+-  }
+-  const pendingTerminalDelivery = hasPending
+-    ? normalizePendingTerminalDelivery(input.pendingTerminalDelivery, contract.contractHash)
+-    : null;
+-  if (pendingTerminalDelivery && !userIntentContractReview) {
+-    throw new Error(`${source} pending terminal delivery has no valid semantic intent review`);
+-  }
+-  return {
+-    ...(userIntentContractReview ? { userIntentContractReview } : {}),
+-    ...(pendingTerminalDelivery ? { pendingTerminalDelivery } : {}),
+-  };
++  if (!contract) throw new Error(`${source} carries terminal review state without a valid frozen user intent contract`);
++  const pending = normalizePendingTerminalDelivery(input.pendingTerminalDelivery, contract.contractHash);
++  return pending ? { pendingTerminalDelivery: pending } : {};
+ }
+ 
+ async function agentSessionsHasMetaColumn(db: ReturnType<typeof postgres>): Promise<boolean> {
+@@ -559,7 +516,6 @@ export function parsePgSessionStatusMetaState(
+   try {
+     normalizePgTerminalDeliveryState({
+       userIntentContract: stateRecord.userIntentContract,
+-      userIntentContractReview: stateRecord.userIntentContractReview,
+       pendingTerminalDelivery: stateRecord.pendingTerminalDelivery,
+     }, `persisted agent session ${sessionKey}`);
+   } catch (error) {
+@@ -752,13 +708,11 @@ export function parsePgSessionMetaState(state: unknown, sessionKey: string): PgS
+   const userIntentContract = normalizeUserIntentContract(metaRow?.userIntentContract);
+   const terminalDeliveryState = normalizePgTerminalDeliveryState({
+     userIntentContract: metaRow?.userIntentContract,
+-    userIntentContractReview: metaRow?.userIntentContractReview,
+     pendingTerminalDelivery: metaRow?.pendingTerminalDelivery,
+   }, `persisted agent session ${sessionKey}`);
+   const sessionIntentContinuityContracts = normalizeSessionIntentContinuityContracts(
+     metaRow?.sessionIntentContinuityContracts,
+   );
+-  const pendingUserIntentRepair = normalizePendingUserIntentRepair(metaRow?.pendingUserIntentRepair);
+   const assetRepairFrontier = normalizeAssetRepairFrontier(metaRow?.assetRepairFrontier);
+   const deliveryRepairRequirement = normalizeDurableDeliveryRepairRequirement(
+     metaRow?.deliveryRepairRequirement,
+@@ -786,7 +740,6 @@ export function parsePgSessionMetaState(state: unknown, sessionKey: string): PgS
+     rolloutState: normalizePersistedRolloutState(metaRow?.rolloutState),
+     ...(userIntentContract ? { userIntentContract } : {}),
+     ...terminalDeliveryState,
+-    ...(pendingUserIntentRepair ? { pendingUserIntentRepair } : {}),
+     structuredOutputRepair: normalizeStructuredOutputRepair(metaRow.structuredOutputRepair) ?? undefined,
+     ...(sessionIntentContinuityContracts.length > 0
+       ? { sessionIntentContinuityContracts }
+diff --git a/apps/agents-cli/src/core/root-persona.ts b/apps/agents-cli/src/core/root-persona.ts
+index 14268e324..4cba07e35 100644
+--- a/apps/agents-cli/src/core/root-persona.ts
++++ b/apps/agents-cli/src/core/root-persona.ts
+@@ -9,7 +9,7 @@ export const POLITICAL_OR_WAR_TOPIC_REFUSAL =
+  * Default-persona projection for the root intent-admission state. The first
+  * model turn cannot execute production, retrieval, recovery, collaboration or
+  * delivery actions, so those full-loop rules are intentionally deferred until
+- * a reviewed UserIntentContract exists. Identity, safety, truthfulness and
++ * a frozen UserIntentContract exists. Identity, safety, truthfulness and
+  * internal-instruction confidentiality remain authoritative in this state.
+  */
+ export const DEFAULT_ROOT_PERSONA_ADMISSION_INTRO = [
+@@ -31,7 +31,7 @@ export const DEFAULT_ROOT_PERSONA_INTRO = [
+   "专业决策依据合同：是否进入生产执行，只决定是否建立任务、生成资产或产生副作用，不决定是否使用专业方法论。最终回答会新增无法由当前事实直接推出的专业建议、设计选择、创作判断、技术策略或方法框架时，可按本轮原始请求召回并加载匹配的 Skill 精确正文；有正向知识卡且其内容会实质影响结论时，再读取对应知识卡。仅复述、核对、转换已确认事实的回答才可声明 factual_only，禁止把节奏、结构、镜头、方案或其它处方性结论伪装成事实。该语义分类与 Skill 选择由 agent 自主完成，不得下沉为本地关键词或固定 route。专业只读回答必须如实使用 factual_only 或 professional_method；缺少真实 Skill 来源时记录 method_evidence_missing(blocking=false)，禁止伪称引用，但继续完成当前授权范围。",
+   "创作生产知识合同：Skill 声明的 knowledge-domains 只是可检索范围；声明 knowledge-retrieval-policy=required_non_blocking 的已加载 Skill 会由 runtime 在首轮创作推理前发起一次候选 knowledge_search，搜索只返回元数据，正文仍由 Agent 按信息增益选择性 knowledge_read，失败、零命中或未读取都不阻断任务。未声明该策略的其它任务只有当前节点缺少会实质影响交付的专业事实时才检索，并消费本轮正向候选。已经取得的 Skill、schema、项目事实和知识证据必须复用，禁止换 query、fields、contentMode 或读取工具重复探索同一事实域。Skill 或知识未加载、被停用、不可用、未命中或版本变化只形成 provenance/diagnostics，禁止伪称引用，但不得阻止生成、提交、持久化或交付；更不得拦截、回滚或丢弃已受理媒体和已生成资产。纯概念问答使用已确认事实，‘有哪些知识卡/知识库是否为空’使用 knowledge_catalog。",
+   "用户明确要求执行时就完成实际动作；用户只在提问、诊断或讨论方案时，不要擅自产生副作用或扩大任务范围。",
+-  "每个 root 逻辑任务都先使用 record_user_intent 冻结本轮 must、forbid、prefer 与语义交付范围；delivery.promptMediaType 必须显式填写 image、video 或 null，不能从 kind、output 或正文关键词推导。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或任何工具事实且 promptMediaType=null 的纯闭卷 response，必须在首次 record_user_intent 中同时提交 responseDelivery.candidate 与逐项 criteria；它就是最终正文。promptMediaType=image/video、需要读取、专业方法、当前状态、持久变更、真实资产或用户选择时不得使用 responseDelivery，继续走真实证据链。prefer 只记录用户明确说出的偏好。真实媒体的 canonical modelKey、执行规格和目录能力只在实际媒体工具调用与服务端 generationContract 中冻结，不在意图合同里重复手写。后续阶段必须复用已冻结 generationContract，不得静默换模型。只读问答也使用最小合同；不依赖意图合同结果的必要只读召回可以与 record_user_intent 同一回合发出。Skill、子代理和编排只能实现该合同，不能削弱、改写或用自己的方法论覆盖用户的 must/forbid。",
++  "每个 root 逻辑任务都在同一次模型输出内先逐项核对原始用户请求、交付类型、落点和显式约束，修正遗漏与自造要求，再使用 record_user_intent 冻结本轮 must、forbid、prefer 与语义交付范围；delivery.promptMediaType 必须显式填写 image、video 或 null，不能从 kind、output 或正文关键词推导。must 必须至少包含一项逐字忠实于当前用户请求的核心结果义务，即使请求只是问候或极短问答也不能提交空数组。无需 Skill、知识、项目、画布、联网或任何工具事实且 promptMediaType=null 的纯闭卷 response，必须在首次 record_user_intent 中同时提交 responseDelivery.candidate 与逐项 criteria；它就是最终正文。promptMediaType=image/video、需要读取、专业方法、当前状态、持久变更、真实资产或用户选择时不得使用 responseDelivery，继续走真实证据链。prefer 只记录用户明确说出的偏好。真实媒体的 canonical modelKey、执行规格和目录能力只在实际媒体工具调用与服务端 generationContract 中冻结，不在意图合同里重复手写。后续阶段必须复用已冻结 generationContract，不得静默换模型。只读问答也使用最小合同；不依赖意图合同结果的必要只读召回可以与 record_user_intent 同一回合发出。Skill、子代理和编排只能实现该合同，不能削弱、改写或用自己的方法论覆盖用户的 must/forbid。",
+   "默认把简单提示词咨询交付为一个可直接使用的成品和少量关键说明；除非用户明确要求教程、多个版本或深度分析，不展开成长篇模板合集。",
+   "StageExecutionPacket 只用于跨物理窗口保留已经确定的唯一业务 frontier，不是执行前置闸门。当前窗口已有完成执行所需的真实事实时直接调用获授权业务工具，不得为了补控制面记录而延迟业务动作。物理续跑若恢复了 active_stage_execution_packet，直接执行或基于该动作的真实失败修复，禁止重新探索、重写同一计划或创建平行执行链。纯正文交付不创建阶段包。",
+   "UserIntentContract@2 的 delivery.mode 必须明确为 response、state_change 或 async_artifact：正文、真实持久状态和已物化资产是三种不同终态证据，禁止根据 kind、领域或工具名称互相推导，也禁止用正文冒充状态或资产。",
+diff --git a/apps/agents-cli/src/core/tool-surface.ts b/apps/agents-cli/src/core/tool-surface.ts
+index ed865cafb..5d8f6a998 100644
+--- a/apps/agents-cli/src/core/tool-surface.ts
++++ b/apps/agents-cli/src/core/tool-surface.ts
+@@ -322,7 +322,7 @@ export function projectInitialUserIntentTool(input: {
+     }
+     return {
+       ...tool,
+-      description: "Freeze the current root request as one typed UserIntentContract. This is the only first-turn action. Do not classify a requested real media asset as an execution-result report: real generated image/video/audio delivery is async_artifact plus its mediaType. For a closed-book response, include the complete final answer in responseDelivery; otherwise omit it and continue after the contract is accepted.",
++      description: "Check the exact user request for omitted or invented constraints, delivery type and destination within this same response, then freeze one typed UserIntentContract. This deterministic tool does not call an approval model or verify task completion. This is the only first-turn action. Do not classify a requested real media asset as an execution-result report: real generated image/video/audio delivery is async_artifact plus its mediaType. For a closed-book response, include the complete final answer in responseDelivery; otherwise omit it and continue after the contract is accepted.",
+       parameters: {
+         ...parameters,
+         oneOf: [{ required: ["referenceResolution", "delivery", "must", "forbid", "prefer"] }],
+diff --git a/apps/agents-cli/src/core/tools/user-intent.ts b/apps/agents-cli/src/core/tools/user-intent.ts
+index 5e3169659..745c4dbbd 100644
+--- a/apps/agents-cli/src/core/tools/user-intent.ts
++++ b/apps/agents-cli/src/core/tools/user-intent.ts
+@@ -2,7 +2,6 @@ import { describeMissingPromptMethodProvenance } from "../delivery/contracts.js"
+ import type { ToolHandler } from "./registry.js";
+ import { createHash } from "node:crypto";
+ import {
+-  buildUserIntentContractPatchSchema,
+   buildUserIntentContractInputSchema,
+   normalizeUserIntentContract,
+   normalizeUserIntentContractInput,
+@@ -18,22 +17,6 @@ import {
+   readActionableDeliveryReferences,
+ } from "../actionable-delivery-reference.js";
+ import { validateJsonSchemaStructure } from "./json-schema-structural-validator.js";
+-import {
+-  IntentContractReviewStructureError,
+-  type UserIntentContractReviewV2,
+-  normalizeUserIntentContractReview,
+-  readUserIntentContractReview,
+-  readUserIntentContractReviewer,
+-  USER_INTENT_CONTRACT_REVIEW_META_KEY,
+-} from "../intent-contract-review.js";
+-import {
+-  applyPendingUserIntentRepairPatch,
+-  createPendingUserIntentRepair,
+-  createPendingUserIntentReviewRetry,
+-  normalizePendingUserIntentRepair,
+-  PENDING_USER_INTENT_REPAIR_META_KEY,
+-  projectUserIntentContractInput,
+-} from "../pending-user-intent-repair.js";
+ import {
+   buildInlineResponseDeliveryInputSchema,
+   INLINE_RESPONSE_DELIVERY_META_KEY,
+@@ -49,15 +32,6 @@ function formatContractStructureIssues(value: unknown): string | null {
+   return issues.slice(0, 8).map((issue) => issue.message).join("; ");
+ }
+ 
+-function formatContractPatchStructureIssues(value: unknown): string | null {
+-  const issues = validateJsonSchemaStructure({
+-    schema: buildUserIntentContractPatchSchema(),
+-    value,
+-  });
+-  if (issues.length === 0) return null;
+-  return issues.slice(0, 8).map((issue) => issue.message).join("; ");
+-}
+-
+ function readRecord(value: unknown): Record<string, unknown> | null {
+   return value !== null && typeof value === "object" && !Array.isArray(value)
+     ? value as Record<string, unknown>
+@@ -90,26 +64,9 @@ function buildRecordUserIntentInputSchema(): Record<string, unknown> {
+   return {
+     type: "object",
+     description:
+-      "Submit the full UserIntentContract fields directly at this tool's top level, or submit one repair object. Never wrap full fields inside a contract object.",
++      "Submit the full UserIntentContract fields directly at this tool's top level,. Never wrap full fields inside a contract object.",
+     properties: {
+       ...contractProperties,
+-      retryReview: {
+-        type: "object",
+-        description: "Retry a structurally invalid reviewer response for the exact retained candidate without changing user intent.",
+-        properties: { baseContractHash: { type: "string" } },
+-        required: ["baseContractHash"],
+-        additionalProperties: false,
+-      },
+-      repair: {
+-        type: "object",
+-        description: "Repair a retained semantically rejected candidate without regenerating valid fields.",
+-        properties: {
+-          baseContractHash: { type: "string" },
+-          patch: buildUserIntentContractPatchSchema(),
+-        },
+-        required: ["baseContractHash", "patch"],
+-        additionalProperties: false,
+-      },
+       continuitySelection: {
+         type: "array",
+         maxItems: 48,
+@@ -127,11 +84,7 @@ function buildRecordUserIntentInputSchema(): Record<string, unknown> {
+       },
+       responseDelivery: buildInlineResponseDeliveryInputSchema(),
+     },
+-    oneOf: [
+-      { required: contractRequired },
+-      { required: ["repair"] },
+-      { required: ["retryReview"] },
+-    ],
++    required: contractRequired,
+     additionalProperties: false,
+   };
+ }
+@@ -159,76 +112,10 @@ function assertInlineResponseRequirementCoverage(input: Readonly<{
+   }
+ }
+ 
+-function resolveContractInput(
+-  args: Record<string, unknown>,
+-  meta: Record<string, unknown>,
+-): Readonly<{ value: unknown; repaired: boolean }> {
+-  const contractInput = projectFullContractInput(args);
+-  const hasContract = Object.keys(contractInput).length > 0;
+-  const hasRepair = args.repair !== undefined;
+-  const hasReviewRetry = args.retryReview !== undefined;
+-  const retained = normalizePendingUserIntentRepair(meta[PENDING_USER_INTENT_REPAIR_META_KEY]);
+-  if (hasReviewRetry) {
+-    const retry = readRecord(args.retryReview);
+-    if (hasContract || hasRepair || args.continuitySelection !== undefined || args.responseDelivery !== undefined ||
+-        !retained?.reviewFailure || retry?.baseContractHash !== retained.contract.contractHash) {
+-      throw new Error("pending_user_intent_review_retry_invalid: retryReview must reference the exact retained candidate, without contract changes.");
+-    }
+-    return { value: projectUserIntentContractInput(retained.contract), repaired: true };
+-  }
+-  if (retained?.reviewFailure) {
+-    throw new Error(`pending_user_intent_review_retry_required: use retryReview={baseContractHash:"${retained.contract.contractHash}"}; the candidate must remain unchanged.`);
+-  }
+-  if (hasContract === hasRepair) {
+-    throw new Error("record_user_intent 必须且只能提交 contract 或 repair 之一。");
+-  }
+-  if (hasContract) {
+-    const pending = normalizePendingUserIntentRepair(meta[PENDING_USER_INTENT_REPAIR_META_KEY]);
+-    if (pending) {
+-      throw new Error(
+-        `pending_user_intent_repair_requires_patch: 当前候选 ${pending.contract.contractHash} 已进入耐久修订态；只能提交绑定该哈希的 repair，禁止重写整份合同。`,
+-      );
+-    }
+-    const structureIssues = formatContractStructureIssues(contractInput);
+-    if (structureIssues) {
+-      const pending = normalizePendingUserIntentRepair(meta[PENDING_USER_INTENT_REPAIR_META_KEY]);
+-      const repairHint = pending
+-        ? ` 已保留候选 ${pending.contract.contractHash}；请改用 repair={baseContractHash,patch} 只提交需修字段，未提及字段会原样保留。`
+-        : "";
+-      throw new Error(`record_user_intent.contract 结构无效：${structureIssues}.${repairHint}`);
+-    }
+-    return { value: contractInput, repaired: false };
+-  }
+-
+-  const repair = readRecord(args.repair);
+-  const baseContractHash = typeof repair?.baseContractHash === "string"
+-    ? repair.baseContractHash.trim()
+-    : "";
+-  const patch = readRecord(repair?.patch);
+-  if (!repair || !baseContractHash || !patch) {
+-    throw new Error("record_user_intent.repair 必须包含 baseContractHash 与非空 patch。");
+-  }
+-  const patchIssues = formatContractPatchStructureIssues(patch);
+-  if (patchIssues) {
+-    throw new Error(`record_user_intent.repair.patch 结构无效：${patchIssues}`);
+-  }
+-  const pending = normalizePendingUserIntentRepair(meta[PENDING_USER_INTENT_REPAIR_META_KEY]);
+-  if (!pending) {
+-    throw new Error("pending_user_intent_repair_missing: 当前没有可修订的持久候选；请提交完整 contract。");
+-  }
+-  return {
+-    value: applyPendingUserIntentRepairPatch({ pending, baseContractHash, patch }),
+-    repaired: true,
+-  };
+-}
+ 
+ type InlineResponseDeliveryInput = NonNullable<ReturnType<typeof normalizeInlineResponseDeliveryInput>>;
+-
+ type InlineResponseDeliveryRejection = Readonly<{
+-  code:
+-    | "inline_response_delivery_invalid"
+-    | "inline_response_delivery_requires_closed_book_response"
+-    | "inline_response_delivery_criteria_mismatch";
++  code: "inline_response_delivery_invalid" | "inline_response_delivery_requires_closed_book_response" | "inline_response_delivery_criteria_mismatch";
+   message: string;
+ }>;
+ 
+@@ -261,7 +148,7 @@ function resolveInlineResponseDelivery(input: Readonly<{
+       delivery: null,
+       rejection: {
+         code: "inline_response_delivery_invalid",
+-        message: "candidate 与 criteria 未满足内联交付 schema；意图合同继续独立复核，正文候选未被接纳。",
++        message: "candidate 与 criteria 未满足内联交付 schema；意图合同继续按结构化事实冻结，正文候选未被接纳。",
+       },
+     };
+   }
+@@ -454,7 +341,7 @@ export function createRecordUserIntentTool(): ToolHandler {
+     definition: {
+       name: USER_INTENT_CONTRACT_TOOL_NAME,
+       description:
+-        "Freeze the root task's UserIntentContract before any read, side effect, or final delivery. Submit the full referenceResolution, delivery, must, forbid, prefer and optional fact fields directly at the tool top level; never wrap them in contract. Alternatively submit exactly one repair. For a closed-book pure response that needs no Skill, knowledge, project, canvas, web, or tool fact, or for a typed media prompt whose professional Skill provenance is already loaded in this run, also submit responseDelivery in this same call; its candidate is the complete final answer and its criteria attest every must/forbid/prefer item by exact array index. Do not emit separate response prose. For any read, professional method without loaded provenance, current-state claim, state change, artifact, or user choice, omit responseDelivery and continue through the normal evidence chain. Put record_user_intent first when batching independent initial reads. prefer records only explicit user preferences, and when none is explicit, send prefer:[]. unresolved contains only facts or authorization only the user can provide. delivery.mode is response, state_change, or async_artifact and cannot be inferred from kind. Do not invent destinations, counts, provider settings, project facts, or execution steps. Prior contracts are evidence for your semantic continuity decision, not automatically active constraints. Use continuitySelection to name the exact applicable prior items; preserve applicable standing preferences and ongoing-task requirements, and do not inherit superseded or unrelated task-local restrictions. The runtime copies only selected items. A semantic repair submits only the named top-level patch with the returned baseContractHash.",
++        "Self-check the exact user request against delivery type, destination, explicit constraints and per-requirement evidence, then freeze the root task's UserIntentContract in this same call. Correct omissions or invented requirements before submitting. This tool records your decision without a second model approval; it does not verify execution or mark delivery complete. Submit the full referenceResolution, delivery, must, forbid, prefer and optional fact fields directly at the tool top level; never wrap them in contract. For a closed-book pure response that needs no Skill, knowledge, project, canvas, web, or tool fact, or for a typed media prompt whose professional Skill provenance is already loaded in this run, also submit responseDelivery in this same call; its candidate is the complete final answer and its criteria attest every must/forbid/prefer item by exact array index. Do not emit separate response prose. For any read, professional method without loaded provenance, current-state claim, state change, artifact, or user choice, omit responseDelivery and continue through the normal evidence chain. Put record_user_intent first when batching independent initial reads. prefer records only explicit user preferences, and when none is explicit, send prefer:[]. unresolved contains only facts or authorization only the user can provide. delivery.mode is response, state_change, or async_artifact and cannot be inferred from kind. Do not invent destinations, counts, provider settings, project facts, or execution steps. Prior contracts are evidence for your semantic continuity decision, not automatically active constraints. Use continuitySelection to name the exact applicable prior items; preserve applicable standing preferences and ongoing-task requirements, and do not inherit superseded or unrelated task-local restrictions. The runtime copies only selected items.",
+       execution: {
+         sideEffect: "local_mutation",
+         retrySafety: "safe",
+@@ -470,26 +357,21 @@ export function createRecordUserIntentTool(): ToolHandler {
+         throw new Error("record_user_intent 只由 root 代理记录；子代理继承父代理的 UserIntentContract。");
+       }
+       if (!ctx.meta) throw new Error("record_user_intent 缺少运行时上下文。");
+-      const resolvedInput = resolveContractInput(args, ctx.meta);
+-      if (resolvedInput.repaired && args.continuitySelection !== undefined) {
+-        throw new Error("record_user_intent.repair 已继承原候选的连续性裁决，禁止再次提交 continuitySelection。");
+-      }
+-      const currentContract = args.retryReview !== undefined
+-        ? normalizePendingUserIntentRepair(ctx.meta[PENDING_USER_INTENT_REPAIR_META_KEY])?.contract
+-        : normalizeUserIntentContractInput(resolvedInput.value);
++      const contractInput = projectFullContractInput(args);
++      const structureIssues = formatContractStructureIssues(contractInput);
++      if (structureIssues) throw new Error(`record_user_intent.contract 结构无效：${structureIssues}`);
++      const currentContract = normalizeUserIntentContractInput(contractInput);
+       if (!currentContract) {
+         throw new Error(
+           "record_user_intent_contract_invariant_violation: 参数虽通过公开 JSON Schema，但没有形成可冻结合同；这是协议实现错误，禁止继续执行副作用。",
+         );
+       }
+       const priorContinuityContracts = readContinuityContracts(ctx.meta);
+-      const contract = resolvedInput.repaired
+-        ? currentContract
+-        : mergeSessionIntentContinuity({
+-            current: currentContract,
+-            prior: priorContinuityContracts,
+-            selections: normalizeContinuitySelections(args.continuitySelection),
+-          });
++      const contract = mergeSessionIntentContinuity({
++        current: currentContract,
++        prior: priorContinuityContracts,
++        selections: normalizeContinuitySelections(args.continuitySelection),
++      });
+       const inlineResponseEligible = contract.delivery.mode === "response" &&
+         contract.delivery.mediaType === null &&
+         contract.referenceResolution.mode !== "needs_user_choice";
+@@ -560,82 +442,18 @@ export function createRecordUserIntentTool(): ToolHandler {
+           "user_intent_contract_execution_committed: 已有真实外部动作成功；只能继续履行当前合同，禁止迁移交付目标。",
+         );
+       }
+-      let semanticReview = previous?.contractHash === contract.contractHash
+-        ? readUserIntentContractReview(ctx.meta, contract)
+-        : null;
+-      if (!semanticReview) {
+-        const reviewer = readUserIntentContractReviewer(ctx.meta);
+-        if (!reviewer) {
+-          throw new Error(
+-            "user_intent_contract_reviewer_missing: record_user_intent 必须先由当前 root 模型独立复核原始用户请求与交付合同。",
+-          );
+-        }
+-        let reviewed: UserIntentContractReviewV2;
+-        try {
+-          const pending = normalizePendingUserIntentRepair(ctx.meta[PENDING_USER_INTENT_REPAIR_META_KEY]);
+-          reviewed = await reviewer.review({
+-            contract,
+-            authoritativeContinuityContracts: priorContinuityContracts,
+-            ...(pending?.reviewFailure ? {
+-              structuralRepair: { parserError: pending.reviewFailure, invalidOutput: pending.invalidReviewOutput ?? "" },
+-            } : {}),
+-          });
+-        } catch (error) {
+-          if (!(error instanceof IntentContractReviewStructureError)) throw error;
+-          ctx.meta[PENDING_USER_INTENT_REPAIR_META_KEY] = createPendingUserIntentReviewRetry(contract, error.message, error.invalidOutput);
+-          const structuredOutput = {
+-            ok: false,
+-            terminal: false,
+-            code: error.code,
+-            contractHash: contract.contractHash,
+-            structuralRepairErrors: [...error.structuralRepairErrors],
+-            retryReview: { baseContractHash: contract.contractHash },
+-            requiredActions: ["Retry the reviewer using retryReview; retain all contract fields unchanged."],
+-          };
+-          ctx.meta.intentContractReviewTrace = structuredOutput;
+-          const content = JSON.stringify(structuredOutput);
+-          return { toolCallId, content, payload: { text: content, structuredOutput } };
+-        }
+-        if (reviewed.status === "needs_revision") {
+-          const pendingRepair = createPendingUserIntentRepair({ contract, review: reviewed });
+-          ctx.meta[PENDING_USER_INTENT_REPAIR_META_KEY] = pendingRepair;
+-          const structuredOutput = {
+-            ok: false,
+-            code: "user_intent_contract_needs_revision",
+-            terminal: false,
+-            rationale: reviewed.rationale,
+-            missingExplicitRequirements: reviewed.missingExplicitRequirements,
+-            inventedRequirementIds: reviewed.inventedRequirementIds,
+-            inventedDeliveryFields: reviewed.inventedDeliveryFields ?? [],
+-            requiredActions: reviewed.requiredActions,
+-            repair: {
+-              baseContractHash: contract.contractHash,
+-              retainedContractInput: projectUserIntentContractInput(contract),
+-              instruction: "再次调用 record_user_intent.repair，只在 patch 中提交 requiredActions 指出的顶层字段；未提交字段会从该候选原样保留。",
+-            },
+-            ...(inlineResponseDecision.rejection
+-              ? { responseDelivery: { accepted: false, ...inlineResponseDecision.rejection } }
+-              : {}),
+-          };
+-          const content = JSON.stringify(structuredOutput);
+-          return {
+-            toolCallId,
+-            content,
+-            payload: { text: content, structuredOutput },
+-          };
+-        }
+-        semanticReview = normalizeUserIntentContractReview(reviewed, contract);
+-        if (!semanticReview) {
+-          throw new Error(
+-            "user_intent_contract_review_invalid: 语义复核结论未形成与当前合同绑定的 faithful attestation。",
+-          );
+-        }
+-      }
+-      if (!semanticReview) {
+-        throw new Error(
+-          "user_intent_contract_review_missing: 当前合同未形成可持久化的语义复核证明。",
+-        );
+-      }
++      // Intent is authored and self-checked by the root in the same model
++      // response. Recording it is a deterministic protocol operation, not an
++      // independent semantic approval round. Actual delivery still requires
++      // the evidence-bound verifier; this receipt does not claim completion.
++      const authoringTrace = {
++        version: 1,
++        mode: "root_authoring",
++        contractHash: contract.contractHash,
++        requirementEvidence: [...contract.must, ...contract.forbid, ...contract.prefer]
++          .map(({ id, source, evidence }) => ({ requirementId: id, source, evidence })),
++      };
++      ctx.meta.intentContractAuthoringTrace = authoringTrace;
+       const revision = typeof ctx.meta.userIntentContractRevision === "number" &&
+         Number.isInteger(ctx.meta.userIntentContractRevision) &&
+         ctx.meta.userIntentContractRevision >= 1
+@@ -648,8 +466,6 @@ export function createRecordUserIntentTool(): ToolHandler {
+           ctx.meta.userIntentContractExecutionCommitted !== true,
+       });
+       ctx.meta.userIntentContract = contract;
+-      ctx.meta[USER_INTENT_CONTRACT_REVIEW_META_KEY] = semanticReview;
+-      delete ctx.meta[PENDING_USER_INTENT_REPAIR_META_KEY];
+       ctx.meta.userIntentContractRevision = changed ? revision + 1 : Math.max(1, revision);
+       if (changed) ctx.meta.intentSelectionTrace = [];
+       if (inlineResponseDelivery) {
+@@ -663,8 +479,7 @@ export function createRecordUserIntentTool(): ToolHandler {
+       const content = JSON.stringify({
+         ok: true,
+         contractHash: contract.contractHash,
+-        reviewFingerprint: semanticReview.reviewFingerprint,
+-        reviewMode: semanticReview.reviewMode ?? "independent_model",
++        admissionMode: "root_authoring",
+         ...(methodDiagnostic ? { diagnostics: [methodDiagnostic] } : {}),
+         revision: ctx.meta.userIntentContractRevision,
+         contract,
+@@ -682,8 +497,7 @@ export function createRecordUserIntentTool(): ToolHandler {
+           structuredOutput: {
+             ok: true,
+             contractHash: contract.contractHash,
+-            reviewFingerprint: semanticReview.reviewFingerprint,
+-            reviewMode: semanticReview.reviewMode ?? "independent_model",
++            admissionMode: "root_authoring",
+             ...(methodDiagnostic ? { diagnostics: [methodDiagnostic] } : {}),
+             revision: ctx.meta.userIntentContractRevision,
+             ...(inlineResponseDecision.rejection
+diff --git a/apps/agents-cli/src/server/http-server.ts b/apps/agents-cli/src/server/http-server.ts
+index 93f4b0f95..ff0163576 100644
+--- a/apps/agents-cli/src/server/http-server.ts
++++ b/apps/agents-cli/src/server/http-server.ts
+@@ -131,19 +131,10 @@ import {
+   normalizeUserIntentContract,
+   type UserIntentContract,
+ } from "../core/intent-contract.js";
+-import {
+-  normalizeUserIntentContractReview,
+-  USER_INTENT_CONTRACT_REVIEW_META_KEY,
+-} from "../core/intent-contract-review.js";
+ import {
+   normalizePendingTerminalDelivery,
+   PENDING_TERMINAL_DELIVERY_META_KEY,
+ } from "../core/durable-session-state.js";
+-import {
+-  formatPendingUserIntentRepairPrompt,
+-  normalizePendingUserIntentRepair,
+-  PENDING_USER_INTENT_REPAIR_META_KEY,
+-} from "../core/pending-user-intent-repair.js";
+ import {
+   DELIVERY_REPAIR_REQUIREMENT_META_KEY,
+   normalizeDurableDeliveryRepairRequirement,
+@@ -223,48 +214,16 @@ function hasDurableTerminalStateValue(value: unknown): boolean {
+ 
+ export function hydratePhysicalContinuationTerminalDeliveryState(input: Readonly<{
+   runtimeMeta: Record<string, unknown>;
+-  persistedMeta: Pick<
+-    PgSessionMeta,
+-    "userIntentContractReview" | "pendingTerminalDelivery"
+-  > | null;
++  persistedMeta: Pick<PgSessionMeta, "pendingTerminalDelivery"> | null;
+   contract: UserIntentContract | null;
+   physicalContinuation: boolean;
+ }>): void {
+-  delete input.runtimeMeta[USER_INTENT_CONTRACT_REVIEW_META_KEY];
+   delete input.runtimeMeta[PENDING_TERMINAL_DELIVERY_META_KEY];
+   if (!input.physicalContinuation) return;
+-
+-  const rawReview = input.persistedMeta?.userIntentContractReview;
+   const rawPending = input.persistedMeta?.pendingTerminalDelivery;
+-  const hasReview = hasDurableTerminalStateValue(rawReview);
+-  const hasPending = hasDurableTerminalStateValue(rawPending);
+-  if (!input.contract) {
+-    if (!hasReview && !hasPending) return;
+-    throw new Error(
+-      "physical continuation terminal state has no matching frozen user intent contract",
+-    );
+-  }
+-  if (!hasReview) {
+-    throw new Error(
+-      "physical continuation frozen user intent contract has no persisted semantic intent review",
+-    );
+-  }
+-
+-  const review = normalizeUserIntentContractReview(rawReview, input.contract);
+-  if (!review) {
+-    throw new Error(
+-      "physical continuation user intent review does not match the frozen contract",
+-    );
+-  }
+-  const pending = hasPending
+-    ? normalizePendingTerminalDelivery(rawPending, input.contract.contractHash)
+-    : null;
+-  if (pending && !review) {
+-    throw new Error(
+-      "physical continuation pending terminal delivery has no valid semantic intent review",
+-    );
+-  }
+-  if (review) input.runtimeMeta[USER_INTENT_CONTRACT_REVIEW_META_KEY] = review;
++  if (!hasDurableTerminalStateValue(rawPending)) return;
++  if (!input.contract) throw new Error("physical continuation terminal state has no matching frozen user intent contract");
++  const pending = normalizePendingTerminalDelivery(rawPending, input.contract.contractHash);
+   if (pending) input.runtimeMeta[PENDING_TERMINAL_DELIVERY_META_KEY] = pending;
+ }
+ 
+@@ -273,35 +232,12 @@ export function projectRuntimeTerminalDeliveryStateToPgSessionMeta(input: Readon
+   sessionMeta: PgSessionMeta;
+ }>): void {
+   const contract = normalizeUserIntentContract(input.runtimeMeta.userIntentContract);
+-  const rawReview = input.runtimeMeta[USER_INTENT_CONTRACT_REVIEW_META_KEY];
+   const rawPending = input.runtimeMeta[PENDING_TERMINAL_DELIVERY_META_KEY];
+-  const hasReview = hasDurableTerminalStateValue(rawReview);
+-  const hasPending = hasDurableTerminalStateValue(rawPending);
+-  if (!contract) {
+-    if (hasReview || hasPending) {
+-      throw new Error(
+-        "runtime terminal delivery state has no matching frozen user intent contract",
+-      );
+-    }
+-    delete input.sessionMeta.userIntentContractReview;
+-    delete input.sessionMeta.pendingTerminalDelivery;
+-    return;
+-  }
+-
+-  const review = hasReview
+-    ? normalizeUserIntentContractReview(rawReview, contract)
+-    : null;
+-  if (hasReview && !review) {
+-    throw new Error("runtime user intent review does not match the frozen contract");
+-  }
+-  const pending = hasPending
+-    ? normalizePendingTerminalDelivery(rawPending, contract.contractHash)
+-    : null;
+-  if (pending && !review) {
+-    throw new Error("runtime pending terminal delivery has no valid semantic intent review");
++  if (hasDurableTerminalStateValue(rawPending) && !contract) {
++    throw new Error("runtime terminal delivery state has no matching frozen user intent contract");
+   }
+-  if (review) input.sessionMeta.userIntentContractReview = review;
+-  else delete input.sessionMeta.userIntentContractReview;
++  const pending = contract && hasDurableTerminalStateValue(rawPending)
++    ? normalizePendingTerminalDelivery(rawPending, contract.contractHash) : null;
+   if (pending) input.sessionMeta.pendingTerminalDelivery = pending;
+   else delete input.sessionMeta.pendingTerminalDelivery;
+ }
+@@ -3015,9 +2951,6 @@ async function handleChatRequest(args: {
+       ...(persistedUserIntentContract
+         ? { userIntentContract: persistedUserIntentContract }
+         : {}),
+-      ...(pgMeta?.userIntentContractReview
+-        ? { userIntentContractReview: pgMeta.userIntentContractReview }
+-        : {}),
+       ...(pgMeta?.pendingTerminalDelivery
+         ? { pendingTerminalDelivery: pgMeta.pendingTerminalDelivery }
+         : {}),
+@@ -3253,9 +3186,6 @@ async function handleChatRequest(args: {
+         ]
+       : []),
+     ...(generationContract ? formatGenerationContractPromptLines(generationContract) : []),
+-    ...(continuesPersistedPhysicalTurn && pgMeta?.pendingUserIntentRepair
+-      ? [formatPendingUserIntentRepairPrompt(pgMeta.pendingUserIntentRepair)]
+-      : []),
+     ...(!continuesPersistedPhysicalTurn && sessionIntentContinuityContracts.length > 0
+       ? [formatSessionIntentContinuityContract(sessionIntentContinuityContracts)]
+       : []),
+@@ -3303,9 +3233,6 @@ async function handleChatRequest(args: {
+     ...(continuesPersistedPhysicalTurn && pgMeta?.catalogOperationRepairCheckpoint
+       ? { [CATALOG_OPERATION_REPAIR_META_KEY]: pgMeta.catalogOperationRepairCheckpoint }
+       : {}),
+-    ...(continuesPersistedPhysicalTurn && pgMeta?.pendingUserIntentRepair
+-      ? { [PENDING_USER_INTENT_REPAIR_META_KEY]: pgMeta.pendingUserIntentRepair }
+-      : {}),
+     ...((continuesPersistedPhysicalTurn ? pgMeta?.structuredOutputRepair : suppliedStructuredRepair)
+       ? { structuredOutputRepair: continuesPersistedPhysicalTurn ? pgMeta?.structuredOutputRepair : suppliedStructuredRepair }
+       : {}),
+@@ -3499,15 +3426,9 @@ async function handleChatRequest(args: {
+     ...(turnScopedUserIntentContract
+       ? { userIntentContract: turnScopedUserIntentContract }
+       : {}),
+-    ...(continuesPersistedPhysicalTurn && pgMeta?.userIntentContractReview
+-      ? { userIntentContractReview: pgMeta.userIntentContractReview }
+-      : {}),
+     ...(continuesPersistedPhysicalTurn && pgMeta?.pendingTerminalDelivery
+       ? { pendingTerminalDelivery: pgMeta.pendingTerminalDelivery }
+       : {}),
+-    ...(continuesPersistedPhysicalTurn && pgMeta?.pendingUserIntentRepair
+-      ? { pendingUserIntentRepair: pgMeta.pendingUserIntentRepair }
+-      : {}),
+     ...(sessionAuthorityFactContract
+       ? { sessionAuthorityFactContract }
+       : {}),
+@@ -3643,14 +3564,6 @@ async function handleChatRequest(args: {
+       sessionMeta: sessionMetaOut,
+     });
+     sessionMetaOut.structuredOutputRepair = normalizeStructuredOutputRepair(toolContextMeta.structuredOutputRepair) ?? undefined;
+-    const pendingUserIntentRepair = normalizePendingUserIntentRepair(
+-      toolContextMeta[PENDING_USER_INTENT_REPAIR_META_KEY],
+-    );
+-    if (pendingUserIntentRepair) {
+-      sessionMetaOut.pendingUserIntentRepair = pendingUserIntentRepair;
+-    } else {
+-      delete sessionMetaOut.pendingUserIntentRepair;
+-    }
+     const currentDeliveryRepairRequirement = normalizeDurableDeliveryRepairRequirement(
+       toolContextMeta[DELIVERY_REPAIR_REQUIREMENT_META_KEY],
+     );

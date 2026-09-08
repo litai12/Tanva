@@ -21,6 +21,7 @@ export type AgentEventType =
   | 'assistant_delta' // canvasAgent(小T)流式文本增量
   | 'flow_patch' // canvasAgent(小T)画布补丁指令
   | 'host_tool' // canvasAgent(小T)调用 Tanva 宿主保留能力
+  | 'host_context_query' // 请求浏览器按范围读取本轮完整画布快照
   | 'host_ui' // canvasAgent(小T)富格式卡片(协议v1.1, kind∈choices/suggestions/media)
   | 'final'
   | 'error'

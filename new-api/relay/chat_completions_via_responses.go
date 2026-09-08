@@ -136,6 +136,13 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	httpResp = resp.(*http.Response)
+	if !info.IsStream && httpResp.StatusCode == http.StatusOK {
+		normalized, normalizeErr := openaichannel.AggregateResponsesStream(httpResp)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		httpResp = normalized
+	}
 	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 	if httpResp.StatusCode != http.StatusOK {
 		tanvasMartErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)

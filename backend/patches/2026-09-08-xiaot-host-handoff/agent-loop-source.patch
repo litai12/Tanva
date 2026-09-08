@@ -1,0 +1,76 @@
+--- a/apps/agents-cli/src/core/agent-loop.ts
++++ b/apps/agents-cli/src/core/agent-loop.ts
+@@ -5539,53 +5539,30 @@
+             String(toolCall.name || "").trim() === "flow_patch" &&
+             String(toolCall.args?.op || "").trim() === "runNode",
+         );
+-        const hostCanvasMutationCalls = currentTurnToolCalls.filter(
+-          (toolCall) => String(toolCall.name || "").trim() === "flow_patch",
++        // A host callback confirms transport admission, not execution. Yield at
++        // read/business command boundaries so the host can return real results
++        // before the model attempts a dependent action.
++        const isPendingHostCommand = (toolCall: ToolCallTrace): boolean => {
++          // Remote execution returns AgentsToolExecuteResponse { ok, content,
++          // data }; in-process tools return the receipt directly.
++          const envelope = toolCall.outputJson;
++          const receipt = isStructuredRecord(envelope?.data) ? envelope.data : envelope;
++          return toolCall.status === "succeeded" && envelope?.ok === true &&
++            receipt?.ok === true && receipt.deliveryState === "emitted_to_host" &&
++            receipt.applied === false;
++        };
++        const pendingHostToolCalls = currentTurnToolCalls.filter(
++          (toolCall) => toolCall.name === "host_tool" &&
++            isPendingHostCommand(toolCall),
+         );
+-        const hostCanvasMutationOnlyComplete =
+-          depth === 0 &&
+-          hostCanvasMode &&
+-          hostCanvasMutationCalls.length > 0 &&
+-          hostRunNodeCalls.length === 0 &&
+-          hostCanvasMutationCalls.every((toolCall) => toolCall.status === "succeeded");
+-        if (hostCanvasMutationOnlyComplete) {
+-          // Creating/updating a text node is a synchronous canvas mutation. It
+-          // does not hand work to a provider, so waiting for a runNode receipt
+-          // would leave a completed request in waiting_for_evidence forever.
+-          toolContextMeta.hostCanvasSubmission = {
+-            emitted: true,
+-            accepted: true,
+-            runNodeCount: 0,
+-            nodeIds: [],
+-            failedCommandCount: 0,
+-          };
+-          session.recordTaskCompletionSignal(createTaskCompletionSignal({
+-            disposition: "succeeded",
+-            reasonCode: "host_canvas_mutation_completed",
+-            rationale: "宿主已接受同步画布写入；没有异步节点需要等待执行证据。",
+-          }));
+-          turnTrace.finished = true;
+-          if (options.sessionMetaOut) {
+-            options.sessionMetaOut.lastResponseId = currentResponseId ?? null;
+-            options.sessionMetaOut.lastSyncIndex = currentSyncIndex;
+-          }
+-          return finalizeRunResult({
+-            hooks: this.hooks,
+-            hookContext,
+-            resultText: "画布已更新。",
+-            ...(effectiveModel ? { model: effectiveModel } : {}),
+-            turns: allTurns,
+-            loadedSkills: [...loadedSkills],
+-            startedAt: runStartedAt,
+-            finishedAt: new Date().toISOString(),
+-            systemPromptChars: maximumSystemPromptChars || baseSystem.length,
+-          });
+-        }
++        const stateChangeCommandsReady =
++          readUserIntentContract(toolContextMeta)?.delivery.mode === "state_change" &&
++          currentTurnToolCalls.some((toolCall) => toolCall.name === "flow_patch" &&
++            isPendingHostCommand(toolCall));
+         const hostCanvasSubmissionComplete =
+           depth === 0 &&
+           hostCanvasMode &&
+-          hostRunNodeCalls.length > 0 &&
+-          currentTurnToolCalls.length > 0;
++          (hostRunNodeCalls.length > 0 || pendingHostToolCalls.length > 0 || stateChangeCommandsReady);
+         if (hostCanvasSubmissionComplete) {
+           const nodeIds = hostRunNodeCalls
+             .map((toolCall) => String(toolCall.args?.id ?? toolCall.args?.nodeId ?? "").trim())
