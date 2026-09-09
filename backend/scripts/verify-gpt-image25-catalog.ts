@@ -21,7 +21,7 @@ async function main() {
   assert.deepEqual(unified.metadata?.supportedModels, ["gpt-image-2.5"]);
   assert.equal(unified.metadata?.defaultData.model, "gpt-image-2.5");
   assert.equal(unified.metadata?.defaultData.quality, "max");
-  assert.equal(unified.metadata?.maxReferenceImages, 1);
+  assert.equal(unified.metadata?.maxReferenceImages, null);
   const parsed = await routing.getParsedConfig();
   for (const modelKey of variants) assert.ok(parsed.models.some((model) => model.modelKey === modelKey));
 

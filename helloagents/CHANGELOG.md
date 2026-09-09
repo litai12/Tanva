@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-09-09：移除 GPT-Image-2.5 前端连接、执行和网关的一张参考图限制；兼容旧节点限制配置，多图完整转发，保留远程 URL 校验与原质量价格。仅本地修改。
+
 - 2026-09-09：修复 GPT-Image-2.5 请求 `quality=max/xhigh` 被 Nest DTO 返回 400；将误加到 ThinkingLevel 的值移至质量枚举，补充实际 ValidationPipe 回归。仅本地修改，需部署 Tanva 后端生效。
 
 ## 2026-09-09 GPT-Image-2.5 已有数据库目录兼容修复

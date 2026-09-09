@@ -1194,7 +1194,7 @@ export class NodeConfigService {
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
         priceYuan: 0.2,
-        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? 1 : 16} 张参考图`,
+        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? '支持多张参考图' : '最多 16 张参考图'}`,
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
@@ -1209,7 +1209,7 @@ export class NodeConfigService {
           showResolutionSelector: true,
           showGoogleSearch: false,
           showGoogleImageSearch: false,
-          maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
+          maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
               ? ['gpt-image-2.5']
@@ -1222,7 +1222,7 @@ export class NodeConfigService {
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
-              maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
+              maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
               googleSearch: false,
               googleImageSearch: false,
             },
@@ -2037,7 +2037,7 @@ export class NodeConfigService {
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
         priceYuan: 0.2,
-        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? 1 : 16} 张参考图`,
+        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? '支持多张参考图' : '最多 16 张参考图'}`,
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
@@ -2052,7 +2052,7 @@ export class NodeConfigService {
           showResolutionSelector: true,
           showGoogleSearch: false,
           showGoogleImageSearch: false,
-          maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
+          maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
               ? ['gpt-image-2.5']
@@ -2065,7 +2065,7 @@ export class NodeConfigService {
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
-              maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
+              maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
               googleSearch: false,
               googleImageSearch: false,
             },

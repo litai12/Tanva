@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Jichuan requires pixel size and one remote reference on the JSON edits endpoint.
+// Jichuan uses pixel size and remote references on the JSON edits endpoint.
 func convertGPTImage25JSON(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	request, err := dto.NormalizeGPTImage25Request(request)
 	if err != nil {
@@ -25,9 +25,12 @@ func convertGPTImage25JSON(c *gin.Context, info *relaycommon.RelayInfo, request 
 	if len(request.Image) > 0 {
 		var ref string
 		if err := json.Unmarshal(request.Image, &ref); err != nil {
-			return nil, err
+			if err := json.Unmarshal(request.Image, &refs); err != nil {
+				return nil, err
+			}
+		} else {
+			refs = append(refs, ref)
 		}
-		refs = append(refs, ref)
 	}
 	for _, key := range []string{"image_urls", "urls"} {
 		if raw := request.Extra[key]; len(raw) > 0 {
@@ -38,18 +41,21 @@ func convertGPTImage25JSON(c *gin.Context, info *relaycommon.RelayInfo, request 
 			refs = append(refs, items...)
 		}
 	}
-	if len(refs) > 1 {
-		return nil, fmt.Errorf("gpt-image-2.5 supports one reference image")
-	}
 	remote := func(ref string) bool {
 		u, e := url.Parse(ref)
 		return e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 	}
-	if len(refs) == 1 {
-		if !remote(refs[0]) {
+	for _, ref := range refs {
+		if !remote(ref) {
 			return nil, fmt.Errorf("gpt-image-2.5 reference must be a remote HTTP(S) URL")
 		}
-		wire["image"] = refs[0]
+	}
+	if len(refs) > 0 {
+		if len(refs) == 1 {
+			wire["image"] = refs[0]
+		} else {
+			wire["image"] = refs
+		}
 		info.RelayMode = relayconstant.RelayModeImagesEdits
 		info.RequestURLPath = "/v1/images/edits"
 	}

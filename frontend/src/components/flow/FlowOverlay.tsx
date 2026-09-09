@@ -1523,7 +1523,7 @@ const resolveNano2LikeMaxReferenceImages = (
     metadata?.defaultData && typeof metadata.defaultData === "object"
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
-  if (normalizeCanvasGptImage25Model(String(nodeData?.model || metadata?.model || defaultData?.model || ""), String(nodeData?.nodeConfigKey || "")) === "gpt-image-2.5") return 1;
+  if (normalizeCanvasGptImage25Model(String(nodeData?.model || metadata?.model || defaultData?.model || ""), String(nodeData?.nodeConfigKey || "")) === "gpt-image-2.5") return Number.POSITIVE_INFINITY;
   const raw = Number(
     nodeData?.maxReferenceImages ??
       metadata?.maxReferenceImages ??

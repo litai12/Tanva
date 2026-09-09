@@ -259,7 +259,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
   const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
   const maxReferenceImages = React.useMemo(() => {
-    if (normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "", data.nodeConfigKey) === "gpt-image-2.5") return 1;
+    if (normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "", data.nodeConfigKey) === "gpt-image-2.5") return undefined;
     const raw = Number(
       data.maxReferenceImages ??
         metadata?.maxReferenceImages ??

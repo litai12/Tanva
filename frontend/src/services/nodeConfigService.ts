@@ -156,7 +156,7 @@ function getDefaultConfigs(): NodeConfig[] {
         showResolutionSelector: true,
         showGoogleSearch: false,
         showGoogleImageSearch: false,
-        maxReferenceImages: nodeKey === "gptImage25" ? 1 : 16,
+        maxReferenceImages: nodeKey === "gptImage25" ? null : 16,
         defaultData: {
           modelProvider: "nano2",
           model,
@@ -164,12 +164,12 @@ function getDefaultConfigs(): NodeConfig[] {
           resolution: "1K",
           quality: nodeKey === "gptImage25" ? "max" : "auto",
           officialFallback: false,
-          maxReferenceImages: nodeKey === "gptImage25" ? 1 : 16,
+          maxReferenceImages: nodeKey === "gptImage25" ? null : 16,
           googleSearch: false,
           googleImageSearch: false,
         },
       },
-      description: `${label} 生图，支持文生图/图生图，${nodeKey === "gptImage25" ? 1 : 16} 张参考图`,
+      description: `${label} 生图，支持文生图/图生图，${nodeKey === "gptImage25" ? "支持多张参考图" : "最多 16 张参考图"}`,
     })),
 
     // 视频节点
