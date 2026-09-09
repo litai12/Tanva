@@ -8,7 +8,7 @@
 
 ## 2026-08-20 小T浏览器演示文稿与 PPTX
 
-- `htmlPpt` 现在作为小T的高层演示文稿交付节点。小T通过 `create_presentation` / `edit_presentation` 传递标题、受众、用途、页数、画幅、风格、页面结构和素材节点 ID；浏览器宿主完成建节点、连素材、Run、真实完成回执、聚焦与自动布局。直接用 `flow_patch` 写 deck/HTML/CSS 不属于受支持路径。
+- `htmlPpt` 现在作为小T的高层演示文稿交付节点。小T通过 `create_presentation` / `edit_presentation` 传递标题、受众、用途、页数、画幅、风格、页面结构和素材节点 ID；浏览器宿主完成建节点、连素材、Run、真实完成回执与聚焦（2026-09-09 起不再自动布局）。直接用 `flow_patch` 写 deck/HTML/CSS 不属于受支持路径。
 - 整套 deck 的 AI 改写按每批最多 3 页串行生成，批次必须严格返回对应页数和原 slide id；只有全部批次通过安全校验后才一次性提交，避免长 deck 超时后留下半成品或占位页。文本请求会按高级模型、标准模型、当前 provider 分析模型和兼容 PPT 模型去重尝试；仅在渠道不可用/503 时自动切换，业务错误仍直接暴露。
 - 默认 `Tanva Studio` 使用项目现有的 `#111111` / `#161616` 黑白工作台语言、克制分隔线、大字号和建筑网格；原有 `Bold 34` 开源模板继续保留。建筑模式要求图纸/面积/法规/工程指标以用户资料为唯一权威，AI 视觉只能作为概念示意，并优先组织场地、体量、功能/流线、气候策略、材料和图纸证据。
 - 节点与小T成品卡都可下载 HTML 或 PPTX。PPTX 导出层按需加载 MIT 开源 `PptxGenJS` 与 `html-to-image`，在浏览器把 16:9 的 `1920×1080` 或 4:3 的 `1440×1080` 固定画布逐页渲染成高清图，再封装为全页图片型 PPTX；这样保持与 HTML 预览高度一致，但页面内部元素当前不是 PowerPoint 原生可编辑对象。
@@ -514,8 +514,16 @@ eference_images / irst_frame / start_end / smart_frames with mode-specific vali
 
 - 顶栏整理按钮发送 `scope: selection-or-all`：存在选区时仅整理选中的原子节点或节点组，未选中的节点不写入目标位置；没有选区时回退为全画布按类别整理。
 - 节点组继续作为原子整理单元。选中组容器会让组成员跟随同一位移；单独选中组成员不会把成员从组中拆出重排。
-- 小T新增节点触发的自动整理不声明选区范围，始终使用全画布布局，避免用户遗留选区使新节点漏排。
+- 2026-09-09：小T新增节点及回合结束不再自动整理，也不自动聚焦新节点。新增位置在当前视窗内选空位，并避让聊天浮层；空间不足时选择遮挡最少的位置，绝不挪动旧节点。
+- 小T默认创建新的 Prompt 和生成节点；只有用户明确指定节点操作或框选时才操作已有节点。此行为仅通过提示词说明，不在宿主侧添加选区/点名识别、节点写入白名单或操作拦截。
+- 术语统一：文本节点、文字节点、提示词节点均指 `textPrompt`（画布显示 Prompt），正文写 `data.text`；便签 `textNote`、文本对话 `textChat` 仅在用户明确要求对应节点时使用。
 
 ### Wan3.0 节点
 
 Wan3.0 使用 `Wan30VideoNode` 薄包装复用 Seedance 同一 `GenericVideoNode`，保留 DashScope 执行链路。支持文本、图片、尾帧和参考视频输入；`isValidConnection`、`canAcceptConnection` 及句柄映射同步支持各输入，分别限制参考图 10 张、尾帧 1 张、参考视频 5 段。单图使用首帧，多图或与视频同时使用时转参考图，尾帧禁止与参考模式混用。控件、小T和执行入口统一使用 `clipDuration`，渲染与执行兼容旧 `duration`。回归命令：`cd frontend && node scripts/verifyWan30Connections.mjs`。
+
+### Group 实际渲染边界（2026-09-09）
+
+- 分组包围框优先使用 React Flow v12 `node.measured.width/height`，未测量时才回退节点尺寸与默认尺寸。GPT 图片节点参数面板、生成预览等动态内容必须完整包含在组框内，边距保持 24 个画布单位。
+- 组边框归一化在最新节点状态上幂等计算，不跳过下一次尺寸通知；图片生成后增高、缩小或成员移动都会更新边框，只改变组容器，不移动组内节点。已有项目加载并完成节点测量后也应用此规则。
+- 回归：`node --test src/utils/flowGroupBounds.test.ts src/utils/canvasAutoLayout.test.ts`。

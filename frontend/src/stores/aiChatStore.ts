@@ -90,7 +90,6 @@ import {
   resolveXiaotTerminalContent,
   XIAOT_THINKING_CONTENT,
 } from "@/stores/xiaotTerminalContent";
-import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
@@ -9593,9 +9592,6 @@ export const useAIChatStore = create<AIChatState>()(
             if (!hostDelivery.satisfied) {
               throw new Error(hostDelivery.error || "画布操作没有形成可验证交付");
             }
-            const firstAcceptedImageId = acceptedImageAgentIds[0]
-              ? resolveAgentNodeId(acceptedImageAgentIds[0])
-              : null;
             if (
               imageContractStats.acceptedImageNodes === 0 &&
               pendingXiaotMediaCards.length > 0
@@ -9654,16 +9650,6 @@ export const useAIChatStore = create<AIChatState>()(
               assembled = buildXiaotDeliveredContent(hostDelivery.assets, assembled);
               typeTarget = assembled;
               pumpTypewriter();
-            }
-            if (patchCount > 0) {
-              window.dispatchEvent(
-                new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
-                  detail: {
-                    source: "xiaot",
-                    focusNodeId: firstAcceptedImageId,
-                  },
-                })
-              );
             }
             if (imageContractStats.suppressedImageNodes > 0) {
               window.dispatchEvent(

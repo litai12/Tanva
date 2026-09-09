@@ -154,3 +154,7 @@
 - new-api Responses 兼容：客户端 stream=false 时，收到上游 SSE 须先保留原始输出字段聚合为 JSON，再进入适配器；不得仅因上游 Content-Type 改变客户端传输合同。工具调用与正文可并存；缺失工具关联 ID 明确拒绝。远程媒体 token 预估不下载，最终计费仍消费 usage。详见 `wiki/new-api-capability-sync-20260908.md`。
 
 - new-api 管理台 UI 以 Tanvas 为默认企业标识，跨项目同步不得覆盖本地 logo/favicon。绘图日志结果图与参考图直接缩略展示并支持放大，内联历史图片仅转临时 Blob 预览、不回写日志；文档页同时兼容 `/docs` 与 `/console/docs`，数据依本地 pricing/OpenAPI 合同。
+
+- 小T画布新增合同（2026-09-09）：对话生成默认新建节点，保留旧图与旧节点位置；提示词说明只有用户指定节点操作或框选时才操作已有节点，不增加宿主侧节点操作保护/拦截；文本节点统一指 textPrompt（Prompt）。节点落在当前视窗并避让对话浮层，禁止新增后或回合结束自动全图整理/聚焦。
+
+- Group 边界以 React Flow 实际 measured 尺寸优先，不能拿图片节点初始化 boxH 代替包含参数与预览的实际高度；动态尺寸变化只更新组容器，保留成员坐标。

@@ -332,7 +332,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "textNote",
       label: "便签",
-      purpose: "画布上的纯文本便签，用于备注/说明",
+      purpose: "便签节点，仅在用户明确要求便签时使用；用户说文本节点时使用 textPrompt（Prompt）",
       params: { text: { type: "string", description: "便签内容" } },
     },
     {
@@ -365,8 +365,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
     },
     {
       type: "textPrompt",
-      label: "提示词",
-      purpose: "生成类节点的提示词载体：data.text 写提示词，输出连到生成节点的 text 输入",
+      label: "Prompt",
+      purpose: "画布的文本节点（Prompt）：用户要求添加文本、文字或提示词节点时使用；data.text 写正文，作为生成提示词时输出连到生成节点的 text 输入",
       params: { text: { type: "string", description: "提示词正文" } },
       outputs: [{ handle: "text", emits: "text" }],
     },
@@ -637,7 +637,9 @@ export const TANVA_CAPABILITY_MANIFEST = {
   notes: [
     "Office 文件规则：用户要求新建 PPT/PPTX/幻灯片/提案/汇报时，必须加载 pptx-generator Skill，按用户实际内容生成并校验真实 .pptx，随后调用 present_file 交付；用户要求新建 Excel/XLSX/表格/清单/预算/排期时，必须加载 minimax-xlsx Skill，生成并校验真实 .xlsx，随后调用 present_file 交付。禁止调用旧的 create_presentation/create_spreadsheet 模板工具，禁止用固定 HTML 三页模板、Markdown 表格或模拟数据代替文件。只有用户明确要求修改画布中已存在的 Tanva HTML 演示文稿时，才调用 edit_presentation。用户明确要求“只出图/不要文字”时调用 legacy_image_only；要求找案例/参考资料/建筑先例时调用 case_search；要求识图、描述、提取提示词、比较或分析图片时调用 analyze_image。这些能力必须由小T判断后调用，不能让用户切换到另一条聊天链路。",
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
-    "addNode 的 position 缺省时宿主会自动排布",
+    "术语约定：用户说文本节点、文字节点、提示词节点或 Prompt 节点，均指画布 textPrompt 节点，使用 addNode {type:'textPrompt', data:{text:正文}}。不要把文本节点理解为 textNote 便签或 textChat 文本对话；只有明确要求便签或文本对话节点时才使用对应类型。",
+    "小T对话默认新增节点：生成新内容必须 addNode 创建新的提示词和生成节点，禁止复用、覆盖或重新运行历史生成节点。只有用户明确指定操作某个已有节点或框选节点时，才可操作对应已有节点；上下文包含某节点、模型相同或上一轮刚生成不构成修改授权。参考旧图时只读取并连入新节点。",
+    "新增节点由宿主放在用户当前可见视窗；禁止新增后自动整理、移动旧节点或 focusNode 改变视口。",
     "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",
     "placeImage 会把图片放到画布绘图层（非节点、不可连线）；需要可连线的图片节点请用 addNode {type:'image', data:{imageUrl}}",
     "操作已有节点时 id 必须来自 canvas_context.nodes（真实 id）；你此前轮次自造的节点 id 仅在同一聊天会话内有效",

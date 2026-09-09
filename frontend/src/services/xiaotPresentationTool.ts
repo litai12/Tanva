@@ -12,7 +12,6 @@ import {
   getHtmlPptBoldTemplate,
   type HtmlPptBoldTemplateSlug,
 } from "../utils/htmlPptBoldTemplates.ts";
-import { FLOW_AUTO_LAYOUT_EVENT } from "../utils/canvasAutoLayout.ts";
 
 const MAX_SLIDES = 24;
 const MAX_IMAGE_INPUTS = 6;
@@ -470,11 +469,7 @@ const connectPresentationAssets = async (options: {
 
 const focusPresentation = (nodeId: string) => {
   window.dispatchEvent(new CustomEvent("flow:focus-node", { detail: { id: nodeId } }));
-  window.dispatchEvent(
-    new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
-      detail: { source: "xiaot-presentation", focusNodeId: nodeId },
-    })
-  );
+
 };
 
 export async function createPresentationFromXiaot(options: {

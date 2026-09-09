@@ -3466,6 +3466,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
   return (
     <div
       ref={containerRef}
+      data-xiaot-chat-panel
       data-prevent-add-panel
       aria-hidden={focusMode}
       className={cn(

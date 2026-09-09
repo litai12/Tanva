@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
+import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
 import { normalizeCanvasGptImage25Model } from "@/services/gptImage25";
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
@@ -757,35 +758,12 @@ const computeGroupBounds = (
   nodes: RFNode[],
   childIds: string[]
 ): { x: number; y: number; width: number; height: number } | null => {
-  if (!childIds.length) return null;
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  let found = 0;
-
-  childIds.forEach((id) => {
-    const child = nodeMap.get(id);
-    if (!child || isGroupNode(child)) return;
-    const { width, height } = getNodeRenderSize(child);
-    const x = Number(child.position?.x ?? 0);
-    const y = Number(child.position?.y ?? 0);
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + width);
-    maxY = Math.max(maxY, y + height);
-    found += 1;
+  return computeFlowGroupBounds(nodes, childIds, {
+    getFallbackSize: getNodeRenderSize,
+    padding: FLOW_GROUP_PADDING,
+    minWidth: FLOW_GROUP_MIN_WIDTH,
+    minHeight: FLOW_GROUP_MIN_HEIGHT,
   });
-
-  if (!found) return null;
-
-  const x = minX - FLOW_GROUP_PADDING;
-  const y = minY - FLOW_GROUP_PADDING;
-  const width = Math.max(FLOW_GROUP_MIN_WIDTH, maxX - minX + FLOW_GROUP_PADDING * 2);
-  const height = Math.max(FLOW_GROUP_MIN_HEIGHT, maxY - minY + FLOW_GROUP_PADDING * 2);
-  return { x, y, width, height };
 };
 
 const expandFlowSelectionWithGroupChildren = (
@@ -6001,16 +5979,13 @@ function FlowInner() {
     return { changed, nodes: normalized };
   }, []);
 
-  const groupNormalizeLockRef = React.useRef(false);
   React.useEffect(() => {
-    if (groupNormalizeLockRef.current) {
-      groupNormalizeLockRef.current = false;
-      return;
-    }
-    const result = normalizeGroupNodes(nodes as RFNode[]);
-    if (!result.changed) return;
-    groupNormalizeLockRef.current = true;
-    setNodes(result.nodes as any);
+    // Normalize the latest state: a measurement can arrive after this render.
+    // Equality checks make this idempotent, without skipping the next change.
+    setNodes((current) => {
+      const result = normalizeGroupNodes(current);
+      return result.changed ? result.nodes : current;
+    });
   }, [nodes, normalizeGroupNodes, setNodes]);
 
   const updateGroupNodeData = React.useCallback(
@@ -24893,7 +24868,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       let createdId: string | null = null;
       try {
         // 小T给出的坐标来自独立画布语境，不作为 Tanva 世界坐标使用。先把节点
-        // 放到当前视口附近，整轮完成后再统一走与“一键整理”完全相同的布局。
+        // 放到当前视口空隙，只决定新节点的位置，保留所有旧节点与视口。
         const rect = containerRef.current?.getBoundingClientRect();
         const screenPosition = {
           x:
@@ -24903,7 +24878,42 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             (rect?.top || 0) +
             (rect?.height || window.innerHeight) / 2,
         };
-        const world = rf.screenToFlowPosition(screenPosition);
+        const center = rf.screenToFlowPosition(screenPosition);
+        const size = FLOW_NODE_DEFAULT_SIZE[normalizeFlowNodeType(detail.type) || "image"];
+        const zoom = rf.getViewport().zoom || 1;
+        const width = (rect?.width || window.innerWidth) / zoom;
+        const height = (rect?.height || window.innerHeight) / zoom;
+        const nodeWidth = Number(detail.data?.boxW) || size.w;
+        const nodeHeight = Number(detail.data?.boxH) || size.h;
+        const existing = rf.getNodes().map((node) => ({
+          position: node.position,
+          size: resolveNodeLayoutSize(node, FLOW_NODE_DEFAULT_SIZE[normalizeFlowNodeType(node.type || "image") || "image"]),
+        }));
+        // 聊天浮层也作为障碍，避免新结果落在对话窗口背后。
+        document.querySelectorAll<HTMLElement>("[data-xiaot-chat-panel]").forEach((panel) => {
+          const bounds = panel.getBoundingClientRect();
+          if (bounds.width <= 0 || bounds.height <= 0) return;
+          const position = rf.screenToFlowPosition({ x: bounds.left, y: bounds.top });
+          existing.push({ position, size: { w: bounds.width / zoom, h: bounds.height / zoom } });
+        });
+        // 在可见区域采样，优先离中心近且不遮住现有节点的位置。
+        let world = center;
+        let bestScore = Infinity;
+        for (let row = 0; row <= 8; row += 1) {
+          for (let col = 0; col <= 8; col += 1) {
+            const candidate = {
+              x: center.x + (col / 8 - 0.5) * Math.max(0, width - nodeWidth - 48),
+              y: center.y + (row / 8 - 0.5) * Math.max(0, height - nodeHeight - 48),
+            };
+            const left = candidate.x - nodeWidth / 2;
+            const top = candidate.y - nodeHeight / 2;
+            const overlap = existing.reduce((sum, node) => sum +
+              Math.max(0, Math.min(left + nodeWidth + 24, node.position.x + node.size.w) - Math.max(left - 24, node.position.x)) *
+              Math.max(0, Math.min(top + nodeHeight + 24, node.position.y + node.size.h) - Math.max(top - 24, node.position.y)), 0);
+            const score = overlap * 10000 + Math.hypot(candidate.x - center.x, candidate.y - center.y);
+            if (score < bestScore) { bestScore = score; world = candidate; }
+          }
+        }
         createdId = createNodeAtWorldCenter(detail.type, world, detail.data);
       } catch (err) {
         console.warn("[agent-bridge] add-node failed:", err);
@@ -24912,17 +24922,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       try {
         detail.done?.(createdId ?? null);
       } catch {}
-      if (createdId) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            window.dispatchEvent(
-              new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
-                detail: { source: "xiaot" },
-              })
-            );
-          });
-        });
-      }
+
     };
 
     const onAgentConnectEdge = async (event: Event) => {
