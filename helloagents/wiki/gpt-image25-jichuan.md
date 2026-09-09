@@ -24,3 +24,9 @@ Per user request, Jichuan now exposes high/xhigh/max only and defaults to max. S
 ## Local revision: single frontend model (not deployed)
 
 The GPT-Image-2.5 canvas node now uses only gpt-image-2.5 (Jichuan), with no model selector. The palette metadata and agent manifest expose only this 2.5 model. Quality remains high/xhigh/max, default max, at unchanged prices. Saved Flare/Sunburst nodes normalize to gpt-image-2.5 for both rendering and execution, including the one-reference limit. The old GPT-Image-2 node remains separate. Backend gateway channel records for the old variants are retained; no server mutation or deployment performed.
+
+## Local fix: HTTP quality validation (2026-09-09, not deployed)
+
+An HTTP 400 for quality=max exposed a runtime DTO mismatch: the TypeScript quality union included xhigh/max, but GptImage2Quality still accepted only auto/low/medium/high. The extra values had accidentally been added to ThinkingLevel. Move them into GptImage2Quality and restore ThinkingLevel to high/low. The shared GenerateImageDto now accepts the frontend's high/xhigh/max for both synchronous and asynchronous generation; legacy GPT-Image-2 values remain compatible. Quality choices/defaults and resolution-only pricing are unchanged.
+
+Regression: `cd backend && npm run test:image-generation-dto` exercises the actual Nest ValidationPipe with a remote-reference image request, all three 2.5 qualities, legacy values, invalid quality rejection and thinking-level validation. Deploy by rebuilding and restarting the Tanva Nest backend; rebuilding only the new-api Docker Compose services does not update this DTO. No production request or server change was performed for this fix.

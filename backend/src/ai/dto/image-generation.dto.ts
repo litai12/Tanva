@@ -28,8 +28,6 @@ enum OutputFormat {
 
 enum ThinkingLevel {
   HIGH = 'high',
-  XHIGH = 'xhigh',
-  MAX = 'max',
   LOW = 'low',
 }
 
@@ -50,6 +48,8 @@ enum GptImage2Quality {
   LOW = 'low',
   MEDIUM = 'medium',
   HIGH = 'high',
+  XHIGH = 'xhigh',
+  MAX = 'max',
 }
 
 enum GptImage2Background {

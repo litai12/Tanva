@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-09-09：修复 GPT-Image-2.5 请求 `quality=max/xhigh` 被 Nest DTO 返回 400；将误加到 ThinkingLevel 的值移至质量枚举，补充实际 ValidationPipe 回归。仅本地修改，需部署 Tanva 后端生效。
+
 ## 2026-09-09 GPT-Image-2.5 已有数据库目录兼容修复
 
 - 模型路由与公开节点目录读取旧 SystemSetting 时补齐缺失的 Flare/Sunburst，修复部署后统一节点仍被过滤的问题；保留显式禁用设置。新增旧数据库升级及模型禁用回归检查。

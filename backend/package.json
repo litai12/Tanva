@@ -23,6 +23,7 @@
     "test:text-chat-right-routing": "ts-node --transpile-only src/ai/text-chat-right-routing.spec.ts",
     "test:tool-selection-right-routing": "ts-node --transpile-only src/ai/tool-selection-right-routing.spec.ts",
     "test:new-api-image-response-format": "ts-node --transpile-only src/ai/providers/new-api.provider.spec.ts",
+    "test:image-generation-dto": "ts-node --transpile-only src/ai/dto/image-generation.dto.spec.ts",
     "verify:agent-image-routing": "ts-node --transpile-only scripts/verify-agent-image-routing.ts",
     "verify:prompt-optimizer-models": "ts-node --transpile-only scripts/verify-prompt-optimizer-models.ts",
     "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",
