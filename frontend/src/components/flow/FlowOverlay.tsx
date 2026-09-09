@@ -1522,6 +1522,7 @@ const resolveNano2LikeMaxReferenceImages = (
     metadata?.defaultData && typeof metadata.defaultData === "object"
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
+  if ((nodeData?.model || metadata?.model || defaultData?.model) === "gpt-image-2.5") return 1;
   const raw = Number(
     nodeData?.maxReferenceImages ??
       metadata?.maxReferenceImages ??
@@ -23129,7 +23130,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         try {
           const latestBananaImageRoute =
-            ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(requestedModel)
+            ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(requestedModel)
               ? "normal"
               : useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
@@ -23161,10 +23162,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             const value = pickStringValue(
               nodeData?.quality ?? defaultData?.quality
             )?.toLowerCase();
+            if (requestedModel === "gpt-image-2.5") {
+              return value === "high" || value === "xhigh" || value === "max" ? value : "max";
+            }
             return value === "auto" ||
               value === "low" ||
               value === "medium" ||
-              value === "high"
+              value === "high" || value === "xhigh" || value === "max"
               ? value
               : undefined;
           })();
@@ -26619,7 +26623,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
         const isGpt25Runtime = resolvedType === "gptImage2" && (
           ["gptImage25", "gptImage25Flare", "gptImage25Sunburst"].includes(String(n.data?.nodeConfigKey || "")) ||
-          ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(String(n.data?.model || ""))
+          ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(String(n.data?.model || ""))
         );
         const managedRuntime = resolvedType
           ? managedRuntimeByType.get(isGpt25Runtime ? "config:gptImage25" : resolvedType)

@@ -1090,6 +1090,7 @@ export class AiController {
         ? extraParams.channelHint.trim()
         : undefined;
     const channelHint =
+      requestModel === 'gpt-image-2.5' ? 'jichuan' :
       ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(requestModel)
         ? 'toapis'
         : isGatewayTextRequest

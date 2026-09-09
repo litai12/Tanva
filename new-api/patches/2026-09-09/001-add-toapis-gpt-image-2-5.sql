@@ -8,7 +8,7 @@ DO $$ BEGIN
     RAISE EXCEPTION 'gpt-image-2 catalog row is required';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM channels WHERE type = 59 AND
-    lower(regexp_replace(base_url, '/+$', '')) IN ('https://toapis.com', 'https://toapis.xyz')) THEN
+    lower(regexp_replace(base_url, '/+$', '')) IN ('https://toapis.com', 'https://toapis.xyz', 'https://toapis.cn')) THEN
     RAISE EXCEPTION 'An existing ToAPIs channel is required';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM options WHERE key = 'ModelPrice' AND value::jsonb ? 'gpt-image-2') THEN
@@ -39,7 +39,7 @@ UPDATE channels c SET models = (
   ) names WHERE name <> ''
 )
 WHERE c.type = 59 AND lower(regexp_replace(c.base_url, '/+$', ''))
-  IN ('https://toapis.com', 'https://toapis.xyz');
+  IN ('https://toapis.com', 'https://toapis.xyz', 'https://toapis.cn');
 
 INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
 SELECT trim(g.grp), v.model_name, c.id, c.status = 1,
@@ -47,7 +47,7 @@ SELECT trim(g.grp), v.model_name, c.id, c.status = 1,
 FROM channels c CROSS JOIN unnest(string_to_array(c."group", ',')) g(grp)
 CROSS JOIN gpt25_models v
 WHERE c.type = 59 AND lower(regexp_replace(c.base_url, '/+$', ''))
-  IN ('https://toapis.com', 'https://toapis.xyz') AND trim(g.grp) <> ''
+  IN ('https://toapis.com', 'https://toapis.xyz', 'https://toapis.cn') AND trim(g.grp) <> ''
 ON CONFLICT ("group", model, channel_id) DO UPDATE
 SET enabled = EXCLUDED.enabled, priority = EXCLUDED.priority, weight = EXCLUDED.weight, tag = EXCLUDED.tag;
 

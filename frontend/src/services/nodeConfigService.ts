@@ -144,8 +144,8 @@ function getDefaultConfigs(): NodeConfig[] {
         ...(model !== "gpt-image-2"
           ? {
               paletteVariantKey: nodeKey,
-              modelKeys: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
-              supportedModels: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+              modelKeys: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"],
+              supportedModels: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"],
               managedModelKey: model,
             }
           : {}),

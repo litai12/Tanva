@@ -438,6 +438,9 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if request.Model == dto.GPTImage25Model {
+		return convertGPTImage25JSON(c, info, request)
+	}
 	if trimmed := strings.TrimSuffix(request.Model, "-official"); trimmed != request.Model {
 		request.Model = trimmed
 		info.UpstreamModelName = trimmed

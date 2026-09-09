@@ -128,7 +128,7 @@ export interface AIImageGenerateRequest {
   parallelGroupIndex?: number; // 对话框并行生图序号（0-based）
   parallelGroupTotal?: number; // 对话框并行生图总数
   officialFallback?: boolean; // gpt-image-2: whether to enable official upstream fallback
-  quality?: 'auto' | 'low' | 'medium' | 'high';
+  quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   background?: 'auto' | 'opaque' | 'transparent';
   moderation?: 'auto' | 'low';
   outputCompression?: number;

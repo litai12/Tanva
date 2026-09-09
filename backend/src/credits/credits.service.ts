@@ -1905,7 +1905,7 @@ export class CreditsService {
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute);
-    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(
+    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
     let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;
@@ -2243,7 +2243,7 @@ export class CreditsService {
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(
+    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
     let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;

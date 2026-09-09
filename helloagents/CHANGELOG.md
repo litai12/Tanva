@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-09 GPT-Image-2.5 已有数据库目录兼容修复
+
+- 模型路由与公开节点目录读取旧 SystemSetting 时补齐缺失的 Flare/Sunburst，修复部署后统一节点仍被过滤的问题；保留显式禁用设置。新增旧数据库升级及模型禁用回归检查。
+
 ## 2026-09-09 GPT-Image-2.5 ToAPIs（本地，未发布）
 
 - 新增 GPT-Image-2.5 统一生图节点，内置 Flare/Sunburst 切换和独立托管型号，沿用 GPT-Image-2 普通分辨率价格；请求保留真实型号，稳定线路不触发 Tencent 价格或 token 分组。
@@ -1383,3 +1387,9 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 2026-09-08：继续定向同步 TapCanvas-pro new-api：Chat/Responses 参数与工具兼容、Responses SSE 终态与无损 JSON 聚合、流状态保留、远程媒体免下载 token 估算；补齐真实 Responses/Chat-via-Responses 入口接线。构建与相关回归通过，旧 Claude 文件测试及 helper 并行全局配置干扰见 `wiki/new-api-capability-sync-20260908.md`。
 
 - 2026-09-08：同步 new-api 全局主题、导航、首页与动态 API 文档 UI，保持 Tanvas logo/favicon 和企业标识；绘图日志结果图/参考图改为直接缩略图、点击放大，历史内联图片先转 Blob 展示。修复文档取消请求复用与浅色代码对比度，11 项测试通过。详见 `wiki/new-api-ui-sync-20260908.md`。
+
+- 2026-09-09 GPT-Image-2.5 production fix (101): added ToAPIs .cn migration matching; backed up and registered both models and four default/vip abilities. Rebuilt/reloaded tanvas-api with saved-catalog compatibility fixes. Verified the public node catalog, deployed model selector, and gateway pricing entries. No paid generation executed.
+
+- 2026-09-09 Jichuan GPT-Image-2.5 (101 deployed): synchronized TapCanvas jichuan-image channel only, added Jichuan to unified GPT-Image-2.5 model selector and low/high/xhigh/max quality control. Imported pixel-size/remote-reference edits contract. All qualities keep Tanva 20/30/40 credits at 1K/2K/4K; no source quality-price matrix copied. Live catalog, frontend bundle and gateway resolution-only pricing verified. See wiki/gpt-image25-jichuan.md.
+
+- 2026-09-09 Local only: Jichuan GPT-Image-2.5 quality choices reduced to high/xhigh/max, default max; legacy low/auto/missing values normalize to max, prices unchanged. No deployment.

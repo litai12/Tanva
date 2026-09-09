@@ -611,7 +611,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
       label: "GPT Image 2 / 2.5",
       purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；Flare/Sunburst 使用 ToAPIs",
       params: {
-        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] },
+        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"] },
+        quality: { type: "string", enum: ["high", "xhigh", "max"], default: "max", description: "Jichuan quality; same price within a resolution" },
         aspectRatio: { type: "string" },
         resolution: { type: "string", enum: ["1K", "2K", "4K"] },
       },

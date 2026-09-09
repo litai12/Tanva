@@ -18,3 +18,13 @@
 - 统一节点入口复用 GPT-Image-2 的画布组件、参数和图片历史；切换型号同时更新 model/managedModelKey，生成期间禁止切换。启动时隐藏早期 Flare/Sunburst 独立目录入口，已有画布节点保留原型号并显示统一标题与切换器。
 
 - 运行时目录对 GPT 节点按 nodeConfigKey 隔离元数据；GPT-Image-2.5 不能覆盖 GPT-Image-2 的默认型号。统一目录、共享渲染类型、Flare 默认值、仅 Sunburst 启用时的选项与默认值检查通过。
+
+## 已有数据库升级修复
+
+已部署后不显示节点的代码缺口：模型路由只给指定新增型号补齐缺失默认值，节点目录又直接读取旧 SystemSetting，仅合并音频型号。两条路径均遗漏 GPT-Image-2.5，导致公开目录把新节点按“无可用模型”过滤。现在两条路径均补齐缺失的 Flare/Sunburst，保留管理员显式 enabled=false，不需重置整个模型目录。`npm run verify:gpt-image25-catalog` 覆盖旧目录升级后的公开节点返回、两模型选项、单模型禁用及全部禁用。此次修复需重新部署后端才能在正式站生效。
+
+## Production verification: 101 (2026-09-09)
+
+The automatic migration failed because channel 31 uses https://toapis.cn, which the original SQL did not match. Added .cn support, backed up models/channels/abilities/options/schema_migrations, applied this migration, and recorded completion. Both models now have enabled default/vip abilities; their stored ModelPrice equals the existing GPT-Image-2 price (0.4). The gateway pricing endpoint returns both models after its periodic cache refresh.
+
+The production backend was rebuilt and only tanvas-api was reloaded. https://tanvas.cn/api/public/ai/node-configs now returns gptImage2 and gptImage25, with both Flare/Sunburst options. The deployed frontend bundle contains the gpt25-model selector. Backup: /opt/tanva-backups/gpt25-20260909. No paid image generation request was submitted. This production verification supersedes the earlier local-only deployment notes above.

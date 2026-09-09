@@ -161,7 +161,7 @@ export const useImageNodeCreditsPreview = ({
         normalized === "auto" ||
         normalized === "low" ||
         normalized === "medium" ||
-        normalized === "high"
+        normalized === "high" || normalized === "xhigh" || normalized === "max"
       ) {
         return normalized;
       }

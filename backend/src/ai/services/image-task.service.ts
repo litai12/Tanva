@@ -383,7 +383,7 @@ export class ImageTaskService {
     requestData: Record<string, any> | null,
   ): 'normal' | 'stable' | 'ultra' | null {
     if (!requestData) return null;
-    if (['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(requestData.model)) return 'normal';
+    if (['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(requestData.model)) return 'normal';
     return (
       normalizeBananaRoute(requestData.bananaImageRoute) ||
       normalizeBananaRoute(requestData?.providerOptions?.banana?.imageRoute) ||

@@ -44,7 +44,7 @@ type NodeData = {
   error?: string;
   aspectRatio?: string;
   resolution?: string;
-  quality?: "auto" | "low" | "medium" | "high";
+  quality?: "auto" | "low" | "medium" | "high" | "xhigh" | "max";
   presetPrompt?: string;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
@@ -258,13 +258,14 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
   const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
   const maxReferenceImages = React.useMemo(() => {
+    if ((data.model || metadata?.model || defaultData?.model) === "gpt-image-2.5") return 1;
     const raw = Number(
       data.maxReferenceImages ??
         metadata?.maxReferenceImages ??
         defaultData?.maxReferenceImages
     );
     return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : undefined;
-  }, [data.maxReferenceImages, metadata?.maxReferenceImages, defaultData?.maxReferenceImages]);
+  }, [data.model, metadata?.model, defaultData?.model, data.maxReferenceImages, metadata?.maxReferenceImages, defaultData?.maxReferenceImages]);
 
   const aspectRatioValue =
     data.aspectRatio ??
@@ -277,18 +278,24 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     "1K";
   const isGptImage2Node = resolvedNodeType === "gptImage2";
   const resolvedModel = data.model || metadata?.model || defaultData?.model || "gpt-image-2";
-  const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(resolvedModel);
+  const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(resolvedModel);
   const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
-  const gpt25Models = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+  const gpt25Models = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"];
   const supportedGpt25Models = Array.isArray(metadata?.supportedModels)
     ? gpt25Models.filter((model) => metadata.supportedModels?.includes(model))
     : gpt25Models;
   const isSelectedModelUnavailable = isGptImage25Node && !supportedGpt25Models.includes(resolvedModel);
-  const showGptImage2QualitySelector = isGptImage2Node && !isToapiGpt25 && bananaImageRoute === "stable";
+  const isJichuan = resolvedModel === "gpt-image-2.5";
+  const qualityOptions = isJichuan ? [
+    { value: "high" as const, title: "高 / High" },
+    { value: "xhigh" as const, title: "超高 / XHigh" },
+    { value: "max" as const, title: "最高 / Max" },
+  ] : GPT_IMAGE_2_QUALITY_OPTIONS;
+  const showGptImage2QualitySelector = isJichuan || (isGptImage2Node && !isToapiGpt25 && bananaImageRoute === "stable");
   const normalizedResolutionValue =
     typeof resolutionValue === "string" ? resolutionValue.trim().toUpperCase() : "";
   const isGptImage24K =
-    isGptImage2Node &&
+    isGptImage2Node && !isJichuan &&
     normalizedResolutionValue === "4K";
   const resolvedAspectRatioOptions = React.useMemo(() => {
     if (!isGptImage24K) return aspectRatioOptions;
@@ -410,7 +417,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       const patch: Record<string, unknown> = { resolution: value };
       const normalizedResolution =
         typeof value === "string" ? value.trim().toUpperCase() : "";
-      if (resolvedNodeType === "gptImage2" && normalizedResolution === "4K") {
+      if (resolvedNodeType === "gptImage2" && !isJichuan && normalizedResolution === "4K") {
         const currentAspectRatio =
           typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
         if (!GPT_IMAGE_2_4K_ASPECT_RATIO_SET.has(currentAspectRatio)) {
@@ -423,11 +430,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         })
       );
     },
-    [aspectRatioValue, id, resolvedNodeType]
+    [aspectRatioValue, id, resolvedNodeType, isJichuan]
   );
 
   const normalizedQualityValue = React.useMemo<
-    "auto" | "low" | "medium" | "high"
+    "auto" | "low" | "medium" | "high" | "xhigh" | "max"
   >(() => {
     const candidate =
       typeof data.quality === "string"
@@ -436,14 +443,15 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         ? defaultData.quality
         : "auto";
     const normalized = candidate.trim().toLowerCase();
+    if (isJichuan) return ["high", "xhigh", "max"].includes(normalized) ? normalized as "high" | "xhigh" | "max" : "max";
     if (normalized === "low") return "low";
     if (normalized === "medium") return "medium";
     if (normalized === "high") return "high";
     return "auto";
-  }, [data.quality, defaultData?.quality]);
+  }, [data.quality, defaultData?.quality, isJichuan]);
 
   const updateQuality = React.useCallback(
-    (value: "auto" | "low" | "medium" | "high") => {
+    (value: "auto" | "low" | "medium" | "high" | "xhigh" | "max") => {
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: { id, patch: { quality: value } },
@@ -592,10 +600,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   }, [normalizedResolutionValue, resolutionOptions, resolutionValue]);
   const currentQualityOption = React.useMemo(() => {
     return (
-      GPT_IMAGE_2_QUALITY_OPTIONS.find((option) => option.value === normalizedQualityValue) ||
-      GPT_IMAGE_2_QUALITY_OPTIONS[0]
+      qualityOptions.find((option) => option.value === normalizedQualityValue) ||
+      qualityOptions[0]
     );
-  }, [normalizedQualityValue]);
+  }, [normalizedQualityValue, qualityOptions]);
   const getDropdownItemStyle = React.useCallback(
     (isActive: boolean): React.CSSProperties => {
       if (isFlowDark) {
@@ -725,14 +733,14 @@ function Nano2NodeInner({ id, data, selected }: Props) {
               const model = event.target.value;
               if (!supportedGpt25Models.includes(model)) return;
               window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
-                detail: { id, patch: { model, managedModelKey: model } },
+                detail: { id, patch: { model, managedModelKey: model, quality: model === "gpt-image-2.5" ? "max" : "auto", maxReferenceImages: model === "gpt-image-2.5" ? 1 : 16 } },
               }));
             }}
             style={{ width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: isFlowDark ? "#1f2937" : "#fff", color: isFlowDark ? "#f3f4f6" : "#111827", fontSize: 12 }}
           >
             {isSelectedModelUnavailable && <option value={resolvedModel} disabled>{resolvedModel} · {lt("已下线", "Unavailable")}</option>}
             {supportedGpt25Models.map((model) => (
-              <option key={model} value={model}>{model.endsWith("flare") ? "Flare" : "Sunburst"}</option>
+              <option key={model} value={model}>{model === "gpt-image-2.5" ? "Jichuan" : model.endsWith("flare") ? "Flare" : "Sunburst"}</option>
             ))}
           </select>
         </div>
@@ -982,7 +990,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {GPT_IMAGE_2_QUALITY_OPTIONS.map((option) => {
+                {qualityOptions.map((option) => {
                   const isActive = option.value === normalizedQualityValue;
                   return (
                     <button
@@ -1180,7 +1188,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           {lt("参考图上限", "Reference max")}: {maxReferenceImages}
         </div>
       ) : null}
-      {showGptImage2QualitySelector ? (
+      {showGptImage2QualitySelector && !isJichuan ? (
         <div style={{ marginTop: 4, fontSize: 11, color: "#9ca3af" }}>
           {lt(
             `尊享参考图：每张额外 10 积分${imageInputCount > 0 ? `，当前 +${imageInputCount * 10}` : ""}`,

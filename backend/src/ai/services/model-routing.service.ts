@@ -1208,7 +1208,7 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
-    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].map((modelKey) => ({
+    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].map((modelKey) => ({
       modelKey,
       modelName: modelKey === 'gpt-image-2' ? 'GPT-Image-2' : modelKey,
       taskType: 'image' as const,
@@ -1372,6 +1372,9 @@ export class ModelRoutingService {
         .filter(Boolean),
     );
     const fallbackAppendModelKeys = new Set([
+      'gpt-image-2.5',
+      'gpt-image-2.5-flare',
+      'gpt-image-2.5-sunburst',
       'omni-flash-ext',
       'doubao-seed-audio-1-0',
       'minimax-speech-2.6-hd',

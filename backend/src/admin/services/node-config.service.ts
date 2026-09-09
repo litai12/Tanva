@@ -252,18 +252,19 @@ export class NodeConfigService {
       );
       const savedModels = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
 
-      // 音频模型只存在于代码默认(DEFAULT_MODEL_PROVIDER_MAPPING_V2)，由 model-routing 的
-      // fallbackAppendModelKeys 在其读取路径合并；但本方法直读 SystemSetting，不经那条合并。
-      // 故在此补齐缺失的 audio 默认模型，确保 audioStudio 能拿到 managedRoutes(模型下拉)。
+      // 这里直读 SystemSetting，须同步模型路由的新增型号兼容逻辑。
+      // 只补缺失型号，保留管理员显式禁用的记录。
       const presentKeys = new Set(
         savedModels
           .map((m) => String((m as any)?.modelKey || '').trim())
           .filter(Boolean),
       );
-      const audioDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
-        (m) => m && m.taskType === 'audio' && !presentKeys.has(String(m.modelKey).trim()),
+      const missingDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
+        (m) => m && (m.taskType === 'audio' ||
+          ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(m.modelKey)) &&
+          !presentKeys.has(String(m.modelKey).trim()),
       );
-      const models = [...savedModels, ...(audioDefaults as typeof savedModels)];
+      const models = [...savedModels, ...(missingDefaults as typeof savedModels)];
 
       return new Map(
         models
@@ -1199,7 +1200,7 @@ export class NodeConfigService {
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'],
           } : {}),
           provider: 'nano2',
           model,
@@ -1211,7 +1212,7 @@ export class NodeConfigService {
           maxReferenceImages: 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']
+              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5']
               : [model],
             managedModelKey: model,
             defaultData: {
@@ -1832,6 +1833,14 @@ export class NodeConfigService {
       }
     }
 
+    const unifiedGpt25 = defaultConfigs.find((config) => config.nodeKey === 'gptImage25');
+    if (unifiedGpt25) {
+      await this.prisma.nodeConfig.updateMany({
+        where: { nodeKey: 'gptImage25' },
+        data: { metadata: unifiedGpt25.metadata as Prisma.InputJsonValue },
+      });
+    }
+
     // GPT-Image-2.5 统一入口；保留旧画布节点数据，只隐藏旧的独立目录入口。
     await this.prisma.nodeConfig.updateMany({
       where: { nodeKey: { in: ['gptImage25Flare', 'gptImage25Sunburst'] }, isVisible: true },
@@ -2033,7 +2042,7 @@ export class NodeConfigService {
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'],
           } : {}),
           provider: 'nano2',
           model,
@@ -2045,7 +2054,7 @@ export class NodeConfigService {
           maxReferenceImages: 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']
+              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5']
               : [model],
             managedModelKey: model,
             defaultData: {

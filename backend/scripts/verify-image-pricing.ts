@@ -134,3 +134,11 @@ for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
     }
   }
 }
+
+for (const quality of ["low", "high", "xhigh", "max"]) {
+  for (const [size, price] of Object.entries(gptNormal)) {
+    for (const route of ["normal", "stable"] as const) {
+      assert.equal(resolveCredits("gpt-image-2", route, size as ImageSize, { model: "gpt-image-2.5", quality, referenceImageCount: 1 }), price);
+    }
+  }
+}

@@ -34,6 +34,7 @@
     "test:xiaot-agent-recovery": "ts-node --transpile-only src/agent/xiaot-agent-recovery.spec.ts",
     "test:xiaot-agent-route-fallback": "ts-node --transpile-only src/agent/xiaot-agent-route-fallback.spec.ts",
     "test:auth-session-persistence": "ts-node --transpile-only src/auth/auth-session-persistence.spec.ts",
+    "verify:gpt-image25-catalog": "ts-node --transpile-only scripts/verify-gpt-image25-catalog.ts",
     "verify:image-pricing": "ts-node --transpile-only scripts/verify-image-pricing.ts",
     "verify:new-api-video-analysis": "ts-node --transpile-only scripts/verify-new-api-video-analysis.ts",
     "verify:doubao-video-analysis-pricing": "ts-node --transpile-only scripts/verify-doubao-video-analysis-pricing.ts",

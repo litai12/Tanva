@@ -133,6 +133,7 @@ export class NewApiProvider implements IAIProvider {
         'deepseek-v4-flash',
         'xiaot-agent-deepseek-v4-flash',
         'gpt-image-2',
+        'gpt-image-2.5',
         'gpt-image-2.5-flare',
         'gpt-image-2.5-sunburst',
         'sora-2',
@@ -586,7 +587,7 @@ export class NewApiProvider implements IAIProvider {
   ]);
 
   private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
-    if (resolvedModel === 'gpt-image-2.5-flare' || resolvedModel === 'gpt-image-2.5-sunburst') {
+    if (resolvedModel === 'gpt-image-2.5' || resolvedModel === 'gpt-image-2.5-flare' || resolvedModel === 'gpt-image-2.5-sunburst') {
       return this.apiKey;
     }
     const imageRoute =
