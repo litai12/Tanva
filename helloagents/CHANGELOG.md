@@ -1393,3 +1393,5 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 2026-09-09 Jichuan GPT-Image-2.5 (101 deployed): synchronized TapCanvas jichuan-image channel only, added Jichuan to unified GPT-Image-2.5 model selector and low/high/xhigh/max quality control. Imported pixel-size/remote-reference edits contract. All qualities keep Tanva 20/30/40 credits at 1K/2K/4K; no source quality-price matrix copied. Live catalog, frontend bundle and gateway resolution-only pricing verified. See wiki/gpt-image25-jichuan.md.
 
 - 2026-09-09 Local only: Jichuan GPT-Image-2.5 quality choices reduced to high/xhigh/max, default max; legacy low/auto/missing values normalize to max, prices unchanged. No deployment.
+
+- 2026-09-09 Local only: frontend GPT-Image-2.5 fixed to Jichuan gpt-image-2.5; removed model selector, retained high/xhigh/max (default max). Legacy variant nodes normalize to the single model at display/execution. Updated palette metadata and agent model contract; no deployment.

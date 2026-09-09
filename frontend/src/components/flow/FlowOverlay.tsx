@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
+import { normalizeCanvasGptImage25Model } from "@/services/gptImage25";
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
@@ -1522,7 +1523,7 @@ const resolveNano2LikeMaxReferenceImages = (
     metadata?.defaultData && typeof metadata.defaultData === "object"
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
-  if ((nodeData?.model || metadata?.model || defaultData?.model) === "gpt-image-2.5") return 1;
+  if (normalizeCanvasGptImage25Model(String(nodeData?.model || metadata?.model || defaultData?.model || ""), String(nodeData?.nodeConfigKey || "")) === "gpt-image-2.5") return 1;
   const raw = Number(
     nodeData?.maxReferenceImages ??
       metadata?.maxReferenceImages ??
@@ -23084,13 +23085,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             ? (metadata.defaultData as Record<string, any>)
             : undefined;
         const maxReferenceImages = resolveNano2LikeMaxReferenceImages(nodeData);
-        const requestedModel =
+        const requestedModel = normalizeCanvasGptImage25Model(
           (typeof nodeData.model === "string" && nodeData.model.trim()) ||
           (typeof metadata?.model === "string" && metadata.model.trim()) ||
           (typeof defaultData?.model === "string" && defaultData.model.trim()) ||
           (node.type === "gptImage2"
             ? "gpt-image-2"
-            : "gemini-3.1-flash-image-preview");
+            : "gemini-3.1-flash-image-preview"), nodeData.nodeConfigKey);
         const { text: connectedPromptText } = getTextPromptForNode(nodeId);
         // 兼容已经落盘的旧节点：旧版小T会把实际提示词写在
         // presetPrompt，面板能显示但运行器只认外接 textPrompt，造成“有字却

@@ -1184,7 +1184,7 @@ export class NodeConfigService {
       },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
-        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
+        ['gptImage25', 'gpt-image-2.5', 'GPT-Image-2.5'],
       ].map(([nodeKey, model, label]) => ({
         nodeKey,
         nameZh: label,
@@ -1194,13 +1194,13 @@ export class NodeConfigService {
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
         priceYuan: 0.2,
-        description: `${label}，支持文生图/图生图，最多 16 张参考图`,
+        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? 1 : 16} 张参考图`,
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'],
+            supportedModels: ['gpt-image-2.5'],
           } : {}),
           provider: 'nano2',
           model,
@@ -1209,19 +1209,20 @@ export class NodeConfigService {
           showResolutionSelector: true,
           showGoogleSearch: false,
           showGoogleImageSearch: false,
-          maxReferenceImages: 16,
+          maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5']
+              ? ['gpt-image-2.5']
               : [model],
             managedModelKey: model,
             defaultData: {
               modelProvider: 'nano2',
               model,
+              quality: nodeKey === 'gptImage25' ? 'max' : 'auto',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
-              maxReferenceImages: 16,
+              maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
               googleSearch: false,
               googleImageSearch: false,
             },
@@ -2026,7 +2027,7 @@ export class NodeConfigService {
       },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
-        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
+        ['gptImage25', 'gpt-image-2.5', 'GPT-Image-2.5'],
       ].map(([nodeKey, model, label]) => ({
         nodeKey,
         nameZh: label,
@@ -2036,13 +2037,13 @@ export class NodeConfigService {
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
         priceYuan: 0.2,
-        description: 'GPT-Image-2 生图，支持文生图/图生图，最多 16 张参考图',
+        description: `${label}，支持文生图/图生图，${nodeKey === 'gptImage25' ? 1 : 16} 张参考图`,
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'],
+            supportedModels: ['gpt-image-2.5'],
           } : {}),
           provider: 'nano2',
           model,
@@ -2051,19 +2052,20 @@ export class NodeConfigService {
           showResolutionSelector: true,
           showGoogleSearch: false,
           showGoogleImageSearch: false,
-          maxReferenceImages: 16,
+          maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5']
+              ? ['gpt-image-2.5']
               : [model],
             managedModelKey: model,
             defaultData: {
               modelProvider: 'nano2',
               model,
+              quality: nodeKey === 'gptImage25' ? 'max' : 'auto',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
-              maxReferenceImages: 16,
+              maxReferenceImages: nodeKey === 'gptImage25' ? 1 : 16,
               googleSearch: false,
               googleImageSearch: false,
             },

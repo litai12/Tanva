@@ -20,3 +20,7 @@ User contract: sync TapCanvas's jichuan image channel to Tanva; keep Tanva price
 ## Local revision: default max, no low (not deployed)
 
 Per user request, Jichuan now exposes high/xhigh/max only and defaults to max. Switching to Jichuan selects max; old low/auto/missing values resolve to max in both the canvas execution path and gateway normalization. Other models keep their existing quality behavior. The registration utility now updates the Jichuan catalog quality enum/default without changing prices. This revision is local only; no server changes or Git commit were performed.
+
+## Local revision: single frontend model (not deployed)
+
+The GPT-Image-2.5 canvas node now uses only gpt-image-2.5 (Jichuan), with no model selector. The palette metadata and agent manifest expose only this 2.5 model. Quality remains high/xhigh/max, default max, at unchanged prices. Saved Flare/Sunburst nodes normalize to gpt-image-2.5 for both rendering and execution, including the one-reference limit. The old GPT-Image-2 node remains separate. Backend gateway channel records for the old variants are retained; no server mutation or deployment performed.

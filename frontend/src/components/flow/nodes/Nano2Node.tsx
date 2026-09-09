@@ -1,3 +1,4 @@
+import { normalizeCanvasGptImage25Model } from "@/services/gptImage25";
 import React from "react";
 import { Handle, Position, useStore } from "@xyflow/react";
 import { Send as SendIcon, Square } from "lucide-react";
@@ -258,14 +259,14 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
   const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
   const maxReferenceImages = React.useMemo(() => {
-    if ((data.model || metadata?.model || defaultData?.model) === "gpt-image-2.5") return 1;
+    if (normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "", data.nodeConfigKey) === "gpt-image-2.5") return 1;
     const raw = Number(
       data.maxReferenceImages ??
         metadata?.maxReferenceImages ??
         defaultData?.maxReferenceImages
     );
     return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : undefined;
-  }, [data.model, metadata?.model, defaultData?.model, data.maxReferenceImages, metadata?.maxReferenceImages, defaultData?.maxReferenceImages]);
+  }, [data.nodeConfigKey, data.model, metadata?.model, defaultData?.model, data.maxReferenceImages, metadata?.maxReferenceImages, defaultData?.maxReferenceImages]);
 
   const aspectRatioValue =
     data.aspectRatio ??
@@ -277,14 +278,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     resolutionOptions[0] ||
     "1K";
   const isGptImage2Node = resolvedNodeType === "gptImage2";
-  const resolvedModel = data.model || metadata?.model || defaultData?.model || "gpt-image-2";
+  const resolvedModel = normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "gpt-image-2", data.nodeConfigKey);
   const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(resolvedModel);
   const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
-  const gpt25Models = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"];
-  const supportedGpt25Models = Array.isArray(metadata?.supportedModels)
-    ? gpt25Models.filter((model) => metadata.supportedModels?.includes(model))
-    : gpt25Models;
-  const isSelectedModelUnavailable = isGptImage25Node && !supportedGpt25Models.includes(resolvedModel);
+  const isSelectedModelUnavailable = isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes("gpt-image-2.5");
   const isJichuan = resolvedModel === "gpt-image-2.5";
   const qualityOptions = isJichuan ? [
     { value: "high" as const, title: "高 / High" },
@@ -678,7 +675,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             <button
               onClick={onRun}
               disabled={isSelectedModelUnavailable}
-              title={isSelectedModelUnavailable ? lt("该模型已下线，请切换型号", "Model unavailable; select another model") : undefined}
+              title={isSelectedModelUnavailable ? lt("该模型已下线", "Model unavailable") : undefined}
               className='run-btn-with-credit'
               style={{
                 fontSize: 12,
@@ -716,35 +713,6 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
-
-      {isGptImage25Node && (
-        <div style={{ marginBottom: 8 }}>
-          <label htmlFor={`gpt25-model-${id}`} style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-            {lt("模型", "Model")}
-          </label>
-          <select
-            id={`gpt25-model-${id}`}
-            className="nodrag nowheel"
-            value={resolvedModel}
-            disabled={status === "running"}
-            onPointerDown={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onChange={(event) => {
-              const model = event.target.value;
-              if (!supportedGpt25Models.includes(model)) return;
-              window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
-                detail: { id, patch: { model, managedModelKey: model, quality: model === "gpt-image-2.5" ? "max" : "auto", maxReferenceImages: model === "gpt-image-2.5" ? 1 : 16 } },
-              }));
-            }}
-            style={{ width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: isFlowDark ? "#1f2937" : "#fff", color: isFlowDark ? "#f3f4f6" : "#111827", fontSize: 12 }}
-          >
-            {isSelectedModelUnavailable && <option value={resolvedModel} disabled>{resolvedModel} · {lt("已下线", "Unavailable")}</option>}
-            {supportedGpt25Models.map((model) => (
-              <option key={model} value={model}>{model === "gpt-image-2.5" ? "Jichuan" : model.endsWith("flare") ? "Flare" : "Sunburst"}</option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div style={{ marginBottom: 8 }}>
         <label

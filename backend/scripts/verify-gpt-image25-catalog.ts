@@ -18,8 +18,10 @@ async function main() {
   const publicNodes = await nodes.getAllNodeConfigs();
   assert.deepEqual(publicNodes.map((node) => node.nodeKey), ['gptImage2', 'gptImage25']);
   const unified = publicNodes.find((node) => node.nodeKey === 'gptImage25')!;
-  assert.deepEqual(unified.metadata?.supportedModels, variants);
-  assert.equal(unified.metadata?.defaultData.model, variants[0]);
+  assert.deepEqual(unified.metadata?.supportedModels, ["gpt-image-2.5"]);
+  assert.equal(unified.metadata?.defaultData.model, "gpt-image-2.5");
+  assert.equal(unified.metadata?.defaultData.quality, "max");
+  assert.equal(unified.metadata?.maxReferenceImages, 1);
   const parsed = await routing.getParsedConfig();
   for (const modelKey of variants) assert.ok(parsed.models.some((model) => model.modelKey === modelKey));
 
@@ -27,8 +29,8 @@ async function main() {
   const disabledFlare = { ...defaults.find((model) => model.modelKey === variants[0])!, enabled: false };
   savedModels = [...savedModels, disabledFlare];
   const sunburstOnly = (await nodes.getAllNodeConfigs()).find((node) => node.nodeKey === 'gptImage25')!;
-  assert.deepEqual(sunburstOnly.metadata?.supportedModels, [variants[1], variants[2]]);
-  assert.equal(sunburstOnly.metadata?.defaultData.model, variants[1]);
+  assert.deepEqual(sunburstOnly.metadata?.supportedModels, ["gpt-image-2.5"]);
+  assert.equal(sunburstOnly.metadata?.defaultData.model, "gpt-image-2.5");
   assert.equal((await routing.getParsedConfig()).models.find((model) => model.modelKey === variants[0])?.enabled, false);
 
   savedModels.push({ ...defaults.find((model) => model.modelKey === variants[1])!, enabled: false });

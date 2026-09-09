@@ -129,7 +129,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
     ...[
       ["gptImage2", "gpt-image-2", "GPT-Image-2"],
-      ["gptImage25", "gpt-image-2.5-flare", "GPT-Image-2.5"],
+      ["gptImage25", "gpt-image-2.5", "GPT-Image-2.5"],
     ].map(([nodeKey, model, label]) => ({
       nodeKey,
       nameZh: label,
@@ -144,8 +144,8 @@ function getDefaultConfigs(): NodeConfig[] {
         ...(model !== "gpt-image-2"
           ? {
               paletteVariantKey: nodeKey,
-              modelKeys: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"],
-              supportedModels: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"],
+              modelKeys: ["gpt-image-2.5"],
+              supportedModels: ["gpt-image-2.5"],
               managedModelKey: model,
             }
           : {}),
@@ -156,20 +156,20 @@ function getDefaultConfigs(): NodeConfig[] {
         showResolutionSelector: true,
         showGoogleSearch: false,
         showGoogleImageSearch: false,
-        maxReferenceImages: 16,
+        maxReferenceImages: nodeKey === "gptImage25" ? 1 : 16,
         defaultData: {
           modelProvider: "nano2",
           model,
           aspectRatio: "1:1",
           resolution: "1K",
-          quality: "auto",
+          quality: nodeKey === "gptImage25" ? "max" : "auto",
           officialFallback: false,
-          maxReferenceImages: 16,
+          maxReferenceImages: nodeKey === "gptImage25" ? 1 : 16,
           googleSearch: false,
           googleImageSearch: false,
         },
       },
-      description: `${label} 生图，支持文生图/图生图，最多 16 张参考图`,
+      description: `${label} 生图，支持文生图/图生图，${nodeKey === "gptImage25" ? 1 : 16} 张参考图`,
     })),
 
     // 视频节点
