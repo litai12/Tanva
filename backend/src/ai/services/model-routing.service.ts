@@ -1208,10 +1208,10 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
-    {
-      modelKey: 'gpt-image-2',
-      modelName: 'GPT-Image-2',
-      taskType: 'image',
+    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].map((modelKey) => ({
+      modelKey,
+      modelName: modelKey === 'gpt-image-2' ? 'GPT-Image-2' : modelKey,
+      taskType: 'image' as const,
       enabled: true,
       defaultVendor: 'new_api',
       vendors: [
@@ -1220,14 +1220,14 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           platformKey: 'new_api',
           label: 'New API',
           enabled: true,
-          route: 'legacy',
+          route: 'legacy' as const,
           provider: 'new-api',
-          modelName: 'gpt-image-2',
+          modelName: modelKey,
           creditsPerCall: 20,
           priceYuan: 0.2,
         },
       ],
-    },
+    })),
     // ---------- 音频模型（audioStudio）----------
     ...AUDIO_MODEL_DEFAULTS,
   ],

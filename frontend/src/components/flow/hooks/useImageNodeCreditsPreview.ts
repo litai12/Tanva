@@ -15,6 +15,7 @@ type ImageNodeType =
 type Params = {
   nodeType: ImageNodeType;
   aiProvider?: string | null;
+  model?: string | null;
   modelVersion?: string | null;
   bananaImageRoute?: string | null;
   imageSize?: string | null;
@@ -128,6 +129,7 @@ const resolveManagedModelKey = (
 export const useImageNodeCreditsPreview = ({
   nodeType,
   aiProvider,
+  model,
   modelVersion,
   bananaImageRoute,
   imageSize,
@@ -169,8 +171,9 @@ export const useImageNodeCreditsPreview = ({
     if (nodeType === "gptImage2") {
       return {
         serviceType: "gpt-image-2",
-        model: "gpt-image-2",
+        model: model || "gpt-image-2",
         requestParams: {
+          model: model || "gpt-image-2",
           aiProvider: provider,
           imageSize: normalizedImageSize,
           referenceImageCount: safeReferenceCount,
@@ -301,6 +304,7 @@ export const useImageNodeCreditsPreview = ({
     gptImage2Quality,
     imageSize,
     managedModelKey,
+    model,
     modelVersion,
     nodeType,
     platformKey,

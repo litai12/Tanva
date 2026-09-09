@@ -485,10 +485,21 @@ export class NodeConfigService {
       nextMetadata.modelKeys = currentModelKeys.filter((key) => enabledModelKeys.has(key));
     }
 
+    if (nodeKey === 'gptImage25') {
+      const supportedModels = currentModelKeys.filter((key) => enabledModelKeys.has(key));
+      nextMetadata.supportedModels = supportedModels;
+      if (supportedModels.length) {
+        nextMetadata.model = supportedModels[0];
+        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: supportedModels[0] };
+      }
+    }
+
     const explicitManagedModelKey =
       typeof metadata.managedModelKey === 'string' ? metadata.managedModelKey.trim() : '';
     const targetManagedModelKey =
-      explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
+      nodeKey === 'gptImage25' && nextMetadata.supportedModels?.length
+        ? nextMetadata.supportedModels[0]
+        : explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
         ? explicitManagedModelKey
         : currentModelKeys.find((key) => managedModelMap.has(key)) || '';
 
@@ -1170,21 +1181,28 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
-      {
-        nodeKey: 'gptImage2',
-        nameZh: 'GPT-Image-2',
-        nameEn: 'GPT-Image-2',
-        category: 'image',
+      ...[
+        ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
+        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
+      ].map(([nodeKey, model, label]) => ({
+        nodeKey,
+        nameZh: label,
+        nameEn: label,
+        category: 'image' as const,
         sortOrder: 16,
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
         priceYuan: 0.2,
-        description: 'GPT-Image-2，支持文生图/图生图，最多 16 张参考图',
+        description: `${label}，支持文生图/图生图，最多 16 张参考图`,
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
+          ...(nodeKey === 'gptImage25' ? {
+            paletteVariantKey: nodeKey,
+            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+          } : {}),
           provider: 'nano2',
-          model: 'gpt-image-2',
+          model,
           aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
           resolutions: ['1K', '2K', '4K'],
           showResolutionSelector: true,
@@ -1192,11 +1210,13 @@ export class NodeConfigService {
           showGoogleImageSearch: false,
           maxReferenceImages: 16,
           ...buildManagedImageNodeMetadata({
-            modelKeys: ['gpt-image-2'],
-            managedModelKey: 'gpt-image-2',
+            modelKeys: nodeKey === 'gptImage25'
+              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']
+              : [model],
+            managedModelKey: model,
             defaultData: {
               modelProvider: 'nano2',
-              model: 'gpt-image-2',
+              model,
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
@@ -1206,7 +1226,7 @@ export class NodeConfigService {
             },
           }),
         },
-      },
+      })),
 
       // 视频生成节点
       // {
@@ -1812,6 +1832,12 @@ export class NodeConfigService {
       }
     }
 
+    // GPT-Image-2.5 统一入口；保留旧画布节点数据，只隐藏旧的独立目录入口。
+    await this.prisma.nodeConfig.updateMany({
+      where: { nodeKey: { in: ['gptImage25Flare', 'gptImage25Sunburst'] }, isVisible: true },
+      data: { isVisible: false },
+    });
+
     // 旧 4 个音频节点已合并为 audioStudio：隐藏旧节点，避免面板出现无法渲染/重名的旧卡片。
     // 幂等，每次启动执行；已迁移的画布节点在前端按别名映射为 audioStudio。
     const hidden = await this.prisma.nodeConfig.updateMany({
@@ -1989,11 +2015,14 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
-      {
-        nodeKey: 'gptImage2',
-        nameZh: 'GPT-Image-2',
-        nameEn: 'GPT-Image-2',
-        category: 'image',
+      ...[
+        ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
+        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
+      ].map(([nodeKey, model, label]) => ({
+        nodeKey,
+        nameZh: label,
+        nameEn: label,
+        category: 'image' as const,
         sortOrder: 16,
         creditsPerCall: 20,
         serviceType: 'gpt-image-2',
@@ -2002,8 +2031,12 @@ export class NodeConfigService {
         metadata: {
           type: 'gptImage2',
           flowNodeType: 'gptImage2',
+          ...(nodeKey === 'gptImage25' ? {
+            paletteVariantKey: nodeKey,
+            supportedModels: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+          } : {}),
           provider: 'nano2',
-          model: 'gpt-image-2',
+          model,
           aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
           resolutions: ['1K', '2K', '4K'],
           showResolutionSelector: true,
@@ -2011,11 +2044,13 @@ export class NodeConfigService {
           showGoogleImageSearch: false,
           maxReferenceImages: 16,
           ...buildManagedImageNodeMetadata({
-            modelKeys: ['gpt-image-2'],
-            managedModelKey: 'gpt-image-2',
+            modelKeys: nodeKey === 'gptImage25'
+              ? ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']
+              : [model],
+            managedModelKey: model,
             defaultData: {
               modelProvider: 'nano2',
-              model: 'gpt-image-2',
+              model,
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
@@ -2025,7 +2060,7 @@ export class NodeConfigService {
             },
           }),
         },
-      },
+      })),
 
       // 视频生成节点
       // {

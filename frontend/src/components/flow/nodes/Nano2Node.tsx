@@ -24,6 +24,7 @@ type NodeConfigMetadata = {
   flowNodeType?: string;
   provider?: string;
   model?: string;
+  supportedModels?: string[];
   aspectRatios?: string[];
   resolutions?: string[];
   showResolutionSelector?: boolean;
@@ -275,7 +276,15 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     resolutionOptions[0] ||
     "1K";
   const isGptImage2Node = resolvedNodeType === "gptImage2";
-  const showGptImage2QualitySelector = isGptImage2Node && bananaImageRoute === "stable";
+  const resolvedModel = data.model || metadata?.model || defaultData?.model || "gpt-image-2";
+  const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(resolvedModel);
+  const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
+  const gpt25Models = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+  const supportedGpt25Models = Array.isArray(metadata?.supportedModels)
+    ? gpt25Models.filter((model) => metadata.supportedModels?.includes(model))
+    : gpt25Models;
+  const isSelectedModelUnavailable = isGptImage25Node && !supportedGpt25Models.includes(resolvedModel);
+  const showGptImage2QualitySelector = isGptImage2Node && !isToapiGpt25 && bananaImageRoute === "stable";
   const normalizedResolutionValue =
     typeof resolutionValue === "string" ? resolutionValue.trim().toUpperCase() : "";
   const isGptImage24K =
@@ -514,8 +523,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   );
 
   const onRun = React.useCallback(() => {
-    data.onRun?.(id);
-  }, [data, id]);
+    if (!isSelectedModelUnavailable) data.onRun?.(id);
+  }, [data, id, isSelectedModelUnavailable]);
 
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
@@ -524,7 +533,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: resolvedNodeType,
     aiProvider: resolvedProvider,
-    bananaImageRoute,
+    model: resolvedModel,
+    bananaImageRoute: isToapiGpt25 ? "normal" : bananaImageRoute,
     imageSize: resolutionValue || undefined,
     gptImage2Quality: isGptImage2Node ? normalizedQualityValue : undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -635,7 +645,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{lt(titleZh, titleEn)}</div>
+        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{isGptImage25Node ? "GPT-Image-2.5" : lt(titleZh, titleEn)}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {status === "running" ? (
             <button
@@ -659,6 +669,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           ) : (
             <button
               onClick={onRun}
+              disabled={isSelectedModelUnavailable}
+              title={isSelectedModelUnavailable ? lt("该模型已下线，请切换型号", "Model unavailable; select another model") : undefined}
               className='run-btn-with-credit'
               style={{
                 fontSize: 12,
@@ -696,6 +708,35 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+
+      {isGptImage25Node && (
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor={`gpt25-model-${id}`} style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+            {lt("模型", "Model")}
+          </label>
+          <select
+            id={`gpt25-model-${id}`}
+            className="nodrag nowheel"
+            value={resolvedModel}
+            disabled={status === "running"}
+            onPointerDown={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onChange={(event) => {
+              const model = event.target.value;
+              if (!supportedGpt25Models.includes(model)) return;
+              window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
+                detail: { id, patch: { model, managedModelKey: model } },
+              }));
+            }}
+            style={{ width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: isFlowDark ? "#1f2937" : "#fff", color: isFlowDark ? "#f3f4f6" : "#111827", fontSize: 12 }}
+          >
+            {isSelectedModelUnavailable && <option value={resolvedModel} disabled>{resolvedModel} · {lt("已下线", "Unavailable")}</option>}
+            {supportedGpt25Models.map((model) => (
+              <option key={model} value={model}>{model.endsWith("flare") ? "Flare" : "Sunburst"}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div style={{ marginBottom: 8 }}>
         <label

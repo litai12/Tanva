@@ -5030,7 +5030,7 @@ function FlowInner() {
       if (!metadata) return;
 
       const preferredRoute = getManagedRouteOption(metadata);
-      map.set(resolvedType, {
+      const runtime = {
         nodeConfigKey: config.nodeKey,
         managedModelKey:
           typeof metadata.managedModelKey === "string" && metadata.managedModelKey.trim()
@@ -5039,7 +5039,13 @@ function FlowInner() {
         vendorKey: preferredRoute?.vendorKey,
         platformKey: preferredRoute?.platformKey || preferredRoute?.vendorKey,
         nodeConfigMetadata: metadata,
-      });
+      };
+      if (resolvedType === "gptImage2") {
+        map.set(`config:${config.nodeKey}`, runtime);
+        if (config.nodeKey === "gptImage2") map.set(resolvedType, runtime);
+      } else {
+        map.set(resolvedType, runtime);
+      }
     });
 
     return map;
@@ -23123,7 +23129,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
         try {
           const latestBananaImageRoute =
-            useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
+            ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(requestedModel)
+              ? "normal"
+              : useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
             const raw = nodeData?.aspectRatio ?? defaultData?.aspectRatio;
             return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
@@ -26609,8 +26617,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         }
 
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
-        const managedRuntime =
-          resolvedType ? managedRuntimeByType.get(resolvedType) : undefined;
+        const isGpt25Runtime = resolvedType === "gptImage2" && (
+          ["gptImage25", "gptImage25Flare", "gptImage25Sunburst"].includes(String(n.data?.nodeConfigKey || "")) ||
+          ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(String(n.data?.model || ""))
+        );
+        const managedRuntime = resolvedType
+          ? managedRuntimeByType.get(isGpt25Runtime ? "config:gptImage25" : resolvedType)
+          : undefined;
         const mapFallbackCredits =
           resolvedType && typeof NODE_CREDITS_MAP[resolvedType] === "number"
             ? Number(NODE_CREDITS_MAP[resolvedType])

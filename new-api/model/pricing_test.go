@@ -332,3 +332,24 @@ func TestBuildParamPricingForSora2UsesFixedDurationPrices(t *testing.T) {
 	assertSpecPriceCNY("video:pro:8s", 15.0)
 	assertSpecPriceCNY("video:pro:12s", 22.5)
 }
+
+func TestGPTImage25ToapisPricingAndIdentity(t *testing.T) {
+	for _, name := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		if CanonicalModelKey(name) != name {
+			t.Fatalf("%s must remain an independent model", name)
+		}
+		candidates := RoutingModelCandidates(name)
+		if len(candidates) != 1 || candidates[0] != name {
+			t.Fatalf("%s unexpectedly routes to %v", name, candidates)
+		}
+		got, want := fixedImagePricingRules(name), fixedImagePricingRules("gpt-image-2")
+		if len(got) != len(want) {
+			t.Fatalf("%s pricing tiers differ", name)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s tier %d differs from GPT Image 2", name, i)
+			}
+		}
+	}
+}

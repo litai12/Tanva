@@ -127,19 +127,30 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 60 },
     { nodeKey: "viewAngle", nameZh: "视角变换", nameEn: "View Angle", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 30 },
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
-    {
-      nodeKey: "gptImage2",
-      nameZh: "GPT-Image-2",
-      nameEn: "GPT-Image-2",
-      category: "image",
-      status: "normal",
+    ...[
+      ["gptImage2", "gpt-image-2", "GPT-Image-2"],
+      ["gptImage25", "gpt-image-2.5-flare", "GPT-Image-2.5"],
+    ].map(([nodeKey, model, label]) => ({
+      nodeKey,
+      nameZh: label,
+      nameEn: label,
+      category: "image" as const,
+      status: "normal" as const,
       sortOrder: 18,
       creditsPerCall: 20,
       metadata: {
         type: "gptImage2",
         flowNodeType: "gptImage2",
+        ...(model !== "gpt-image-2"
+          ? {
+              paletteVariantKey: nodeKey,
+              modelKeys: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+              supportedModels: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+              managedModelKey: model,
+            }
+          : {}),
         provider: "nano2",
-        model: "gpt-image-2",
+        model,
         aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9", "9:21"],
         resolutions: ["1K", "2K", "4K"],
         showResolutionSelector: true,
@@ -148,7 +159,7 @@ function getDefaultConfigs(): NodeConfig[] {
         maxReferenceImages: 16,
         defaultData: {
           modelProvider: "nano2",
-          model: "gpt-image-2",
+          model,
           aspectRatio: "1:1",
           resolution: "1K",
           quality: "auto",
@@ -158,8 +169,8 @@ function getDefaultConfigs(): NodeConfig[] {
           googleImageSearch: false,
         },
       },
-      description: "GPT-Image-2 生图，支持文生图/图生图，最多 16 张参考图",
-    },
+      description: `${label} 生图，支持文生图/图生图，最多 16 张参考图`,
+    })),
 
     // 视频节点
     { nodeKey: "wan30Video", nameZh: "Wan3.0视频生成", nameEn: "Wan3.0 Video", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan30-video", priceYuan: 2.25 },

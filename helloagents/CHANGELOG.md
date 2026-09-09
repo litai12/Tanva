@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-09 GPT-Image-2.5 ToAPIs（本地，未发布）
+
+- 新增 GPT-Image-2.5 统一生图节点，内置 Flare/Sunburst 切换和独立托管型号，沿用 GPT-Image-2 普通分辨率价格；请求保留真实型号，稳定线路不触发 Tencent 价格或 token 分组。
+- 补充 ToAPIs 渠道与基础定价幂等迁移、网关参数报价及模型身份回归检查，详见 `wiki/gpt-image-25-toapis.md`。
+
 ## 2026-09-08 小T本地页面端到端验证与补充修复（未发布）
 
 - 按用户要求从 101 定向同步本地 new-api 的小T/ARK 渠道、abilities 和相关计价条目，保留本地用户/令牌/历史并备份。补充普通 `deepseek-v4-flash` → ARK 日期型号的幂等迁移。

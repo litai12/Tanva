@@ -423,7 +423,7 @@ func fixedImagePricingRules(modelName string) []fixedImagePricingRule {
 			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.4},
 			{specKey: "image:4k", resolution: "4k", cnyPrice: 0.5},
 		}
-	case "gpt-image-2", "gpt-image-2-vip":
+	case "gpt-image-2", "gpt-image-2-vip", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst":
 		return []fixedImagePricingRule{
 			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.2},
 			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.3},
