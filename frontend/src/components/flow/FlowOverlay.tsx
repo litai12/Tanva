@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
-import { normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
+import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
@@ -1501,7 +1501,7 @@ const resolveNano2LikeMaxReferenceImages = (
     metadata?.defaultData && typeof metadata.defaultData === "object"
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
-  if (normalizeCanvasGptImage25Model(String(nodeData?.model || metadata?.model || defaultData?.model || ""), String(nodeData?.nodeConfigKey || "")) === "gpt-image-2.5") return Number.POSITIVE_INFINITY;
+  if (GPT_IMAGE_25_MODELS.includes(normalizeCanvasGptImage25Model(String(nodeData?.model || ""), String(nodeData?.nodeConfigKey || ""), String(metadata?.model || defaultData?.model || "")))) return Number.POSITIVE_INFINITY;
   const raw = Number(
     nodeData?.maxReferenceImages ??
       metadata?.maxReferenceImages ??
@@ -23061,12 +23061,21 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             : undefined;
         const maxReferenceImages = resolveNano2LikeMaxReferenceImages(nodeData);
         const requestedModel = normalizeCanvasGptImage25Model(
-          (typeof nodeData.model === "string" && nodeData.model.trim()) ||
+          (typeof nodeData.model === "string" && nodeData.model.trim()) || "", nodeData.nodeConfigKey,
           (typeof metadata?.model === "string" && metadata.model.trim()) ||
           (typeof defaultData?.model === "string" && defaultData.model.trim()) ||
           (node.type === "gptImage2"
             ? "gpt-image-2"
-            : "gemini-3.1-flash-image-preview"), nodeData.nodeConfigKey);
+            : "gemini-3.1-flash-image-preview"));
+        if (GPT_IMAGE_25_MODELS.includes(requestedModel)) {
+          const supported = managedRuntimeByType.get("config:gptImage25")?.nodeConfigMetadata?.supportedModels;
+          if (!Array.isArray(supported) || !supported.includes(requestedModel)) {
+            setNodes((ns) => ns.map((n) => n.id === nodeId
+              ? { ...n, data: { ...n.data, status: "failed", error: `模型 ${requestedModel} 暂不可用，请刷新模型目录或选择其他型号` } }
+              : n));
+            return;
+          }
+        }
         const { text: connectedPromptText } = getTextPromptForNode(nodeId);
         // 兼容已经落盘的旧节点：旧版小T会把实际提示词写在
         // presetPrompt，面板能显示但运行器只认外接 textPrompt，造成“有字却
@@ -23141,6 +23150,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             if (requestedModel === "gpt-image-2.5") {
               return value === "high" || value === "xhigh" || value === "max" ? value : "max";
             }
+            if (["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(requestedModel)) return undefined;
             return value === "auto" ||
               value === "low" ||
               value === "medium" ||
@@ -24802,6 +24812,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       appendSora2History,
       appendVideoHistory,
       globalWebSearchEnabled,
+      managedRuntimeByType,
       getSeedanceModeSpec,
       imageModel,
       inferSeedanceMode,
@@ -26597,10 +26608,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   ]);
   const nodesWithHandlers = React.useMemo(
     () => {
-      const gptImageModelOptions: GptImageModelOption[] = nodePaletteConfigs
-        .filter((config) => ["gptImage2", "gptImage25"].includes(config.nodeKey))
+      const gptImageModelOptions: GptImageModelOption[] = expandGptImageModelConfigs(nodePaletteConfigs)
         .map((config) => {
-          const model = config.nodeKey === "gptImage25" ? "gpt-image-2.5" : "gpt-image-2";
+          const model = String(config.metadata?.model || "gpt-image-2");
           const route = getManagedRouteOption(config.metadata);
           const supportedModels = config.metadata?.supportedModels;
           return {
@@ -26609,7 +26619,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             nodeConfigNameZh: config.nameZh,
             nodeConfigNameEn: config.nameEn,
             nodeConfigMetadata: config.metadata,
-            creditsPerCall: config.creditsPerCall,
+            creditsPerCall: route?.creditsPerCall ?? config.creditsPerCall,
             vendorKey: route?.vendorKey,
             platformKey: route?.platformKey || route?.vendorKey,
             enabled: config.status === "normal" &&
@@ -26678,6 +26688,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             ? { nodeConfigMetadata: managedRuntime.nodeConfigMetadata }
             : {}),
         } as Record<string, any>;
+        if (resolvedType === "gptImage2") {
+          const selectedModel = normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || "gpt-image-2"));
+          const option = gptImageModelOptions.find((item) => item.model === selectedModel);
+          if (option) {
+            runtimeNodeData.nodeConfigMetadata = option.nodeConfigMetadata;
+            runtimeNodeData.managedModelKey = selectedModel;
+            runtimeNodeData.vendorKey = option.vendorKey;
+            runtimeNodeData.platformKey = option.platformKey;
+            runtimeNodeData.creditsPerCall = option.creditsPerCall;
+          }
+        }
         const defaultCreditsPerCall =
           (typeof runtimeNodeData.creditsPerCall === "number"
             ? runtimeNodeData.creditsPerCall

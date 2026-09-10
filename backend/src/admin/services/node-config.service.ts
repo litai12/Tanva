@@ -131,6 +131,8 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
+const GPT_IMAGE_25_MODELS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'];
+
 // 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
 const AUDIO_STUDIO_MODEL_KEYS = [
   'doubao-seed-audio-1-0',
@@ -489,9 +491,14 @@ export class NodeConfigService {
     if (nodeKey === 'gptImage25') {
       const supportedModels = currentModelKeys.filter((key) => enabledModelKeys.has(key));
       nextMetadata.supportedModels = supportedModels;
-      if (supportedModels.length) {
-        nextMetadata.model = supportedModels[0];
-        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: supportedModels[0] };
+      const selectedModel = supportedModels.includes(nextMetadata.model) ? nextMetadata.model : supportedModels[0];
+      nextMetadata.managedRoutesByModel = Object.fromEntries(supportedModels.map((key) => {
+        const model = managedModelMap.get(key);
+        return [key, model ? this.buildManagedRouteView(model) : null];
+      }));
+      if (selectedModel) {
+        nextMetadata.model = selectedModel;
+        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: selectedModel, quality: selectedModel === 'gpt-image-2.5' ? 'max' : undefined };
       }
     }
 
@@ -499,7 +506,7 @@ export class NodeConfigService {
       typeof metadata.managedModelKey === 'string' ? metadata.managedModelKey.trim() : '';
     const targetManagedModelKey =
       nodeKey === 'gptImage25' && nextMetadata.supportedModels?.length
-        ? nextMetadata.supportedModels[0]
+        ? nextMetadata.model
         : explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
         ? explicitManagedModelKey
         : currentModelKeys.find((key) => managedModelMap.has(key)) || '';
@@ -889,6 +896,15 @@ export class NodeConfigService {
           metadata: config.metadata,
         });
 
+        // Upgrade saved singleton/legacy 2.5 catalogs before availability checks.
+        // Administrative enabled=false still wins through enabledManagedModelKeys.
+        if (normalizedConfig.nodeKey === 'gptImage25') {
+          normalizedConfig.metadata = {
+            ...(normalizedConfig.metadata as Record<string, unknown> | undefined),
+            modelKeys: [...GPT_IMAGE_25_MODELS],
+          };
+        }
+
         // 必须在 normalizeManagedNodeMetadata 清理禁用 modelKeys 之前判定可见性。
         // 否则一个仅绑定已禁用模型的节点会被清成 modelKeys=[]，继而被误判为
         // “非模型节点”而继续返回给前端。
@@ -1200,7 +1216,7 @@ export class NodeConfigService {
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5'],
+            supportedModels: [...GPT_IMAGE_25_MODELS],
           } : {}),
           provider: 'nano2',
           model,
@@ -1212,7 +1228,7 @@ export class NodeConfigService {
           maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5']
+              ? [...GPT_IMAGE_25_MODELS]
               : [model],
             managedModelKey: model,
             defaultData: {
@@ -1838,7 +1854,7 @@ export class NodeConfigService {
     if (unifiedGpt25) {
       await this.prisma.nodeConfig.updateMany({
         where: { nodeKey: 'gptImage25' },
-        data: { metadata: unifiedGpt25.metadata as Prisma.InputJsonValue },
+        data: { metadata: unifiedGpt25.metadata as Prisma.InputJsonValue, description: unifiedGpt25.description },
       });
     }
 
@@ -2043,7 +2059,7 @@ export class NodeConfigService {
           flowNodeType: 'gptImage2',
           ...(nodeKey === 'gptImage25' ? {
             paletteVariantKey: nodeKey,
-            supportedModels: ['gpt-image-2.5'],
+            supportedModels: [...GPT_IMAGE_25_MODELS],
           } : {}),
           provider: 'nano2',
           model,
@@ -2055,7 +2071,7 @@ export class NodeConfigService {
           maxReferenceImages: nodeKey === 'gptImage25' ? null : 16,
           ...buildManagedImageNodeMetadata({
             modelKeys: nodeKey === 'gptImage25'
-              ? ['gpt-image-2.5']
+              ? [...GPT_IMAGE_25_MODELS]
               : [model],
             managedModelKey: model,
             defaultData: {

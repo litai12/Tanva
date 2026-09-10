@@ -162,7 +162,8 @@ export class NewApiProvider implements IAIProvider {
       image_urls: request.imageUrls?.map((item, index) =>
         this.requireRemoteImageReference(item, `image_urls[${index}]`),
       ),
-      quality: request.quality,
+      // Flare/Sunburst do not accept the base 2.5 model's quality controls.
+      quality: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined : request.quality,
       background: request.background,
       moderation: request.moderation,
       output_compression: request.outputCompression,

@@ -46,3 +46,32 @@ Validation: frontend and backend builds, catalog regression and TestJichuan gate
 - 前端 GPT 图片节点新增 GPT Image 2 / 2.5 下拉，选项来自当前节点目录；运行中不能切换，下线型号不能选择或运行。切换同步更新 model、managedModelKey、nodeConfigKey、元数据、供应商与积分预览配置；2.5 默认 Max，切回 2 默认 Auto，清除旧参考图上限，保留已有提示词、连线与结果图。旧 Flare/Sunburst 继续归一到 Jichuan。
 - 4 项回归覆盖旧节点切回 2 后的执行型号、切回 2.5 的质量与参考限制、禁用项拒绝、历史别名兼容。前端生产构建通过；全库 lint 仍为既有 2563 errors / 200 warnings。本机缺少 SSOT 要求的 AI Metadata 同步脚本。本次前端修改未发布。
 - 浏览器交互验收未完成：内置浏览器连接连续超时，本地 Nest 后端未运行；不将构建或单元回归描述成浏览器端到端通过。临时启动的 Vite 已停止。
+
+## 配套审查与 101 发布范围（2026-09-10）
+
+- 只读比对 101 与本地的 Nest 图片 DTO、节点目录、NewApiProvider，以及 new-api Jichuan DTO、OpenAI adapter、渠道同步脚本，六个文件 SHA-256 均一致。101 公开目录当前为 `gptImage2/gptImage25` 两项正常，2.5 单型号为 `gpt-image-2.5`、默认 Max、参考图数量元数据为 null；2 的目录基础积分为 40，2.5 为 20，前端切换从各自目录取值。
+- 网关 `go test ./dto ./relay/channel/openai ./model` 全部通过，覆盖尺寸归一、high/xhigh/max 与分辨率独立、远程参考转 edits、20 张参考完整转发、非法内联引用拒绝及计价。没有发现本次型号切换需要修改的 new-api 运行代码。
+- 后端 `test:image-generation-dto`、`test:new-api-image-response-format`、`verify:gpt-image25-catalog`、`verify:image-pricing` 及生产构建通过。补充 Jichuan 本型号的 high/xhigh/max 文生/多 URL 图生请求、stable/ultra 均使用普通 token、非法 data URL 拒绝测试；这些是无上游收费的契约回归，不等于实际多图出图验收。
+- 改动前后两个前端组件的 ESLint 规则/消息计数一致（FlowOverlay 693、Nano2Node 7），无新增问题；模型切换工具及其测试文件 lint 为 0。
+- 本次配套补充仅涉及测试和文档，生产运行改动集中在前端。101 已有 Jichuan 渠道，本次不需要重跑迁移、复制渠道、重建 new-api 或重启 Nest。实际 Nginx 静态根目录为 `/www/wwwroot/tanvas.cn/frontend/dist`，网关 Compose 为 `backend/docker-compose.yml` 中的 `new-api`，Nest 进程名为 `tanvas-api`，后两者本次无需操作。
+- 用户同步提交至 101 后，按现有发布流程备份静态文件，并在 `/www/wwwroot/tanvas.cn/frontend` 执行 `npm run build` 更新 dist；刷新页面验证同一节点可 2→2.5→2，2.5 默认 Max、2 默认 Auto，提示词/连线/已有结果保留。此次未替用户提交或部署。
+
+
+## 最终修复：三个真实型号切换（2026-09-10，覆盖此前仅发布前端结论）
+
+用户实际需要在 2.5 的 Flare/Sunburst/基础型号间切换。此前 2/2.5 切换误解及单型号归一方案已废止。现在选项显示 `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`，不展示 Jichuan 品牌，GPT Image 2 仍可选择。
+
+- 显式保存型号不被节点键覆盖；只有型号缺失时才用旧 gptImage25Flare/gptImage25Sunburst 恢复对应型号。保存 JSON 再恢复仍保持真实型号。
+- 前后端目录恢复三型号；公开目录在启停判定前升级旧 singleton modelKeys，再按后台独立 enabled 标志过滤，全部禁用时隐藏节点。各型号提供独立 managedRoutesByModel，预览与切换不再借用基础型号路由。
+- Flare/Sunburst 隐藏基础型号质量控件，前端执行与后端 Provider 都省略质量，防止历史 max/xhigh 泄漏。基础型号仍为 high/xhigh/max，默认 Max。2.5 三型号不再误用 GPT Image 2 的 4K 宽高比限制；远程参考完整保留。
+- curl 在 101 对 Flare 文生/图生、Sunburst 文生/图生各调用一次，全部 HTTP 200，分别 37.956 / 42.926 / 43.123 / 53.478 秒。请求均为 1K、1:1、n=1，图生使用此前红杯远程 URL。未自动重投。响应记录 `/tmp/tanva-gpt25-variants-20260910/`。
+- Flare 文生结果 `https://files.toapis.cn/images/tsk_img_01M24M98GDAWKNGKBCBZD1E52M/1789009401_559fd5d8.png`；图生 `https://files.toapis.cn/images/tsk_img_01M24M98AE1B8NFSQ2DPCMWF72/1789009407_caad7696.png`。
+- Sunburst 文生结果 `https://files.toapis.cn/images/tsk_img_01M24M98A6MMFSMV9A28HX4WGM/1789009406_3962d0ae.png`；图生 `https://files.toapis.cn/images/tsk_img_01M24M98JXQH69VG72DC40KNXN/1789009418_97472630.png`。
+- 六项前端回归通过：切回 2、切回基础 2.5、禁用拒绝、Flare/Sunburst JSON 保存恢复、旧节点缺失型号恢复、三个精确标签及独立路由。后端目录回归覆盖旧 singleton 升级、单型号禁用、仅 Sunburst 可用、全禁用；Provider 回归覆盖真实型号保留、质量剥离、远程输入和普通 token，DTO/价格回归通过。
+
+**发布必须包含前端和 Nest 后端**：用户提交并同步 101 后，分别在 backend 和 frontend 执行 `npm run build`，后端执行 `pm2 reload tanvas-api --update-env`。新版本后端公开目录会兼容旧记录，启动初始化也更新节点默认目录；无需新增 SQL 或重跑渠道迁移。new-api 四次实测通过，此次未改其源码，不需重建容器。此前“只发布前端”仅适用于已废止的 2/2.5 切换方案，不适用于本次修复。浏览器交互未验收，部署后检查三个型号切换及刷新保留。提交与部署由用户执行。
+
+
+最终验证补充：前端模型回归与小T图片补丁合同合计 14 项通过；Nest 构建通过。全库 lint 为 2563 errors / 200 warnings，与既有数量一致。Flare/Sunburst 图生结果已目视确认均为蓝色杯子、原背景与构图基本保留。执行入口也校验最新目录可用型号，组运行/小T调用不会绕过按钮禁用；不可用时明确失败，不静默切换。此次未完成浏览器交互验收，未提交或部署 101。
+
+前端最终 `npm run build` 成功（Vite 35.49 秒，保留既有大包提示），`git diff --check` 通过。

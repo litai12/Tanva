@@ -1,8 +1,34 @@
-// The canvas exposes one GPT Image 2.5 model. Normalize saved legacy variants.
-export function normalizeCanvasGptImage25Model(model: string, nodeConfigKey?: string): string {
-  return ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(model) ||
-    ["gptImage25", "gptImage25Flare", "gptImage25Sunburst"].includes(nodeConfigKey || "")
-    ? "gpt-image-2.5" : model;
+import type { NodeConfig } from "./nodeConfigService";
+
+export const GPT_IMAGE_25_MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+const LEGACY_MODELS: Record<string, string> = {
+  gptImage25: "gpt-image-2.5",
+  gptImage25Flare: "gpt-image-2.5-flare",
+  gptImage25Sunburst: "gpt-image-2.5-sunburst",
+};
+
+// Explicit saved choices always win. Only fill a missing model from legacy keys.
+export function normalizeCanvasGptImage25Model(model: string, nodeConfigKey?: string, fallback = ""): string {
+  return model.trim() || LEGACY_MODELS[nodeConfigKey || ""] || fallback;
+}
+
+export function expandGptImageModelConfigs(configs: NodeConfig[]): NodeConfig[] {
+  return configs.filter((config) => ["gptImage2", "gptImage25"].includes(config.nodeKey)).flatMap((config) => {
+    const models = config.nodeKey === "gptImage25" ? GPT_IMAGE_25_MODELS : ["gpt-image-2"];
+    return models.map((model) => {
+      const metadata = config.metadata || {};
+      // Never reuse the default variant's vendor/pricing for a different model.
+      const managedRoutes = metadata.managedRoutesByModel?.[model] ||
+        (metadata.managedRoutes?.modelKey === model ? metadata.managedRoutes : undefined);
+      return {
+        ...config,
+        nameZh: config.nodeKey === "gptImage25" ? model : config.nameZh,
+        nameEn: config.nodeKey === "gptImage25" ? model : config.nameEn,
+        metadata: { ...metadata, model, managedModelKey: model, managedRoutes,
+          defaultData: { ...metadata.defaultData, model, managedModelKey: model, quality: model === "gpt-image-2.5" ? "max" : undefined } },
+      };
+    });
+  });
 }
 
 export type GptImageModelOption = {
@@ -17,8 +43,7 @@ export type GptImageModelOption = {
   enabled: boolean;
 };
 
-// Switch the complete routing identity: a stale gptImage25 key would otherwise
-// normalize an explicit GPT Image 2 selection back to 2.5 at execution time.
+// Switch the complete routing identity and remove quality values from other variants.
 export function buildGptImageModelSwitchPatch(option: GptImageModelOption) {
   if (!option.enabled) return null;
   return {
@@ -33,7 +58,7 @@ export function buildGptImageModelSwitchPatch(option: GptImageModelOption) {
     vendorKey: option.vendorKey,
     platformKey: option.platformKey,
     maxReferenceImages: option.nodeConfigMetadata?.maxReferenceImages ?? null,
-    quality: option.model === "gpt-image-2.5" ? "max" : "auto",
+    quality: option.model === "gpt-image-2.5" ? "max" : option.model === "gpt-image-2" ? "auto" : undefined,
     error: undefined,
   };
 }

@@ -1,4 +1,4 @@
-import { buildGptImageModelSwitchPatch, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
+import { GPT_IMAGE_25_MODELS, buildGptImageModelSwitchPatch, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import { Handle, Position, useStore } from "@xyflow/react";
 import { Send as SendIcon, Square } from "lucide-react";
@@ -260,7 +260,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
   const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
   const maxReferenceImages = React.useMemo(() => {
-    if (normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "", data.nodeConfigKey) === "gpt-image-2.5") return undefined;
+    if (GPT_IMAGE_25_MODELS.includes(normalizeCanvasGptImage25Model(data.model || "", data.nodeConfigKey, metadata?.model || defaultData?.model || ""))) return undefined;
     const raw = Number(
       data.maxReferenceImages ??
         metadata?.maxReferenceImages ??
@@ -279,13 +279,13 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     resolutionOptions[0] ||
     "1K";
   const isGptImage2Node = resolvedNodeType === "gptImage2";
-  const resolvedModel = normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "gpt-image-2", data.nodeConfigKey);
+  const resolvedModel = normalizeCanvasGptImage25Model(data.model || "", data.nodeConfigKey, metadata?.model || defaultData?.model || "gpt-image-2");
   const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(resolvedModel);
   const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
   const isSelectedModelUnavailable = isGptImage2Node && (
     data.gptImageModelOptions
       ? !data.gptImageModelOptions.some((option) => option.model === resolvedModel && option.enabled)
-      : isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes("gpt-image-2.5")
+      : isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes(resolvedModel)
   );
   const isJichuan = resolvedModel === "gpt-image-2.5";
   const qualityOptions = isJichuan ? [
@@ -297,7 +297,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const normalizedResolutionValue =
     typeof resolutionValue === "string" ? resolutionValue.trim().toUpperCase() : "";
   const isGptImage24K =
-    isGptImage2Node && !isJichuan &&
+    isGptImage2Node && !isToapiGpt25 &&
     normalizedResolutionValue === "4K";
   const resolvedAspectRatioOptions = React.useMemo(() => {
     if (!isGptImage24K) return aspectRatioOptions;
@@ -419,7 +419,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       const patch: Record<string, unknown> = { resolution: value };
       const normalizedResolution =
         typeof value === "string" ? value.trim().toUpperCase() : "";
-      if (resolvedNodeType === "gptImage2" && !isJichuan && normalizedResolution === "4K") {
+      if (resolvedNodeType === "gptImage2" && !isToapiGpt25 && normalizedResolution === "4K") {
         const currentAspectRatio =
           typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
         if (!GPT_IMAGE_2_4K_ASPECT_RATIO_SET.has(currentAspectRatio)) {
@@ -432,7 +432,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         })
       );
     },
-    [aspectRatioValue, id, resolvedNodeType, isJichuan]
+    [aspectRatioValue, id, resolvedNodeType, isToapiGpt25]
   );
 
   const normalizedQualityValue = React.useMemo<

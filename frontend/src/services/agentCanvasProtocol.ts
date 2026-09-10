@@ -609,10 +609,10 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "gptImage2",
       label: "GPT Image 2 / 2.5",
-      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 使用 Jichuan",
+      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 可选 Flare、Sunburst 或 Jichuan，保留用户指定型号",
       params: {
-        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5"] },
-        quality: { type: "string", enum: ["high", "xhigh", "max"], default: "max", description: "Jichuan quality; same price within a resolution" },
+        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] },
+        quality: { type: "string", enum: ["high", "xhigh", "max"], default: "max", description: "Only gpt-image-2.5 (Jichuan) accepts these quality values; omit for Flare/Sunburst. Same price within a resolution" },
         aspectRatio: { type: "string" },
         resolution: { type: "string", enum: ["1K", "2K", "4K"] },
       },
