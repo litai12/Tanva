@@ -17,6 +17,7 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
@@ -721,37 +722,39 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
       {isGptImage2Node && (
         <div style={{ marginBottom: 8 }}>
-          <label htmlFor={`${id}-gpt-model`} style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("模型", "Model")}
-          </label>
-          <select
-            id={`${id}-gpt-model`}
-            className='nodrag nowheel'
+          </div>
+          <NodeSelect
             value={resolvedModel}
             disabled={status === "running"}
-            onPointerDown={stopNodeDrag}
-            onChange={(event) => {
-              if (status === "running") return;
-              const option = data.gptImageModelOptions?.find((item) => item.model === event.target.value);
-              if (!option || option.model === resolvedModel) return;
-              const patch = buildGptImageModelSwitchPatch(option);
-              if (!patch) return;
+            title={lt("选择 GPT 图片模型", "Select GPT image model")}
+            menuLabel={lt("模型", "Model")}
+            options={[
+              ...(!data.gptImageModelOptions?.some((option) => option.model === resolvedModel)
+                ? [{ value: resolvedModel, label: `${resolvedModel}${isSelectedModelUnavailable ? lt("（已下线）", " (Unavailable)") : ""}`, disabled: true }]
+                : []),
+              ...(data.gptImageModelOptions || []).map((option) => ({
+                value: option.model,
+                label: `${lt(option.nodeConfigNameZh, option.nodeConfigNameEn)}${!option.enabled ? lt("（暂不可用）", " (Unavailable)") : ""}`,
+                disabled: !option.enabled,
+              })),
+            ]}
+            onOpenChange={(open) => {
+              if (!open) return;
               setQualityMenuOpen(false);
               setResolutionMenuOpen(false);
               setAspectMenuOpen(false);
+            }}
+            onChange={(value) => {
+              if (status === "running") return;
+              const option = data.gptImageModelOptions?.find((item) => item.model === value);
+              if (!option || option.model === resolvedModel) return;
+              const patch = buildGptImageModelSwitchPatch(option);
+              if (!patch) return;
               window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
             }}
-            style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff" }}
-          >
-            {!data.gptImageModelOptions?.some((option) => option.model === resolvedModel) && (
-              <option value={resolvedModel} disabled>{resolvedModel}{isSelectedModelUnavailable ? lt("（已下线）", " (Unavailable)") : ""}</option>
-            )}
-            {data.gptImageModelOptions?.map((option) => (
-              <option key={option.model} value={option.model} disabled={!option.enabled}>
-                {lt(option.nodeConfigNameZh, option.nodeConfigNameEn)}{!option.enabled ? lt("（暂不可用）", " (Unavailable)") : ""}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       )}
 

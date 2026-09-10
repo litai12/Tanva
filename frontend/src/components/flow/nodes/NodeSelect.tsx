@@ -20,6 +20,8 @@ type NodeSelectProps = {
   value: string;
   options: NodeSelectOption[];
   onChange: (value: string) => void;
+  disabled?: boolean;
+  onOpenChange?: (open: boolean) => void;
   title?: string;
   menuLabel?: string;
   variant?: "field" | "compact";
@@ -32,6 +34,8 @@ function NodeSelect({
   value,
   options,
   onChange,
+  disabled = false,
+  onOpenChange,
   title,
   menuLabel,
   variant = "field",
@@ -44,10 +48,11 @@ function NodeSelect({
     options.find((option) => option.value === value) ?? options[0] ?? null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type='button'
+          disabled={disabled}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -61,7 +66,7 @@ function NodeSelect({
           }}
           title={title}
           className={cn(
-            "nodrag nopan",
+            "nodrag nopan disabled:cursor-not-allowed disabled:opacity-50",
             variant === "compact"
               ? isFlowDark
                 ? "tanva-agent-toolbar-btn h-8 rounded-full bg-[#252525]/95 border border-[#404040] text-[#e5e7eb] transition-all duration-200 hover:bg-[#2d2d2d] hover:border-[#4b5563] px-2 text-[10px] font-medium inline-flex items-center gap-1.5"
@@ -116,7 +121,7 @@ function NodeSelect({
               disabled={option.disabled}
               onClick={(event) => {
                 event.stopPropagation();
-                if (option.disabled) {
+                if (disabled || option.disabled) {
                   event.preventDefault();
                   return;
                 }

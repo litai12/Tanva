@@ -75,3 +75,10 @@ Validation: frontend and backend builds, catalog regression and TestJichuan gate
 最终验证补充：前端模型回归与小T图片补丁合同合计 14 项通过；Nest 构建通过。全库 lint 为 2563 errors / 200 warnings，与既有数量一致。Flare/Sunburst 图生结果已目视确认均为蓝色杯子、原背景与构图基本保留。执行入口也校验最新目录可用型号，组运行/小T调用不会绕过按钮禁用；不可用时明确失败，不静默切换。此次未完成浏览器交互验收，未提交或部署 101。
 
 前端最终 `npm run build` 成功（Vite 35.49 秒，保留既有大包提示），`git diff --check` 通过。
+
+
+## 选择器样式对齐（2026-09-10）
+
+GPT 模型菜单复用 `NodeSelect`，与 Seedance 模式/分辨率共用主题、圆角、选中标记和 Radix 弹层。新增可选 disabled/onOpenChange；生成中禁止开启/切换，打开模型菜单关闭已有宽高比/分辨率/质量菜单。保留原型号、下线提示及切换逻辑。
+
+验证：前端生产构建通过，6 项模型切换回归通过；NodeSelect 的 lint 为 0，Nano2Node 保持既有 7 项且无新增规则/消息；git diff --check 通过。此次样式调整仅需更新前端，未提交或部署。
