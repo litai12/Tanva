@@ -1403,3 +1403,8 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 2026-09-09 Local only: Jichuan GPT-Image-2.5 quality choices reduced to high/xhigh/max, default max; legacy low/auto/missing values normalize to max, prices unchanged. No deployment.
 
 - 2026-09-09 Local only: frontend GPT-Image-2.5 fixed to Jichuan gpt-image-2.5; removed model selector, retained high/xhigh/max (default max). Legacy variant nodes normalize to the single model at display/execution. Updated palette metadata and agent model contract; no deployment.
+
+## 2026-09-10 历史邀请积分恢复衰减（仅本地，用户自行部署）
+
+- 移除 legacy_referral_migration + legacyReferralUnverified 对每日免费积分衰减的豁免；已有迁移批次无需改库，按实际剩余额度与账户余额上限扣减。会员/白名单保护、签到独立清理和每日幂等保持原规则，不追补历史漏衰减。
+- 回归覆盖历史迁移批次参与衰减、连续多日清零、尾额不足 50、当日重复执行和充值余额保护；衰减策略测试、消费/衰减服务回归及后端构建通过。

@@ -3,7 +3,7 @@ import { findCreditAccountForUpdate } from './credit-account-lock.util';
 
 /**
  * 将无批次旧奖励从已有 legacy 余额中划分出来，不增加账户余额。
- * 旧流水缺少消费归属，不能证明未用金额；迁移批次只优先消费，不自动衰减。
+ * 迁移额度受现有未分批次余额约束；迁移批次按 remainingAmount 消费及衰减。
  * 历史消费归属和衰减返还由证据校验脚本单独处理。
  */
 export async function materializeLegacyReferralLots(

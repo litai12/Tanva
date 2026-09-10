@@ -86,7 +86,7 @@ async function run() {
   await materializeLegacyReferralLots(tx, 'account');
   assert.equal(account.balance, 1210);
   assert.deepEqual(lots.slice(1).map(l => l.remainingAmount), [150, 60]);
-  assert(lots.slice(1).every(l => !isFreeCreditDecayLot(l)), 'unverified historical remainder must not decay');
+  assert(lots.slice(1).every(l => isFreeCreditDecayLot(l)), 'historical referral remainder must decay');
   assert(isFreeCreditDecayLot(gift), 'ordinary gift still decays');
   const migratedSpend = buildHybridCreditDeductionPlan({ lots, accountBalance: account.balance, amount: 210, now, policy });
   assert(migratedSpend.deductions.every(d => d.lotId !== 'existing'));
@@ -97,8 +97,7 @@ async function run() {
   await materializeLegacyReferralLots(tx, 'account');
   assert.equal(lots[3].remainingAmount, 0);
   assert.equal(lots[3].status, 'exhausted');
-  // Run the actual scheduler service: unverified migrated rewards stay untouched,
-  // while a newly granted ordinary gift still decays once per day.
+  // Run the actual scheduler: migrated rewards decay once per day, bounded by remaining balance.
   const recorded: any[] = [];
   const db = tx as any;
   db.creditLot.updateMany = async () => ({ count: 0 });
@@ -106,7 +105,10 @@ async function run() {
   db.creditLot.update = async ({ where, data }: any) => Object.assign(lots.find(l => l.id === where.id)!, data);
   db.creditAccount.findMany = async () => [{ id: 'account', userId: 'user' }];
   db.creditAccount.update = async ({ data }: any) => Object.assign(account, data);
-  db.creditTransaction.count = async () => recorded.length;
+  db.creditTransaction.count = async ({ where }: any) => recorded.filter(t => {
+    const at = new Date(t.metadata.decayedAt);
+    return at >= where.createdAt.gte && at < where.createdAt.lt;
+  }).length;
   db.creditTransaction.create = async ({ data }: any) => { recorded.push(data); return data; };
   db.userMembershipSubscription = { findMany: async () => [], findFirst: async () => null };
   db.user = { findMany: async () => [], findFirst: async () => null };
@@ -114,15 +116,22 @@ async function run() {
   db.$transaction = async (fn: any) => fn(db);
   const service = Object.create(MembershipService.prototype) as MembershipService;
   Object.assign(service, { prisma: db, businessPolicyService: { getMembershipCreditPolicy: async () => ({ dailyGiftDecayCredits: 50 }) } });
-  assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
-  assert.equal(account.balance, 1210);
-  lots.push(lot('new-gift', { sourceType: 'gift', remainingAmount: 70 }));
-  account.balance += 70;
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 50);
-  assert.equal(lots.find(l => l.id === 'new-gift')!.remainingAmount, 20);
-  assert.equal(account.balance, 1230);
+  assert.equal(account.balance, 1160);
+  assert.equal(lots[1].remainingAmount, 100);
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
   assert.equal(recorded.length, 1);
+  // Advance business days and verify the last 10 points cannot become a 50-point deduction.
+  let nextDay = new Date(now);
+  for (const expected of [50, 50, 50, 10]) {
+    nextDay = new Date(nextDay.getTime() + 86400000);
+    assert.equal((await service.decayDailyGiftCredits(nextDay)).decayedCredits, expected);
+    assert.equal((await service.decayDailyGiftCredits(nextDay)).decayedCredits, 0);
+  }
+  assert.equal(account.balance, 1000, 'paid lot remains untouched');
+  assert.equal(lots[1].remainingAmount, 0);
+  assert.equal(lots[2].remainingAmount, 0);
+  assert.equal((await service.decayDailyGiftCredits(new Date(nextDay.getTime() + 86400000))).decayedCredits, 0);
   console.log('Free consumption: five-level source ordering, partial spend/refund, eligibility, legacy balance conservation and decay guards passed.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

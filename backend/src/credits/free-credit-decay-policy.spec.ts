@@ -55,4 +55,7 @@ assert.equal(
   false,
 );
 
+assert.equal(isFreeCreditDecayLot({ sourceType: 'gift', validityType: 'permanent',
+  metadata: { grantedBy: 'legacy_referral_migration', legacyReferralUnverified: true } }), true);
+
 console.log('free credit decay policy checks passed');
