@@ -36,3 +36,13 @@ Regression: `cd backend && npm run test:image-generation-dto` exercises the actu
 Removed the previously imposed one-reference limit per user correction. GPT-Image-2.5 connection checks and execution ignore stale reference limits on saved nodes; metadata uses null for no application count limit, and the node no longer displays a numeric limit. The gateway validates every remote URL, preserves order and all references, and forwards multiple references as an image array to /v1/images/edits (single references retain the string format). Quality/default and pricing are unchanged. Local tests cover 20 references through image_urls and image arrays, plus invalid remote references. Actual Jichuan multi-image acceptance still requires upstream verification; no paid generation or deployment was performed.
 
 Validation: frontend and backend builds, catalog regression and TestJichuan gateway tests passed. Full frontend lint failed with 2,563 errors and 200 warnings across the repository (including the unrelated binary tmp_head_aiChatStore.ts); not a clean lint baseline.
+
+## curl 实测与节点模型切换（2026-09-10）
+
+- 使用 101 Tanva 网关及其现有普通 token，以 curl 调用 `/v1/images/generations`，模型 `gpt-image-2.5`、`size=1:1`、`resolution=1K`、`quality=max`、`n=1`、URL 响应。文生图 HTTP 200，35.960 秒，返回 1254×1254 红色陶瓷杯。
+- 图生图通过相同入口传 `image_urls=[文生图远程URL]`，提示仅将杯子改为钴蓝色。HTTP 200，37.984 秒，返回 1254×1254 图片；目视确认颜色变化且杯型、桌面、构图基本保留。图像输入 usage 为 2465 tokens。两次真实生成，无自动重投。
+- 文生图结果：`https://chat.velapi.cc/images/2026/09/10/1789008483_d0271fe7003907e8166617c3f5e1f08c.png`；图生图结果：`https://chat.velapi.cc/images/2026/09/10/1789008539_825b5be88c1d1440f2432f47b1dfa965.png`。服务端脱敏请求/响应保存在 `/tmp/tanva-gpt25-curl-20260910/`，凭据仅通过 curl stdin 配置传递。
+- 本地 4458 尚无 Jichuan 模型渠道，返回 503 `model_not_found`；以上成功证据来自 101 网关，不代表本地渠道已同步，也不代表 Nest 异步任务端到端验收。此次仅验证 1K/Max/单参考图，不外推多图或其他质量、分辨率。
+- 前端 GPT 图片节点新增 GPT Image 2 / 2.5 下拉，选项来自当前节点目录；运行中不能切换，下线型号不能选择或运行。切换同步更新 model、managedModelKey、nodeConfigKey、元数据、供应商与积分预览配置；2.5 默认 Max，切回 2 默认 Auto，清除旧参考图上限，保留已有提示词、连线与结果图。旧 Flare/Sunburst 继续归一到 Jichuan。
+- 4 项回归覆盖旧节点切回 2 后的执行型号、切回 2.5 的质量与参考限制、禁用项拒绝、历史别名兼容。前端生产构建通过；全库 lint 仍为既有 2563 errors / 200 warnings。本机缺少 SSOT 要求的 AI Metadata 同步脚本。本次前端修改未发布。
+- 浏览器交互验收未完成：内置浏览器连接连续超时，本地 Nest 后端未运行；不将构建或单元回归描述成浏览器端到端通过。临时启动的 Vite 已停止。

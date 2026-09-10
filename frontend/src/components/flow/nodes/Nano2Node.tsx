@@ -1,4 +1,4 @@
-import { normalizeCanvasGptImage25Model } from "@/services/gptImage25";
+import { buildGptImageModelSwitchPatch, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import { Handle, Position, useStore } from "@xyflow/react";
 import { Send as SendIcon, Square } from "lucide-react";
@@ -51,6 +51,7 @@ type NodeData = {
   googleImageSearch?: boolean;
   model?: string;
   modelProvider?: string;
+  gptImageModelOptions?: GptImageModelOption[];
   maxReferenceImages?: number;
   nodeConfigKey?: string;
   nodeConfigNameZh?: string;
@@ -281,7 +282,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const resolvedModel = normalizeCanvasGptImage25Model(data.model || metadata?.model || defaultData?.model || "gpt-image-2", data.nodeConfigKey);
   const isToapiGpt25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(resolvedModel);
   const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
-  const isSelectedModelUnavailable = isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes("gpt-image-2.5");
+  const isSelectedModelUnavailable = isGptImage2Node && (
+    data.gptImageModelOptions
+      ? !data.gptImageModelOptions.some((option) => option.model === resolvedModel && option.enabled)
+      : isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes("gpt-image-2.5")
+  );
   const isJichuan = resolvedModel === "gpt-image-2.5";
   const qualityOptions = isJichuan ? [
     { value: "high" as const, title: "高 / High" },
@@ -713,6 +718,42 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+
+      {isGptImage2Node && (
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor={`${id}-gpt-model`} style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+            {lt("模型", "Model")}
+          </label>
+          <select
+            id={`${id}-gpt-model`}
+            className='nodrag nowheel'
+            value={resolvedModel}
+            disabled={status === "running"}
+            onPointerDown={stopNodeDrag}
+            onChange={(event) => {
+              if (status === "running") return;
+              const option = data.gptImageModelOptions?.find((item) => item.model === event.target.value);
+              if (!option || option.model === resolvedModel) return;
+              const patch = buildGptImageModelSwitchPatch(option);
+              if (!patch) return;
+              setQualityMenuOpen(false);
+              setResolutionMenuOpen(false);
+              setAspectMenuOpen(false);
+              window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
+            }}
+            style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff" }}
+          >
+            {!data.gptImageModelOptions?.some((option) => option.model === resolvedModel) && (
+              <option value={resolvedModel} disabled>{resolvedModel}{isSelectedModelUnavailable ? lt("（已下线）", " (Unavailable)") : ""}</option>
+            )}
+            {data.gptImageModelOptions?.map((option) => (
+              <option key={option.model} value={option.model} disabled={!option.enabled}>
+                {lt(option.nodeConfigNameZh, option.nodeConfigNameEn)}{!option.enabled ? lt("（暂不可用）", " (Unavailable)") : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div style={{ marginBottom: 8 }}>
         <label

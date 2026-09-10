@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
-import { normalizeCanvasGptImage25Model } from "@/services/gptImage25";
+import { normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
@@ -26597,6 +26597,25 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   ]);
   const nodesWithHandlers = React.useMemo(
     () => {
+      const gptImageModelOptions: GptImageModelOption[] = nodePaletteConfigs
+        .filter((config) => ["gptImage2", "gptImage25"].includes(config.nodeKey))
+        .map((config) => {
+          const model = config.nodeKey === "gptImage25" ? "gpt-image-2.5" : "gpt-image-2";
+          const route = getManagedRouteOption(config.metadata);
+          const supportedModels = config.metadata?.supportedModels;
+          return {
+            model,
+            nodeConfigKey: config.nodeKey,
+            nodeConfigNameZh: config.nameZh,
+            nodeConfigNameEn: config.nameEn,
+            nodeConfigMetadata: config.metadata,
+            creditsPerCall: config.creditsPerCall,
+            vendorKey: route?.vendorKey,
+            platformKey: route?.platformKey || route?.vendorKey,
+            enabled: config.status === "normal" &&
+              (!Array.isArray(supportedModels) || supportedModels.includes(model)),
+          };
+        });
       const prevCache = nodeWithHandlersCacheRef.current;
       const nextCache = new Map<string, { source: RFNode; enhanced: RFNode; signature: string }>();
       const pricingSignature = [
@@ -26605,6 +26624,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         imageSize || "",
         imageModel || "",
         JSON.stringify(Array.from(managedRuntimeByType.entries())),
+        JSON.stringify(gptImageModelOptions),
         isFlowBlackTheme ? "dark" : "light",
       ].join("|");
 
@@ -26635,6 +26655,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
             : undefined;
         const runtimeNodeData = {
           ...(n.data || {}),
+          ...(resolvedType === "gptImage2" ? { gptImageModelOptions } : {}),
           ...(managedRuntime?.nodeConfigKey &&
           (typeof n.data?.nodeConfigKey !== "string" || !n.data.nodeConfigKey.trim())
             ? { nodeConfigKey: managedRuntime.nodeConfigKey }
@@ -26776,6 +26797,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
     [
       nodes,
       nodeCreditsByType,
+      nodePaletteConfigs,
       managedRuntimeByType,
       aiProvider,
       bananaImageRoute,
