@@ -18,11 +18,14 @@ async function main() {
   const publicNodes = await nodes.getAllNodeConfigs();
   assert.deepEqual(publicNodes.map((node) => node.nodeKey), ['gptImage2', 'gptImage25']);
   const unified = publicNodes.find((node) => node.nodeKey === 'gptImage25')!;
-  assert.deepEqual(unified.metadata?.supportedModels, ["gpt-image-2.5", ...variants.slice(0, 2)]);
-  for (const model of variants) assert.equal(unified.metadata?.managedRoutesByModel[model].modelKey, model);
-  assert.equal(unified.metadata?.defaultData.model, "gpt-image-2.5");
-  assert.equal(unified.metadata?.defaultData.quality, "max");
+  assert.deepEqual(unified.metadata?.supportedModels, variants.slice(0, 2));
+  for (const model of variants.slice(0, 2)) assert.equal(unified.metadata?.managedRoutesByModel[model].modelKey, model);
+  assert.equal(unified.metadata?.defaultData.model, "gpt-image-2.5-flare");
+  assert.equal(unified.metadata?.defaultData.quality, undefined);
   assert.equal(unified.metadata?.maxReferenceImages, null);
+  assert.equal(unified.metadata?.managedRoutesByModel["gpt-image-2.5"], undefined);
+  rows = rows.map(row => row.nodeKey === "gptImage25" ? { ...row, metadata: { ...row.metadata, model: "gpt-image-2.5-sunburst" } } : row);
+  assert.equal((await nodes.getAllNodeConfigs()).find(node => node.nodeKey === "gptImage25")?.metadata?.defaultData.model, "gpt-image-2.5-flare");
   const parsed = await routing.getParsedConfig();
   for (const modelKey of variants) assert.ok(parsed.models.some((model) => model.modelKey === modelKey));
 
@@ -30,19 +33,19 @@ async function main() {
   const disabledFlare = { ...defaults.find((model) => model.modelKey === variants[0])!, enabled: false };
   savedModels = [...savedModels, disabledFlare];
   const sunburstOnly = (await nodes.getAllNodeConfigs()).find((node) => node.nodeKey === 'gptImage25')!;
-  assert.deepEqual(sunburstOnly.metadata?.supportedModels, ["gpt-image-2.5", "gpt-image-2.5-sunburst"]);
-  assert.equal(sunburstOnly.metadata?.defaultData.model, "gpt-image-2.5");
+  assert.deepEqual(sunburstOnly.metadata?.supportedModels, ["gpt-image-2.5-sunburst"]);
+  assert.equal(sunburstOnly.metadata?.defaultData.model, "gpt-image-2.5-sunburst");
   assert.equal((await routing.getParsedConfig()).models.find((model) => model.modelKey === variants[0])?.enabled, false);
 
   // Saved singleton catalog must recover all variants before enabled checks.
   rows = rows.map(row => row.nodeKey === 'gptImage25' ? { ...row, metadata: { ...row.metadata, modelKeys: ['gpt-image-2.5'] } } : row);
-  savedModels.push({ ...defaults.find((model) => model.modelKey === variants[2])!, enabled: false });
+
   const onlySunburst = (await nodes.getAllNodeConfigs()).find(node => node.nodeKey === 'gptImage25')!;
   assert.deepEqual(onlySunburst.metadata?.supportedModels, ['gpt-image-2.5-sunburst']);
   assert.equal(onlySunburst.metadata?.model, 'gpt-image-2.5-sunburst');
   assert.equal(onlySunburst.metadata?.defaultData.quality, undefined);
   savedModels.push({ ...defaults.find((model) => model.modelKey === variants[1])!, enabled: false });
-  savedModels.push({ ...defaults.find((model) => model.modelKey === variants[2])!, enabled: false });
+
   assert.equal((await nodes.getAllNodeConfigs()).some((node) => node.nodeKey === 'gptImage25'), false);
   console.log('GPT Image 2.5 existing-database catalog upgrade and explicit-disable checks passed');
 }

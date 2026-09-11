@@ -82,3 +82,9 @@ Validation: frontend and backend builds, catalog regression and TestJichuan gate
 GPT 模型菜单复用 `NodeSelect`，与 Seedance 模式/分辨率共用主题、圆角、选中标记和 Radix 弹层。新增可选 disabled/onOpenChange；生成中禁止开启/切换，打开模型菜单关闭已有宽高比/分辨率/质量菜单。保留原型号、下线提示及切换逻辑。
 
 验证：前端生产构建通过，6 项模型切换回归通过；NodeSelect 的 lint 为 0，Nano2Node 保持既有 7 项且无新增规则/消息；git diff --check 通过。此次样式调整仅需更新前端，未提交或部署。
+
+## 2026-09-11 基础型号下线
+
+此更新取代上文基础型号可选的合同。画布与小T仅保留 GPT Image 2、2.5 Flare、2.5 Sunburst；新建 2.5 默认 Flare，后端目录在 Flare 禁用时选用可用 Sunburst。旧基础型号节点运行时迁移至 Flare，已有 Sunburst/GPT Image 2 选择不变。目录覆盖旧数据库 modelKeys，已禁用变种不会自动启用；迁移同时更新运行时型号、计费路由并省略质量参数。底层供应商适配器与历史计费记录保留兼容，不修改网关渠道。
+
+验证：前端 6 项模型切换/历史迁移回归、后端目录兼容/禁用回归、前后端构建均通过。全量前端 lint 未通过（2563 errors / 200 warnings）；AI Metadata 同步脚本在约定路径及本机技能目录中缺失，未执行成功。本次仅修改本地代码，未部署。

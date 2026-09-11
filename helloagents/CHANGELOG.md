@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-09-11：下线画布及小T目录中的基础 gpt-image-2.5，保留 Flare/Sunburst 与 GPT Image 2；新建 2.5 默认 Flare，历史基础型号迁移为 Flare，目录、显示、报价及执行同步，保留其他型号选择与已有结果。
+
 - 2026-09-10：GPT 图片模型选择器替换原生 select，复用 Seedance 模式/分辨率使用的 NodeSelect，统一主题、选中标记与弹层交互。共享组件新增可选 disabled/onOpenChange，保持生成中禁用及同节点参数菜单互斥。
 
 - 2026-09-10：修正此前模型切换范围误解，恢复 gpt-image-2.5 / flare / sunburst 三个真实型号及旧节点身份，取消强制归一；旧数据库目录自动兼容并按型号独立启停/路由，Flare/Sunburst 不发送基础型号质量值。四次 Flare/Sunburst 文生图/图生图 curl 全部 200，六项前端回归及后端目录/请求/计费回归通过。本次需要同时发布前后端，new-api 无改动；由用户提交部署。

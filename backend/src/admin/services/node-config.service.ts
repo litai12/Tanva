@@ -131,7 +131,7 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
-const GPT_IMAGE_25_MODELS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'];
+const GPT_IMAGE_25_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'];
 
 // 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
 const AUDIO_STUDIO_MODEL_KEYS = [
@@ -491,7 +491,7 @@ export class NodeConfigService {
     if (nodeKey === 'gptImage25') {
       const supportedModels = currentModelKeys.filter((key) => enabledModelKeys.has(key));
       nextMetadata.supportedModels = supportedModels;
-      const selectedModel = supportedModels.includes(nextMetadata.model) ? nextMetadata.model : supportedModels[0];
+      const selectedModel = supportedModels[0];
       nextMetadata.managedRoutesByModel = Object.fromEntries(supportedModels.map((key) => {
         const model = managedModelMap.get(key);
         return [key, model ? this.buildManagedRouteView(model) : null];
@@ -1200,7 +1200,7 @@ export class NodeConfigService {
       },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
-        ['gptImage25', 'gpt-image-2.5', 'GPT-Image-2.5'],
+        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
       ].map(([nodeKey, model, label]) => ({
         nodeKey,
         nameZh: label,
@@ -1234,7 +1234,7 @@ export class NodeConfigService {
             defaultData: {
               modelProvider: 'nano2',
               model,
-              quality: nodeKey === 'gptImage25' ? 'max' : 'auto',
+              quality: nodeKey === 'gptImage25' ? undefined : 'auto',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
@@ -2043,7 +2043,7 @@ export class NodeConfigService {
       },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
-        ['gptImage25', 'gpt-image-2.5', 'GPT-Image-2.5'],
+        ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
       ].map(([nodeKey, model, label]) => ({
         nodeKey,
         nameZh: label,
@@ -2077,7 +2077,7 @@ export class NodeConfigService {
             defaultData: {
               modelProvider: 'nano2',
               model,
-              quality: nodeKey === 'gptImage25' ? 'max' : 'auto',
+              quality: nodeKey === 'gptImage25' ? undefined : 'auto',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,

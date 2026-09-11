@@ -26692,6 +26692,8 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
           const selectedModel = normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || "gpt-image-2"));
           const option = gptImageModelOptions.find((item) => item.model === selectedModel);
           if (option) {
+            runtimeNodeData.model = selectedModel;
+            if (GPT_IMAGE_25_MODELS.includes(selectedModel)) runtimeNodeData.quality = undefined;
             runtimeNodeData.nodeConfigMetadata = option.nodeConfigMetadata;
             runtimeNodeData.managedModelKey = selectedModel;
             runtimeNodeData.vendorKey = option.vendorKey;

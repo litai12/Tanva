@@ -159,4 +159,4 @@
 
 - Group 边界以 React Flow 实际 measured 尺寸优先，不能拿图片节点初始化 boxH 代替包含参数与预览的实际高度；动态尺寸变化只更新组容器，保留成员坐标。
 
-- GPT Image 2.5 型号切换合同（2026-09-10）：节点内分别展示并原样执行 `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`，不得把后两者归一到基础型号；UI 不展示 Jichuan 厂商品牌。显式 model 优先，缺失时才由旧节点键恢复。公开目录兼容旧单型号配置，按独立模型启停并提供 managedRoutesByModel；质量 high/xhigh/max 仅适用于基础 2.5，Flare/Sunburst 请求省略质量，切换同步计费身份并保留结果与连线。
+- GPT Image 2.5 型号切换合同（2026-09-11）：基础 `gpt-image-2.5` 从画布目录与小T能力清单下线，保留 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 及 GPT Image 2；新建 2.5 节点默认 Flare（禁用时回退可用 Sunburst）。历史基础型号与缺失型号的 gptImage25 节点归一为 Flare，已有其他型号保持选择；展示、报价与执行同步型号和路由身份。公开目录覆盖旧单型号配置，按变种独立启停并提供 managedRoutesByModel；Flare/Sunburst 请求省略质量，保留结果与连线。

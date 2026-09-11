@@ -1,15 +1,16 @@
 import type { NodeConfig } from "./nodeConfigService";
 
-export const GPT_IMAGE_25_MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+export const GPT_IMAGE_25_MODELS = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
 const LEGACY_MODELS: Record<string, string> = {
-  gptImage25: "gpt-image-2.5",
+  gptImage25: "gpt-image-2.5-flare",
   gptImage25Flare: "gpt-image-2.5-flare",
   gptImage25Sunburst: "gpt-image-2.5-sunburst",
 };
 
-// Explicit saved choices always win. Only fill a missing model from legacy keys.
+// Preserve active saved variants; migrate the retired base model to Flare.
 export function normalizeCanvasGptImage25Model(model: string, nodeConfigKey?: string, fallback = ""): string {
-  return model.trim() || LEGACY_MODELS[nodeConfigKey || ""] || fallback;
+  const selected = model.trim() || LEGACY_MODELS[nodeConfigKey || ""] || fallback;
+  return selected === "gpt-image-2.5" ? "gpt-image-2.5-flare" : selected;
 }
 
 export function expandGptImageModelConfigs(configs: NodeConfig[]): NodeConfig[] {
@@ -45,7 +46,7 @@ export type GptImageModelOption = {
 
 // Switch the complete routing identity and remove quality values from other variants.
 export function buildGptImageModelSwitchPatch(option: GptImageModelOption) {
-  if (!option.enabled) return null;
+  if (!option.enabled || option.model === "gpt-image-2.5") return null;
   return {
     model: option.model,
     managedModelKey: option.model,

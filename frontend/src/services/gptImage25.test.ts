@@ -25,12 +25,11 @@ test("switching a saved legacy 2.5 node to 2 survives execution normalization", 
   assert.equal(next.presetPrompt, saved.presetPrompt);
 });
 
-test("switching to 2.5 resets quality and old reference limits with the new routing identity", () => {
-  const next = { quality: "low", maxReferenceImages: 1, ...buildGptImageModelSwitchPatch(option("gpt-image-2.5")) };
-  assert.equal(next.quality, "max");
-  assert.equal(next.maxReferenceImages, null);
-  assert.equal(next.managedModelKey, "gpt-image-2.5");
-  assert.equal(normalizeCanvasGptImage25Model(next.model!, next.nodeConfigKey), "gpt-image-2.5");
+test("retired base nodes migrate to Flare and cannot be selected again", () => {
+  assert.equal(normalizeCanvasGptImage25Model("gpt-image-2.5", "gptImage25"), "gpt-image-2.5-flare");
+  assert.equal(normalizeCanvasGptImage25Model("", "gptImage25"), "gpt-image-2.5-flare");
+  assert.equal(normalizeCanvasGptImage25Model("", "", "gpt-image-2.5"), "gpt-image-2.5-flare");
+  assert.equal(buildGptImageModelSwitchPatch(option("gpt-image-2.5")), null);
 });
 
 test("disabled catalog options cannot produce a model switch", () => {
@@ -57,7 +56,7 @@ test("legacy keys only fill missing model values", () => {
 test("catalog options expose exact model labels and isolated pricing routes", () => {
   const routes = Object.fromEntries(["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].map((modelKey, index) => [modelKey, { modelKey, vendors: [{ vendorKey: "new_api", creditsPerCall: 20 + index }] }]));
   const configs = expandGptImageModelConfigs([{ nodeKey: "gptImage25", nameZh: "GPT", nameEn: "GPT", category: "image", status: "normal", sortOrder: 1, creditsPerCall: 20, metadata: { supportedModels: ["gpt-image-2.5-flare"], managedRoutesByModel: routes } }]);
-  assert.deepEqual(configs.map(c => c.nameZh), Object.keys(routes));
+  assert.deepEqual(configs.map(c => c.nameZh), ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
   for (const config of configs) {
     assert.equal(config.metadata?.managedRoutes.modelKey, config.metadata?.model);
     assert.deepEqual(config.metadata?.supportedModels, ["gpt-image-2.5-flare"]);

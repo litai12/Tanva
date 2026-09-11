@@ -129,7 +129,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
     ...[
       ["gptImage2", "gpt-image-2", "GPT-Image-2"],
-      ["gptImage25", "gpt-image-2.5", "GPT-Image-2.5"],
+      ["gptImage25", "gpt-image-2.5-flare", "GPT-Image-2.5"],
     ].map(([nodeKey, model, label]) => ({
       nodeKey,
       nameZh: label,
@@ -144,8 +144,8 @@ function getDefaultConfigs(): NodeConfig[] {
         ...(model !== "gpt-image-2"
           ? {
               paletteVariantKey: nodeKey,
-              modelKeys: ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
-              supportedModels: ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+              modelKeys: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+              supportedModels: ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
               managedModelKey: model,
             }
           : {}),
@@ -162,7 +162,7 @@ function getDefaultConfigs(): NodeConfig[] {
           model,
           aspectRatio: "1:1",
           resolution: "1K",
-          quality: nodeKey === "gptImage25" ? "max" : "auto",
+          quality: nodeKey === "gptImage25" ? undefined : "auto",
           officialFallback: false,
           maxReferenceImages: nodeKey === "gptImage25" ? null : 16,
           googleSearch: false,
