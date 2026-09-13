@@ -1476,6 +1476,19 @@ export class MembershipService {
             return left.grantedAt.getTime() - right.grantedAt.getTime();
           });
 
+        // Historical source attribution can leave active lots exceeding the
+        // account balance. Never let a stale free lot consume the balance that
+        // backs recharge, membership, check-in or other non-decaying lots.
+        const allActiveLotBalance = await tx.creditLot.aggregate({
+          where: { accountId: account.id, status: 'active', remainingAmount: { gt: 0 } },
+          _sum: { remainingAmount: true },
+        });
+        const freeLotBalance = freeLots.reduce((sum, lot) => sum + lot.remainingAmount, 0);
+        const protectedLotBalance = Math.max(
+          0, (allActiveLotBalance._sum.remainingAmount ?? 0) - freeLotBalance,
+        );
+        let freeDecayBudget = Math.max(0, lockedAccount.balance - protectedLotBalance);
+
         let remainingDecay = dailyDecayAmount;
         let accountBalance = lockedAccount.balance;
         const deductions: Array<Record<string, string | number>> = [];
@@ -1483,7 +1496,7 @@ export class MembershipService {
 
         for (const lot of freeLots) {
           if (remainingDecay <= 0 || accountBalance <= 0) break;
-          const amount = Math.min(remainingDecay, lot.remainingAmount, accountBalance);
+          const amount = Math.min(remainingDecay, lot.remainingAmount, accountBalance, freeDecayBudget);
           if (amount <= 0) continue;
 
           const nextRemaining = lot.remainingAmount - amount;
@@ -1496,6 +1509,7 @@ export class MembershipService {
           });
           deductions.push({ kind: 'lot', lotId: lot.id, amount });
           remainingDecay -= amount;
+          freeDecayBudget -= amount;
           accountBalance -= amount;
           changedLots += 1;
         }

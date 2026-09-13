@@ -6,6 +6,20 @@ contextBridge.exposeInMainWorld(
   'tanvaDesktop',
   Object.freeze({
     isElectron: true,
+    harness: Object.freeze({
+      status: () => ipcRenderer.invoke('tanva:harness:status'),
+      configure: (key) => ipcRenderer.invoke('tanva:harness:configure', key),
+      models: () => ipcRenderer.invoke('tanva:harness:models'),
+      open: (id) => ipcRenderer.invoke('tanva:harness:open', id),
+      reload: () => ipcRenderer.invoke('tanva:harness:reload'),
+      send: (request) => ipcRenderer.invoke('tanva:harness:send', request),
+      stop: () => ipcRenderer.invoke('tanva:harness:stop'),
+      onProgress: (listener) => {
+        const handler = (_event, progress) => listener(progress);
+        ipcRenderer.on('tanva:harness:progress', handler);
+        return () => ipcRenderer.removeListener('tanva:harness:progress', handler);
+      },
+    }),
     platform: process.platform,
     versions: Object.freeze({
       electron: process.versions.electron,

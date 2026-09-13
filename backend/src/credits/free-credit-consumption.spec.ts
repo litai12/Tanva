@@ -86,7 +86,7 @@ async function run() {
   await materializeLegacyReferralLots(tx, 'account');
   assert.equal(account.balance, 1210);
   assert.deepEqual(lots.slice(1).map(l => l.remainingAmount), [150, 60]);
-  assert(lots.slice(1).every(l => isFreeCreditDecayLot(l)), 'historical referral remainder must decay');
+  assert(lots.slice(1).every(l => !isFreeCreditDecayLot(l)), 'unverified history must not decay');
   assert(isFreeCreditDecayLot(gift), 'ordinary gift still decays');
   const migratedSpend = buildHybridCreditDeductionPlan({ lots, accountBalance: account.balance, amount: 210, now, policy });
   assert(migratedSpend.deductions.every(d => d.lotId !== 'existing'));
@@ -116,6 +116,13 @@ async function run() {
   db.$transaction = async (fn: any) => fn(db);
   const service = Object.create(MembershipService.prototype) as MembershipService;
   Object.assign(service, { prisma: db, businessPolicyService: { getMembershipCreditPolicy: async () => ({ dailyGiftDecayCredits: 50 }) } });
+  assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
+  assert.equal(account.balance, 1210);
+  // Verified remainder resumes normal daily decay; the earlier spend plan
+  // already proved that even unverified gifts are consumed before recharge.
+  for (const l of lots.slice(1)) {
+    l.metadata = { ...(l.metadata as Record<string, unknown>), legacyReferralUnverified: false };
+  }
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 50);
   assert.equal(account.balance, 1160);
   assert.equal(lots[1].remainingAmount, 100);
@@ -132,6 +139,18 @@ async function run() {
   assert.equal(lots[1].remainingAmount, 0);
   assert.equal(lots[2].remainingAmount, 0);
   assert.equal((await service.decayDailyGiftCredits(new Date(nextDay.getTime() + 86400000))).decayedCredits, 0);
+  // A stale free lot must not erode an account fully backed by recharge credits.
+  lots[1].status = 'active';
+  lots[1].remainingAmount = 150;
+  nextDay = new Date(nextDay.getTime() + 2 * 86400000);
+  assert.equal((await service.decayDailyGiftCredits(nextDay)).decayedCredits, 0);
+  assert.equal(account.balance, 1000);
+  assert.equal(lots[1].remainingAmount, 150);
+  // Only the 20 credits above protected paid backing may decay, never the full 50.
+  account.balance = 1020;
+  assert.equal((await service.decayDailyGiftCredits(nextDay)).decayedCredits, 20);
+  assert.equal(account.balance, 1000);
+  assert.equal(lots[1].remainingAmount, 130);
   console.log('Free consumption: five-level source ordering, partial spend/refund, eligibility, legacy balance conservation and decay guards passed.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

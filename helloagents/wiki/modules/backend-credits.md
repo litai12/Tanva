@@ -277,3 +277,12 @@
 - Pre-deduct dedup now uses `idempotencyKey` as the sole primary key when present; `requestFingerprint` fallback is only used when idempotency key is absent, avoiding accidental merge of two user-initiated consecutive runs.
 - Frontend image request adapter now writes latest Banana route into `providerOptions` per-request (runtime store value first, persisted value fallback), reducing stale-route charging when users switch route and trigger run quickly.
 - Backend CORS allowlist now includes `x-banana-image-route` so request-side route header can pass browser preflight in cross-origin dev.
+
+## 2026-09-13 邀请奖励逐笔对账与充值保护（101 已部署）
+
+- 用户撤销全量核销方案，改为原额时间线回放成功消费、退款和衰减；只对证据及余额守恒校验通过的账户修正来源与返还，禁止把迁移分配不足直接视为已消费。
+- `legacyReferralUnverified=true` 批次继续以 gift 优先消费，但在逐笔核验通过前暂缓衰减；核验程序设置 false 后按真实剩余额度恢复正常衰减。新邀请奖励不带该标记，继续原规则。此约定取代 9 月 10 日“不豁免未核验迁移批次”的做法。
+- 免费衰减额同时受 lot remainingAmount、账户余额及扣除其他非衰减 active 批次后的余额限制，避免旧批次余额总和失真时消耗充值/会员等余额。
+- 本轮检查 784 个账户，226 个完成修正或核验标记，116 个无新增待处理奖励；442 个因历史证据/余额闭环不足未自动改账。4 人合计返还 258；Jayden 返还 150，余额 47,060。仍有余额的未核验迁移批次为 123 个账户、706 批次，暂缓衰减但优先消费。
+- 扫描/执行/测试入口为 `backend/scripts/{scan-referral-priority-audit,apply-referral-priority-audit,test-referral-priority-audit}.cjs`；后端可用 `npm run test:referral-priority-audit` 验证原额回放与守恒规则。
+- 详细证据、未闭环边界和备份位置见 `../free-credit-jayden-audit-20260913.md`。没有根据不完整证据全局清零历史奖励，也没有取消正常邀请奖励的衰减。

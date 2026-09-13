@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');const {planAudit}=require('./referral-priority-audit.cjs');
+const at='2026-09-13';
+function fixture(){return{at,account:{id:'a',balance:1150},lots:[{id:'gift',sourceType:'gift',status:'active',totalAmount:500,remainingAmount:150,grantedAt:'2026-01-01'},{id:'paid',sourceType:'recharge',status:'active',totalAmount:2000,remainingAmount:1000,grantedAt:'2026-01-01',expiresAt:'2028-01-01'}],transactions:[{id:'r',type:'REFERRAL_REWARD',amount:500,creditLotId:'gift',createdAt:'2026-01-01'},{id:'s',type:'spend',apiUsageId:'u',amount:-600,balanceBefore:2100,balanceAfter:1500,createdAt:'2026-01-02',metadata:{deductions:[{kind:'lot',lotId:'paid',amount:600}]}},{id:'d',type:'expire',amount:-350,balanceBefore:1500,balanceAfter:1150,createdAt:'2026-01-03',metadata:{deductions:[{kind:'lot',lotId:'gift',amount:350}]}}],usage:[{id:'u',responseStatus:'success'}]};}
+let p=planAudit(fixture());assert.equal(p.refund,350);assert.equal(p.rewards[0].remainingAfter,0);assert.equal(p.restoredLots.paid,500);
+let f=fixture();f.transactions[1].createdAt='2025-12-31';p=planAudit(f);assert.equal(p.refund,0);assert.equal(p.rewards[0].remainingAfter,150);
+f=fixture();f.usage[0].responseStatus='pending';p=planAudit(f);assert.equal(p.refund,0);
+f=fixture();f.transactions.push({id:'refund',apiUsageId:'u',type:'refund',amount:600,createdAt:'2026-01-04'});p=planAudit(f);assert.equal(p.refund,0);
+f=fixture();f.transactions[1].amount=-200;f.transactions[1].balanceAfter=1900;f.transactions[1].metadata.deductions[0].amount=200;p=planAudit(f);assert.equal(p.refund,50);assert.equal(p.restoredLots.paid,200);
+// Later gift spending consumes previously restored paid backing, not negative gifts.
+f=fixture();f.account.balance=1050;f.lots[0].remainingAmount=50;f.transactions.push({id:'later',apiUsageId:'v',type:'spend',amount:-100,balanceBefore:1150,balanceAfter:1050,createdAt:'2026-01-04',metadata:{deductions:[{kind:'lot',lotId:'gift',amount:100}]}});f.usage.push({id:'v',responseStatus:'success'});p=planAudit(f);assert.equal(p.refund,350);assert.equal(p.restoredLots.paid,400);assert.deepEqual(p.changes.find(t=>t.id==='later').deductions,[{kind:'lot',lotId:'paid',amount:100}]);
+// A live second reward absorbs lawful decay after the first reward was consumed.
+f=fixture();f.account.balance+=500;f.lots.push({...f.lots[0],id:'gift2',totalAmount:500,remainingAmount:500});f.transactions.push({...f.transactions[0],id:'r2',creditLotId:'gift2'});p=planAudit(f);assert.equal(p.refund,0);assert.equal(p.rewards.reduce((s,r)=>s+r.remainingAfter,0),50);
+f=fixture();f.lots[1].remainingAmount=1900;f.account.balance=2050;assert.throws(()=>planAudit(f),/exceeds original/);
+console.log('Referral audit: settled evidence, grant timing, refunds, partial consumption, later spending, alternate reward decay and conservation passed.');
+// Missing migrated balance is only consumed when actual legacy spend proves it.
+f=fixture();f.account.balance=1000;f.lots[0].remainingAmount=0;f.transactions=f.transactions.filter(t=>t.type!=='expire');f.transactions[1]={...f.transactions[1],amount:-500,balanceBefore:1500,balanceAfter:1000,metadata:{deductions:[{kind:'legacy_balance',amount:500}]}};p=planAudit(f);assert.equal(p.refund,0);assert.equal(p.rewards[0].remainingAfter,0);assert.equal(p.rewards[0].consumed,500);
+f=fixture();f.lots[0].remainingAmount=0;f.account.balance=1000;f.transactions=f.transactions.filter(t=>t.type==='REFERRAL_REWARD');assert.throws(()=>planAudit(f),/exceed account|conserve balance/);
+// Restoring an earlier paid deduction must not duplicate later legacy spend.
+f=fixture();f.account.balance=1000;f.lots[0].remainingAmount=0;f.transactions=f.transactions.filter(t=>t.type!=='expire');f.transactions.push({id:'legacy-later',apiUsageId:'v',type:'spend',amount:-500,balanceBefore:1500,balanceAfter:1000,createdAt:'2026-01-04',metadata:{deductions:[{kind:'legacy_balance',amount:500}]}});f.usage.push({id:'v',responseStatus:'success'});p=planAudit(f);assert.deepEqual(p.restoredLots,{});assert.equal(p.rewards[0].remainingAfter,0);
+console.log('Legacy source replay and missing-evidence rejection passed.');

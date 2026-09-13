@@ -56,6 +56,9 @@ assert.equal(
 );
 
 assert.equal(isFreeCreditDecayLot({ sourceType: 'gift', validityType: 'permanent',
-  metadata: { grantedBy: 'legacy_referral_migration', legacyReferralUnverified: true } }), true);
+  metadata: { grantedBy: 'legacy_referral_migration', legacyReferralUnverified: true } }), false);
+assert.equal(isFreeCreditDecayLot({ sourceType: 'gift', validityType: 'permanent',
+  metadata: { grantedBy: 'legacy_referral_migration', legacyReferralUnverified: false,
+    referralPriorityAudit: 'referral-priority-audit-v3' } }), true);
 
 console.log('free credit decay policy checks passed');

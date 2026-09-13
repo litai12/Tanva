@@ -4,6 +4,16 @@ declare global {
   interface Window {
     tanvaDesktop?: {
       isElectron: true;
+      harness: Readonly<{
+        status: () => Promise<{ activeId: string; configured: boolean; defaultModel: string; platforms: Array<{ id: string; name: string }> }>;
+        configure: (key: string) => Promise<{ configured: boolean }>;
+        models: () => Promise<Array<{ id: string; label: string }>>;
+        open: (id: string) => Promise<{ activeId: string }>;
+        reload: () => Promise<void>;
+        send: (request: { platformId: string; model: string; text: string }) => Promise<{ text: string; model: string }>;
+        stop: () => Promise<void>;
+        onProgress: (listener: (progress: { platformId: string; tool: string }) => void) => () => void;
+      }>;
       platform: NodeJS.Platform;
       versions: Readonly<{
         electron: string;

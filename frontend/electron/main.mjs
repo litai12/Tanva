@@ -21,6 +21,7 @@ import {
 import { computeUse } from './compute-use.mjs';
 import { isComputeUseAction } from './compute-use-actions.mjs';
 import { LocalCodexClient } from './local-codex-client.mjs';
+import { installPlatformHarness } from './platform-harness.mjs';
 import { ConstructionCapabilityHost, constructionToolDefinitions } from './construction-host.mjs';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -101,6 +102,7 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
 let mainWindow = null;
+let platformHarness = null;
 let desktopWorkspaceRoot = null;
 const capabilityHost = new DesktopCapabilityHost();
 const constructionHost = new ConstructionCapabilityHost(app.getPath('userData'));
@@ -112,6 +114,7 @@ const localCodex = new LocalCodexClient({
 });
 const quitCoordinator = createQuitCoordinator({
   cleanup: async () => {
+    platformHarness?.close();
     await capabilityHost.disconnectAll();
     await localCodex.close();
   },
@@ -705,6 +708,8 @@ const createMainWindow = async () => {
     },
   });
 
+  platformHarness?.attach(window);
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -800,6 +805,7 @@ const createMainWindow = async () => {
   if (devRendererUrl) {
     const url = new URL(devRendererUrl);
     url.searchParams.set('desktop', '1');
+    if (platformHarness) url.searchParams.set('harness', '1');
     await window.loadURL(url.toString());
     if (process.env.TANVA_ELECTRON_OPEN_DEVTOOLS === '1') {
       window.webContents.openDevTools({ mode: 'detach' });
@@ -809,7 +815,7 @@ const createMainWindow = async () => {
       `${pathToFileURL(join(
         app.isPackaged ? getPackagedRendererRoot() : resolve(frontendRoot, 'dist'),
         'index.html'
-      )).toString()}?desktop=1`
+      )).toString()}?desktop=1${platformHarness ? '&harness=1' : ''}`
     );
   }
 
@@ -817,6 +823,9 @@ const createMainWindow = async () => {
 };
 
 app.whenReady().then(async () => {
+  if (process.env.TANVA_PLATFORM_HARNESS === '1') {
+    platformHarness = installPlatformHarness({ userData: app.getPath('userData'), isTrustedSender });
+  }
   installWindowIpc();
   installConnectorIpc();
   installAuthSessionIpc();

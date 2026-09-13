@@ -16,6 +16,7 @@
     "test:seedance2-whitelist": "ts-node --transpile-only src/membership/seedance2-whitelist.spec.ts",
     "test:daily-reward-policy": "ts-node --transpile-only src/credits/daily-reward-policy.spec.ts",
     "test:free-credit-decay-policy": "ts-node --transpile-only src/credits/free-credit-decay-policy.spec.ts",
+    "test:referral-priority-audit": "node scripts/test-referral-priority-audit.cjs",
     "test:free-credit-consumption": "ts-node --transpile-only src/credits/free-credit-consumption.spec.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
     "test:new-api-text-terminal": "ts-node --transpile-only src/ai/providers/new-api-text-terminal.spec.ts",
