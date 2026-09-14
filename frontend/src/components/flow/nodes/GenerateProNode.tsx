@@ -44,6 +44,8 @@ type Props = {
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
     progressStartedAt?: number | string | null;
+    taskId?: string;
+    taskPhase?: 'queued' | 'processing';
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
@@ -1660,11 +1662,11 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* 进度条区域 - 与文字框上缘对齐 */}
-      <div style={{ height: 14, position: 'relative' }}>
+      <div style={{ height: status === 'running' ? 38 : 14, position: 'relative' }}>
         {status === 'running' && (
           <div style={{
             position: 'absolute',
-            bottom: -6,
+            bottom: 4,
             left: 16,
             right: 16,
             zIndex: 10,
@@ -1675,6 +1677,15 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               startedAt={data.progressStartedAt}
               runKey={id}
             />
+            <div role="status" aria-live="polite" style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+              {!data.taskId
+                ? lt('准备并提交中…请勿重复点击', 'Preparing and submitting…')
+                : data.taskPhase === 'queued'
+                  ? lt('排队中…', 'Queued…')
+                  : data.taskPhase === 'processing'
+                    ? lt('生成中…请稍候', 'Generating… please wait')
+                    : lt('已提交，正在查询状态…', 'Submitted, checking status…')}
+            </div>
           </div>
         )}
       </div>
@@ -2074,7 +2085,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                     e.stopPropagation();
                   }}
                   onPointerDownCapture={stopNodeDrag}
-                  title="停止并重置，可重新生成"
+                  title={lt('尝试取消排队任务；已开始的生成将继续', 'Cancel if queued; active generation will continue')}
                   className="tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full flex items-center justify-center"
                   style={{ background: "#111827", color: "#fff", border: "none", cursor: "pointer" }}
                 >

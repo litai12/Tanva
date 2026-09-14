@@ -208,7 +208,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           {status === "running" ? (
             <button
               onClick={() => data.onStop?.(id)}
-              title="停止并重置，可重新生成"
+              title="尝试取消排队任务；已开始的生成将继续"
               style={{
                 fontSize: 12,
                 padding: "4px 8px",

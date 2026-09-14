@@ -56,6 +56,8 @@
 - AI 图片生成、编辑、融合及同步图像识别的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` / `image_url` 前最终校验。图像识别统一使用 Gemini/ToAPIs，包含小T大脑选择 `gpt-5.6-luna` 的场景；任何图片识别链路均不得下载图片或转换、透传 base64。视频理解是独立例外：设计数据仍只保存远程视频 URL；豆包 Seed 2.0 视频分析通过 new-api Responses `input_video.video_url` 直接传远程 URL，不下载或转码；Gemini 路径可在后端最后一跳将不超过 15MB 的视频临时编码为 `file.file_data=data:video/*;base64,...`，且不得写入 DB、OSS、Redis 或任务持久化字段，更大视频保留抽帧远程 URL 兜底。
 
 ### Flow / AI 运行约定
+
+- 单图生成节点（generate / generatePro / generateRef / viewAngle / nano2 / gptImage2）须在参考图解析、上传或请求提交之前显示 running，并同步清除上一轮 taskId/taskPhase/error、重置进度起点。同步防重锁覆盖整个运行过程；准备失败必须显示失败并释放锁。停止按钮仅尝试取消已知的排队任务，不得先清除任务身份、停止轮询或开放重新生成；后台无法取消时继续等待真实终态。详见 `wiki/image-generation-submission-feedback.md`。
 - Prompt 提示词库的官方案例只能通过后端代理读取 `TAPCANVAS_PROMPT_LIBRARY_API_URL`，默认上游为 `https://tc.tanvas.cn/api/prompt-library`；前端不得固化另一仓库的样例数据或直连本机端口。视频卡片默认只加载封面，鼠标移入才按需静音播放，移出必须暂停、复位并恢复封面。用户自定义提示词与常用关系按账号写入 PostgreSQL；自定义卡片封面由用户选择图片并先上传 OSS，数据库只保存远程 HTTP(S) 引用，界面不得要求用户手填封面 URL。
 - 项目自动保存只接受 `content.flow.nodes` 至少包含 1 个节点的快照。Flow 缺失或节点为空时必须跳过自动保存、保留本地 `dirty` 状态，不得用空快照覆盖云端工作流；保存按钮、`Ctrl/Cmd + S` 与历史恢复的手动保存保持独立语义。
 - Flow 动态画布根节点及其挂到 `document.body` 的交互浮层必须同时标记 `translate="no"` 与 `notranslate`。浏览器网页翻译会包裹/替换 React 管理的文本节点，随后编辑 Prompt 可能触发 `removeChild` / `insertBefore` DOM 不一致；应用内中英文切换继续通过 i18n 完成。自定义 Flow 节点必须经过节点级错误边界注册，单节点渲染失败不得卸载整张工作流。

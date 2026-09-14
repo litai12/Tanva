@@ -655,7 +655,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           {status === "running" ? (
             <button
               onClick={() => data.onStop?.(id)}
-              title={lt("停止并重置，可重新生成", "Stop and reset to regenerate")}
+              title={lt("尝试取消排队任务；已开始的生成将继续", "Cancel if queued; active generation will continue")}
               style={{
                 fontSize: 12,
                 padding: "4px 8px",

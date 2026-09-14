@@ -56,7 +56,7 @@ import {
   createEmptyStoryboardPromptTable,
   serializeStoryboardPromptTable,
 } from "./storyboardPromptTable";
-import { startFlowProgressRun } from "./flowProgressRuntime";
+import { startFlowProgressRun, startFlowImageRun, SINGLE_IMAGE_TASK_NODE_TYPES } from "./flowProgressRuntime";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
@@ -16786,7 +16786,9 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       setNodes((ns) =>
         ns.map((item) =>
           item.id === nodeId
-            ? { ...item, data: startFlowProgressRun(item.data, progressStartedAt) }
+            ? { ...item, data: SINGLE_IMAGE_TASK_NODE_TYPES.has(normalizedNodeType)
+                ? startFlowImageRun(item.data, progressStartedAt)
+                : startFlowProgressRun(item.data, progressStartedAt) }
             : item,
         ),
       );
@@ -24829,11 +24831,20 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       runNodeInFlightRef.current.add(nodeId);
       try {
         await runNodeInner(nodeId);
+      } catch (error) {
+        // Reference resolution/upload can fail before the provider-specific try block.
+        const message = error instanceof Error ? error.message : "生成准备失败，请重试";
+        setNodes((ns) => ns.map((node) =>
+          node.id === nodeId && SINGLE_IMAGE_TASK_NODE_TYPES.has(node.type || "")
+            ? { ...node, data: { ...node.data, status: "failed", error: message } }
+            : node,
+        ));
+        throw error;
       } finally {
         runNodeInFlightRef.current.delete(nodeId);
       }
     },
-    [runNodeInner]
+    [runNodeInner, setNodes]
   );
 
   // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
@@ -25935,6 +25946,24 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       const node = rf.getNode(nodeId);
       if (!node) return;
       if ((node.data as any)?.status !== "running") return;
+
+      if (SINGLE_IMAGE_TASK_NODE_TYPES.has(node.type || "")) {
+        const taskId = typeof node.data.taskId === "string" ? node.data.taskId.trim() : "";
+        const result = taskId ? await cancelImageTaskViaAPI(taskId) : null;
+        // A click must never detach a paid, still-running task. Keep the lock,
+        // task identity and polling until the backend reports a terminal state.
+        window.dispatchEvent(new CustomEvent("toast", {
+          detail: {
+            message: !result
+              ? "正在准备或提交生成任务，请稍候，无需重复点击"
+              : result.cancelled
+                ? "排队任务已取消，正在同步任务状态"
+                : "任务尚未取消，将继续跟踪生成结果，请勿重复提交",
+            type: result?.cancelled ? "success" : "info",
+          },
+        }));
+        return;
+      }
 
       const {
         cancelTask: cancelTaskFn,
