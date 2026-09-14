@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-09-14：GPT Image 2 质量菜单移除 auto，默认 low；新建、型号切换、小T参数、报价与生成请求同步，稳定线路历史 auto 按 low 执行，保留 medium/high；普通线路报价及生成请求省略 quality，过滤旧默认值和线路切换残留。
+
 - 2026-09-11：下线画布及小T目录中的基础 gpt-image-2.5，保留 Flare/Sunburst 与 GPT Image 2；新建 2.5 默认 Flare，历史基础型号迁移为 Flare，目录、显示、报价及执行同步，保留其他型号选择与已有结果。
 
 - 2026-09-10：GPT 图片模型选择器替换原生 select，复用 Seedance 模式/分辨率使用的 NodeSelect，统一主题、选中标记与弹层交互。共享组件新增可选 disabled/onOpenChange，保持生成中禁用及同节点参数菜单互斥。

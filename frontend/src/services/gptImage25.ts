@@ -26,7 +26,7 @@ export function expandGptImageModelConfigs(configs: NodeConfig[]): NodeConfig[] 
         nameZh: config.nodeKey === "gptImage25" ? model : config.nameZh,
         nameEn: config.nodeKey === "gptImage25" ? model : config.nameEn,
         metadata: { ...metadata, model, managedModelKey: model, managedRoutes,
-          defaultData: { ...metadata.defaultData, model, managedModelKey: model, quality: model === "gpt-image-2.5" ? "max" : undefined } },
+          defaultData: { ...metadata.defaultData, model, managedModelKey: model, quality: model === "gpt-image-2" ? "low" : undefined } },
       };
     });
   });
@@ -59,7 +59,7 @@ export function buildGptImageModelSwitchPatch(option: GptImageModelOption) {
     vendorKey: option.vendorKey,
     platformKey: option.platformKey,
     maxReferenceImages: option.nodeConfigMetadata?.maxReferenceImages ?? null,
-    quality: option.model === "gpt-image-2.5" ? "max" : option.model === "gpt-image-2" ? "auto" : undefined,
+    quality: option.model === "gpt-image-2.5" ? "max" : option.model === "gpt-image-2" ? "low" : undefined,
     error: undefined,
   };
 }

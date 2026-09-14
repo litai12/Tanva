@@ -1234,7 +1234,7 @@ export class NodeConfigService {
             defaultData: {
               modelProvider: 'nano2',
               model,
-              quality: nodeKey === 'gptImage25' ? undefined : 'auto',
+              quality: nodeKey === 'gptImage25' ? undefined : 'low',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,
@@ -2077,7 +2077,7 @@ export class NodeConfigService {
             defaultData: {
               modelProvider: 'nano2',
               model,
-              quality: nodeKey === 'gptImage25' ? undefined : 'auto',
+              quality: nodeKey === 'gptImage25' ? undefined : 'low',
               aspectRatio: '1:1',
               resolution: '1K',
               officialFallback: false,

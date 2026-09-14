@@ -23151,12 +23151,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
               return value === "high" || value === "xhigh" || value === "max" ? value : "max";
             }
             if (["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(requestedModel)) return undefined;
-            return value === "auto" ||
-              value === "low" ||
-              value === "medium" ||
-              value === "high" || value === "xhigh" || value === "max"
-              ? value
-              : undefined;
+            return latestBananaImageRoute === "stable" ? normalizeGptImage2StableQuality(value) : undefined;
           })();
           const gptImage2Background = (() => {
             const value = pickStringValue(

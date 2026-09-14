@@ -612,7 +612,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
       purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 可选 Flare、Sunburst，默认 Flare，保留用户指定的可用型号",
       params: {
         model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] },
-        quality: { type: "string", enum: ["auto", "low", "medium", "high"], description: "Only GPT Image 2 accepts quality; omit for Flare/Sunburst" },
+        quality: { type: "string", enum: ["low", "medium", "high"], description: "Only GPT Image 2 stable route accepts quality (default: low); omit for normal route and Flare/Sunburst" },
         aspectRatio: { type: "string" },
         resolution: { type: "string", enum: ["1K", "2K", "4K"] },
       },

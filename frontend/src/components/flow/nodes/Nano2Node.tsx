@@ -117,12 +117,6 @@ const GPT_IMAGE_2_4K_ASPECT_RATIO_SET = new Set<string>(
 );
 const GPT_IMAGE_2_QUALITY_OPTIONS = [
   {
-    value: "auto" as const,
-    title: "auto",
-    descZh: "自动（默认，通常等同 low）",
-    descEn: "Automatic (default, usually similar to low)",
-  },
-  {
     value: "low" as const,
     title: "low",
     // descZh: "快速省钱，轮廓够用",
@@ -444,13 +438,13 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         ? data.quality
         : typeof defaultData?.quality === "string"
         ? defaultData.quality
-        : "auto";
+        : "low";
     const normalized = candidate.trim().toLowerCase();
     if (isJichuan) return ["high", "xhigh", "max"].includes(normalized) ? normalized as "high" | "xhigh" | "max" : "max";
     if (normalized === "low") return "low";
     if (normalized === "medium") return "medium";
     if (normalized === "high") return "high";
-    return "auto";
+    return "low";
   }, [data.quality, defaultData?.quality, isJichuan]);
 
   const updateQuality = React.useCallback(

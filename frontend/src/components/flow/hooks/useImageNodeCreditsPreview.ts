@@ -157,6 +157,10 @@ export const useImageNodeCreditsPreview = ({
       const normalized = String(gptImage2Quality || "")
         .trim()
         .toLowerCase();
+      if (!model || model === "gpt-image-2") {
+        if (bananaImageRoute !== "stable") return undefined;
+        return normalized === "medium" || normalized === "high" ? normalized : "low";
+      }
       if (
         normalized === "auto" ||
         normalized === "low" ||

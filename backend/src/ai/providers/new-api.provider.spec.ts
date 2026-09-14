@@ -59,6 +59,21 @@ async function main(): Promise<void> {
       outputFormat: 'png',
     }),
   );
+  assert.equal('quality' in normalPayload, false);
+  for (const quality of [undefined, 'auto', 'low', 'medium', 'high'] as const) {
+    for (const imageRoute of ['normal', 'stable']) {
+      for (const providerOptions of [{ banana: { imageRoute } }, { bananaImageRoute: imageRoute }]) {
+        const payload = await captureImagePayload((provider) => provider.generateImage({
+          model: 'gpt-image-2', prompt: '生成一只猫', quality, providerOptions,
+        }));
+        if (imageRoute === 'normal') {
+          assert.equal('quality' in payload, false, 'normal route must omit saved quality');
+        } else {
+          assert.equal(payload.quality, quality === 'medium' || quality === 'high' ? quality : 'low');
+        }
+      }
+    }
+  }
   assert.equal(normalPayload.output_format, 'png');
   assert.equal('response_format' in normalPayload, false);
 

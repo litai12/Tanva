@@ -152,6 +152,8 @@ export class NewApiProvider implements IAIProvider {
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
     );
+    const imageRoute = request.providerOptions?.banana?.imageRoute ||
+      request.providerOptions?.bananaImageRoute;
     const payload: Record<string, unknown> = {
       model,
       ...this.resolveImageResponseFields(model, request.outputFormat),
@@ -163,7 +165,12 @@ export class NewApiProvider implements IAIProvider {
         this.requireRemoteImageReference(item, `image_urls[${index}]`),
       ),
       // Flare/Sunburst do not accept the base 2.5 model's quality controls.
-      quality: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined : request.quality,
+      quality: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined
+        : model === 'gpt-image-2'
+          ? imageRoute === 'stable'
+            ? request.quality === 'medium' || request.quality === 'high' ? request.quality : 'low'
+            : undefined
+          : request.quality,
       background: request.background,
       moderation: request.moderation,
       output_compression: request.outputCompression,

@@ -162,7 +162,7 @@ function getDefaultConfigs(): NodeConfig[] {
           model,
           aspectRatio: "1:1",
           resolution: "1K",
-          quality: nodeKey === "gptImage25" ? undefined : "auto",
+          quality: nodeKey === "gptImage25" ? undefined : "low",
           officialFallback: false,
           maxReferenceImages: nodeKey === "gptImage25" ? null : 16,
           googleSearch: false,

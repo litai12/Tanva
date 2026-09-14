@@ -17,7 +17,7 @@ test("switching a saved legacy 2.5 node to 2 survives execution normalization", 
   const next = { ...saved, ...buildGptImageModelSwitchPatch(option("gpt-image-2")) };
   assert.equal(normalizeCanvasGptImage25Model(next.model, next.nodeConfigKey), "gpt-image-2");
   assert.equal(next.managedModelKey, "gpt-image-2");
-  assert.equal(next.quality, "auto");
+  assert.equal(next.quality, "low");
   assert.equal(next.vendorKey, undefined);
   assert.equal(next.maxReferenceImages, 16);
   assert.equal(next.creditsPerCall, 40);
