@@ -2123,19 +2123,37 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           imageOnly: true,
         });
 
-        const preprocessed = editResult.success
-          ? await resolveEditedImageDataUrl(editResult, "image/png")
-          : undefined;
+        if (!editResult.success) {
+          lastError = editResult.error;
+          logger.warn("⚠️ 预处理模型失败，准备切换下一个模型", {
+            model,
+            error: editResult.error,
+          });
+          continue;
+        }
+
+        // 尝试转换为 data URL，如果失败则直接使用远程 URL
+        let preprocessed = await resolveEditedImageDataUrl(editResult, "image/png");
+
+        // 如果 data URL 转换失败，尝试直接使用远程 URL
+        if (!preprocessed && editResult.data?.imageUrl) {
+          logger.warn("⚠️ data URL 转换失败，直接使用远程 URL", {
+            imageUrl: editResult.data.imageUrl.substring(0, 100),
+          });
+          preprocessed = editResult.data.imageUrl;
+        }
+
         if (preprocessed) {
           selectedModel = model;
           preprocessedImage = preprocessed;
           break;
         }
 
-        lastError = editResult.error;
-        logger.warn("⚠️ 预处理模型失败，准备切换下一个模型", {
+        lastError = editResult.error || "无法获取图片数据";
+        logger.warn("⚠️ 预处理模型返回数据无效，准备切换下一个模型", {
           model,
-          error: editResult.error,
+          hasImageData: !!editResult.data?.imageData,
+          hasImageUrl: !!editResult.data?.imageUrl,
         });
       }
 
