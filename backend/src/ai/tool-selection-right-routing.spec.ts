@@ -115,13 +115,13 @@ async function main(): Promise<void> {
     confidence: 0.98,
   });
   assert.deepEqual(terra.billingCalls, [
-    { serviceType: 'gemini-tool-selection', model: 'deepseek-v4-flash' },
+    { serviceType: 'gemini-tool-selection', model: 'deepseek-v4.1-flash' },
   ]);
-  assert.equal(terra.providerCalls[0]?.gatewayModel, 'deepseek-v4-flash');
+  assert.equal(terra.providerCalls[0]?.gatewayModel, 'deepseek-v4.1-flash');
   assert.equal(terra.providerCalls[0]?.providerName, 'new-api');
   assert.equal(
     terra.providerCalls[0]?.request.model,
-    'deepseek-v4-flash',
+    'deepseek-v4.1-flash',
   );
   assert.equal(terra.providerCalls[0]?.request.providerOptions, undefined);
 
@@ -134,9 +134,9 @@ async function main(): Promise<void> {
     },
     {},
   );
-  assert.equal(luna.providerCalls[0]?.gatewayModel, 'deepseek-v4-flash');
+  assert.equal(luna.providerCalls[0]?.gatewayModel, 'deepseek-v4.1-flash');
   assert.deepEqual(luna.billingCalls, [
-    { serviceType: 'gemini-tool-selection', model: 'deepseek-v4-flash' },
+    { serviceType: 'gemini-tool-selection', model: 'deepseek-v4.1-flash' },
   ]);
 
   console.log('tool selection local short-circuit and direct Right routing: ok');

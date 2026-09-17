@@ -645,14 +645,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
           {
             value: "deepseek-v4-flash",
             familyLabel: "DeepSeek",
-            label: "V4 Flash",
-            description: lt("文本 + 图片分析", "Text + image analysis"),
-            syncFlowNodes: false,
-          },
-          {
-            value: "deepseek-v4-pro",
-            familyLabel: "DeepSeek",
-            label: "V4 Pro",
+            label: "V4.1 Flash",
             description: lt("文本 + 图片分析", "Text + image analysis"),
             syncFlowNodes: false,
           },

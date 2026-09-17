@@ -5,7 +5,7 @@
 -- Keys with PLACEHOLDER_* → fill in via admin console after apply.
 -- Keys from existing patches (yunwu, ark, packy) → copy from patch files or admin console.
 --
--- Channel count: 18 channels (deduplicated, tencent-mps/vod + 147ai-veo removed)
+-- Channel count: 19 channels (deduplicated, tencent-mps/vod + 147ai-veo removed)
 
 BEGIN;
 
@@ -53,6 +53,12 @@ INSERT INTO channels (
   'deepseek-v4-flash-260425,deepseek-v4-pro-260425',
   NULL, 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-deepseek', NULL, NULL, NULL),
+
+(43, 'deepseek-official', 'default',
+  'deepseek-v4.1-flash,deepseek-flash,deepseek-chat,deepseek-reasoner,deepseek-v3.2,deepseek-v4-flash,deepseek-v4-flash-260425,deepseek-v4-flash-vision-exp,deepseek-v4-pro,deepseek-v4-pro-260425',
+  '{"deepseek-v4.1-flash":"deepseek-flash","deepseek-flash":"deepseek-flash","deepseek-chat":"deepseek-flash","deepseek-reasoner":"deepseek-flash","deepseek-v3.2":"deepseek-flash","deepseek-v4-flash":"deepseek-flash","deepseek-v4-flash-260425":"deepseek-flash","deepseek-v4-flash-vision-exp":"deepseek-flash","deepseek-v4-pro":"deepseek-flash","deepseek-v4-pro-260425":"deepseek-flash"}',
+  1, 'https://api.deepseek.com', 'PLACEHOLDER_DEEPSEEK_API_KEY',
+  EXTRACT(EPOCH FROM NOW())::bigint, 0, 1000, 100, 'deepseek-official', NULL, NULL, NULL),
 
 -- ── 第三方代理渠道（各自独立 key）────────────────────────────────────────────
 (1, 'openai-official', 'default',

@@ -1,4 +1,6 @@
-export const BUSINESS_TEXT_SAFETY_MODEL = 'deepseek-v4-flash-260425' as const;
+import { DEEPSEEK_V41_FLASH_MODEL } from './text-models';
+
+export const BUSINESS_TEXT_SAFETY_MODEL = DEEPSEEK_V41_FLASH_MODEL;
 
 export type BusinessTextSafetyVerdict = {
   version: 1;

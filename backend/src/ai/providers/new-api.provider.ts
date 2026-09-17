@@ -130,7 +130,13 @@ export class NewApiProvider implements IAIProvider {
       version: 'openai-compatible',
       supportedModels: [
         'gemini',
+        'deepseek-v4.1-flash',
+        'deepseek-flash',
+        'deepseek-chat',
+        'deepseek-reasoner',
         'deepseek-v4-flash',
+        'deepseek-v4-flash-vision-exp',
+        'deepseek-v4-pro',
         'xiaot-agent-deepseek-v4-flash',
         'gpt-image-2',
         'gpt-image-2.5',
@@ -759,9 +765,6 @@ export class NewApiProvider implements IAIProvider {
       if (typeof payload.model === 'string') {
         payload = { ...payload, model: this.normalizeUpstreamModel(payload.model) };
       }
-      if (this.isDeepSeekArkModel(payload.model)) {
-        return this.responses(payload, providerOptions);
-      }
       const result = await this.requestJson(
         '/v1/chat/completions',
         {
@@ -926,14 +929,6 @@ export class NewApiProvider implements IAIProvider {
     } catch (error) {
       return this.errorResponse('TEXT_GENERATION_FAILED', error);
     }
-  }
-
-  private isDeepSeekArkModel(model: unknown): boolean {
-    const normalized = String(model || '').trim().toLowerCase();
-    return (
-      normalized === 'deepseek-v4-flash-260425' ||
-      normalized === 'deepseek-v4-pro-260425'
-    );
   }
 
   private isDoubaoVideoUnderstandingModel(model: unknown): boolean {

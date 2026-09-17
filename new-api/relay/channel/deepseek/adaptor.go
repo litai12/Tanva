@@ -53,6 +53,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			fimBaseUrl += "/beta"
 		}
 		switch info.RelayMode {
+		case constant.RelayModeResponses:
+			return fmt.Sprintf("%s/v1/responses", info.ChannelBaseUrl), nil
+		case constant.RelayModeResponsesCompact:
+			return fmt.Sprintf("%s/v1/responses/compact", info.ChannelBaseUrl), nil
 		case constant.RelayModeCompletions:
 			return fmt.Sprintf("%s/completions", fimBaseUrl), nil
 		default:
@@ -84,8 +88,9 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
-	return nil, errors.New("not implemented")
+	// DeepSeek's Responses API is OpenAI-compatible; preserve the request so
+	// built-in web search and other Responses fields reach the official API.
+	return request, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {

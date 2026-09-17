@@ -191,24 +191,24 @@ export class AiController {
     banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
-    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
-    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
+    'deepseek-v4-flash': 'deepseek-v4.1-flash',
+    'deepseek-v4-pro': 'deepseek-v4.1-flash',
     runninghub: 'runninghub-su-effect',
     nano2: 'gemini-3.1-flash-image-preview',
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'deepseek-v4-flash',
-    'gemini-pro': 'deepseek-v4-flash',
-    banana: 'deepseek-v4-flash',
-    'banana-2.5': 'deepseek-v4-flash',
-    'banana-3.1': 'deepseek-v4-flash',
-    'deepseek-v4-flash': 'deepseek-v4-flash',
-    'deepseek-v4-pro': 'deepseek-v4-flash',
-    runninghub: 'deepseek-v4-flash',
-    midjourney: 'deepseek-v4-flash',
-    nano2: 'deepseek-v4-flash',
-    seedream5: 'deepseek-v4-flash',
+    gemini: 'deepseek-v4.1-flash',
+    'gemini-pro': 'deepseek-v4.1-flash',
+    banana: 'deepseek-v4.1-flash',
+    'banana-2.5': 'deepseek-v4.1-flash',
+    'banana-3.1': 'deepseek-v4.1-flash',
+    'deepseek-v4-flash': 'deepseek-v4.1-flash',
+    'deepseek-v4-pro': 'deepseek-v4.1-flash',
+    runninghub: 'deepseek-v4.1-flash',
+    midjourney: 'deepseek-v4.1-flash',
+    nano2: 'deepseek-v4.1-flash',
+    seedream5: 'deepseek-v4.1-flash',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.5-flash',
@@ -216,8 +216,8 @@ export class AiController {
     banana: 'gemini-3.5-flash',
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro',
-    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
-    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
+    'deepseek-v4-flash': 'deepseek-v4.1-flash',
+    'deepseek-v4-pro': 'deepseek-v4.1-flash',
     runninghub: 'gemini-3.5-flash',
     midjourney: 'gemini-3.5-flash',
     nano2: 'gemini-3.1-pro',
@@ -249,7 +249,15 @@ export class AiController {
     return (
       normalizedProvider === 'deepseek-v4-flash' ||
       normalizedProvider === 'deepseek-v4-pro' ||
+      normalizedModel === 'deepseek-v4.1-flash' ||
+      normalizedModel === 'deepseek-flash' ||
+      normalizedModel === 'deepseek-chat' ||
+      normalizedModel === 'deepseek-reasoner' ||
+      normalizedModel === 'deepseek-v3.2' ||
+      normalizedModel === 'deepseek-v4-flash' ||
       normalizedModel === 'deepseek-v4-flash-260425' ||
+      normalizedModel === 'deepseek-v4-flash-vision-exp' ||
+      normalizedModel === 'deepseek-v4-pro' ||
       normalizedModel === 'deepseek-v4-pro-260425'
     );
   }
@@ -1081,7 +1089,7 @@ export class AiController {
     const isGatewayTextRequest =
       requestModel === 'gpt-5.4' ||
       requestModel === 'gpt-5.6-luna' ||
-      requestModel === 'deepseek-v4-flash';
+      this.isDeepSeekV4Model(requestModel, aiProvider);
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );

@@ -47,6 +47,7 @@ services:
       PG_DB: ${NEW_API_PG_DB:-new_api}
       XIAOT_API_KEY: ${XIAOT_API_KEY:-}
       XIAOT_BASE_URL: ${XIAOT_BASE_URL:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     volumes:
       - ../new-api/patches:/patches:ro
     command: ["sh", "/patches/_apply.sh"]

@@ -267,6 +267,9 @@ var defaultModelRatio = map[string]float64{
 	"deepseek-chat":          0.27 / 2,
 	"deepseek-coder":         0.27 / 2,
 	"deepseek-reasoner":      0.55 / 2, // 0.55 / 1k tokens
+	// DeepSeek V4.1 Flash official API: $0.30/M input at peak period.
+	"deepseek-v4.1-flash": 0.15,
+	"deepseek-flash":      0.15,
 	// DeepSeek V3 family (APIMart) 参考 deepseek-chat / deepseek-reasoner
 	"deepseek-v3-0324":           0.27 / 2,
 	"deepseek-v3.1-250821":       0.27 / 2,
@@ -438,6 +441,8 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-image-1":              8,
 	"gpt-4o-image":             8, // 参考 gpt-image-1
 	"gemini-3.5-flash":         6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
+	"deepseek-v4.1-flash":      4, // DeepSeek official output $1.20/M / input $0.30/M
+	"deepseek-flash":           4,
 	"deepseek-v4-flash-260425": 2,
 	"deepseek-v4-pro-260425":   2,
 	// Doubao Seed 2.0 completion ratio = output/input

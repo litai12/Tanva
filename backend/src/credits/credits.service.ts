@@ -108,10 +108,16 @@ const GPT_IMAGE2_TENCENT_REFERENCE_IMAGE_CREDITS = Math.round(
   0.1 * CREDITS_PER_YUAN,
 );
 const DEEPSEEK_V4_MODEL_CREDITS: Record<string, number> = {
+  'deepseek-v4.1-flash': 30,
+  'deepseek-flash': 30,
+  'deepseek-chat': 30,
+  'deepseek-reasoner': 30,
+  'deepseek-v3.2': 30,
   'deepseek-v4-flash': 30,
   'deepseek-v4-flash-260425': 30,
-  'deepseek-v4-pro': 60,
-  'deepseek-v4-pro-260425': 60,
+  'deepseek-v4-flash-vision-exp': 30,
+  'deepseek-v4-pro': 30,
+  'deepseek-v4-pro-260425': 30,
 };
 const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
   '1K': 20,

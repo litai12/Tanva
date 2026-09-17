@@ -56,7 +56,7 @@ function createHarness(safetyText: string): HarnessSetup {
             prompt: request.prompt,
             providerOptions: request.providerOptions,
           });
-          return request.model === 'deepseek-v4-flash-260425'
+          return request.prompt.includes('待审核请求')
             ? { success: true, data: { text: safetyText } }
             : { success: true, data: { text: 'terminal text' } };
         },
@@ -106,20 +106,20 @@ async function main(): Promise<void> {
     webSearchResult: undefined,
     metadata: undefined,
   });
-  assert.equal(allowed.providerCalls[0]?.gatewayModel, 'deepseek-v4-flash-260425');
+  assert.equal(allowed.providerCalls[0]?.gatewayModel, 'deepseek-v4.1-flash');
   assert.equal(allowed.providerCalls[0]?.providerName, 'new-api');
-  assert.equal(allowed.providerCalls[0]?.requestModel, 'deepseek-v4-flash-260425');
+  assert.equal(allowed.providerCalls[0]?.requestModel, 'deepseek-v4.1-flash');
   assert.match(allowed.providerCalls[0]?.prompt || '', /待审核请求/);
   assert.deepEqual(allowed.providerCalls[1], {
-    gatewayModel: 'deepseek-v4-flash',
+    gatewayModel: 'deepseek-v4.1-flash',
     providerName: 'new-api',
-    requestModel: 'deepseek-v4-flash',
+    requestModel: 'deepseek-v4.1-flash',
     prompt: 'Text Chat shares the prompt optimizer DeepSeek route',
     providerOptions: undefined,
   });
   assert.deepEqual(allowed.billingCalls[0], {
     serviceType: 'gemini-text',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-v4.1-flash',
   });
 
   await allowed.harness.textChat(
@@ -132,17 +132,17 @@ async function main(): Promise<void> {
     },
     {},
   );
-  assert.equal(allowed.providerCalls[2]?.requestModel, 'deepseek-v4-flash-260425');
+  assert.equal(allowed.providerCalls[2]?.requestModel, 'deepseek-v4.1-flash');
   assert.deepEqual(allowed.providerCalls[3], {
-    gatewayModel: 'deepseek-v4-flash',
+    gatewayModel: 'deepseek-v4.1-flash',
     providerName: 'new-api',
-    requestModel: 'deepseek-v4-flash',
+    requestModel: 'deepseek-v4.1-flash',
     prompt: 'Prompt Optimizer uses the same direct DeepSeek route',
     providerOptions: undefined,
   });
   assert.deepEqual(allowed.billingCalls[1], {
     serviceType: 'gemini-prompt-optimize',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-v4.1-flash',
   });
 
   const rejected = createHarness(
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
   assert.equal(rejected.providerCalls.length, 1);
   assert.equal(
     rejected.providerCalls[0]?.requestModel,
-    'deepseek-v4-flash-260425',
+    'deepseek-v4.1-flash',
   );
 
   const invalid = createHarness('not-json');

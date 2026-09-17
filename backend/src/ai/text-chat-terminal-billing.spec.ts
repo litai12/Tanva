@@ -93,7 +93,7 @@ async function main(): Promise<void> {
         harness.textChat(
           {
             prompt: '优化这段提示词',
-            model: 'deepseek-v4-flash',
+            model: 'deepseek-v4.1-flash',
             billingTag: 'prompt_optimize',
           },
           { user: { id: 'user-test' }, headers: {} },

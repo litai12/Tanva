@@ -9,7 +9,7 @@
 #   2. For each *.sql under /patches (sorted): skip if recorded; else psql -f then INSERT
 #
 # Env (provided by docker-compose):
-#   PGPASSWORD, PG_USER, PG_DB
+#   PGPASSWORD, PG_USER, PG_DB, DEEPSEEK_API_KEY
 set -e
 
 PSQL="psql -h new-api-postgres -U ${PG_USER} -d ${PG_DB} -v ON_ERROR_STOP=on"
@@ -32,6 +32,10 @@ for f in $(find . -name '*.sql' | sort); do
     skipped=$((skipped + 1))
     continue
   fi
+  deepseek_patch=0
+  case "$key" in
+    *deepseek-official*.sql) deepseek_patch=1 ;;
+  esac
   case "$key" in
     *xiaot*.sql)
       if [ "$key" != "2026-07-13/001-add-xiaot-agent-channel.sql" ]; then
@@ -54,6 +58,15 @@ for f in $(find . -name '*.sql' | sort); do
     xiaot_base_sql=$(printf '%s' "$XIAOT_BASE_URL" | sed "s/'/''/g")
     echo "Applying ${key}"
     $PSQL -v "xiaot_key='$xiaot_key_sql'" -v "xiaot_base='$xiaot_base_sql'" -f "${f}"
+  elif [ "$deepseek_patch" -eq 1 ]; then
+    if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+      echo "Deferred ${key}: DEEPSEEK_API_KEY is required"
+      deferred=$((deferred + 1))
+      continue
+    fi
+    deepseek_key_sql=$(printf '%s' "$DEEPSEEK_API_KEY" | sed "s/'/''/g")
+    echo "Applying ${key}"
+    $PSQL -v "deepseek_key='$deepseek_key_sql'" -f "${f}"
   else
     echo "Applying ${key}"
     $PSQL -f "${f}"

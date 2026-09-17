@@ -726,7 +726,7 @@ export class AgentRuntimeService {
   }
 
   private resolveResearchTextModel(_providerName: string | null, _requestedModel?: string): string {
-    return 'deepseek-v4-flash';
+    return 'deepseek-v4.1-flash';
   }
 
   private async extractResearchKeywordsWithMode(options: {

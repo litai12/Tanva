@@ -1053,12 +1053,11 @@ const withBananaRouteProviderOptions = (
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const STANDARD_TEXT_MODEL = "deepseek-v4-flash";
-const ADVANCED_TEXT_MODEL = "deepseek-v4-flash";
+const STANDARD_TEXT_MODEL = "deepseek-v4.1-flash";
+const ADVANCED_TEXT_MODEL = "deepseek-v4.1-flash";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
-const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
-const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro-260425";
+const DEEPSEEK_V41_FLASH_MODEL = "deepseek-v4.1-flash";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 export const SORA2_VIDEO_MODELS = {
   hd: "sora-2-pro-reverse",
@@ -1555,10 +1554,10 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
     return BANANA_31_IMAGE_MODEL;
   }
   if (provider === "deepseek-v4-flash") {
-    return DEEPSEEK_V4_FLASH_MODEL;
+    return DEEPSEEK_V41_FLASH_MODEL;
   }
   if (provider === "deepseek-v4-pro") {
-    return DEEPSEEK_V4_PRO_MODEL;
+    return DEEPSEEK_V41_FLASH_MODEL;
   }
   if (provider === "seedream5") {
     return SEEDREAM5_IMAGE_MODEL;

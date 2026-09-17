@@ -24,18 +24,18 @@ async function main(): Promise<void> {
     for (const model of [undefined, 'gpt-5.4', 'gpt-5.6-luna', 'GPT-5.6-TERRA', 'tanvas-right-gpt-5.6-terra']) {
       const result = await provider.generateText({ prompt: '优化文字', model });
       assert.equal(result.success, true);
-      assert.equal(calls.at(-1)?.model, 'deepseek-v4-flash');
+      assert.equal(calls.at(-1)?.model, 'deepseek-v4.1-flash');
     }
     await provider.selectTool({ prompt: '选择工具', model: 'gpt-5.6-luna', availableTools: ['chatResponse'] });
-    assert.equal(calls.at(-1)?.model, 'deepseek-v4-flash');
+    assert.equal(calls.at(-1)?.model, 'deepseek-v4.1-flash');
     await provider.generatePaperJS({ prompt: '绘制圆形', model: 'gpt-5.6-terra' });
-    assert.equal(calls.at(-1)?.model, 'deepseek-v4-flash');
+    assert.equal(calls.at(-1)?.model, 'deepseek-v4.1-flash');
 
     const beforeVector = calls.length;
     const vector = await provider.img2Vector({ sourceImage: 'https://assets.test/circle.png', model: 'gpt-5.6-luna' });
     assert.equal(vector.success, true);
     assert.match(vector.data?.code || '', /Path.Circle/);
-    assert.deepEqual(calls.slice(beforeVector).map(call => call.model), ['gemini-3.5-flash', 'deepseek-v4-flash']);
+    assert.deepEqual(calls.slice(beforeVector).map(call => call.model), ['gemini-3.5-flash', 'deepseek-v4.1-flash']);
     assert.match(JSON.stringify(calls[beforeVector].messages), /https:\/\/assets.test\/circle.png/);
     assert.doesNotMatch(JSON.stringify(calls[beforeVector + 1].messages), /image_url/);
     assert.match(JSON.stringify(calls[beforeVector + 1].messages), /圆形/);
