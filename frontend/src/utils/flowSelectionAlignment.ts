@@ -48,13 +48,31 @@ export function computeSelectionAlignment(
   const right = Math.max(...bounds.map(b => b.x + b.width));
   const top = Math.min(...bounds.map(b => b.y));
   const bottom = Math.max(...bounds.map(b => b.y + b.height));
+  const vertical = ['left', 'center', 'right'].includes(alignment);
+  const gap = 40;
+  const isLocked = (node: Node) => [node, ...descendants(node)].some(n => lockedIds.has(n.id));
+  // Keep visual order, opening only the gaps needed to prevent overlap.
+  bounds.sort((a, b) => (vertical ? a.y - b.y || a.x - b.x : a.x - b.x || a.y - b.y)
+    || a.node.id.localeCompare(b.node.id));
+  const placed = bounds.filter(b => isLocked(b.node));
   for (const b of bounds) {
     const members = descendants(b.node);
-    if ([b.node, ...members].some(node => lockedIds.has(node.id))) continue;
-    const x = alignment === 'left' ? left : alignment === 'right' ? right - b.width
+    if (isLocked(b.node)) continue;
+    let x = alignment === 'left' ? left : alignment === 'right' ? right - b.width
       : alignment === 'center' ? (left + right - b.width) / 2 : b.x;
-    const y = alignment === 'top' ? top : alignment === 'bottom' ? bottom - b.height
+    let y = alignment === 'top' ? top : alignment === 'bottom' ? bottom - b.height
       : alignment === 'middle' ? (top + bottom - b.height) / 2 : b.y;
+    // Locked units are obstacles as well; never move them to make room.
+    let collision;
+    do {
+      collision = placed.find(p => x < p.x + p.width + gap && x + b.width + gap > p.x
+        && y < p.y + p.height + gap && y + b.height + gap > p.y);
+      if (collision) {
+        if (vertical) y = collision.y + collision.height + gap;
+        else x = collision.x + collision.width + gap;
+      }
+    } while (collision);
+    placed.push({ ...b, x, y });
     const dx = x - b.x;
     const dy = y - b.y;
     if (!dx && !dy) continue;

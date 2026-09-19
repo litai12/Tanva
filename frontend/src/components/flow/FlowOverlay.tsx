@@ -4,6 +4,8 @@ import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
 import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import FlowSelectionToolbar from "./FlowSelectionToolbar";
+import { useSelectionSafeArea, readSelectionSafeArea } from "./useSelectionSafeArea";
+import { fitSelectionInArea } from "@/utils/flowSelectionViewport";
 import { computeSelectionAlignment, type SelectionAlignment } from "@/utils/flowSelectionAlignment";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
@@ -27404,12 +27406,13 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   const canCreateGroup = selectedNonGroupNodeCount >= 2;
   const canDissolveGroup = selectedGroupIds.length > 0;
 
+  const selectionSafeArea = useSelectionSafeArea(containerRef, selectedNonGroupNodeCount + selectedGroupIds.length >= 2);
+
   const alignSelectedNodes = (alignment: SelectionAlignment) => {
     const positions = computeSelectionAlignment(
       rf.getNodes(), alignment, getNodeRenderSize,
       new Set(lockedByOthersRef.current.keys()),
     );
-    if (!positions.size) return;
     if (tidyAnimationRef.current) {
       cancelAnimationFrame(tidyAnimationRef.current);
       tidyAnimationRef.current = null;
@@ -27420,17 +27423,33 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       const { positionAbsolute: _pa, ...rest } = node;
       return { ...rest, position };
     });
-    setNodes(nextNodes);
-    // Publish the new coordinates before history captures the project snapshot.
-    updateProjectPartial({ flow: {
-      nodes: rfNodesToTplNodes(nextNodes, { preserveRunningState: true }),
-      edges: rfEdgesToTplEdges(rf.getEdges()),
-    } }, { markDirty: true });
-    const collab = collabRef.current;
-    if (collab?.connected && !applyingRemoteRef.current) {
-      collab.sendPatch({ upsertNodes: Array.from(positions, ([id, position]) => ({ id, position })) });
+    if (positions.size) {
+      setNodes(nextNodes);
+      // Publish the new coordinates before history captures the project snapshot.
+      updateProjectPartial({ flow: {
+        nodes: rfNodesToTplNodes(nextNodes, { preserveRunningState: true }),
+        edges: rfEdgesToTplEdges(rf.getEdges()),
+      } }, { markDirty: true });
+      const collab = collabRef.current;
+      if (collab?.connected && !applyingRemoteRef.current) {
+        collab.sendPatch({ upsertNodes: Array.from(positions, ([id, position]) => ({ id, position })) });
+      }
+      historyService.commit("flow-align-selection").catch(() => {});
     }
-    historyService.commit("flow-align-selection").catch(() => {});
+    // Fit through CanvasStore: React Flow's viewport is driven by that store.
+    requestAnimationFrame(() => {
+      const area = containerRef.current && readSelectionSafeArea(containerRef.current);
+      const selected = rf.getNodes().filter(node => node.selected && !node.hidden);
+      if (!area || !selected.length) return;
+      const bounds = rf.getNodesBounds(selected);
+      const viewport = fitSelectionInArea(bounds, area, useCanvasStore.getState().zoom || 1);
+      const dpr = window.devicePixelRatio || 1;
+      useCanvasStore.getState().setViewport({
+        panX: viewport.x * dpr / viewport.zoom,
+        panY: viewport.y * dpr / viewport.zoom,
+        zoom: viewport.zoom,
+      });
+    });
   };
 
   const FlowToolbar =
@@ -28427,6 +28446,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         {FlowToolbar}
         <FlowSelectionToolbar
           count={selectedNonGroupNodeCount + selectedGroupIds.length}
+          area={selectionSafeArea}
           onAlign={alignSelectedNodes}
           onGroup={canCreateGroup ? createGroupFromSelection : undefined}
         />

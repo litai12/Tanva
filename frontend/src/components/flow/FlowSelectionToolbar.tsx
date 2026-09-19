@@ -1,6 +1,7 @@
 import { AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Group } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { SelectionRect } from '@/utils/flowSelectionViewport';
 import type { SelectionAlignment } from '@/utils/flowSelectionAlignment';
 
 const actions = [
@@ -12,17 +13,18 @@ const actions = [
   ['bottom', '底部对齐', 'Align bottom', AlignVerticalJustifyEnd],
 ] as const;
 
-export default function FlowSelectionToolbar({ count, onAlign, onGroup }: {
+export default function FlowSelectionToolbar({ count, onAlign, onGroup, area }: {
   count: number;
+  area: SelectionRect | null;
   onAlign: (alignment: SelectionAlignment) => void;
   onGroup?: () => void;
 }) {
   const { i18n } = useTranslation();
   const zh = (i18n.resolvedLanguage || i18n.language).startsWith('zh');
-  if (count < 2) return null;
+  if (count < 2 || !area) return null;
   return (
-    <div className="nodrag nopan nowheel absolute bottom-6 left-1/2 z-30 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-full border border-white/15 bg-slate-900/95 px-3 py-2 text-white shadow-xl backdrop-blur"
-      style={{ pointerEvents: 'auto' }} role="toolbar" aria-label={zh ? '节点布局对齐' : 'Node alignment'}
+    <div className="tanva-flow-toolbar nodrag nopan nowheel absolute z-30 flex -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-full border border-white/15 bg-slate-900/95 px-3 py-2 text-white shadow-xl backdrop-blur"
+      style={{ pointerEvents: 'auto', left: area.x + area.width / 2, top: area.y + area.height - 56, maxWidth: area.width }} role="toolbar" aria-label={zh ? '节点布局对齐' : 'Node alignment'}
       onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
       <span className="shrink-0 whitespace-nowrap px-2 text-xs">{zh ? `已选 ${count} 项` : `${count} selected`}</span>
       {actions.map(([alignment, label, en, Icon]) => (
