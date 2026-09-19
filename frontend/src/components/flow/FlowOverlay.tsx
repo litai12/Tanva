@@ -3,6 +3,8 @@
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
 import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
+import FlowSelectionToolbar from "./FlowSelectionToolbar";
+import { computeSelectionAlignment, type SelectionAlignment } from "@/utils/flowSelectionAlignment";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
@@ -27402,6 +27404,35 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   const canCreateGroup = selectedNonGroupNodeCount >= 2;
   const canDissolveGroup = selectedGroupIds.length > 0;
 
+  const alignSelectedNodes = (alignment: SelectionAlignment) => {
+    const positions = computeSelectionAlignment(
+      rf.getNodes(), alignment, getNodeRenderSize,
+      new Set(lockedByOthersRef.current.keys()),
+    );
+    if (!positions.size) return;
+    if (tidyAnimationRef.current) {
+      cancelAnimationFrame(tidyAnimationRef.current);
+      tidyAnimationRef.current = null;
+    }
+    const nextNodes = rf.getNodes().map(node => {
+      const position = positions.get(node.id);
+      if (!position) return node;
+      const { positionAbsolute: _pa, ...rest } = node;
+      return { ...rest, position };
+    });
+    setNodes(nextNodes);
+    // Publish the new coordinates before history captures the project snapshot.
+    updateProjectPartial({ flow: {
+      nodes: rfNodesToTplNodes(nextNodes, { preserveRunningState: true }),
+      edges: rfEdgesToTplEdges(rf.getEdges()),
+    } }, { markDirty: true });
+    const collab = collabRef.current;
+    if (collab?.connected && !applyingRemoteRef.current) {
+      collab.sendPatch({ upsertNodes: Array.from(positions, ([id, position]) => ({ id, position })) });
+    }
+    historyService.commit("flow-align-selection").catch(() => {});
+  };
+
   const FlowToolbar =
     flowUIEnabled && showFlowPanel ? (
       <div
@@ -28394,6 +28425,11 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
       >
         {FlowToolbar}
+        <FlowSelectionToolbar
+          count={selectedNonGroupNodeCount + selectedGroupIds.length}
+          onAlign={alignSelectedNodes}
+          onGroup={canCreateGroup ? createGroupFromSelection : undefined}
+        />
         <ReactFlow
         nodes={nodesForRender}
         edges={edgesForInteraction}
