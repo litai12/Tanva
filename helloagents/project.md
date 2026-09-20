@@ -116,7 +116,7 @@
 - 托管厂商 `pricing.v2.consumerPolicies` 是独立于刊例 `matchingRules/evaluators` 的用户消费运营层，只能改变 Tanva 最终扣减积分或暂停命中规格，不能改变上游成本、catalog 刊例价或生成请求。策略可使用空条件作用于整条节点线路，也可复用型号、分辨率等定价维度；可用性与折扣分别取 `[startsAt, endsAt)` 时间窗内命中条件的最高优先级策略。Seedance 2.5 1080P 在 `2026-08-14T14:00:00+08:00`（包含）至 `2026-09-17T14:00:00+08:00`（不包含）按刊例积分 `0.72` 倍扣减，到期自动恢复；4K 当前通过可用性策略暂停并提示“暂未开放”，Flow 和后端必须同时拦截。
 - 托管模型的 `enabled` 是硬下线开关，按独立 `modelKey` 生效。Seedance 1.5 Pro 使用 `seedance-1.5`，Seedance 2.0/2.5/Fast 使用 `seedance-2.0`；关闭前者不得影响后者。公开节点目录必须在清理禁用键之前判断可见性，Flow 的型号菜单以后台最新 `supportedModels` 为准；历史节点若仍选择已下线型号，应保留原值、显示“已下线”并禁止运行，禁止静默切换模型。
 - Flow Midjourney 节点显示名为 `Midjourney`，节点内 `modelVersion` 在 `v7/v8` 间切换；运行时分别发送 `--v 7`/`--v 8.1` 与 `midjourney-v7`/`midjourney-v8`，Niji 仍使用独立 `niji7` 节点与 `midjourney-niji-7`。new-api 托管 Youchuan 生产数据需包含 `new-api/patches/2026-06-17/002-add-midjourney-v8-youchuan.sql`。
-- Seedance 2.0 `reference_images`/全能参考模式必须把图片作为 `reference_image` 参考媒体处理，不得与 `first_frame`/`last_frame` 角色混用；若 new-api 兼容层返回首尾帧与参考媒体混用错误，后端会退回 Ark 官方 `content`/role 直连任务。
+- Seedance 2.0 `reference_images`/全能参考模式必须把图片作为 `reference_image` 参考媒体处理，不得与 `first_frame`/`last_frame` 角色混用。视频生成统一经 new-api；包括媒体角色冲突在内的网关失败必须返回错误，禁止回退 Ark 直连。后端视频服务不得保存备用火山密钥或恢复旧直连入口。素材审核/上传不属于视频生成提交；腾讯 VOD 适配器仍由 new-api 调用。
 - Seedance 1.5 Pro Flow 节点分辨率只允许 `720P`/`1080P`；前端需过滤旧 VOD/节点配置里误带的 `4K` 等不支持选项，并把历史节点上的非法分辨率回落到支持选项。
 - Flow 视频节点成功后可写入 Global History，但只记录已有远程视频 URL/缩略图引用，不把视频或缩略图内联进设计 JSON。
 - Library 历史视频记录支持封面/播放/下载展示；发送或拖拽到画板时必须走 `canvas:insert-video` 视频资产链路，不走图片上传链路。历史图片仍可按远程 URL/可持久化资产引用发送到画板。

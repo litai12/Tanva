@@ -335,12 +335,6 @@ export class VideoProviderService {
     return /(暂不支持|未配置|未找到|不可用|unavailable|not support|not supported)/i.test(message);
   }
 
-  private isSeedanceReferenceMediaConflictError(error: unknown): boolean {
-    return /first\/last frame content cannot be mixed with reference media content|cannot be mixed with reference media content/i.test(
-      this.summarizeError(error),
-    );
-  }
-
   private async executeManagedRouteWithFallback(
     modelKey: string,
     preferredVendorKey: string | undefined,
@@ -906,8 +900,6 @@ export class VideoProviderService {
     "kling-o3": process.env.KLING_API_KEY || "sk-kling-xxx",
     vidu: process.env.VIDU_API_KEY || "sk-vidu-xxx",
     "viduq3-pro": process.env.VIDU_API_KEY || "sk-vidu-xxx",
-    doubao:
-      process.env.DOUBAO_API_KEY || "0ac5fae84-f299-4db4-8d7e-3f7fc355c6ac",
     hailuo: process.env.NEW_API_KEY || "new-api-managed",
   };
 
@@ -1199,65 +1191,6 @@ export class VideoProviderService {
       groupId: taskAssets.groupId,
       options: { ...options, referenceImages, referenceVideos, referenceVideo, audioUrls },
     };
-  }
-
-  private async generateVideoLegacy(
-    options: VideoProviderRequestDto
-  ): Promise<VideoGenerationResult> {
-    const { provider } = options;
-
-    // 注意：kling-o3 节点前端默认带 klingModel="kling-v3-0"，但 O3(Omni) 与 Kling 3.0
-    // 是不同模型。绝不能因 klingModel==="kling-v3-0" 把 O3 路由到 generateManagedKling30
-    // (会发成 Kling 3.0，导致“选O3后台显示3.0”串台)。O3 一律走 generateManagedKlingO3。
-    if (
-      (provider === "kling" || provider === "kling-2.6") &&
-      options.klingModel === "kling-v3-0"
-    ) {
-      return this.generateManagedKling30(options);
-    }
-
-    if (
-      (provider === "kling" || provider === "kling-2.6") &&
-      options.klingModel === "kling-v2-6"
-    ) {
-      return this.generateManagedKling26(options);
-    }
-
-    if (provider === "kling-o3") {
-      return this.generateManagedKlingO3(options);
-    }
-
-    if (provider === "vidu" || provider === "viduq3-pro") {
-      return this.generateManagedVidu(options);
-    }
-
-    if (provider === "doubao") {
-      return this.generateManagedSeedance(options);
-    }
-
-    // wan2.7 never reaches the legacy/managed path (it always routes to new-api),
-    // so it has no legacy apiKeys entry — guard the index access.
-    const apiKey = this.apiKeys[provider as keyof typeof this.apiKeys];
-
-    if (!apiKey || apiKey.includes("xxx")) {
-      throw new ServiceUnavailableException(`${provider} API Key 未配置`);
-    }
-
-    this.logger.log(
-      `🎬 视频生成任务创建: provider=${provider}, prompt=${options.prompt?.substring(
-        0,
-        50
-      ) || "N/A"}...`
-    );
-
-    switch (provider) {
-      case "kling":
-        return this.generateKling(options, apiKey);
-      case "kling-2.6":
-        return this.generateKling26(options, apiKey);
-      default:
-        throw new Error(`不支持的供应商: ${provider}`);
-    }
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -2037,14 +1970,7 @@ export class VideoProviderService {
         body: JSON.stringify(payload),
       }, apiKey);
     } catch (err: any) {
-      // 安全网：凡 seedance2 命中“首帧与参考媒体混用”400（无论上面模式判定是否漏判），
-      // 一律改走 Ark content/role 直连兜底——该路径把所有图都标 reference_image，不会混用。
-      if (isSeedance2 && this.isSeedanceReferenceMediaConflictError(err)) {
-        this.logger.warn(
-          "Seedance 2.0 经 new-api 被识别为首帧+参考图混用，改走 Ark content/role 直连兜底",
-        );
-        return this.generateManagedSeedance(options);
-      }
+      // Generation errors stay inside the gateway; never retry against Ark directly.
       if (hasAssetRefs && this.isAssetServiceNotActivatedError(err)) {
         // new-api 上游账号未开通 Asset Service，降级使用 HTTPS 直链重试
         const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
@@ -3036,39 +2962,6 @@ export class VideoProviderService {
       throw new ServiceUnavailableException(
         `旧链路暂不支持 ${resolved.label}，请在模型管理切换到腾讯 VOD`
       );
-      },
-    );
-    if (managedResult) return managedResult;
-
-    throw new ServiceUnavailableException(`未找到 ${resolved.label} 的可用生成链路`);
-  }
-
-  private async generateManagedSeedance(
-    options: VideoProviderRequestDto
-  ): Promise<VideoGenerationResult> {
-    const resolved = this.resolveManagedSeedanceModel(options);
-    const managedResult = await this.executeManagedRouteWithFallback(
-      resolved.modelKey,
-      options.vendorKey,
-      async (route) => {
-      if (this.shouldUseManagedV2RequestProfile(route)) {
-        return this.createManagedV2Task(resolved.modelKey, options, route);
-      }
-
-      if (route.route === "tencent_vod") {
-        const result = await this.generateSeedanceViaTencent(
-          options,
-          route.vendor,
-          resolved.modelVersion
-        );
-        return this.withManagedTencentTaskPrefix(resolved.modelKey, result);
-      }
-
-      const apiKey = this.apiKeys.doubao;
-      if (!apiKey || apiKey.includes("xxx")) {
-        throw new ServiceUnavailableException("doubao API Key 未配置");
-      }
-      return this.generateDoubao(options, apiKey, resolved.modelVersion);
       },
     );
     if (managedResult) return managedResult;
@@ -4480,254 +4373,6 @@ export class VideoProviderService {
     }
 
     return { status: "processing" };
-  }
-
-  /**
-   * Seedance 1.5 Pro视频生成
-   */
-  private async generateDoubao(
-    options: VideoProviderRequestDto,
-    apiKey: string,
-    modelVersion: SeedanceManagedModelVersion = "1.5-pro"
-  ): Promise<VideoGenerationResult> {
-    const normalizedPrompt =
-      typeof options.prompt === "string" ? options.prompt.trim() : "";
-    let promptText = normalizedPrompt;
-    const params: string[] = [];
-    const isSeedance2Model =
-      modelVersion === "2.0" ||
-      modelVersion === "2.5" ||
-      modelVersion === "2.0-pro" ||
-      modelVersion === "2.0-lite" ||
-      modelVersion === "2.0-mini";
-
-    if (options.aspectRatio) {
-      params.push(`--ratio ${options.aspectRatio}`);
-    }
-    if (options.duration) {
-      params.push(`--dur ${options.duration}`);
-    }
-    if (options.camerafixed !== undefined) {
-      params.push(`--camerafixed ${options.camerafixed}`);
-    }
-    if (options.watermark !== undefined) {
-      params.push(`--watermark ${options.watermark}`);
-    }
-
-    if (!isSeedance2Model && params.length > 0) {
-      promptText = `${promptText} ${params.join(" ")}`;
-    }
-
-    const content: any[] = [];
-    const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
-    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
-
-    if (promptText) {
-      content.push({ type: "text", text: promptText });
-    }
-
-    // 处理参考图片：如果是 base64，先上传到 OSS；volc asset 对象在 sd2 时使用 asset:// 协议
-    const { uploadedStringUrls, objectItems } = await this.splitAndUploadReferenceImages(options.referenceImages);
-
-    for (const imageUrl of uploadedStringUrls) {
-      content.push({
-        type: "image_url",
-        image_url: { url: imageUrl },
-        role: "reference_image",
-      });
-      this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
-    }
-
-    for (const item of objectItems) {
-      let url: string;
-      if (isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId) {
-        url = `asset://${item.volcAssetId}`;
-      } else {
-        url = item.url;
-      }
-      content.push({
-        type: "image_url",
-        image_url: { url },
-        role: "reference_image",
-      });
-      this.logger.log(`📸 Seedance 参考图片 (asset/url): ${url.substring(0, 100)}`);
-    }
-
-    for (const videoUrl of referenceVideos) {
-      content.push({
-        type: "video_url",
-        video_url: { url: videoUrl },
-        role: "reference_video",
-      });
-    }
-
-    for (const audioUrl of referenceAudios) {
-      content.push({
-        type: "audio_url",
-        audio_url: { url: audioUrl },
-        role: "reference_audio",
-      });
-    }
-
-    if (!content.length) {
-      throw new BadRequestException("Seedance 需要提供提示词或至少一种参考素材");
-    }
-
-    const modelId = resolveSeedanceUpstreamModelId(modelVersion);
-
-    const payload: Record<string, any> = {
-      model: modelId,
-      content,
-    };
-    const seedance25OmniReferenceTaskType =
-      modelVersion === "2.5" ? options.omniReferenceTaskType : undefined;
-    const isSeedance25VideoEditing =
-      modelVersion === "2.5" &&
-      (seedance25OmniReferenceTaskType === "edit" ||
-        String(options.videoMode || "").trim().toLowerCase() === "video_editing") &&
-      referenceVideos.length > 0;
-    const isSeedance25VideoExtension =
-      modelVersion === "2.5" &&
-      (seedance25OmniReferenceTaskType === "extend" ||
-        String(options.videoMode || "").trim().toLowerCase() === "video_extend") &&
-      referenceVideos.length > 0;
-
-    if (isSeedance2Model) {
-      if (typeof options.generateAudio === "boolean") {
-        payload.generate_audio = options.generateAudio;
-      }
-      if (typeof options.videoMode === "string" && options.videoMode.trim()) {
-        payload.video_mode = options.videoMode.trim();
-      }
-      if (seedance25OmniReferenceTaskType) {
-        payload.omni_reference_task_type = seedance25OmniReferenceTaskType;
-      }
-      if (isSeedance25VideoEditing) {
-        payload.ratio = "adaptive";
-        payload.duration = -1;
-      } else {
-        if (isSeedance25VideoExtension) {
-          payload.ratio = "adaptive";
-        } else if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
-          payload.ratio = options.aspectRatio.trim();
-        }
-        if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
-          payload.duration = options.duration;
-        }
-      }
-      if (typeof options.resolution === "string" && options.resolution.trim()) {
-        payload.resolution = options.resolution.trim().toUpperCase();
-      }
-      if (typeof options.watermark === "boolean") {
-        payload.watermark = options.watermark;
-      }
-    }
-
-    this.logProviderPayload("doubao", payload);
-
-    const response = await fetchWithTimeout(
-      "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        timeout: DEFAULT_FETCH_TIMEOUT,
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.error?.message || error.message || `HTTP ${response.status}`
-      );
-    }
-
-    const data = await response.json();
-    return {
-      taskId: data.id || data.platform_id,
-      status: "queued",
-    };
-  }
-
-  private async queryDoubao(taskId: string, apiKey: string) {
-    const extractTokenUsage = (payload: any): { inputTokens?: number; outputTokens?: number } => {
-      const usage = payload?.usage || payload?.token_usage || payload?.billing || payload?.meta?.usage || {};
-      const inputCandidates = [
-        usage?.input_tokens,
-        usage?.prompt_tokens,
-        usage?.in_tokens,
-        payload?.input_tokens,
-        payload?.prompt_tokens,
-      ];
-      const outputCandidates = [
-        usage?.output_tokens,
-        usage?.completion_tokens,
-        usage?.out_tokens,
-        payload?.output_tokens,
-        payload?.completion_tokens,
-      ];
-      const input = inputCandidates
-        .map((value) => Number(value))
-        .find((value) => Number.isFinite(value) && value >= 0);
-      const output = outputCandidates
-        .map((value) => Number(value))
-        .find((value) => Number.isFinite(value) && value >= 0);
-      return {
-        ...(typeof input === "number" ? { inputTokens: Math.floor(input) } : {}),
-        ...(typeof output === "number" ? { outputTokens: Math.floor(output) } : {}),
-      };
-    };
-    try {
-      const response = await fetchWithTimeout(
-        `https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${taskId}`,
-        {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          timeout: QUERY_FETCH_TIMEOUT,
-        }
-      );
-
-      const data = await response.json();
-      this.logger.log(
-        `🔍 Seedance 1.5 Pro任务状态查询: taskId=${taskId}, status=${data.status}`
-      );
-
-      if (data.status === "succeeded") {
-        const upstreamUrl: string | undefined = data.content?.video_url;
-        if (!upstreamUrl) {
-          throw new ServiceUnavailableException("Seedance 返回空视频链接");
-        }
-        const tokenUsage = extractTokenUsage(data);
-        if (this.isOssPublicUrl(upstreamUrl)) {
-          return { status: "succeeded", videoUrl: upstreamUrl, ...tokenUsage };
-        }
-        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, taskId);
-        return { status: "succeeded", videoUrl: ossUrl, ...tokenUsage };
-      }
-
-      if (data.status === "failed") {
-        this.logger.error(
-          `❌ Seedance 1.5 Pro任务失败: taskId=${taskId}, error=${JSON.stringify(
-            data.error || data.reason || data
-          )}`
-        );
-        return {
-          status: "failed",
-          error: data.error?.message || data.reason || "生成失败",
-        };
-      }
-
-      return { status: data.status || "queued" };
-    } catch (error) {
-      this.logger.error(
-        `❌ Seedance 1.5 Pro查询异常: taskId=${taskId}, error=${
-          error instanceof Error ? error.message : error
-        }`
-      );
-      throw error;
-    }
   }
 
   /**
