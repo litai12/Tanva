@@ -1,3 +1,4 @@
+import { recordImageRejection, recordRemoteImages } from './image-execution-state';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -282,6 +283,7 @@ export class Seedream5Service {
 
     const response = await fetch(requestUrl, {
       method: 'POST',
+      signal: AbortSignal.timeout(15 * 60 * 1000),
       headers: {
         Authorization: `Bearer ${providerConfig.apiKey}`,
         'Content-Type': 'application/json',
@@ -290,6 +292,7 @@ export class Seedream5Service {
     });
 
     if (!response.ok) {
+      recordImageRejection(response.status);
       const error = await response.json().catch(() => ({}));
       throw new Error(error.error?.message || error.message || `HTTP ${response.status}`);
     }
@@ -300,6 +303,7 @@ export class Seedream5Service {
       .map((img: any) => (typeof img?.url === 'string' ? img.url : ''))
       .filter((url: string) => !!url);
 
+    await recordRemoteImages(imageUrls);
     if (imageUrls.length === 1) {
       return { imageUrl: imageUrls[0] };
     }

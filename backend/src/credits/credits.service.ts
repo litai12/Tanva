@@ -1,3 +1,4 @@
+import { IMAGE_GENERATION_SERVICES, isImageGenerationService } from '../ai/services/image-execution-state';
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -4397,7 +4398,7 @@ export class CreditsService {
           serviceType: params.serviceType,
           ...(params.model ? { model: params.model } : {}),
           responseStatus: statusFilter,
-          ...(FREE_USER_VIDEO_LIMITED_SERVICES.includes(params.serviceType) ? {} : { createdAt: { gte: params.windowStartAt } }),
+          ...((FREE_USER_VIDEO_LIMITED_SERVICES.includes(params.serviceType) || isImageGenerationService(params.serviceType)) ? {} : { createdAt: { gte: params.windowStartAt } }),
           requestParams: {
             path: ['idempotencyKey'],
             equals: params.idempotencyKey,
@@ -4416,7 +4417,9 @@ export class CreditsService {
           serviceType: params.serviceType,
           ...(params.model ? { model: params.model } : {}),
           responseStatus: statusFilter,
-          createdAt: { gte: params.windowStartAt },
+          ...(isImageGenerationService(params.serviceType) ? {
+            OR: [{ responseStatus: ApiResponseStatus.PENDING }, { createdAt: { gte: params.windowStartAt } }],
+          } : { createdAt: { gte: params.windowStartAt } }),
           requestParams: {
             path: ['requestFingerprint'],
             equals: params.requestFingerprint,
@@ -4469,12 +4472,13 @@ export class CreditsService {
       userId: string;
       clientProjectId: string;
       clientNodeId: string;
+      image?: boolean;
     },
   ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
     const duplicate = await tx.apiUsageRecord.findFirst({
       where: {
         userId: params.userId,
-        serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
+        serviceType: { in: params.image ? [...IMAGE_GENERATION_SERVICES] : FREE_USER_VIDEO_LIMITED_SERVICES },
         responseStatus: ApiResponseStatus.PENDING,
         AND: [
           {
@@ -4574,6 +4578,10 @@ export class CreditsService {
       requestFingerprint,
     );
 
+    if (isImageGenerationService(serviceType) && apiUsageRequestParams?.clientNodeId && Number.isInteger(apiUsageRequestParams.parallelGroupIndex)) {
+      apiUsageRequestParams.clientNodeId = `${apiUsageRequestParams.clientNodeId}:slot:${apiUsageRequestParams.parallelGroupIndex}`;
+    }
+
     return await this.prisma.$transaction(async (tx) => {
       // 账户行级锁：串行化同一用户的并发预扣，兼保证下方幂等/指纹查重
       // （先查后插）在并发下真正可见（详见 credit-account-lock.util.ts）。
@@ -4586,13 +4594,14 @@ export class CreditsService {
       const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
       account = { ...account, balance: expiry.balanceAfter };
 
-      const activeNodeScope = FREE_USER_VIDEO_LIMITED_SERVICES.includes(serviceType)
+      const activeNodeScope = (FREE_USER_VIDEO_LIMITED_SERVICES.includes(serviceType) || isImageGenerationService(serviceType))
         ? this.normalizeActiveNodeVideoScope(apiUsageRequestParams)
         : null;
       if (activeNodeScope) {
         const activeUsage = await this.findActiveNodeVideoUsage(tx, {
           userId,
           ...activeNodeScope,
+          image: isImageGenerationService(serviceType),
         });
         if (activeUsage) {
           this.logger.warn(
@@ -6306,11 +6315,8 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
-    return this.autoRefundStalePendingUsagesForServiceTypes(
-      STALE_PENDING_IMAGE_SERVICE_TYPES,
-      timeoutMinutes,
-      batchSize,
-    );
+    // Age alone says nothing about upstream acceptance or cost.
+    return { scanned: 0, refunded: 0, skippedSuccess: 0, errors: 0, timeoutMinutes, batchSize };
   }
 
   /**

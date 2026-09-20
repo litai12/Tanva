@@ -1,8 +1,10 @@
+import { imageExecutionContext, isImageGenerationService, needsImageReconciliation, ImageExecutionState } from './services/image-execution-state';
 import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
 import { assertVideoNodeEnabled } from './services/video-node-availability';
 ﻿import {
   Body,
   Controller,
+  ConflictException,
   HttpCode,
   Logger,
   Post,
@@ -2047,6 +2049,7 @@ export class AiController {
     const startTime = Date.now();
     let apiUsageId: string | null = null;
     let chargeHandle: ChargeHandle | null = null;
+    const imageExecution: ImageExecutionState = { started: false, rejected: false };
     const sanitizedRequestParams = requestParams
       ? Object.fromEntries(
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
@@ -2077,10 +2080,18 @@ export class AiController {
           status: 'processing',
         } } as T;
       }
+      if (isImageGenerationService(serviceType) && chargeHandle.duplicate) {
+        chargeHandle = null; // This invocation does not own the original charge.
+        throw new ConflictException({ message: '已有相同图片请求，请查看原任务，未重复生成或扣费', apiUsageId });
+      }
       creditOptions?.onApiUsageId?.(apiUsageId);
 
       // 执行实际操作
-      const result = await operation();
+      imageExecution.onRemoteImages = async (upstreamImageUrls) => {
+        if (apiUsageId) await this.creditsService.updateApiUsageRequestParams(apiUsageId, { upstreamImageUrls });
+      };
+      imageExecution.started = isImageGenerationService(serviceType);
+      const result = await imageExecutionContext.run(imageExecution, operation);
 
       if (
         creditOptions?.treatReturnedFailureAsError &&
@@ -2150,6 +2161,13 @@ export class AiController {
 
       return result;
     } catch (error) {
+      if (chargeHandle && apiUsageId && needsImageReconciliation(imageExecution)) {
+        this.logger.error(`IMAGE_RECONCILIATION_REQUIRED apiUsageId=${apiUsageId} error=${this.summarizeError(error)}`);
+        await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+          imageSubmissionState: 'reconciliation_required',
+        }).catch((e) => this.logger.error(`图片对账标记失败 apiUsageId=${apiUsageId}: ${this.summarizeError(e)}`));
+        throw new ConflictException({ message: '图片生成结果待核实，请勿重复提交；确认上游结果后结算', apiUsageId });
+      }
       // 更新状态为失败并退还积分
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3965,6 +3983,8 @@ export class AiController {
       });
 
       const imageCreditRequestParams = this.buildCreditRequestParams(providerName, {
+        clientNodeId: dto.nodeId,
+        clientProjectId: dto.projectId || 'legacy-image',
         imageSize: dto.imageSize,
         quality: dto.quality,
         aspectRatio: dto.aspectRatio,
@@ -3980,152 +4000,104 @@ export class AiController {
       }, dto.providerOptions);
 
       const result = await this.withCredits(req, serviceType, model, async () => {
-        const maxAttempts = 3;
-        const retryDelaysMs = [500, 1200];
+        {
+          const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+          const result = await provider.generateImage({
+            prompt: dto.prompt,
+            model,
+            imageOnly: dto.imageOnly,
+            aspectRatio: dto.aspectRatio,
+            imageSize: dto.imageSize,
+            quality: dto.quality,
+            background: dto.background,
+            moderation: dto.moderation,
+            outputCompression: dto.outputCompression,
+            maskUrl: dto.maskUrl,
+            thinkingLevel: dto.thinkingLevel,
+            outputFormat: dto.outputFormat,
+            providerOptions: dto.providerOptions,
+            enableWebSearch: dto.enableWebSearch,
+            imageUrls: normalizedImageUrlsForProvider.length
+              ? normalizedImageUrlsForProvider
+              : undefined,
+            googleSearch: dto.googleSearch ?? dto.enableWebSearch,
+            googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
+            batchMode: dto.batchMode,
+            batchCount: dto.batchCount,
+            officialFallback: dto.officialFallback,
+          });
 
-        const shouldRetryOutputError = (error: unknown): boolean => {
-          if (error instanceof HttpException) {
-            return error.getStatus() === 502;
-          }
+          if (result.success && result.data) {
+            const responseMetadata: Record<string, any> = {
+              ...(result.data.metadata || {}),
+              ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
+            };
 
-          const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-          if (!message) return false;
-
-          const retryablePatterns = [
-            '生成图像数据为空',
-            '无图像数据',
-            'no image data',
-            'stream api returned no image data',
-            'not supported',
-            '不是受支持的图片格式',
-            'base64',
-          ];
-          return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
-        };
-
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          try {
-            if (attempt > 1) {
-              this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
+            // 如果有 imageData，上传到 OSS
+            if (result.data.imageData) {
+              const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+              const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+              return {
+                imageUrl: upload.url,
+                textResponse: result.data.textResponse || '',
+                metadata: {
+                  ...responseMetadata,
+                  imageUrl: upload.url,
+                  imageKey: upload.key,
+                  mimeType: upload.mimeType,
+                  bytes: upload.size,
+                },
+              };
             }
 
-            {
-              const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
-              const result = await provider.generateImage({
-                prompt: dto.prompt,
-                model,
-                imageOnly: dto.imageOnly,
-                aspectRatio: dto.aspectRatio,
-                imageSize: dto.imageSize,
-                quality: dto.quality,
-                background: dto.background,
-                moderation: dto.moderation,
-                outputCompression: dto.outputCompression,
-                maskUrl: dto.maskUrl,
-                thinkingLevel: dto.thinkingLevel,
-                outputFormat: dto.outputFormat,
-                providerOptions: dto.providerOptions,
-                enableWebSearch: dto.enableWebSearch,
-                imageUrls: normalizedImageUrlsForProvider.length
-                  ? normalizedImageUrlsForProvider
-                  : undefined,
-                googleSearch: dto.googleSearch ?? dto.enableWebSearch,
-                googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
-                batchMode: dto.batchMode,
-                batchCount: dto.batchCount,
-                officialFallback: dto.officialFallback,
-              });
+            const providerImageUrls = this.collectProviderImageUrls(result.data);
+            if (providerImageUrls.length > 0) {
+              try {
+                const managedResults = await Promise.all(
+                  providerImageUrls.map((url) =>
+                    this.persistProviderImageUrlToManaged(url, req, userId),
+                  ),
+                );
+                const managedImageUrls = managedResults
+                  .map((item) => item.url)
+                  .filter((item): item is string => Boolean(item));
 
-              if (result.success && result.data) {
-                const responseMetadata: Record<string, any> = {
-                  ...(result.data.metadata || {}),
-                  ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
+                if (managedImageUrls.length === 0) {
+                  throw new Error('managed image url list is empty');
+                }
+
+                const primaryImageUrl = managedImageUrls[0];
+                const firstUploaded = managedResults.find((item) => item.uploaded);
+                return {
+                  imageUrl: primaryImageUrl,
+                  textResponse: result.data.textResponse || '',
+                  metadata: {
+                    ...responseMetadata,
+                    imageUrl: primaryImageUrl,
+                    imageUrls: managedImageUrls,
+                    sourceImageUrl: providerImageUrls[0],
+                    sourceImageUrls: providerImageUrls,
+                    ...(firstUploaded
+                      ? {
+                          imageKey: firstUploaded.key,
+                          mimeType: firstUploaded.mimeType,
+                          bytes: firstUploaded.bytes,
+                        }
+                      : {}),
+                  },
                 };
-
-                // 如果有 imageData，上传到 OSS
-                if (result.data.imageData) {
-                  const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-                  const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-                  return {
-                    imageUrl: upload.url,
-                    textResponse: result.data.textResponse || '',
-                    metadata: {
-                      ...responseMetadata,
-                      imageUrl: upload.url,
-                      imageKey: upload.key,
-                      mimeType: upload.mimeType,
-                      bytes: upload.size,
-                    },
-                  };
-                }
-
-                const providerImageUrls = this.collectProviderImageUrls(result.data);
-                if (providerImageUrls.length > 0) {
-                  try {
-                    const managedResults = await Promise.all(
-                      providerImageUrls.map((url) =>
-                        this.persistProviderImageUrlToManaged(url, req, userId),
-                      ),
-                    );
-                    const managedImageUrls = managedResults
-                      .map((item) => item.url)
-                      .filter((item): item is string => Boolean(item));
-
-                    if (managedImageUrls.length === 0) {
-                      throw new Error('managed image url list is empty');
-                    }
-
-                    const primaryImageUrl = managedImageUrls[0];
-                    const firstUploaded = managedResults.find((item) => item.uploaded);
-                    return {
-                      imageUrl: primaryImageUrl,
-                      textResponse: result.data.textResponse || '',
-                      metadata: {
-                        ...responseMetadata,
-                        imageUrl: primaryImageUrl,
-                        imageUrls: managedImageUrls,
-                        sourceImageUrl: providerImageUrls[0],
-                        sourceImageUrls: providerImageUrls,
-                        ...(firstUploaded
-                          ? {
-                              imageKey: firstUploaded.key,
-                              mimeType: firstUploaded.mimeType,
-                              bytes: firstUploaded.bytes,
-                            }
-                          : {}),
-                      },
-                    };
-                  } catch (error) {
-                    this.logger.error(
-                      `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
-                    );
-                    throw new BadGatewayException(
-                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS，或检查上游 URL 是否可访问）'
-                    );
-                  }
-                }
+              } catch (error) {
+                this.logger.error(
+                  `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
+                );
+                throw new BadGatewayException(
+                  '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS，或检查上游 URL 是否可访问）'
+                );
               }
-              throw new Error(result.error?.message || 'Failed to generate image');
             }
-          } catch (error) {
-            if (attempt < maxAttempts && shouldRetryOutputError(error)) {
-              const delay =
-                retryDelaysMs[attempt - 1] ??
-                retryDelaysMs[retryDelaysMs.length - 1] ??
-                0;
-              this.logger.warn(
-                `[generate-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
-              );
-              if (delay > 0) {
-                await new Promise((resolve) => setTimeout(resolve, delay));
-              }
-              continue;
-            }
-            throw error;
           }
+          throw new Error(result.error?.message || 'Failed to generate image');
         }
-
-        throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, normalizedImageUrlsForProvider.length, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
         validateSuccessResult: (payload) => ({
           ok: this.hasImagePayload(payload),
@@ -4252,121 +4224,74 @@ export class AiController {
       });
 
       const result = await this.withCredits(req, serviceType as any, model, async () => {
-      const maxAttempts = 3;
-      const retryDelaysMs = [500, 1200];
+      // MJ 支持直接使用 URL，不需要转换为 base64
+      const isMidjourney = providerName === 'midjourney';
+      let sourceImage = remoteSourceImage;
 
-      const shouldRetryOutputError = (error: unknown): boolean => {
-        if (error instanceof HttpException) {
-          return error.getStatus() === 502;
-        }
-
-        const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-        if (!message) return false;
-
-        const retryablePatterns = [
-          '编辑成功但未返回图片数据',
-          '生成图像数据为空',
-          '无图像数据',
-          'no image data',
-          'stream api returned no image data',
-          'not supported',
-          '不是受支持的图片格式',
-          'base64',
-        ];
-        return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
-      };
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          if (attempt > 1) {
-            this.logger.warn(`[edit-image] 重试编辑第 ${attempt}/${maxAttempts} 次`);
-          }
-
-          // MJ 支持直接使用 URL，不需要转换为 base64
-          const isMidjourney = providerName === 'midjourney';
-          let sourceImage = remoteSourceImage;
-
-          if (tencentForcedBanana) {
-            sourceImage = await this.normalizeSourceImageForTencentForced(
-              sourceImage,
-              requestUserId,
-              'edit-image',
-            );
-          } else if (!isMidjourney || !sourceImage.startsWith('http')) {
-            // 非 MJ 时验证 sourceImage 是有效的图片格式
-            this.validateImageDataUrl(sourceImage);
-          }
-
-          {
-            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
-            const result = await provider.editImage({
-              prompt: dto.prompt,
-              sourceImage,
-              model,
-              imageOnly: dto.imageOnly,
-              aspectRatio: dto.aspectRatio,
-              imageSize: dto.imageSize,
-              thinkingLevel: dto.thinkingLevel,
-              outputFormat: dto.outputFormat,
-              providerOptions: dto.providerOptions,
-            });
-            if (result.success && result.data) {
-              if (result.data.imageData) {
-                const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
-                return {
-                  imageUrl: upload.url,
-                  textResponse: result.data.textResponse || '',
-                  metadata: {
-                    ...(result.data.metadata || {}),
-                    imageUrl: upload.url,
-                    imageKey: upload.key,
-                    mimeType: upload.mimeType,
-                    bytes: upload.bytes,
-                  },
-                };
-              }
-
-              const providerImageUrls = this.collectProviderImageUrls(result.data);
-              const providerImageUrl = providerImageUrls[0];
-              if (!providerImageUrl) {
-                throw new BadGatewayException('编辑成功但未返回图片数据');
-              }
-
-              const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
-              return {
-                imageUrl: managed.url,
-                textResponse: result.data.textResponse || '',
-                metadata: {
-                  ...(result.data.metadata || {}),
-                  imageUrl: managed.url,
-                  sourceImageUrl: providerImageUrl,
-                  sourceImageUrls: providerImageUrls,
-                  ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
-                },
-              };
-            }
-            throw new Error(result.error?.message || 'Failed to edit image');
-          }
-        } catch (error) {
-          if (attempt < maxAttempts && shouldRetryOutputError(error)) {
-            const delay =
-              retryDelaysMs[attempt - 1] ??
-              retryDelaysMs[retryDelaysMs.length - 1] ??
-              0;
-            this.logger.warn(
-              `[edit-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
-            );
-            if (delay > 0) {
-              await new Promise((resolve) => setTimeout(resolve, delay));
-            }
-            continue;
-          }
-          throw error;
-        }
+      if (tencentForcedBanana) {
+        sourceImage = await this.normalizeSourceImageForTencentForced(
+          sourceImage,
+          requestUserId,
+          'edit-image',
+        );
+      } else if (!isMidjourney || !sourceImage.startsWith('http')) {
+        // 非 MJ 时验证 sourceImage 是有效的图片格式
+        this.validateImageDataUrl(sourceImage);
       }
 
-      throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
+      {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+        const result = await provider.editImage({
+          prompt: dto.prompt,
+          sourceImage,
+          model,
+          imageOnly: dto.imageOnly,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          thinkingLevel: dto.thinkingLevel,
+          outputFormat: dto.outputFormat,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          if (result.data.imageData) {
+            const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
+            return {
+              imageUrl: upload.url,
+              textResponse: result.data.textResponse || '',
+              metadata: {
+                ...(result.data.metadata || {}),
+                imageUrl: upload.url,
+                imageKey: upload.key,
+                mimeType: upload.mimeType,
+                bytes: upload.bytes,
+              },
+            };
+          }
+
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
+          if (!providerImageUrl) {
+            throw new BadGatewayException('编辑成功但未返回图片数据');
+          }
+
+          const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
+          return {
+            imageUrl: managed.url,
+            textResponse: result.data.textResponse || '',
+            metadata: {
+              ...(result.data.metadata || {}),
+              imageUrl: managed.url,
+              sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
+              ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
+            },
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to edit image');
+      }
       }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        clientNodeId: dto.nodeId,
+        clientProjectId: dto.projectId || 'legacy-image',
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
         parallelGroupId: dto.parallelGroupId,
@@ -4495,118 +4420,71 @@ export class AiController {
       });
 
       const result = await this.withCredits(req, serviceType as any, model, async () => {
-      const maxAttempts = 3;
-      const retryDelaysMs = [500, 1200];
+      const normalizedSourceImages = tencentForcedBanana
+        ? await Promise.all(
+            remoteSourceImages.map((value, index) =>
+              this.normalizeSourceImageForTencentForced(
+                value,
+                requestUserId,
+                `blend-images#${index + 1}`,
+              ),
+            ),
+          )
+        : remoteSourceImages;
 
-      const shouldRetryOutputError = (error: unknown): boolean => {
-        if (error instanceof HttpException) {
-          return error.getStatus() === 502;
+      {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+        const result = await provider.blendImages({
+          prompt: dto.prompt,
+          sourceImages: normalizedSourceImages,
+          model,
+          imageOnly: dto.imageOnly,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          thinkingLevel: dto.thinkingLevel,
+          outputFormat: dto.outputFormat,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          if (result.data.imageData) {
+            const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
+            return {
+              imageUrl: upload.url,
+              textResponse: result.data.textResponse || '',
+              metadata: {
+                ...(result.data.metadata || {}),
+                imageUrl: upload.url,
+                imageKey: upload.key,
+                mimeType: upload.mimeType,
+                bytes: upload.bytes,
+              },
+            };
+          }
+
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
+          if (!providerImageUrl) {
+            throw new BadGatewayException('融合成功但未返回图片数据');
+          }
+
+          const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
+          return {
+            imageUrl: managed.url,
+            textResponse: result.data.textResponse || '',
+            metadata: {
+              ...(result.data.metadata || {}),
+              imageUrl: managed.url,
+              sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
+              ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
+            },
+          };
         }
-
-        const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-        if (!message) return false;
-
-        const retryablePatterns = [
-          '融合成功但未返回图片数据',
-          '生成图像数据为空',
-          '无图像数据',
-          'no image data',
-          'stream api returned no image data',
-          'not supported',
-          '不是受支持的图片格式',
-          'base64',
-        ];
-        return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
-      };
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          if (attempt > 1) {
-            this.logger.warn(`[blend-images] 重试融合第 ${attempt}/${maxAttempts} 次`);
-          }
-
-          const normalizedSourceImages = tencentForcedBanana
-            ? await Promise.all(
-                remoteSourceImages.map((value, index) =>
-                  this.normalizeSourceImageForTencentForced(
-                    value,
-                    requestUserId,
-                    `blend-images#${index + 1}`,
-                  ),
-                ),
-              )
-            : remoteSourceImages;
-
-          {
-            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
-            const result = await provider.blendImages({
-              prompt: dto.prompt,
-              sourceImages: normalizedSourceImages,
-              model,
-              imageOnly: dto.imageOnly,
-              aspectRatio: dto.aspectRatio,
-              imageSize: dto.imageSize,
-              thinkingLevel: dto.thinkingLevel,
-              outputFormat: dto.outputFormat,
-              providerOptions: dto.providerOptions,
-            });
-            if (result.success && result.data) {
-              if (result.data.imageData) {
-                const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
-                return {
-                  imageUrl: upload.url,
-                  textResponse: result.data.textResponse || '',
-                  metadata: {
-                    ...(result.data.metadata || {}),
-                    imageUrl: upload.url,
-                    imageKey: upload.key,
-                    mimeType: upload.mimeType,
-                    bytes: upload.bytes,
-                  },
-                };
-              }
-
-              const providerImageUrls = this.collectProviderImageUrls(result.data);
-              const providerImageUrl = providerImageUrls[0];
-              if (!providerImageUrl) {
-                throw new BadGatewayException('融合成功但未返回图片数据');
-              }
-
-              const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
-              return {
-                imageUrl: managed.url,
-                textResponse: result.data.textResponse || '',
-                metadata: {
-                  ...(result.data.metadata || {}),
-                  imageUrl: managed.url,
-                  sourceImageUrl: providerImageUrl,
-                  sourceImageUrls: providerImageUrls,
-                  ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
-                },
-              };
-            }
-            throw new Error(result.error?.message || 'Failed to blend images');
-          }
-        } catch (error) {
-          if (attempt < maxAttempts && shouldRetryOutputError(error)) {
-            const delay =
-              retryDelaysMs[attempt - 1] ??
-              retryDelaysMs[retryDelaysMs.length - 1] ??
-              0;
-            this.logger.warn(
-              `[blend-images] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
-            );
-            if (delay > 0) {
-              await new Promise((resolve) => setTimeout(resolve, delay));
-            }
-            continue;
-          }
-          throw error;
-        }
+        throw new Error(result.error?.message || 'Failed to blend images');
       }
-
-      throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
       }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        clientNodeId: dto.nodeId,
+        clientProjectId: dto.projectId || 'legacy-image',
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
         parallelGroupId: dto.parallelGroupId,

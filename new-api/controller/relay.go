@@ -181,7 +181,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Build model fallback chain: try each routing candidate (alias/variant) in turn.
 	// This lets any model fall through to an alternative channel/model-name when the
 	// primary attempt fails, without per-model hardcoding.
-	modelsChain := buildModelsChain(relayInfo.OriginModelName)
+	modelsChain, retryBudget := relayAttemptPolicy(relayInfo.OriginModelName, relayInfo.RelayMode)
 	triedChannelIds := make([]int, 0)
 
 	for _, tryModel := range modelsChain {
@@ -197,7 +197,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.RetryIndex = 0
 		relayInfo.LastError = nil
 
-		for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		for ; retryParam.GetRetry() <= retryBudget; retryParam.IncreaseRetry() {
 			retryParam.ExcludeChannelIds = triedChannelIds
 			relayInfo.RetryIndex = retryParam.GetRetry()
 			channel, channelErr := getChannel(c, relayInfo, retryParam)
@@ -252,7 +252,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				break
 			}
 
-			if !shouldRetry(c, NewAPIError, common.RetryTimes-retryParam.GetRetry()) {
+			if !shouldRetry(c, NewAPIError, retryBudget-retryParam.GetRetry()) {
 				break
 			}
 		}
@@ -268,6 +268,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
+}
+
+// Image creation is not idempotent: a lost response can still represent paid work.
+// Neither channel retries nor model fallbacks may create a second image request.
+func relayAttemptPolicy(model string, mode int) ([]string, int) {
+	if mode == relayconstant.RelayModeImagesGenerations || mode == relayconstant.RelayModeImagesEdits {
+		return []string{model}, 0
+	}
+	return buildModelsChain(model), common.RetryTimes
 }
 
 // buildModelsChain returns the ordered list of model names to try for a request.

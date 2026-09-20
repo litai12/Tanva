@@ -4,13 +4,13 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 
-// 预留超时：须 ≥ 异步任务最大时长（视频/图像异步任务最长 ~15min，见 IMAGE_TASK_MAX_DURATION_MS），
-// 否则慢任务的 reserve 会被 releaseExpiredReserves 提前释放，成功结算 deduct 时 frozenBalance 变负、可用余额虚高。
-const RESERVE_TTL_MS = 20 * 60 * 1000; // 20 分钟预留超时
+// Expiry schedules reconciliation only; elapsed time never proves a paid task failed.
+const RESERVE_TTL_MS = 20 * 60 * 1000;
 
 @Injectable()
 export class TeamCreditLedgerService {
   private readonly logger = new Logger(TeamCreditLedgerService.name);
+  private expiredReserveCursor: string | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -255,7 +255,7 @@ export class TeamCreditLedgerService {
           },
           data: {
             responseStatus: ApiResponseStatus.FAILED,
-            errorMessage: '团队积分预留超时，任务已自动关闭',
+            errorMessage: '任务失败，团队积分预留已释放',
           },
         })
         .catch((e) => this.logger.warn(`团队任务状态关闭失败 taskId=${taskId}: ${e}`));
@@ -268,7 +268,7 @@ export class TeamCreditLedgerService {
     });
   }
 
-  /** 漏洞 2 修复：定时释放过期 reserve */
+  /** Reconcile expired reservations only against confirmed usage failure. */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async releaseExpiredReserves() {
     const expired = await this.prisma.teamCreditLedger.findMany({
@@ -277,10 +277,19 @@ export class TeamCreditLedgerService {
         reserveExpiresAt: { lt: new Date() },
       },
       include: { account: { select: { teamId: true } } },
+      orderBy: { id: 'asc' },
+      ...(this.expiredReserveCursor ? { cursor: { id: this.expiredReserveCursor }, skip: 1 } : {}),
       take: 200,
     });
 
+    this.expiredReserveCursor = expired.length === 200 ? expired[expired.length - 1].id : undefined;
     for (const entry of expired) {
+      if (!entry.taskId) continue;
+      const usage = await this.prisma.apiUsageRecord.findUnique({
+        where: { id: entry.taskId }, select: { responseStatus: true },
+      });
+      // Pending/unknown/successful upstream work still owns its reservation.
+      if (usage?.responseStatus !== ApiResponseStatus.FAILED) continue;
       // 检查是否已有对应 deduct/release
       const settled = await this.prisma.teamCreditLedger.findFirst({
         where: {

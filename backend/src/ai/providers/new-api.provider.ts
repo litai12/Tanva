@@ -1,3 +1,4 @@
+import { recordImageRejection, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -30,10 +31,8 @@ import { collectAgentTextStream } from './new-api-agent-text-stream';
 // 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
 const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
 
-// 应用层：单次图片请求超时 15 分钟，超时后重试
+// 应用层：单次图片请求超时 15 分钟；结果未知时禁止重发
 const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
-const IMAGE_MAX_RETRIES = 2;
-const IMAGE_RETRY_DELAYS = [5_000, 15_000];
 const INLINE_VIDEO_MAX_BYTES = 15 * 1024 * 1024;
 const SUPPORTED_INLINE_VIDEO_MIME_TYPES = new Set([
   'video/mp4',
@@ -154,6 +153,7 @@ export class NewApiProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest,
   ): Promise<AIProviderResponse<ImageResult>> {
+    setImageSubmissionStarted(false);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -189,6 +189,7 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
+    setImageSubmissionStarted(false);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -207,6 +208,7 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
+    setImageSubmissionStarted(false);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -675,86 +677,57 @@ export class NewApiProvider implements IAIProvider {
     return { output_format: outputFormat };
   }
 
-  private isRetryableImageError(error: unknown): boolean {
-    const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
-    return (
-      msg.includes('timeout') ||
-      msg.includes('abort') ||
-      msg.includes('network') ||
-      msg.includes('fetch') ||
-      msg.includes('econnreset') ||
-      msg.includes('socket') ||
-      msg.includes('hang') ||
-      msg.includes('wall-clock')
-    );
-  }
-
   private async callImageEndpoint(
     payload: Record<string, unknown>,
     errorCode: string,
     providerOptions?: ProviderOptionsPayload,
   ): Promise<AIProviderResponse<ImageResult>> {
     const apiKey = this.resolveApiKey(providerOptions, payload.model as string | undefined);
-    let lastError: unknown;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error(`image request timed out after ${IMAGE_REQUEST_TIMEOUT_MS / 60_000}min`)),
+      IMAGE_REQUEST_TIMEOUT_MS,
+    );
 
-    for (let attempt = 1; attempt <= IMAGE_MAX_RETRIES + 1; attempt++) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(new Error(`image request timed out after ${IMAGE_REQUEST_TIMEOUT_MS / 60_000}min`)),
-        IMAGE_REQUEST_TIMEOUT_MS,
+    try {
+      const result = await this.requestJson(
+        '/v1/images/generations',
+        {
+          method: 'POST',
+          body: JSON.stringify(this.stripUndefined(payload)),
+          signal: controller.signal,
+        },
+        apiKey,
       );
+      clearTimeout(timeoutId);
 
-      try {
-        const result = await this.requestJson(
-          '/v1/images/generations',
-          {
-            method: 'POST',
-            body: JSON.stringify(this.stripUndefined(payload)),
-            signal: controller.signal,
+      const imageUrls = this.extractImageUrls(result);
+      await recordRemoteImages(imageUrls);
+      const imageData = this.extractImageData(result);
+      const textResponse =
+        this.extractText(result) ||
+        (imageUrls.length > 0 || imageData ? 'Image generated successfully' : '');
+
+      return {
+        success: true,
+        data: {
+          imageUrl: imageUrls[0],
+          imageData,
+          textResponse,
+          hasImage: imageUrls.length > 0 || !!imageData,
+          metadata: {
+            provider: 'new-api',
+            model: payload.model,
+            imageUrls,
+            raw: result,
           },
-          apiKey,
-        );
-        clearTimeout(timeoutId);
-
-        const imageUrls = this.extractImageUrls(result);
-        const imageData = this.extractImageData(result);
-        const textResponse =
-          this.extractText(result) ||
-          (imageUrls.length > 0 || imageData ? 'Image generated successfully' : '');
-
-        return {
-          success: true,
-          data: {
-            imageUrl: imageUrls[0],
-            imageData,
-            textResponse,
-            hasImage: imageUrls.length > 0 || !!imageData,
-            metadata: {
-              provider: 'new-api',
-              model: payload.model,
-              imageUrls,
-              raw: result,
-            },
-          },
-        };
-      } catch (error) {
-        clearTimeout(timeoutId);
-        lastError = error;
-
-        if (attempt <= IMAGE_MAX_RETRIES && this.isRetryableImageError(error)) {
-          const delay = IMAGE_RETRY_DELAYS[attempt - 1] ?? IMAGE_RETRY_DELAYS.at(-1)!;
-          this.logger.warn(
-            `image endpoint attempt ${attempt} failed: ${(error as Error).message}, retrying in ${delay}ms`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-
-        return this.errorResponse(errorCode, error);
-      }
+        },
+      };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      return this.errorResponse(errorCode, error);
     }
 
-    return this.errorResponse(errorCode, lastError);
   }
 
   private async chat(
@@ -1023,6 +996,7 @@ export class NewApiProvider implements IAIProvider {
       throw new Error('NEW_API_KEY 未配置');
     }
 
+    if (path === "/v1/images/generations") setImageSubmissionStarted(true);
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
@@ -1050,6 +1024,7 @@ export class NewApiProvider implements IAIProvider {
       !responsePolicy?.acceptedStatuses ||
       responsePolicy.acceptedStatuses.includes(response.status);
     if (!response.ok || !statusAccepted) {
+      if (path === "/v1/images/generations") recordImageRejection(response.status);
       const message =
         this.extractNewApiFailureMessage(data) ||
         (!statusAccepted

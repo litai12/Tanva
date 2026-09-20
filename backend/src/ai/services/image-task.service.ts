@@ -1,3 +1,4 @@
+import { imageExecutionContext, needsImageReconciliation, ImageExecutionState } from './image-execution-state';
 import { BadGatewayException, BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ImageTaskQueueService, type ImageTaskJobPayload } from './image-task-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -86,7 +87,6 @@ function normalizeBananaRoute(
 @Injectable()
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
-  private static readonly TASK_TIMEOUT_ERROR_MESSAGE = '生成超时（15分钟），积分将自动返还。';
 
   private assertRemoteInputAssets(
     taskType: ImageTaskType,
@@ -119,11 +119,6 @@ export class ImageTaskService {
       );
     }
   }
-
-  // 单个图像任务最大执行时长，超过即判定卡死并标记失败（默认 15 分钟，可用环境变量覆盖）
-  private static readonly TASK_MAX_DURATION_MS = Number(
-    process.env.IMAGE_TASK_MAX_DURATION_MS ?? 15 * 60 * 1000,
-  );
 
   constructor(
     private readonly prisma: PrismaService,
@@ -474,6 +469,9 @@ export class ImageTaskService {
 
     return {
       taskId,
+      clientProjectId: requestData?.projectId || 'legacy-image',
+      clientNodeId: requestData?.nodeId,
+      parallelGroupIndex: requestData?.parallelGroupIndex,
       taskType,
       ...(this.asOptionalString(providerName) ? { aiProvider: this.asOptionalString(providerName) } : {}),
       ...(this.asOptionalString(requestData?.model) ? { model: this.asOptionalString(requestData?.model) } : {}),
@@ -584,6 +582,7 @@ export class ImageTaskService {
     const persistedTraceContext = captureTraceContext(traceContext);
     const requestPayload = {
       ...(requestData || {}),
+      nodeId: nodeId ?? requestData?.nodeId,
       traceId: persistedTraceContext.traceId || null,
       parentRequestId: persistedTraceContext.parentRequestId || null,
       parentSpanId: persistedTraceContext.parentSpanId || null,
@@ -648,23 +647,6 @@ export class ImageTaskService {
     });
 
     if (task) {
-      // 孤儿/卡死兜底：创建已超过最大时长（默认 15min）却仍未结束的任务，前端查询时直接判失败，
-      // 让前端停止轮询。进程崩溃/重启会让 worker 来不及写终态、DB 行卡在 processing；这里在轮询时纠正。
-      // 说明：这里只纠正状态、不退款——活进程里超时的任务由 worker 的 15min race 负责退款；
-      // 进程崩溃导致的孤儿退款是已知缺口（worker 自扣的 apiUsageId 未落库），见对话中的后续跟进。
-      if (task.status === 'processing' || task.status === 'queued') {
-        const ageMs = Date.now() - new Date(task.createdAt).getTime();
-        if (ageMs > ImageTaskService.TASK_MAX_DURATION_MS) {
-          const reason = ImageTaskService.TASK_TIMEOUT_ERROR_MESSAGE;
-          // 原子翻转，避免并发轮询重复处理。
-          await this.prisma.imageTask.updateMany({
-            where: { id: taskId, status: { in: ['queued', 'processing'] } },
-            data: { status: 'failed', error: reason, completedAt: new Date() },
-          });
-          this.logger.warn(`孤儿任务查询时判失败: taskId=${taskId}, age=${Math.round(ageMs / 1000)}s`);
-          return { ...task, status: 'failed', error: reason };
-        }
-      }
       return task;
     }
 
@@ -812,6 +794,12 @@ export class ImageTaskService {
       return;
     }
 
+    const claimed = await this.prisma.imageTask.updateMany({
+      where: { id: taskId, status: 'queued' },
+      data: { status: 'processing' },
+    });
+    if (claimed.count !== 1) return;
+
     const taskRequestData =
       task.requestData && typeof task.requestData === 'object'
         ? (task.requestData as Record<string, any>)
@@ -864,7 +852,7 @@ export class ImageTaskService {
     const asyncCreditRequestParams = this.buildAsyncTaskCreditRequestParams(
       taskId,
       taskType,
-      taskRequestData,
+      { ...(taskRequestData || {}), nodeId: task.nodeId },
       resolvedTaskProviderName,
     );
     const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
@@ -894,6 +882,7 @@ export class ImageTaskService {
             : undefined;
         // 统一计费句柄：begin 后续用于 commit/rollback；团队模式只扣团队、不动个人积分。
         let chargeHandle: ChargeHandle | null = null;
+        const execution: ImageExecutionState = { started: false, rejected: false };
 
         try {
           // 如果需要自己处理积分，则先预扣积分
@@ -901,6 +890,7 @@ export class ImageTaskService {
             try {
               chargeHandle = await this.creditCharge!.begin({
                 userId: task.userId,
+                idempotencyKey: `image-task:${taskId}`,
                 teamId: taskTeamId,
                 serviceType: serviceType as any,
                 model,
@@ -909,6 +899,17 @@ export class ImageTaskService {
                 requestParams: asyncCreditRequestParams,
               });
               effectiveApiUsageId = chargeHandle.apiUsageId;
+              if (chargeHandle.duplicate) {
+                chargeHandle = null;
+                const originalUsageId = effectiveApiUsageId;
+                effectiveApiUsageId = undefined;
+                // This job owns no reservation and must never settle the original usage.
+                await this.prisma.imageTask.update({ where: { id: taskId }, data: {
+                  status: 'failed', completedAt: new Date(),
+                  error: `已有生成请求，请查看原任务（${originalUsageId}）；本次未重复扣费或生成`,
+                } });
+                return;
+              }
               this.logger.debug(
                 `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, teamMode=${chargeHandle.teamFunded}`
               );
@@ -931,7 +932,7 @@ export class ImageTaskService {
 
           await this.prisma.imageTask.update({
             where: { id: taskId },
-            data: { status: 'processing' },
+            data: { status: 'processing', requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId } },
           });
           void this.publishTaskStatus(
             taskRequestData?.projectId as string | undefined,
@@ -990,25 +991,11 @@ export class ImageTaskService {
             }
           };
 
-          // 最大时长上限：生图超过该时长即判定为卡死，抛错走下方 catch（标记 failed + 退款 + 释放 worker 槽位）。
-          const timeoutMs = ImageTaskService.TASK_MAX_DURATION_MS;
-          let timeoutHandle: NodeJS.Timeout | undefined;
-          const result: any = await Promise.race([
-            generate(),
-            new Promise<never>((_, reject) => {
-              timeoutHandle = setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      `图像生成超时（超过 ${Math.round(timeoutMs / 60000)} 分钟），已自动判定为失败`,
-                    ),
-                  ),
-                timeoutMs,
-              );
-            }),
-          ]).finally(() => {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-          });
+          execution.onRemoteImages = async (upstreamImageUrls) => {
+            if (effectiveApiUsageId) await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, { upstreamImageUrls, taskId });
+          };
+          execution.started = true;
+          const result: any = await imageExecutionContext.run(execution, generate);
 
           const taskImagePayload =
             typeof result?.imageUrl === 'string' && /^https?:\/\//i.test(result.imageUrl)
@@ -1048,8 +1035,7 @@ export class ImageTaskService {
             }
           }
 
-          // 仅当任务仍是 processing 时才写成功，避免覆盖「孤儿兜底/对账」已判定的 failed
-          // （生成接近 15min 上限、上传又拖过线时可能发生）。被判失败则丢弃这次迟到的成功结果。
+          // 只允许当前执行者将 processing 推进到成功；冲突需要对账，不能退款。
           const { count: succeededCount } = await this.prisma.imageTask.updateMany({
             where: { id: taskId, status: 'processing' },
             data: {
@@ -1062,41 +1048,7 @@ export class ImageTaskService {
           });
 
           if (succeededCount === 0) {
-            // 查询侧孤儿兜底只翻状态不退款，worker race 未触发（生成已完成、上传拖过线）——
-            // 这里是该分支唯一的退款点，不退则用户被扣费且拿不到图。
-            this.logger.warn(`任务已被判失败，丢弃迟到的成功结果并退款: taskId=${taskId}`);
-            const lateDiscardReason = '生成结果迟到，任务已被判超时失败，积分已返还';
-            if (chargeHandle) {
-              try {
-                await this.creditCharge!.rollback(chargeHandle, {
-                  errorMessage: lateDiscardReason,
-                  processingTime: Date.now() - startedAt,
-                });
-              } catch (creditsError) {
-                this.logger.error(
-                  `迟到成功结果退款失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${
-                    creditsError instanceof Error ? creditsError.message : String(creditsError)
-                  }`,
-                );
-              }
-            } else if (effectiveApiUsageId) {
-              try {
-                await this.creditsService.updateApiUsageStatus(
-                  effectiveApiUsageId,
-                  ApiResponseStatus.FAILED,
-                  lateDiscardReason,
-                  Date.now() - startedAt,
-                );
-                await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
-              } catch (creditsError) {
-                this.logger.error(
-                  `迟到成功结果退款失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${
-                    creditsError instanceof Error ? creditsError.message : String(creditsError)
-                  }`,
-                );
-              }
-            }
-            return;
+            throw new Error('图片已生成，但任务状态冲突，需要对账');
           }
 
           void this.publishTaskStatus(
@@ -1154,6 +1106,20 @@ export class ImageTaskService {
         } catch (error: any) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           this.logger.error(`任务执行失败: taskId=${taskId}, error=${errorMessage}`);
+          if (needsImageReconciliation(execution)) {
+            const reason = '生成结果待核实，请勿重复提交；确认上游结果后结算';
+            this.logger.error(`IMAGE_RECONCILIATION_REQUIRED taskId=${taskId} apiUsageId=${effectiveApiUsageId} error=${errorMessage}`);
+            await this.prisma.imageTask.update({ where: { id: taskId }, data: {
+              error: reason,
+              requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
+                imageSubmissionState: 'reconciliation_required' },
+            } });
+            if (effectiveApiUsageId) await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, {
+              taskId, imageSubmissionState: 'reconciliation_required',
+            });
+            return;
+          }
+
 
           await this.prisma.imageTask.update({
             where: { id: taskId },

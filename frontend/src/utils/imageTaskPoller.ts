@@ -6,9 +6,8 @@
  * (GET /api/ai/image-task/:taskId) — one slow or stuck task no longer holds back
  * the others, and there is no shared batch request that all tasks must wait on.
  *
- * 计时口径（与后端对齐）：15 分钟生成时限从首次观察到 status==='processing'
- * （worker 拾取并开始扣费/生成）才起算；排队（queued）阶段不计入，只受一个
- * 宽松的排队安全上限约束——排队中的任务可通过取消接口撤下（尚未扣积分）。
+ * 观察超过 15 分钟后降低轮询频率；只有服务端明确终态才结束等待。
+ * 排队超时只尝试取消，必须取得取消成功的确认，不能推定任务未执行。
  */
 
 import { fetchWithAuth } from "@/services/authFetch";
@@ -129,21 +128,28 @@ async function pollOne(taskId: string, entry: PendingEntry) {
     }
 
     const now = Date.now();
-    if (entry.processingDeadlineAt != null) {
-      if (now >= entry.processingDeadlineAt) {
-        pending.delete(taskId);
-        entry.reject(new Error(`Task ${taskId} timed out`));
-        return;
-      }
-    } else if (now >= entry.queuedDeadlineAt) {
-      pending.delete(taskId);
-      // 排队安全上限触发：向后端撤下排队 job，防止用户已放弃后任务仍被执行并扣费
-      void fetchWithAuth(
-        `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}/cancel`,
-        { method: "POST" },
-      ).catch(() => {});
-      entry.reject(new Error(`Task ${taskId} queue wait timed out`));
-      return;
+    // Browser deadlines are observation limits, never proof of upstream failure.
+    // Only stop a queued job after the server confirms cancellation.
+    if (entry.processingDeadlineAt == null && now >= entry.queuedDeadlineAt && result?.status === "queued") {
+      try {
+        const response = await fetchWithAuth(
+          `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}/cancel`,
+          { method: "POST" },
+        );
+        const cancelled = response.ok ? await response.json() : null;
+        if (pending.get(taskId) !== entry) return;
+        if (cancelled?.cancelled) {
+          pending.delete(taskId);
+          emitPhase(taskId, entry, "cancelled");
+          entry.resolve({ status: "cancelled", error: "排队任务已取消，未扣除积分" });
+          return;
+        }
+      } catch { /* Unknown cancellation result: retain task and query again. */ }
+      entry.queuedDeadlineAt = Date.now() + QUEUED_SAFETY_TIMEOUT_MS;
+    }
+    if (entry.processingDeadlineAt != null && now >= entry.processingDeadlineAt) {
+      await sleep(30_000);
+      continue;
     }
 
     await sleep(POLL_INTERVAL_MS);
@@ -152,7 +158,7 @@ async function pollOne(taskId: string, entry: PendingEntry) {
 
 /**
  * Register a taskId and await its completion.
- * Returns the terminal status result, or throws on timeout/not-found.
+ * Returns only a server-confirmed terminal status; deadlines only slow polling.
  * `timeoutMs` 约束的是 processing（生成）阶段，而非从注册起的总时长。
  */
 export function waitForTask(
@@ -213,7 +219,7 @@ export function describeTaskPollError(e: unknown, fallback = "任务失败"): st
     return "排队等待超时，任务未开始，未扣除积分，请稍后重试。";
   }
   if (msg.includes("timed out")) {
-    return "生成超时（15分钟），积分将自动返还。";
+    return "生成结果尚未确认，请查看原任务，勿重复提交。";
   }
   if (msg.includes("not found")) {
     return "任务已失效，请重新生成。";

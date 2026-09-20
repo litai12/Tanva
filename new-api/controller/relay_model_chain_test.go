@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"github.com/QuantumNous/new-api/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"reflect"
 	"testing"
 )
@@ -40,5 +42,18 @@ func TestBuildModelsChainPreservesOfficialModelKeys(t *testing.T) {
 				t.Fatalf("buildModelsChain(%q) = %#v, want %#v", tt.model, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestImageRelayNeverRetriesPaidSubmission(t *testing.T) {
+	for _, mode := range []int{relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits} {
+		models, retries := relayAttemptPolicy("gpt-image-2", mode)
+		if !reflect.DeepEqual(models, []string{"gpt-image-2"}) || retries != 0 {
+			t.Fatalf("image attempt policy: models=%v retries=%d", models, retries)
+		}
+	}
+	_, retries := relayAttemptPolicy("text-model", relayconstant.RelayModeChatCompletions)
+	if retries != common.RetryTimes {
+		t.Fatal("text retry policy must remain unchanged")
 	}
 }
