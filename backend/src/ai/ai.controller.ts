@@ -1,3 +1,4 @@
+import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
 import { assertVideoNodeEnabled } from './services/video-node-availability';
 ﻿import {
   Body,
@@ -6351,8 +6352,10 @@ export class AiController {
       requestParams,
     });
 
+    let acceptedTask: { taskId?: string; videoUrl?: string } | undefined;
     try {
       const result = await this.videoProviderService.generateVideo(effectiveDto);
+      acceptedTask = result;
       const execution = (result as any)?.execution as
         | {
             modelKey?: string;
@@ -6367,11 +6370,12 @@ export class AiController {
       const normalizedStatus = String(result?.status || '').toLowerCase();
 
       if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
+        acceptedTask = undefined;
         throw new ServiceUnavailableException((result as any)?.error || '视频任务创建失败');
       }
 
       if (!result?.taskId && !result?.videoUrl) {
-        throw new ServiceUnavailableException('视频任务创建失败：未返回 taskId 或 videoUrl');
+        throw new VideoSubmissionUncertainError();
       }
 
       if (result?.taskId) {
@@ -6421,7 +6425,22 @@ export class AiController {
       const { execution: _execution, ...publicResult } = result as any;
       return { ...publicResult, apiUsageId };
     } catch (error) {
-      // 创建任务失败，立即退款
+      if (error instanceof VideoSubmissionUncertainError || acceptedTask?.taskId || acceptedTask?.videoUrl) {
+        // A paid job may already exist. Retain its reservation and identity even
+        // when the gateway response or our metadata/settlement write failed.
+        try {
+          await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+            videoSubmissionState: 'reconciliation_required',
+            ...(acceptedTask?.taskId ? { taskId: acceptedTask.taskId } : {}),
+            ...(acceptedTask?.videoUrl ? { settledVideoUrl: acceptedTask.videoUrl } : {}),
+          });
+        } catch (persistError) {
+          this.logger.error(`Video task identity requires recovery: apiUsageId=${apiUsageId}, taskId=${acceptedTask?.taskId || 'unknown'}, error=${this.summarizeError(persistError)}`);
+        }
+        this.logger.warn(`Video submission pending reconciliation: apiUsageId=${apiUsageId}, taskId=${acceptedTask?.taskId || 'unknown'}`);
+        return { taskId: acceptedTask?.taskId || `usage:${apiUsageId}`, status: 'processing', apiUsageId, provider: effectiveDto.provider };
+      }
+      // Only a definite rejection before acceptance may release the reservation.
       const errorMessage = error instanceof Error ? error.message : String(error);
       const processingTime = Math.max(0, Date.now() - startTime);
       this.emitVideoProviderGenerationTaskLog({
@@ -6463,6 +6482,29 @@ export class AiController {
   /**
    * 视频任务失败时退还积分
    */
+  private async assertVideoUpstreamTerminal(userId: string, apiUsageId: string, expected: 'failed' | 'succeeded'): Promise<void> {
+    const usage = await this.creditsService.getVideoTaskUsageForUser(userId, apiUsageId);
+    if (!usage) throw new BadRequestException('视频任务不存在或无权访问');
+    if (expected === 'failed' && usage.responseStatus === ApiResponseStatus.SUCCESS) {
+      throw new BadRequestException('成功的视频任务不支持退款');
+    }
+    if (!usage.taskId) {
+      // A server-side pre-submission failure can be refunded idempotently.
+      if (expected === 'failed' && usage.responseStatus === ApiResponseStatus.FAILED) return;
+      throw new BadRequestException('视频提交结果尚未确认，暂不能结算或退款');
+    }
+    const result = await this.videoProviderService.queryTask(
+      (usage.provider || 'doubao') as Parameters<VideoProviderService['queryTask']>[0], usage.taskId,
+    );
+    const actual = String(result.status || '').toLowerCase();
+    const allowed = expected === 'failed'
+      ? ['failed', 'failure', 'error', 'cancelled', 'canceled']
+      : ['succeeded', 'success', 'completed'];
+    if (!allowed.includes(actual)) {
+      throw new BadRequestException('上游尚未确认对应终态，继续跟踪原任务，不能退款或重新生成');
+    }
+  }
+
   @Post('video-task-refund')
   async refundVideoTask(
     @Body() body: { apiUsageId: string },
@@ -6479,7 +6521,8 @@ export class AiController {
     }
 
     try {
-      // 先校验归属并标记失败（仅允许当前用户操作自己的记录）
+      await this.assertVideoUpstreamTerminal(userId, apiUsageId, 'failed');
+      // Ownership and the gateway terminal state are verified before refunding.
       await this.creditsService.markApiUsageFailedForUser(
         userId,
         apiUsageId,
@@ -6600,6 +6643,8 @@ export class AiController {
     const normalizedOutputTokens = Number.isFinite(Number(body?.outputTokens))
       ? Math.max(0, Math.floor(Number(body?.outputTokens)))
       : undefined;
+
+    await this.assertVideoUpstreamTerminal(userId, apiUsageId, 'succeeded');
 
     // 团队任务：按预留固定额扣团队积分，跳过个人 seed2 token 结算（其会动个人账户）。
     const teamHandle = await this.creditCharge!.resolveHandle(apiUsageId);

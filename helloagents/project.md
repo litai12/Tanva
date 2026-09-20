@@ -162,3 +162,5 @@
 - Group 边界以 React Flow 实际 measured 尺寸优先，不能拿图片节点初始化 boxH 代替包含参数与预览的实际高度；动态尺寸变化只更新组容器，保留成员坐标。
 
 - GPT Image 2.5 型号切换合同（2026-09-11）：基础 `gpt-image-2.5` 从画布目录与小T能力清单下线，保留 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 及 GPT Image 2；新建 2.5 节点默认 Flare（禁用时回退可用 Sunburst）。历史基础型号与缺失型号的 gptImage25 节点归一为 Flare，已有其他型号保持选择；展示、报价与执行同步型号和路由身份。公开目录覆盖旧单型号配置，按变种独立启停并提供 managedRoutesByModel；Flare/Sunburst 请求省略质量，保留结果与连线。
+
+- 视频终态计费：Stop 不能清除未确认取消的视频任务身份；预扣视频 pending 节点互斥不按时间释放。视频退款与成功回调须核对所属上游任务终态，禁止按客户端失败/本地超时退款。提交结果不明或上游已受理后的持久化失败保留预扣待核对，详见 `wiki/video-terminal-billing-20260920.md`。

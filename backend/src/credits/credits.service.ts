@@ -83,7 +83,6 @@ const FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT = '2026-04-15T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS = 15_000;
 const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
-const ACTIVE_NODE_VIDEO_GATE_WINDOW_MS = 30 * 60 * 1000;
 export const LEGACY_FLOW_VIDEO_PROJECT_SCOPE = '__legacy_flow_project__';
 const PRE_DEDUCT_TRANSACTION_TIMEOUT_MS = 30_000;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
@@ -195,6 +194,7 @@ const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
   'viduq3-pro-video',
   'doubao-video',
   'happyhorse-r2v-video',
+  'hailuo-video',
 ];
 
 export interface DeductCreditsResult {
@@ -4397,7 +4397,7 @@ export class CreditsService {
           serviceType: params.serviceType,
           ...(params.model ? { model: params.model } : {}),
           responseStatus: statusFilter,
-          createdAt: { gte: params.windowStartAt },
+          ...(FREE_USER_VIDEO_LIMITED_SERVICES.includes(params.serviceType) ? {} : { createdAt: { gte: params.windowStartAt } }),
           requestParams: {
             path: ['idempotencyKey'],
             equals: params.idempotencyKey,
@@ -4469,7 +4469,6 @@ export class CreditsService {
       userId: string;
       clientProjectId: string;
       clientNodeId: string;
-      windowStartAt: Date;
     },
   ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
     const duplicate = await tx.apiUsageRecord.findFirst({
@@ -4477,7 +4476,6 @@ export class CreditsService {
         userId: params.userId,
         serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
         responseStatus: ApiResponseStatus.PENDING,
-        createdAt: { gte: params.windowStartAt },
         AND: [
           {
             requestParams: {
@@ -4595,7 +4593,6 @@ export class CreditsService {
         const activeUsage = await this.findActiveNodeVideoUsage(tx, {
           userId,
           ...activeNodeScope,
-          windowStartAt: new Date(Date.now() - ACTIVE_NODE_VIDEO_GATE_WINDOW_MS),
         });
         if (activeUsage) {
           this.logger.warn(
@@ -6334,13 +6331,9 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingVideoTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
-    const cutoverAt = this.getStalePendingVideoRefundCutoverAt();
-    return this.autoRefundStalePendingUsagesForServiceTypes(
-      STALE_PENDING_VIDEO_SERVICE_TYPES,
-      timeoutMinutes,
-      batchSize,
-      cutoverAt,
-    );
+    // Elapsed time is not proof that a paid upstream video failed. The AI
+    // reconciliation worker settles only after querying an actual terminal state.
+    return { scanned: 0, refunded: 0, skippedSuccess: 0, errors: 0, timeoutMinutes, batchSize };
   }
 
   private async autoRefundStalePendingUsagesForServiceTypes(

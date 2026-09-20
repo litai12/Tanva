@@ -8,8 +8,8 @@ import { CreditChargeService } from '../../team-credits/credit-charge.service';
 import { VideoProviderService } from './video-provider.service';
 import { GlobalImageHistoryService } from '../../global-image-history/global-image-history.service';
 
-const SEEDANCE_VIDEO_SERVICE_TYPE = 'doubao-video';
-const NEW_API_TASK_PREFIX = 'newapi:';
+const GATEWAY_VIDEO_SERVICE_TYPES = ['doubao-video', 'kling-video', 'kling-2.6-video', 'kling-3.0-video', 'kling-o3-video', 'vidu-video', 'viduq3-pro-video', 'wan27-video', 'wan30-video', 'happyhorse-r2v-video', 'hailuo-video'];
+const isGatewayTask = (id: string) => id.startsWith('newapi:') || id.startsWith('newapivod:');
 const RECONCILIATION_BATCH_SIZE = 100;
 
 type VideoTaskQueryResult = {
@@ -29,7 +29,7 @@ type PendingUsage = {
 };
 
 /**
- * 服务端兜底收敛 new-api Seedance 异步任务。
+ * 服务端按网关终态收敛 new-api/newapivod 异步视频任务。
  *
  * Seedance 创建时会先扣个人积分/预留团队积分，历史上成功确认主要依赖
  * Flow 页面继续轮询并回调 video-task-success。页面关闭、项目切换或旧节点
@@ -40,6 +40,7 @@ type PendingUsage = {
 export class NewApiVideoTaskReconciliationService {
   private readonly logger = new Logger(NewApiVideoTaskReconciliationService.name);
   private running = false;
+  private scanCursor: string | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,7 +51,7 @@ export class NewApiVideoTaskReconciliationService {
   ) {}
 
   /**
-   * 每分钟补偿一批 Seedance/new-api PENDING 任务。
+   * 每分钟补偿一批网关视频 PENDING 任务。
    * 查询失败只记录日志并保留 PENDING，交给下一轮重试；不会因为一次网关
    * 短暂异常直接退款。
    */
@@ -65,14 +66,14 @@ export class NewApiVideoTaskReconciliationService {
     try {
       const usages = await this.prisma.apiUsageRecord.findMany({
         where: {
-          serviceType: SEEDANCE_VIDEO_SERVICE_TYPE,
+          serviceType: { in: GATEWAY_VIDEO_SERVICE_TYPES },
           responseStatus: ApiResponseStatus.PENDING,
-          requestParams: {
-            path: ['taskId'],
-            string_starts_with: NEW_API_TASK_PREFIX,
-          },
+          OR: ['newapi:', 'newapivod:'].map(prefix => ({
+            requestParams: { path: ['taskId'], string_starts_with: prefix },
+          })),
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { id: 'asc' },
+        ...(this.scanCursor ? { cursor: { id: this.scanCursor }, skip: 1 } : {}),
         take: RECONCILIATION_BATCH_SIZE,
         select: {
           id: true,
@@ -82,11 +83,13 @@ export class NewApiVideoTaskReconciliationService {
         },
       });
 
+      // Unreachable old jobs must not starve newer tasks of reconciliation.
+      this.scanCursor = usages.length === RECONCILIATION_BATCH_SIZE ? usages[usages.length - 1].id : undefined;
       let checked = 0;
       let settled = 0;
       for (const usage of usages) {
         const taskId = this.readTaskId(usage.requestParams);
-        if (!taskId || !taskId.startsWith(NEW_API_TASK_PREFIX)) {
+        if (!taskId || !isGatewayTask(taskId)) {
           continue;
         }
 
@@ -129,7 +132,7 @@ export class NewApiVideoTaskReconciliationService {
     result: VideoTaskQueryResult;
   }): Promise<void> {
     const taskId = params.taskId.trim();
-    if (!taskId.startsWith(NEW_API_TASK_PREFIX)) return;
+    if (!isGatewayTask(taskId)) return;
 
     const usage = await this.findPendingUsage({
       userId: params.userId,
@@ -156,12 +159,12 @@ export class NewApiVideoTaskReconciliationService {
     error?: string;
   } | null> {
     const normalizedTaskId = taskId.trim();
-    if (!normalizedTaskId.startsWith(NEW_API_TASK_PREFIX)) return null;
+    if (!isGatewayTask(normalizedTaskId)) return null;
 
     const usage = await this.prisma.apiUsageRecord.findFirst({
       where: {
         userId,
-        serviceType: SEEDANCE_VIDEO_SERVICE_TYPE,
+        serviceType: { in: GATEWAY_VIDEO_SERVICE_TYPES },
         requestParams: {
           path: ['taskId'],
           equals: normalizedTaskId,
@@ -207,7 +210,7 @@ export class NewApiVideoTaskReconciliationService {
   }): Promise<PendingUsage | null> {
     const where: Prisma.ApiUsageRecordWhereInput = {
       userId: params.userId,
-      serviceType: SEEDANCE_VIDEO_SERVICE_TYPE,
+      serviceType: { in: GATEWAY_VIDEO_SERVICE_TYPES },
       responseStatus: ApiResponseStatus.PENDING,
     };
 
@@ -351,13 +354,13 @@ export class NewApiVideoTaskReconciliationService {
         videoUrl: result.videoUrl,
         thumbnailUrl: result.thumbnailUrl,
         prompt: this.readString(requestParams.prompt) || undefined,
-        sourceType: 'seedance20Video',
+        sourceType: this.readString(requestParams.clientNodeType) || 'video',
         sourceProjectId:
           this.readString(requestParams.clientProjectId) ||
           this.readString(requestParams.projectId) ||
           undefined,
         metadata: {
-          provider: 'doubao',
+          provider: this.readString(requestParams.aiProvider) || 'new-api',
           model: this.readString(requestParams.model) || undefined,
           apiUsageId: usage.id,
         },

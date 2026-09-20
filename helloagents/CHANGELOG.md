@@ -1434,3 +1434,5 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 新增独立扫描、执行与回归脚本；逐账户事务/备份/计划校验/原流水保留/幂等修正，消费归属与退款来源一致。后端测试、构建、生产事务回滚验证及编译服务内存回归通过；生产定向更新并 reload，健康检查通过。详见 `wiki/free-credit-jayden-audit-20260913.md`。
 
 - 2026-09-20：视频生成收敛到 new-api 单轨，移除 Seedance Ark 直连回退、旧生成入口与备用火山密钥；网关失败直接报错，保留网关内资源引用重试。见 `wiki/video-single-gateway-20260920.md`。
+
+- 2026-09-20：修复视频停止后重提与退款状态不一致。运行任务保留身份，预扣 pending 节点防重不再超时失效；退款/成功回调核验上游终态，提交不确定保留预扣，停止视频超时自动退款并扩展网关任务服务端补偿。

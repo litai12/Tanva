@@ -306,6 +306,26 @@ import type { NodePatchPayload, NodeLockPayload, TaskStatusPayload } from "@/col
 import { colorFor } from "@/collab/presenceColors";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
+const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
+  "wan26",
+  "wan2R2V",
+  "happyhorseR2V",
+  "wan27Video",
+  "wan30Video",
+  "sora2Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "hailuoVideo",
+  "seedance20Video",
+  "seedVideo",
+  "omniFlashExtVideo",
+]);
+
 const normalizeFlowTargetHandle = (
   handle?: string | null
 ): string | undefined => {
@@ -16720,25 +16740,7 @@ function FlowInner() {
   // 同一节点同秒 5 次 -600 事故），这里在入口同步占位拦截。
 const runNodeInFlightRef = React.useRef<Set<string>>(new Set());
 const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
-const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
-  "wan26",
-  "wan2R2V",
-  "happyhorseR2V",
-  "wan27Video",
-  "wan30Video",
-  "sora2Video",
-  "klingVideo",
-  "kling26Video",
-  "kling30Video",
-  "klingO1Video",
-  "viduVideo",
-  "viduQ3",
-  "doubaoVideo",
-  "hailuoVideo",
-  "seedance20Video",
-  "seedVideo",
-  "omniFlashExtVideo",
-]);
+
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNodeInner = React.useCallback(
@@ -24828,6 +24830,14 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
 
   const runNode = React.useCallback(
     async (nodeId: string) => {
+      const currentNode = rf.getNode(nodeId);
+      const currentType = normalizeFlowNodeType(currentNode?.type || "") || currentNode?.type || "";
+      if (FLOW_VIDEO_GENERATION_NODE_TYPES.has(currentType) && currentNode?.data?.status === "running") {
+        window.dispatchEvent(new CustomEvent("toast", { detail: {
+          message: "视频任务仍在处理，请等待原任务结果", type: "info",
+        } }));
+        return;
+      }
       if (runNodeInFlightRef.current.has(nodeId)) {
         console.log("[runNode] 节点触发处理中，忽略重复触发", nodeId);
         return;
@@ -24848,7 +24858,7 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
         runNodeInFlightRef.current.delete(nodeId);
       }
     },
-    [runNodeInner, setNodes]
+    [runNodeInner, setNodes, rf]
   );
 
   // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
@@ -25950,6 +25960,17 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
       const node = rf.getNode(nodeId);
       if (!node) return;
       if ((node.data as any)?.status !== "running") return;
+
+      const videoType = normalizeFlowNodeType(node.type || "") || node.type || "";
+      if (FLOW_VIDEO_GENERATION_NODE_TYPES.has(videoType)) {
+        window.dispatchEvent(new CustomEvent("toast", {
+          detail: {
+            message: "视频任务尚未确认取消，将继续跟踪结果，请勿重复提交",
+            type: "info",
+          },
+        }));
+        return;
+      }
 
       if (SINGLE_IMAGE_TASK_NODE_TYPES.has(node.type || "")) {
         const taskId = typeof node.data.taskId === "string" ? node.data.taskId.trim() : "";

@@ -1,3 +1,4 @@
+import { VideoSubmissionUncertainError } from './video-submission-uncertain';
 // Video provider integration (Kling/Vidu/Seedance) with OSS post-processing.
 import {
   BadRequestException,
@@ -929,7 +930,13 @@ export class VideoProviderService {
           resultStatus,
         );
         if (prepared.groupId && result.taskId && !failedSynchronously) {
-          await this.volcAssetService.bindTaskAssetGroup(prepared.groupId, result.taskId);
+          try {
+            await this.volcAssetService.bindTaskAssetGroup(prepared.groupId, result.taskId);
+          } catch (error) {
+            // The gateway has already accepted the task. A cleanup-index failure
+            // must not become a generation failure or trigger another submission.
+            this.logger.error(`Video asset binding requires recovery: taskId=${result.taskId}, groupId=${prepared.groupId}`);
+          }
         }
         if (prepared.groupId && (failedSynchronously || result.videoUrl || !result.taskId)) {
           void this.volcAssetService.cleanupTaskAssetGroupById(
@@ -940,7 +947,7 @@ export class VideoProviderService {
         return result;
       } catch (error) {
         previousError = error;
-        if (prepared.groupId) {
+        if (prepared.groupId && !(error instanceof VideoSubmissionUncertainError)) {
           await this.volcAssetService.cleanupTaskAssetGroupById(prepared.groupId, "submit_failed");
         }
         if (isMissingVolcAssetError(error)) {
@@ -2008,7 +2015,7 @@ export class VideoProviderService {
 
     const rawTaskId = this.extractTaskId(result);
     if (!rawTaskId) {
-      throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
+      throw new VideoSubmissionUncertainError();
     }
 
     const taskId = `${forceVod ? this.newApiVodTaskPrefix : this.newApiTaskPrefix}${rawTaskId}`;
@@ -2068,9 +2075,9 @@ export class VideoProviderService {
         data?.message ||
         "new-api 视频任务已完成但未返回视频地址";
       this.logger.warn(
-        `new-api task ${rawTaskId} reported success but no video URL found; treating it as failed. reason=${error}; raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
+        `new-api task ${rawTaskId} reported success but no video URL found; retaining pending until the result can be retrieved. reason=${error}; raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
       );
-      return { status: "failed", thumbnailUrl, error: String(error) };
+      throw new ServiceUnavailableException(String(error));
     }
 
     if (status === "failed") {
@@ -2630,11 +2637,19 @@ export class VideoProviderService {
       });
     } catch (error) {
       this.logger.warn(`new-api video gateway unavailable: ${error instanceof Error ? error.message : 'network error'}`);
-      throw new ServiceUnavailableException('视频网关暂时无法连接，请确认 new-api 服务已启动后重试');
+      if (init.method === 'POST') throw new VideoSubmissionUncertainError();
+      throw new ServiceUnavailableException('视频网关暂时无法连接，请稍后查询');
     }
-    const text = await response.text();
+    let text: string;
+    try { text = await response.text(); } catch (error) {
+      if (init.method === 'POST') throw new VideoSubmissionUncertainError();
+      throw error;
+    }
     const data = text ? this.safeJsonParse(text) ?? text : {};
     if (!response.ok) {
+      if (init.method === 'POST' && (response.status >= 500 || response.status === 408)) {
+        throw new VideoSubmissionUncertainError();
+      }
       const message =
         typeof data === "object" && data
           ? (data as any).error?.message || (data as any).message || JSON.stringify(data)
