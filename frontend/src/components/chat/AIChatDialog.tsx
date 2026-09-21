@@ -1,10 +1,10 @@
-import { XIAOT_AGENT_ENABLED } from "@/services/xiaotChatModels";
 // @ts-nocheck
 /**
  * AI生图对话框组件
  * 固定在屏幕底部中央的对话框，用于AI图像生成
  */
 
+import { XIAOT_AGENT_ENABLED } from "@/services/xiaotChatModels";
 import React, {
   useState,
   useRef,
@@ -6005,12 +6005,9 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                                                     {/* 下载视频 */}
                                                     <button
                                                       onClick={async () => {
+                                                        const downloadTargetUrl = videoShareUrl || videoPlaybackUrl;
+                                                        if (!downloadTargetUrl) return;
                                                         try {
-                                                          if (!videoPlaybackUrl && !videoShareUrl) {
-                                                            return;
-                                                          }
-                                                          const downloadTargetUrl =
-                                                            videoShareUrl || videoPlaybackUrl!;
                                                           console.log(
                                                             "📥 开始下载视频:",
                                                             downloadTargetUrl

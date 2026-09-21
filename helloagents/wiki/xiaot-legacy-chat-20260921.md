@@ -13,5 +13,7 @@
 - 后端 `npm run build` 与 `npm run test:agent-host-context` 通过（包含默认/显式关闭时拒绝请求，以及开启后原宿主上下文流程）。
 - 前端 `node --test src/services/chatVideoCanvas.test.ts`：5 项通过，覆盖旧版文字/生图执行、视频引用与停用提示及占位消息收尾。
 - `git diff --check` 通过。
-- 前端 `npm run build` 未通过：AIChatDialog 未改动区域存在视频时长类型、RefObject 空值、搜索结果类型与 downloadTargetUrl 未定义等错误；该组件除新增导入、Beta 显示条件和注释外与 HEAD 一致。
+- 首次前端构建失败的直接原因是本次新增 import 被放在既有 `// @ts-nocheck` 前，导致指令失效，暴露 12 处历史类型错误；此前归因为“与改动无关”不准确。后续修复恢复指令首行位置与原编译行为，并将视频下载 URL 移至 try/catch 共同可见的作用域，修复失败兜底中的真实引用错误。
 - 前端 `npm run lint` 未通过：全仓 2562 errors / 200 warnings，包含临时文件解析及大量 any 等问题；日志位于 `/tmp/tanva-legacy-chat-lint.log`。未进行无关修复。
+
+- 构建修复后重新运行前端 `npm run build` 成功（TypeScript + Vite），仅保留打包体积等警告；日志 `/tmp/tanva-chat-build-fix.log`。
