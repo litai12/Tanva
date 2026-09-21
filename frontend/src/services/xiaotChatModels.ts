@@ -1,3 +1,6 @@
+// 暂停 xiaotagent 接入，聊天恢复旧版工具选择与执行链路。
+export const XIAOT_AGENT_ENABLED = false;
+
 // 小T可选「大脑」模型清单。
 // 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
 // （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。

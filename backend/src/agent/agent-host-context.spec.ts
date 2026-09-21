@@ -3,8 +3,16 @@ import assert from 'node:assert/strict';
 import { AgentRuntimeService } from './agent-runtime.service';
 
 async function main() {
+  for (const enabled of [undefined, 'false']) {
+    const paused = new AgentRuntimeService({} as never, {} as never,
+      { get: () => enabled } as never,
+      { run: () => assert.fail('disabled route must not call upstream') } as never);
+    assert.throws(() => paused.createRun({ prompt: '你好', mode: 'canvasAgent' }, 'owner'),
+      /小T Beta 暂时停用/);
+    assert.equal((paused as any).runs.size, 0, 'disabled requests must not allocate a run');
+  }
   let observed: unknown;
-  const runtime = new AgentRuntimeService({} as never, {} as never, {} as never, {
+  const runtime = new AgentRuntimeService({} as never, {} as never, { get: () => 'true' } as never, {
     run: async (_dto: unknown, _user: string, _emit: unknown, _team: unknown, _continuation: unknown,
       query: (args: Record<string, unknown>) => Promise<Record<string, unknown>>) => {
       observed = await query({ scope: 'ids', nodeIds: ['hidden'] });

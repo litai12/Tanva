@@ -1,3 +1,4 @@
+import { XIAOT_AGENT_ENABLED } from "@/services/xiaotChatModels";
 // @ts-nocheck
 /**
  * AI生图对话框组件
@@ -3554,7 +3555,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
           </div>
         )}
 
-        {!isEmbedded && <button
+        {XIAOT_AGENT_ENABLED && !isEmbedded && <button
           type='button'
           onClick={() => setXiaotMode(!xiaotMode)}
           className={cn(
@@ -4786,7 +4787,7 @@ const AIChatDialog: React.FC<AIChatDialogProps> = ({
                 </Button>
               )}
 
-              {/* +号上传按钮：小T单轨仍保留图片、PDF/文档等附件入口。 */}
+              {/* +号上传按钮：图片、PDF/文档等附件入口。 */}
               {(
               <DropdownMenu
                 open={isUploadMenuOpen}

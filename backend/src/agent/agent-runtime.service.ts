@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { AIProviderFactory } from '../ai/ai-provider.factory';
@@ -73,6 +73,9 @@ export class AgentRuntimeService {
 
     // canvasAgent 模式：绕过本地 intent/plan 流程，直接经 new-api 流式调用小T。
     if (dto.mode === 'canvasAgent') {
+      if (this.config.get<string>('XIAOT_AGENT_ENABLED') !== 'true') {
+        throw new ServiceUnavailableException('小T Beta 暂时停用，请使用普通对话或画布节点。');
+      }
       const now = new Date();
       const run: AgentRunRecord = {
         id: randomUUID(),

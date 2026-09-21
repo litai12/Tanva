@@ -3,7 +3,7 @@
  * 管理对话框显示、输入内容和生成状态
  */
 
-import { DEFAULT_XIAOT_CHAT_MODEL, resolveXiaotChatModel } from "@/services/xiaotChatModels";
+import { XIAOT_AGENT_ENABLED, DEFAULT_XIAOT_CHAT_MODEL, resolveXiaotChatModel } from "@/services/xiaotChatModels";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import paper from "paper";
@@ -3516,7 +3516,7 @@ export const useAIChatStore = create<AIChatState>()(
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
         setXiaotModel: () => set({ xiaotModel: DEFAULT_XIAOT_CHAT_MODEL }),
-        setXiaotMode: (enabled) => set({ xiaotMode: enabled }),
+        setXiaotMode: (enabled) => set({ xiaotMode: XIAOT_AGENT_ENABLED && enabled }),
         setXiaotPreferredImage: (value) =>
           set({ xiaotPreferredImage: value }),
         setXiaotPreferredVideo: (value) =>
@@ -7945,6 +7945,25 @@ export const useAIChatStore = create<AIChatState>()(
             videoReferenceImages?: string[];
           }
         ) => {
+          if (!XIAOT_AGENT_ENABLED) {
+            const message = options?.forceVideoGeneration
+              ? "聊天视频生成暂时停用，请使用画布视频节点生成。"
+              : "小T Beta 暂时停用，请使用普通对话。";
+            if (options?.override) {
+              get().updateMessage(options.override.aiMessageId, (msg) => ({
+                ...msg,
+                content: message,
+              }));
+              get().updateMessageStatus(options.override.aiMessageId, {
+                isGenerating: false, progress: 0, error: message, stage: "已终止",
+              });
+            } else {
+              get().addMessage({ type: "user", content: input });
+              get().addMessage({ type: "ai", content: message });
+            }
+            await get().refreshSessions({ immediate: true });
+            return;
+          }
           const state = get();
           const imageOutputCount = state.autoModeMultiplier;
           const imagePatchContract = new XiaotImagePatchContract(imageOutputCount);
@@ -9946,8 +9965,9 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
-          // 小T单轨：纯文本请求固定先进入小T；带图片/PDF附件继续走对应宿主兼容能力。
+          // 暂停期间直接使用下方旧版 Auto / 手动工具执行链路。
           if (
+            XIAOT_AGENT_ENABLED &&
             state.sourceImagesForBlending.length === 0 &&
             !state.sourceImageForEditing &&
             !state.sourceImageForAnalysis &&
@@ -9957,9 +9977,9 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
-          // 普通 AI Chat 的手动“生成”模式不再直调 GPT/生图接口：整轮交给小T，
-          // 由小T整理提示词、选择用户优选的 GPT/图片模型并执行画布节点。
+          // 接入恢复后，手动生成可交给小T；暂停期间沿用旧版生图工具。
           if (
+            XIAOT_AGENT_ENABLED &&
             state.manualAIMode === "generate" &&
             state.sourceImagesForBlending.length === 0 &&
             !state.sourceImageForEditing &&
@@ -10340,15 +10360,15 @@ export const useAIChatStore = create<AIChatState>()(
             selectedTool = "chatResponse";
           }
 
-          // Auto 模式只用现有工具选择判断“是不是生图”。一旦命中，后续提示词理解、
-          // GPT 图片模型选择与实际执行全部改由小T负责，不再进入旧 generateImage 直调链路。
+          // 视频仍由画布工作流负责；暂停期间由入口返回本地提示。
           if (selectedTool === "generateVideo") {
             set({ autoSelectedTool: selectedTool });
             await get().generateVideo(input, null, { override: messageOverride });
             return;
           }
 
-          if (selectedTool === "generateImage") {
+          // 暂停期间让生图继续进入下方旧版单次/多图执行流程。
+          if (XIAOT_AGENT_ENABLED && selectedTool === "generateImage") {
             set({ autoSelectedTool: selectedTool });
             await get().runXiaotAgent(input, {
               override: messageOverride,
@@ -11046,6 +11066,8 @@ export const useAIChatStore = create<AIChatState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AIChatState>),
+        // 同版本缓存也不能重新启用已暂停的 Beta 入口。
+        xiaotMode: XIAOT_AGENT_ENABLED && Boolean((persistedState as Partial<AIChatState>)?.xiaotMode),
         // imageOnly 开关已不在对话框中暴露，避免历史持久化把用户锁在“仅图片”模式
         imageOnly: currentState.imageOnly,
       }),
