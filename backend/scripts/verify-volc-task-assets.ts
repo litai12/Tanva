@@ -10,6 +10,7 @@ type TaskGroupRow = {
   taskId?: string;
   status: string;
   expiresAt: Date;
+  projectName: string;
   deletedAt?: Date | null;
   lastError?: string | null;
 };
@@ -40,6 +41,7 @@ function createPrismaStub() {
           !row.deletedAt &&
           row.status !== 'deleted',
       ) || null,
+    findUnique: async ({ where }: any) => rows.get(where.groupId) || null,
     findMany: async ({ where }: any) =>
       [...rows.values()].filter(
         (row) =>
@@ -68,7 +70,7 @@ async function verifyServiceLifecycle(): Promise<void> {
   service.onModuleInit();
 
   let assetSequence = 0;
-  const deletedGroups: string[] = [];
+  const deletedGroups: Array<[string, string]> = [];
   (service as any).createAssetGroup = async () => 'group-run-1';
   const createdAssetTypes: string[] = [];
   (service as any).createAsset = async (_groupId: string, _url: string, assetType: string) => {
@@ -76,8 +78,8 @@ async function verifyServiceLifecycle(): Promise<void> {
     return `asset-new-${++assetSequence}`;
   };
   (service as any).pollAssetActive = async () => undefined;
-  (service as any).deleteAssetGroup = async (groupId: string) => {
-    deletedGroups.push(groupId);
+  (service as any).deleteAssetGroup = async (groupId: string, projectName: string) => {
+    deletedGroups.push([groupId, projectName]);
   };
 
   const prepared = await service.createTaskAssetGroup([
@@ -96,9 +98,10 @@ async function verifyServiceLifecycle(): Promise<void> {
   await service.bindTaskAssetGroup(prepared.groupId, 'newapi:task-1');
   assert.equal(rows.get(prepared.groupId)?.taskId, 'newapi:task-1');
   assert.equal(rows.get(prepared.groupId)?.status, 'running');
+  assert.equal(rows.get(prepared.groupId)?.projectName, 'beq');
 
   assert.equal(await service.cleanupTaskAssetGroup('newapi:task-1', 'succeeded'), true);
-  assert.deepEqual(deletedGroups, ['group-run-1']);
+  assert.deepEqual(deletedGroups, [['group-run-1', 'beq']]);
   assert.equal(rows.get(prepared.groupId)?.status, 'deleted');
   assert.ok(rows.get(prepared.groupId)?.deletedAt instanceof Date);
   assert.equal(await service.cleanupTaskAssetGroup('newapi:task-1', 'succeeded'), false);
@@ -107,10 +110,61 @@ async function verifyServiceLifecycle(): Promise<void> {
     groupId: 'group-expired',
     status: 'running',
     expiresAt: new Date(Date.now() - 1000),
+    projectName: 'default',
     deletedAt: null,
   });
   assert.deepEqual(await service.cleanupExpiredTaskAssetGroups(), { deleted: 1, failed: 0 });
-  assert.ok(deletedGroups.includes('group-expired'));
+  assert.ok(deletedGroups.some(([groupId, projectName]) => groupId === 'group-expired' && projectName === 'default'));
+}
+
+async function verifyReviewGroupProjectScope(): Promise<void> {
+  const date = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const rows = new Map<string, { date: string; projectName: string; groupId: string }>([
+    [`${date}:default`, { date, projectName: 'default', groupId: 'group-legacy-default' }],
+  ]);
+  const prisma = {
+    volcReviewGroup: {
+      findUnique: async ({ where }: any) =>
+        rows.get(`${where.date_projectName.date}:${where.date_projectName.projectName}`) || null,
+      create: async ({ data }: any) => {
+        rows.set(`${data.date}:${data.projectName}`, data);
+        return data;
+      },
+      findMany: async ({ where }: any) => [...rows.values()].filter((row) => row.date === where.date),
+      delete: async ({ where }: any) => {
+        const entry = [...rows.entries()].find(([, row]) => row.groupId === where.groupId);
+        if (entry) rows.delete(entry[0]);
+      },
+    },
+  } as unknown as PrismaService;
+  const config = {
+    get: (key: string) => ({
+      VOLC_ARK_ACCESS_KEY: 'test-ak',
+      VOLC_ARK_SECRET_KEY: 'test-sk',
+    } as Record<string, string>)[key],
+  } as ConfigService;
+  const service = new VolcAssetService(config, prisma);
+  service.onModuleInit();
+  (service as any).createDailyAssetGroup = async () => 'group-current-beq';
+  assert.equal(await service.ensureTodayGroup(), 'group-current-beq');
+  assert.equal(rows.size, 2);
+
+  const deletionAttempts: Array<[string, string]> = [];
+  let failLegacyDeletion = true;
+  (service as any).deleteAssetGroup = async (groupId: string, projectName: string) => {
+    deletionAttempts.push([groupId, projectName]);
+    if (groupId === 'group-legacy-default' && failLegacyDeletion) throw new Error('temporary failure');
+  };
+  assert.deepEqual(await service.cleanupGroupByDate(date), { date, deleted: true });
+  assert.deepEqual(deletionAttempts, [
+    ['group-legacy-default', 'default'],
+    ['group-current-beq', 'beq'],
+  ]);
+  assert.equal(rows.size, 1);
+  assert.ok(rows.has(`${date}:default`));
+  failLegacyDeletion = false;
+  assert.deepEqual(await service.cleanupGroupByDate(date), { date, deleted: true });
+  assert.equal(rows.size, 0);
 }
 
 async function verifyVideoProviderLifecycle(): Promise<void> {
@@ -249,6 +303,7 @@ async function main(): Promise<void> {
   );
   assert.equal(isMissingVolcAssetError(new Error('source image URL returned 404')), false);
   await verifyServiceLifecycle();
+  await verifyReviewGroupProjectScope();
   await verifyVideoProviderLifecycle();
   console.log('Volc task asset lifecycle verification passed.');
 }

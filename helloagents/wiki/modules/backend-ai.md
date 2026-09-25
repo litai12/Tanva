@@ -3,6 +3,12 @@
 ## 作用
 - 提供图像生成/编辑/融合/分析、文本对话、背景移除�?D�?D、图片扩展、视频生成、Paper.js/向量化等能力�?
 
+## 2026-09-25 火山素材项目对齐
+
+- 101 的 Ark 视频生成通道使用 `beq` 项目。后端 `VOLC_ARK_PROJECT_NAME` 未配置时默认 `beq`，使参考图片、视频、音频与真人认证新素材都在同一项目创建；若显式配置，必须与生成 API Key 所属项目一致。只更换 new-api 通道素材 AK/SK 不会改变视频提交的 API Key 所属项目。
+- `VolcReviewGroup` 按日期和项目唯一，`VolcTaskAssetGroup`、`BioAuthGroup` 记录项目；迁移前的记录保留并标记 `default`。清理旧组时使用记录所属项目，失败保留记录重试。旧 `default` 真人认证组不再出现在当前项目列表中，复用旧组会要求重新认证。
+- 部署顺序：先执行 Prisma 迁移 `202609250001_add_volc_asset_project_scope`，再生成 Prisma Client、构建并重启后端；若服务器 `.env` 显式配置了 `VOLC_ARK_PROJECT_NAME`，值必须是 `beq`，否则代码默认值不会生效。
+
 ## 2026-08-24 Kling Omni 素材占位符
 
 - Flow 对用户展示的 `@图N` 不是 Kling Omni 上游协议。`VideoProviderService` 在解析出最终去重素材顺序后，把有效 `@图N` 转换为 `<<<image_N>>>`；对仅连线但没有写进提示词的每张图片，以及参考视频，分别补齐 `<<<image_N>>>` / `<<<video_N>>>`，再将同一规范化 prompt 同时交给 APIMart payload 与 Kapon 原生请求，避免“素材已上传但 prompt 缺少占位符”。

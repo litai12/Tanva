@@ -28,6 +28,7 @@ type InMemoryTaskGroup = {
   groupId: string;
   taskId?: string;
   expiresAt: Date;
+  projectName: string;
 };
 
 @Injectable()
@@ -37,12 +38,12 @@ export class VolcAssetService implements OnModuleInit {
   private secretKey = '';
   private region = 'cn-beijing';
   private host = 'open.volcengineapi.com';
-  private projectName = 'default';
+  private projectName = 'beq';
   private readonly version = '2024-01-01';
   private hasLoggedMissingReviewGroupTable = false;
   private hasLoggedMissingTaskGroupTable = false;
   private taskGroupLifetimeMs = 24 * 60 * 60 * 1000;
-  // date (YYYY-MM-DD, 北京时间) → groupId
+  // projectName + date (YYYY-MM-DD, 北京时间) → groupId
   private readonly groupCache = new Map<string, string>();
   private readonly taskGroupsById = new Map<string, InMemoryTaskGroup>();
   private readonly taskGroupIdByTaskId = new Map<string, string>();
@@ -57,7 +58,7 @@ export class VolcAssetService implements OnModuleInit {
     this.secretKey = (this.config.get<string>('VOLC_ARK_SECRET_KEY') || '').trim();
     this.region = (this.config.get<string>('VOLC_ARK_REGION') || 'cn-beijing').trim();
     this.host = (this.config.get<string>('VOLC_ARK_API_HOST') || 'open.volcengineapi.com').trim();
-    this.projectName = (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'default').trim();
+    this.projectName = (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'beq').trim();
     const configuredLifetimeHours = Number(
       this.config.get<string>('VOLC_TASK_ASSET_GROUP_TTL_HOURS') || 24,
     );
@@ -129,7 +130,7 @@ export class VolcAssetService implements OnModuleInit {
       'Ephemeral review assets for one video generation task',
     );
     const expiresAt = new Date(Date.now() + this.taskGroupLifetimeMs);
-    await this.rememberTaskGroup({ groupId, expiresAt });
+    await this.rememberTaskGroup({ groupId, expiresAt, projectName: this.projectName });
 
     try {
       const created = [] as Array<TaskAssetInput & { assetId: string }>;
@@ -246,18 +247,21 @@ export class VolcAssetService implements OnModuleInit {
   // ── 素材组管理 ────────────────────────────────────────────────────────────
 
   invalidateTodayGroup(): void {
-    this.groupCache.delete(this.todayDate());
+    this.groupCache.delete(`${this.projectName}:${this.todayDate()}`);
   }
 
   async ensureTodayGroup(): Promise<string> {
     const date = this.todayDate();
-    const cached = this.groupCache.get(date);
+    const cacheKey = `${this.projectName}:${date}`;
+    const cached = this.groupCache.get(cacheKey);
     if (cached) return cached;
 
     try {
-      const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+      const existing = await this.prisma.volcReviewGroup.findUnique({
+        where: { date_projectName: { date, projectName: this.projectName } },
+      });
       if (existing) {
-        this.groupCache.set(date, existing.groupId);
+        this.groupCache.set(cacheKey, existing.groupId);
         return existing.groupId;
       }
     } catch (error) {
@@ -267,11 +271,13 @@ export class VolcAssetService implements OnModuleInit {
 
     const groupId = await this.createDailyAssetGroup(date);
     try {
-      await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+      await this.prisma.volcReviewGroup.create({
+        data: { date, groupId, projectName: this.projectName },
+      });
     } catch (error) {
       if (!this.isVolcReviewGroupTableMissing(error)) throw error;
     }
-    this.groupCache.set(date, groupId);
+    this.groupCache.set(cacheKey, groupId);
     return groupId;
   }
 
@@ -293,30 +299,58 @@ export class VolcAssetService implements OnModuleInit {
       return d.toISOString().slice(0, 10);
     })();
 
-    let record: { groupId: string } | null = null;
+    let records: Array<{ groupId: string; projectName: string }> = [];
     try {
-      record = await this.prisma.volcReviewGroup.findUnique({ where: { date: targetDate } });
+      records = await this.prisma.volcReviewGroup.findMany({ where: { date: targetDate } });
     } catch (error) {
       if (!this.isVolcReviewGroupTableMissing(error)) throw error;
     }
-    if (!record) return { date: targetDate, deleted: false };
+    if (!records.length) return { date: targetDate, deleted: false };
 
-    try {
-      await this.deleteAssetGroup(record.groupId);
-    } catch (e: any) {
-      this.logger.warn(`cleanupGroupByDate: deleteAssetGroup ${record.groupId}: ${e?.message}`);
+    let deleted = false;
+    for (const record of records) {
+      try {
+        await this.deleteAssetGroup(record.groupId, record.projectName);
+      } catch (error) {
+        const message = this.errorMessage(error);
+        if (!/not[ -]?found|does not exist/i.test(message)) {
+          this.logger.warn(`cleanupGroupByDate: deleteAssetGroup ${record.groupId}: ${message}`);
+          continue;
+        }
+      }
+      try {
+        await this.prisma.volcReviewGroup.delete({ where: { groupId: record.groupId } });
+      } catch (error) {
+        if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      }
+      this.groupCache.delete(`${record.projectName}:${targetDate}`);
+      deleted = true;
     }
-    try {
-      await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-    }
-    this.groupCache.delete(targetDate);
-    return { date: targetDate, deleted: true };
+    return { date: targetDate, deleted };
   }
 
   async cleanupExpiredGroup(): Promise<{ date: string; deleted: boolean }> {
-    return this.cleanupGroupByDate();
+    const cutoff = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    cutoff.setDate(cutoff.getDate() - 3);
+    const date = cutoff.toISOString().slice(0, 10);
+    let records: Array<{ date: string }>;
+    try {
+      records = await this.prisma.volcReviewGroup.findMany({
+        where: { date: { lte: date } },
+        select: { date: true },
+        distinct: ['date'],
+      });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+      return { date, deleted: false };
+    }
+    let deleted = false;
+    for (const record of records) {
+      const result = await this.cleanupGroupByDate(record.date);
+      deleted ||= result.deleted;
+    }
+    return { date, deleted };
   }
 
   // ── 私有 ARK 操作 ─────────────────────────────────────────────────────────
@@ -351,6 +385,7 @@ export class VolcAssetService implements OnModuleInit {
           groupId: group.groupId,
           status: 'preparing',
           expiresAt: group.expiresAt,
+          projectName: group.projectName,
         },
       });
     } catch (error) {
@@ -366,8 +401,19 @@ export class VolcAssetService implements OnModuleInit {
     groupId: string,
     reason: string,
   ): Promise<boolean> {
+    const delegate = (this.prisma as any).volcTaskAssetGroup;
+    let projectName = this.taskGroupsById.get(groupId)?.projectName;
+    if (!projectName && delegate && !this.hasLoggedMissingTaskGroupTable) {
+      try {
+        const record = await delegate.findUnique({ where: { groupId }, select: { projectName: true } });
+        projectName = record?.projectName;
+      } catch (error) {
+        if (!this.isVolcTaskAssetGroupTableMissing(error)) throw error;
+        this.logMissingTaskGroupTableOnce();
+      }
+    }
     try {
-      await this.deleteAssetGroup(groupId);
+      await this.deleteAssetGroup(groupId, projectName || this.projectName);
     } catch (error) {
       const message = this.errorMessage(error);
       if (!/not[ -]?found|does not exist/i.test(message)) {
@@ -381,7 +427,6 @@ export class VolcAssetService implements OnModuleInit {
     if (memory?.taskId) this.taskGroupIdByTaskId.delete(memory.taskId);
     this.taskGroupsById.delete(groupId);
 
-    const delegate = (this.prisma as any).volcTaskAssetGroup;
     if (delegate && !this.hasLoggedMissingTaskGroupTable) {
       try {
         await delegate.updateMany({
@@ -450,11 +495,11 @@ export class VolcAssetService implements OnModuleInit {
     throw new Error(`asset ${assetId} 上传超时`);
   }
 
-  private async deleteAssetGroup(groupId: string): Promise<void> {
+  private async deleteAssetGroup(groupId: string, projectName = this.projectName): Promise<void> {
     if (!groupId) return;
     await this.volcCall('DeleteAssetGroup', {
       Id: groupId,
-      ProjectName: this.projectName,
+      ProjectName: projectName,
     });
   }
 

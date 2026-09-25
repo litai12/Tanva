@@ -42,6 +42,7 @@
 - 后端构建：`cd backend && npm run build`
 
 ### 资源访问
+- 生产火山方舟素材统一使用 `beq` 项目，与 new-api 的 Ark 视频生成 API Key 所属项目保持一致；后端 `VOLC_ARK_PROJECT_NAME` 未设置时默认 `beq`。审核组与一次性视频素材组按所属项目记录，旧 `default` 组按原项目清理；旧项目的真人认证组不再用于新请求，需重新认证。
 - 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL
 - 如需重新启用代理：设置 `VITE_PROXY_ASSETS=true`
 - 导演台内置模型、纹理与地形只发布到 TOS 的 `director-assets/v1/`，不再随 `frontend/public/` 打包；运行时优先通过 `VITE_ASSET_PUBLIC_BASE_URL` 直连，未配置时使用已部署的广州 TOS 公共基址，不允许回退到本地副本。重新发布时在仓库外准备保持 glTF 相对依赖结构的目录，再运行 `cd backend && DIRECTOR_ASSET_SOURCE_DIR=/absolute/staging/path npm run upload:director-assets`。

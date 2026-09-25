@@ -25,6 +25,7 @@ interface TaskRecord {
   taskId: string;
   imageUrl: string;
   userId: string;
+  projectName: string;
   status: BioAuthStatus;
   assetId?: string;
   groupId?: string;
@@ -36,19 +37,20 @@ type BioAuthGroupRow = {
   userId: string;
   groupId: string;
   imageUrl: string;
+  projectName: string;
   createdAt: Date;
 };
 
 type BioAuthGroupDelegate = {
   upsert(args: {
     where: { groupId: string };
-    create: { userId: string; groupId: string; imageUrl: string };
+    create: { userId: string; groupId: string; imageUrl: string; projectName: string };
     update: Record<string, never>;
   }): Promise<unknown>;
   findMany(args: {
-    where: { userId: string; createdAt: { gte: Date } };
+    where: { userId: string; projectName: string; createdAt: { gte: Date } };
     orderBy: { createdAt: 'desc' };
-    select: { groupId: true; imageUrl: true; createdAt: true };
+    select: { groupId: true; imageUrl: true; projectName: true; createdAt: true };
   }): Promise<BioAuthGroupRow[]>;
   findUnique(args: {
     where: { groupId: string };
@@ -99,7 +101,7 @@ export class BioAuthService implements OnModuleInit {
       region: (this.config.get<string>('VOLC_ARK_REGION') || 'cn-beijing').trim(),
       service: 'ark',
       host: (this.config.get<string>('VOLC_ARK_API_HOST') || 'open.volcengineapi.com').trim(),
-      projectName: (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'default').trim(),
+      projectName: (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'beq').trim(),
       version: '2024-01-01',
       callbackBaseUrl: (this.config.get<string>('APP_BASE_URL') || 'http://localhost:4000').trim(),
     };
@@ -179,6 +181,7 @@ export class BioAuthService implements OnModuleInit {
       taskId: resp.BytedToken,
       imageUrl,
       userId,
+      projectName: this.env.projectName,
       status: 'processing',
       createdAt: Date.now(),
     };
@@ -202,14 +205,14 @@ export class BioAuthService implements OnModuleInit {
     try {
       const validateResult = await this.call<{ GroupId?: string }>('GetVisualValidateResult', {
         BytedToken: bytedToken,
-        ProjectName: this.env.projectName,
+        ProjectName: task.projectName,
       });
       const groupId = validateResult?.GroupId;
       if (!groupId) throw new Error('GetVisualValidateResult: missing GroupId');
 
       await this.getBioAuthGroupDelegate().upsert({
         where: { groupId },
-        create: { userId: task.userId, groupId, imageUrl: task.imageUrl },
+        create: { userId: task.userId, groupId, imageUrl: task.imageUrl, projectName: task.projectName },
         update: {},
       });
       task.groupId = groupId;
@@ -218,7 +221,7 @@ export class BioAuthService implements OnModuleInit {
         GroupId: groupId,
         URL: task.imageUrl,
         AssetType: 'Image',
-        ProjectName: this.env.projectName,
+        ProjectName: task.projectName,
       });
       if (!assetResp?.Id) throw new Error('CreateAsset: empty Id');
       task.assetId = assetResp.Id;
@@ -247,7 +250,7 @@ export class BioAuthService implements OnModuleInit {
       try {
         const resp = await this.call<{ Status?: string }>('GetAsset', {
           Id: assetId,
-          ProjectName: this.env.projectName,
+          ProjectName: task.projectName,
         });
         const s = (resp?.Status || '').toLowerCase();
         if (s === 'active') {
@@ -283,9 +286,9 @@ export class BioAuthService implements OnModuleInit {
   async listGroups(userId: string): Promise<ListGroupsResponse> {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const rows = await this.getBioAuthGroupDelegate().findMany({
-      where: { userId, createdAt: { gte: since } },
+      where: { userId, projectName: this.env.projectName, createdAt: { gte: since } },
       orderBy: { createdAt: 'desc' },
-      select: { groupId: true, imageUrl: true, createdAt: true },
+      select: { groupId: true, imageUrl: true, projectName: true, createdAt: true },
     });
     return {
       groups: rows.map((r) => ({
@@ -305,6 +308,9 @@ export class BioAuthService implements OnModuleInit {
     if (!group || group.userId !== userId) {
       throw new ForbiddenException('GroupId 不属于当前用户');
     }
+    if (group.projectName !== this.env.projectName) {
+      throw new ForbiddenException('认证素材属于旧项目，请重新完成本人认证');
+    }
     const assetResp = await this.call<{ Id?: string }>('CreateAsset', {
       GroupId: groupId,
       URL: imageUrl,
@@ -317,6 +323,7 @@ export class BioAuthService implements OnModuleInit {
       taskId,
       imageUrl,
       userId,
+      projectName: group.projectName,
       status: 'processing',
       groupId,
       assetId: taskId,

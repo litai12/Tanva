@@ -21,7 +21,7 @@ export class VolcAssetSchedulerService {
     try {
       const result = await this.volcAssetService.cleanupExpiredGroup();
       if (result.deleted) {
-        this.logger.log(`素材组清理完成: 已删除 ${result.date} 的素材组`);
+        this.logger.log(`素材组清理完成: 已删除截至 ${result.date} 的过期素材组`);
       } else {
         this.logger.log(`素材组清理：${result.date} 无需清理`);
       }

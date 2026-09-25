@@ -782,32 +782,37 @@ model VideoTask {
 }
 
 model VolcReviewGroup {
-  id        String   @id @default(uuid())
-  date      String   @unique
-  groupId   String   @unique
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  date        String
+  projectName String   @default("default")
+  groupId     String   @unique
+  createdAt   DateTime @default(now())
+
+  @@unique([date, projectName])
 }
 
 model VolcTaskAssetGroup {
-  id        String    @id @default(uuid())
-  groupId   String    @unique
-  taskId    String?   @unique
-  status    String    @default("preparing")
-  expiresAt DateTime
-  lastError String?   @db.Text
-  deletedAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  groupId     String    @unique
+  projectName String    @default("default")
+  taskId      String?   @unique
+  status      String    @default("preparing")
+  expiresAt   DateTime
+  lastError   String?   @db.Text
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([status, expiresAt])
 }
 
 model BioAuthGroup {
-  id        String   @id @default(uuid())
-  userId    String
-  groupId   String   @unique
-  imageUrl  String   @db.Text
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  userId      String
+  groupId     String   @unique
+  projectName String   @default("default")
+  imageUrl    String   @db.Text
+  createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
 }
