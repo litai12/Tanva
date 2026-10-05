@@ -1,5 +1,6 @@
 // 经 Tanva new-api 渠道流式调用小T（xiaot-agent 模型），把标准 chat.completion.chunk
-// 翻译成 AgentRunEvent 推给前端；完整成功的对话固定扣费，生成/分析宿主任务由各自链路另行计费。
+// 翻译成 AgentRunEvent 推给前端；签名模式按每次网关实际消费结算，未配置时保留成功回合固定费。
+// 生成/分析宿主任务由各自链路另行计费。
 import { ConflictException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DeepSeekChatBillingService, DeepSeekChatCharge } from '../ai/services/deepseek-chat-billing.service';
@@ -56,6 +57,7 @@ type RunContinuation = {
   model: string;
   hostScopeId: string;
   billingIdentity?: string;
+  gatewayMode?: boolean;
   billingTeamId?: string | null;
   billingOrders?: unknown[];
 };
@@ -86,7 +88,7 @@ function readRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** 小T 自身每个成功对话回合的 Tanva 固定积分。 */
+/** 未配置消费订单签名时保留的旧成功回合固定积分。 */
 export const XIAOT_CHAT_CREDITS_PER_RUN = 2;
 
 @Injectable()
@@ -207,6 +209,7 @@ export class XiaotAgentService {
     // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
     // 前缀防 team/user id 命名空间相撞。
     const realTeamId = continuation ? continuation.billingTeamId ?? null : await this.resolveRealTeamId(teamId, userId);
+    const gatewayMode = continuation?.gatewayMode ?? this.chatBilling?.isGatewayEnabled() === true;
     const billingIdentity = continuation?.billingIdentity || rootRunId || randomUUID();
     const billingOrders = [...(continuation?.billingOrders || [])];
     const hostScopeId = continuation?.hostScopeId ||
@@ -232,7 +235,7 @@ export class XiaotAgentService {
       const requestBody = {
         model,
         stream: true,
-        // OpenAI 流式 usage 惯例：请求终帧 usage 供运营审计，不参与固定对话计费。
+        // 终帧 usage 仅供审计；新模式使用网关消费金额，旧模式保留固定费。
         stream_options: { include_usage: true },
         // v2 hard cutover: v1 upstream histories may contain repeated tool-schema
         // failures. Keep those records intact but never feed them into a v2 turn.
@@ -242,8 +245,8 @@ export class XiaotAgentService {
         messages: this.buildMessages(dto, true),
       };
       const rawBody = JSON.stringify(requestBody);
-      if (this.chatBilling?.isGatewayEnabled()) {
-        charge = await this.chatBilling.begin({ userId, teamId: teamId || null, model,
+      if (gatewayMode) {
+        charge = await this.chatBilling!.begin({ userId, teamId: teamId || null, model,
           serviceType: 'agent-chat', serviceName: 'xiaot-agent', requestBody,
           identity: `${billingIdentity}:${continuation?.depth || 0}` });
         if (charge.duplicate) {
@@ -732,6 +735,7 @@ export class XiaotAgentService {
             model,
             hostScopeId,
             billingIdentity,
+            gatewayMode,
             billingTeamId: realTeamId,
             billingOrders,
           },

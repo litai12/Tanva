@@ -136,6 +136,7 @@ async function main() {
 
   let orderQueries = 0;
   const orders = { isEnabled: () => true, register: async () => true,
+    getState: async () => ({ enabled: true, status: 'pending' }),
     reconcile: async () => { orderQueries++; return { enabled: true, status: 'pending' }; } };
   const gateway = harness(orders);
   let gatewaySubmissions = 0;
@@ -161,6 +162,18 @@ async function main() {
   assert.equal(failedRow.requestParams.deepseekBilling.outputStatus, 'failed');
   assert.equal(gateway.refunds(), 0, 'model failure must not decide consumption refund');
   assert.equal(orderQueries, 4);
+
+  const unknownCharge = await gateway.service.begin(input('gateway-unknown'));
+  await assert.rejects(gateway.service.execute(input('gateway-unknown'), gatewayOperation, () => undefined), error =>
+    (error as any).getResponse().outputStatus === 'unknown');
+  assert.equal(gatewaySubmissions, 2, 'accepted unknown orders must never submit model work');
+  assert.equal(gateway.rows.get(unknownCharge.apiUsageId).requestParams.deepseekBilling.response, undefined);
+  let finishQuery!: () => void;
+  orders.reconcile = () => new Promise<any>(resolve => { finishQuery = () => resolve({ enabled: true, status: 'pending' }); });
+  const slowQuery = gateway.service.execute(input('gateway-query-slow'), gatewayOperation, () => undefined);
+  const delivered = await Promise.race([slowQuery, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('output waited for accounting query')), 100))]);
+  assert.equal(delivered.data.text, '真实正文', 'known output must not await a slow gateway query');
+  finishQuery();
 
   console.log('DeepSeek web usage, cache, replay, payer scope and uncertain outcome: passed');
 }

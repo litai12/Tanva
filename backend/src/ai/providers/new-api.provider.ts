@@ -411,6 +411,9 @@ export class NewApiProvider implements IAIProvider {
     let textPrompt = request.prompt;
     let directImageReferences = imageReferences;
     if (imageReferences.length > 0 && model === DEFAULT_TEXT_MODEL) {
+      if (request.consumptionOrderId) {
+        throw new Error('已登记的文本消费订单不能隐式提交图片分析；请先独立登记图片分析订单');
+      }
       const vision = await this.analyzeImage({
         model: 'gemini-3.5-flash',
         sourceImage: imageReferences[0],

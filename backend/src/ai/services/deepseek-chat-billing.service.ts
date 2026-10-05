@@ -69,7 +69,9 @@ export class DeepSeekChatBillingService {
     }
     // Consumption is authoritative even when the model output failed. Querying
     // never submits another model request; billing delays never discard output.
-    return this.reconcileGateway(charge);
+    void this.reconcileGateway(charge);
+    try { return await this.orders!.getState(charge.apiUsageId); }
+    catch { return { enabled: true, status: 'reconciliation_required' }; }
   }
 
   async reconcileGateway(charge: DeepSeekChatCharge) {
