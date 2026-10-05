@@ -5556,10 +5556,6 @@ export class CreditsService {
       const lotDeductions = this.extractLotDeductionsFromMetadata(
         spendTransaction?.metadata,
       );
-      if (apiUsage.consumptionStatus && creditsToRefund > 0 &&
-          lotDeductions.reduce((sum, item) => sum + item.amount, 0) !== creditsToRefund) {
-        throw new BadRequestException('消费订单原预扣批次证据不完整，保留原记录待对账');
-      }
 
       if (deltaCredits < 0) {
         const refundCredits = Math.abs(deltaCredits);
@@ -5596,7 +5592,6 @@ export class CreditsService {
           const lots = await tx.creditLot.findMany({
             where: {
               id: { in: lotIds },
-              ...(apiUsage.consumptionStatus ? { accountId: account.id } : {}),
             },
             select: {
               id: true,
@@ -5613,8 +5608,6 @@ export class CreditsService {
               status: true,
             },
           });
-
-          if (apiUsage.consumptionStatus && lots.length !== new Set(lotIds).size) throw new BadRequestException('消费订单原积分批次不存在');
 
           const restoredLots = applyLotRestorationsToSnapshots({
             lots: lots.map((lot) => this.toCreditLotCandidate(lot)),
@@ -6066,6 +6059,10 @@ export class CreditsService {
       const lotDeductions = this.extractLotDeductionsFromMetadata(
         spendTransaction?.metadata,
       );
+      if (apiUsage.consumptionStatus && creditsToRefund > 0 &&
+          lotDeductions.reduce((sum, item) => sum + item.amount, 0) !== creditsToRefund) {
+        throw new BadRequestException('消费订单原预扣批次证据不完整，保留原记录待对账');
+      }
 
       if (lotDeductions.length > 0) {
         const lotIds = lotDeductions
@@ -6076,6 +6073,7 @@ export class CreditsService {
           const lots = await tx.creditLot.findMany({
             where: {
               id: { in: lotIds },
+              ...(apiUsage.consumptionStatus ? { accountId: account.id } : {}),
             },
             select: {
               id: true,
@@ -6092,6 +6090,8 @@ export class CreditsService {
               status: true,
             },
           });
+
+          if (apiUsage.consumptionStatus && lots.length !== new Set(lotIds).size) throw new BadRequestException('消费订单原积分批次不存在');
 
           const restoredLots = applyLotRestorationsToSnapshots({
             lots: lots.map((lot) => this.toCreditLotCandidate(lot)),

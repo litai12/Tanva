@@ -81,8 +81,8 @@ func TanvaConsumption() gin.HandlerFunc {
 			return
 		}
 		unit := decimal.NewFromFloat(common.QuotaPerUnit)
-		if !unit.IsPositive() {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "tanva_invalid_quota_unit"})
+		if !unit.Equal(decimal.NewFromInt(500000)) {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "tanva_quota_unit_must_be_500000"})
 			return
 		}
 		instance := os.Getenv("TANVA_CONSUMPTION_INSTANCE_ID")

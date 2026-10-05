@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,7 +32,14 @@ import (
 
 func tanvaRelayFixture(t *testing.T, upstream http.Handler) (*httptest.Server, *model.Channel) {
 	t.Helper()
-	require.NoError(t, model.DB.AutoMigrate(&model.TanvaConsumption{}, &model.TanvaConsumptionOutbox{}, &model.RequestTrace{}, &model.SubscriptionPlan{}))
+	beforeTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 10
+	t.Cleanup(func() { constant.StreamingTimeout = beforeTimeout })
+	for _, table := range []interface{}{&model.TanvaConsumption{}, &model.TanvaConsumptionOutbox{}, &model.RequestTrace{}, &model.SubscriptionPlan{}} {
+		if !model.DB.Migrator().HasTable(table) {
+			require.NoError(t, model.DB.AutoMigrate(table))
+		}
+	}
 	t.Cleanup(func() {
 		model.DB.Exec("DELETE FROM tanva_consumption_outboxes")
 		model.DB.Exec("DELETE FROM tanva_consumptions")
@@ -110,6 +118,8 @@ func TestTanvaConsumptionRelayContinuesStreamAfterClientDisconnect(t *testing.T)
 	t.Setenv("TANVA_CONSUMPTION_SECRET", "stream-fixture-secret")
 	var calls atomic.Int32
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSupplier := func() { releaseOnce.Do(func() { close(release) }) }
 	gateway, _ := tanvaRelayFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		for key := range r.Header {
@@ -118,21 +128,25 @@ func TestTanvaConsumptionRelayContinuesStreamAfterClientDisconnect(t *testing.T)
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"xiaot-agent-deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n")
 		w.(http.Flusher).Flush()
+		fmt.Fprint(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"xiaot-agent-deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\n")
+		w.(http.Flusher).Flush()
 		<-release
 		fmt.Fprint(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"xiaot-agent-deepseek-v4-flash\",\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":17,\"total_tokens\":17}}\n\ndata: [DONE]\n\n")
 	}))
+	t.Cleanup(releaseSupplier)
 	body := []byte(`{"model":"xiaot-agent-deepseek-v4-flash","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	req := signedTanvaFixtureRequest(t, "POST", gateway.URL+"/v1/chat/completions", "stream:order", "hash", "stream-fixture-secret", body)
 	ctx, cancel := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 	buf := make([]byte, 8)
 	_, err = resp.Body.Read(buf)
 	require.NoError(t, err)
 	cancel()
 	resp.Body.Close()
-	close(release)
+	releaseSupplier()
 	require.Eventually(t, func() bool {
 		o, err := model.GetTanvaConsumption(720, 720, "stream:order")
 		return err == nil && o.Status == "consumed"

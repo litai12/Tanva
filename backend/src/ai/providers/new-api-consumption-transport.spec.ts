@@ -31,6 +31,9 @@ async function main() {
     assert.equal(signatures[1].path, '/v1/responses');
     assert.equal(JSON.parse(requests[2].body).model, 'gemini-3.5-flash');
     assert.equal(JSON.parse(requests[2].body).max_tokens, 4096);
+    await assert.rejects(provider.generateText({ model: 'deepseek-v4.1-flash', prompt: '读取图',
+      imageUrl: 'https://images.test/a.png', consumptionOrderId: 'text-order' }), /独立登记图片分析订单/);
+    assert.equal(requests.length, 3, 'signed text requests cannot hide an unsigned paid vision helper');
     orders.gatewayHeaders = async () => ({}) as any;
     const failure = await provider.generateText({ model: 'deepseek-v4.1-flash', prompt: '不能降级', consumptionOrderId: 'registered-order' });
     assert.equal(failure.success, false);

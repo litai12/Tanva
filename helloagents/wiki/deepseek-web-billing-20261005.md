@@ -12,7 +12,7 @@
 
 ## 入口与归属
 
-- `POST /api/ai/text-chat` 的 DeepSeek 账号请求经过 `DeepSeekChatBillingService`，绕过原 `withCredits` 固定 30 分；既有业务安全审核与正文分别产生独立调用回执，分别按实际 usage 向上取整。非 DeepSeek 价格保持既有合同。
+- `POST /api/ai/text-chat` 的 DeepSeek 账号请求经过 `DeepSeekChatBillingService`，绕过原 `withCredits` 固定 30 分；业务安全审核与正文分别产生独立消费订单。签名模式按网关最终人民币消费向上取整，未配置及旧回执按原 usage 合同；其他独立业务价格保持既有合同。
 - 消费订单模式中，网页审核、正文与带图片对话的 Gemini 3.5 Flash 事实提取各有独立订单；订单号、模型、请求摘要及最终 serialized body 分别绑定。只有对话内部事实提取接入新子单，不重复计费已有图片生成/视频流程。
 - 小T消费订单以 `AgentRuntime.run.id` 固定根身份，每次上下文续接 POST 为独立单；durable status/events 续读只取原结果，不新建消费单。新模式关闭旧成功回合直接扣 2 分，按网关最终实际金额结算。现 `.01` 元固定网关价经倍率后每单 `ceil(1.5)=2` 积分；记录 `gateway_fixed_price`，不冒充底层官方 token 成本。未配置签名时保留旧完整成功回合 2 分兼容合同。
 - 普通 `AgentRuntimeService` 的聊天工具选择交给前端调用既有 text-chat，因此已覆盖；其研究草稿/关键词及媒体工作流内部调用未在本轮新增收费，避免重复计算整体产品费用。
@@ -38,7 +38,25 @@ Flow 的文字对话与提示词优化节点当前都解析为 `deepseek-v4.1-fl
 
 订单模式中，结果保存 `outputStatus/response`，消费列保存权威回执与结算状态。已知正文及宿主工具成功照常交付，费用暂慢通过独立 `metadata.billingOrders` 表示；输出失败但网关实际消费仍需结算。HTTP 202/5xx、缺失 usage 或正文失败不能决定退款，未知只查询原订单。已注册单不能因签名配置故障变为未签名提交；签名信息仅在 HTTP header，不进入模型 body。
 
-重复同一已完成请求重放保存的响应，不重新调用模型或再次扣费。已知响应遇到账务失败保留原结果；再次查看同一身份只尝试结算原结果。HTTP 202、断流、缺失 usage、5xx 等未知付费结果留为 `reconciliation_required`，不自动退款或重新发起供应商操作。只有明确供应商拒绝才在同一事务标为失败并退回原预留。用户自行新建重试保持独立身份；本轮不部署、不重跑、不修改旧线上账本。
+重复同一已完成请求重放保存的响应，不重新调用模型或再次扣费。已知响应遇到账务失败保留原结果；保存输出后在后台触发查询，立即读取本地消费状态，不让网关查询延迟正文交付。再次查看同一身份只尝试结算原订单。HTTP 202、断流、缺失 usage、5xx 等未知付费结果不自动退款或重新发起供应商操作。签名模式只有权威 `rejected` 零消费证明才能退原预留；未配置旧模式沿既有明确拒绝退款合同。用户自行新建重试保持独立身份；本轮不部署、不重跑、不修改旧线上账本。
+
+## 本地验证
+
+`cd backend && npm run build` 为整体 TypeScript 编译。以下测试均使用 mock 传输，不发付费模型：
+
+```bash
+./node_modules/.bin/ts-node --transpile-only src/ai/services/deepseek-chat-billing.spec.ts
+./node_modules/.bin/ts-node --transpile-only src/ai/providers/new-api-consumption-transport.spec.ts
+./node_modules/.bin/ts-node --transpile-only src/ai/web-consumption-route.spec.ts
+./node_modules/.bin/ts-node --transpile-only src/agent/xiaot-consumption-orders.spec.ts
+npm run test:text-chat-terminal-billing
+npm run test:text-chat-right-routing
+npm run verify:xiaot-chat-pricing
+npm run test:xiaot-agent-context-handoff
+npm run test:xiaot-agent-recovery
+```
+
+覆盖原订单重放、未知结果只查询、模型失败不决定退款、账务慢查询不延迟正文、chat/Responses/vision 最终序列化 body 签名、缺签名不降级、网页安全/图片事实/正文三独立订单、小T三次上下文 POST 独立订单与关闭旧直接扣费。小T续接冻结消费模式，配置中途不可用时不能切回旧未签名付费提交。已登记 provider 文本单若仍含 DeepSeek 图片会在提交前拒绝隐式 vision，须由账号 controller 独立登记子订单。真实部署、外部供应商金额与线上回调仍需发布后验收，本轮未执行。
 
 ## 证据
 

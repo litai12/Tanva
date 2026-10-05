@@ -48,7 +48,7 @@ function harness(orders?: any) {
     release: async () => { refunds++; },
   };
   const service = new DeepSeekChatBillingService(
-    { $transaction: async (work: any) => {
+    { apiUsageRecord: tx.apiUsageRecord, $transaction: async (work: any) => {
       const before = new Map([...rows].map(([id, row]) => [id, structuredClone(row)]));
       try { return await work(tx); }
       catch (error) { rows.clear(); for (const [id, row] of before) rows.set(id, row); throw error; }
@@ -152,6 +152,12 @@ async function main() {
   assert.equal(replay.data.text, '真实正文');
   assert.equal(gatewaySubmissions, 1, 'pending orders only query their original order');
   assert.equal(orderQueries, 2);
+  assert.equal(await gateway.service.hasGatewayOrder('user-test', 'gateway-body'), true);
+  assert.equal(await gateway.service.hasGatewayOrder('other-user', 'gateway-body'), false);
+  orders.isEnabled = () => false;
+  const retained = await gateway.service.begin(input('gateway-body'));
+  assert.equal(retained.gatewayMode, true, 'registered orders retain gateway mode after signing config is removed');
+  orders.isEnabled = () => true;
   assert.equal(gateway.settled.length, 0, 'caller cannot settle or reprice gateway consumption using model tokens');
   assert.equal(gateway.refunds(), 0);
   await gateway.service.execute(input('gateway-body:reply'), gatewayOperation, () => undefined);

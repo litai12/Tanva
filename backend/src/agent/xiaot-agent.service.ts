@@ -209,8 +209,9 @@ export class XiaotAgentService {
     // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
     // 前缀防 team/user id 命名空间相撞。
     const realTeamId = continuation ? continuation.billingTeamId ?? null : await this.resolveRealTeamId(teamId, userId);
-    const gatewayMode = continuation?.gatewayMode ?? this.chatBilling?.isGatewayEnabled() === true;
     const billingIdentity = continuation?.billingIdentity || rootRunId || randomUUID();
+    const gatewayMode = continuation?.gatewayMode ?? (this.chatBilling?.isGatewayEnabled() === true
+      || (!!rootRunId && await this.chatBilling?.hasGatewayOrder?.(userId, `${billingIdentity}:0`) === true));
     const billingOrders = [...(continuation?.billingOrders || [])];
     const hostScopeId = continuation?.hostScopeId ||
       (realTeamId ? `team:${realTeamId}` : `user:${userId}`);
@@ -251,14 +252,22 @@ export class XiaotAgentService {
           identity: `${billingIdentity}:${continuation?.depth || 0}` });
         if (charge.duplicate) {
           if (charge.response === undefined) {
-            const billing = await this.chatBilling.reconcileGateway(charge);
+            const billing = await this.chatBilling!.reconcileGateway(charge);
             outputSaved = true;
             throw new ConflictException({ code: 'XIAOT_REQUEST_ACCEPTED', outputStatus: 'unknown',
               orderId: charge.apiUsageId, billing });
           }
           const saved = readRecord(charge.response);
-          const billing = await this.chatBilling.gatewayOutput(charge, charge.response,
+          const billing = await this.chatBilling!.gatewayOutput(charge, charge.response,
             saved?.success === false ? 'failed' : 'ready');
+          outputSaved = true;
+          if (saved?.success === false) {
+            throw new Error(String(readRecord(saved.error)?.message || '原小T请求失败，消费状态已独立记录'));
+          }
+          if (typeof saved?.contextQueryCount === 'number' && saved.contextQueryCount > 0) {
+            throw new ConflictException({ code: 'XIAOT_REQUEST_ACCEPTED', outputStatus: 'context_handoff',
+              orderId: charge.apiUsageId, billing, response: saved });
+          }
           emit('final', { message: typeof saved?.text === 'string' ? saved.text : '',
             data: { ...saved, billing, orderId: charge.apiUsageId, replayed: true } });
           emit('done', {});

@@ -9,8 +9,9 @@ async function main() {
   const outputStatuses: string[] = [];
   const emitted: any[] = [];
   let requests = 0;
+  let enabled = true;
   const coordinator = {
-    isGatewayEnabled: () => true,
+    isGatewayEnabled: () => enabled,
     begin: async (input: any) => { orders.push(input); return { apiUsageId: input.identity, gatewayMode: true, duplicate: false }; },
     gatewayHeaders: async (charge: any, request: any) => {
       assert.equal(JSON.parse(request.rawBody).model, 'xiaot-agent-deepseek-v4-flash');
@@ -24,6 +25,7 @@ async function main() {
     { deductExact: async () => { legacyCharges++; } } as any, {} as any, coordinator as any);
   globalThis.fetch = async (_url, init) => {
     requests++;
+    enabled = false; // An accepted continuation must keep its signed mode.
     assert.equal((init?.headers as any)['X-Tanva-Order-Id'], `stable-run:${requests - 1}`);
     const delta = requests < 3 ? { tool_calls: [{ index: 0, id: `query-${requests}`,
       function: { name: 'host_tool', arguments: JSON.stringify({ name: 'query_canvas', arguments: { scope: 'all' } }) } }] }
@@ -43,6 +45,16 @@ async function main() {
     assert.equal(final.data.text, '真实完成正文');
     assert.equal(final.data.billingOrders.length, 3, 'pending consumption cannot discard successful output');
     assert.ok(final.data.billingOrders.every((bill: any) => bill.basis === 'gateway_fixed_price'));
+    enabled = true;
+    coordinator.begin = async () => ({ apiUsageId: 'failed-original', gatewayMode: true, duplicate: true,
+      response: { success: false, error: { message: 'original upstream failure' } } }) as any;
+    await assert.rejects(service.run({ prompt: '原请求', mode: 'canvasAgent' }, 'user-test', () => undefined,
+      undefined, undefined, undefined, 'original'), /original upstream failure/);
+    coordinator.begin = async () => ({ apiUsageId: 'handoff-original', gatewayMode: true, duplicate: true,
+      response: { text: '', contextQueryCount: 1 } }) as any;
+    await assert.rejects(service.run({ prompt: '原请求', mode: 'canvasAgent' }, 'user-test', () => undefined,
+      undefined, undefined, undefined, 'original'), error => (error as any).getResponse().outputStatus === 'context_handoff');
+    assert.equal(requests, 3, 'saved failures or context handoffs must not be resubmitted or reported as completed tasks');
     console.log('Xiaot physical orders, pending output and legacy charge exclusion: passed');
   } finally { globalThis.fetch = originalFetch; }
 }

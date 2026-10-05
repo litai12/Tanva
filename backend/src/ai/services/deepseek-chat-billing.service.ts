@@ -41,6 +41,12 @@ export class DeepSeekChatBillingService {
 
   isGatewayEnabled(): boolean { return this.orders?.isEnabled() === true; }
 
+  async hasGatewayOrder(userId: string, identity: string): Promise<boolean> {
+    const id = `deepseek-chat:${createHash('sha256').update(`${userId}:${identity}`).digest('hex')}`;
+    const row = await this.prisma.apiUsageRecord.findUnique({ where: { id }, select: { requestParams: true } });
+    return (row?.requestParams as any)?.deepseekBilling?.gatewayMode === true;
+  }
+
   handlesModel(model?: string): boolean {
     return isDeepSeekChatModel(model) || (this.isGatewayEnabled() && model === 'xiaot-agent-deepseek-v4-flash');
   }

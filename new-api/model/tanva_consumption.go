@@ -166,6 +166,7 @@ func ReserveTanvaConsumption(id int64, quota int64, preference, priceJSON string
 		return nil, errors.New("negative quota")
 	}
 	var result *TanvaConsumption
+	dbNow := GetDBTimestamp()
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		o, err := tanvaLockTx(tx, id)
 		if err != nil {
@@ -196,7 +197,7 @@ func ReserveTanvaConsumption(id int64, quota int64, preference, priceJSON string
 		}
 		subscription := func() (bool, error) {
 			var subs []UserSubscription
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ? AND status = ? AND end_time > ?", o.UserID, "active", GetDBTimestamp()).Order("end_time asc, id asc").Find(&subs).Error; err != nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ? AND status = ? AND end_time > ?", o.UserID, "active", dbNow).Order("end_time asc, id asc").Find(&subs).Error; err != nil {
 				return false, err
 			}
 			for _, sub := range subs {
@@ -204,7 +205,7 @@ func ReserveTanvaConsumption(id int64, quota int64, preference, priceJSON string
 				if err != nil {
 					return false, err
 				}
-				if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, GetDBTimestamp()); err != nil {
+				if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, dbNow); err != nil {
 					return false, err
 				}
 				if sub.AmountTotal > 0 && sub.AmountTotal-sub.AmountUsed < quota {

@@ -83,6 +83,8 @@ async function run() {
   const row = await db.apiUsageRecord.findUniqueOrThrow({ where: { id } });
   assert.equal(row.responseStatus, 'success'); assert.deepEqual(row.requestParams, bodyBefore); assert.equal(row.creditsUsed, 3);
   assert.equal(await db.creditTransaction.count({ where: { apiUsageId: id, type: 'adjustment' } }), 1);
+  await orders.receiveEnvelope(envelope({ ...consumed, status: 'pending', revision: 0, costCny: undefined, quota: undefined, settledAt: undefined }));
+  assert.equal((await orders.getState(id)).status, 'settled', 'an older pending revision cannot regress consumption settlement');
   await assert.rejects(orders.receiveEnvelope(envelope({ ...consumed, orderHash: 'other' })));
   await assert.rejects(orders.receiveEnvelope(envelope({ ...consumed, costCny: '0.02', quota: '10000' })));
   const missingOutput = await admit(user.id); await orders.receiveEnvelope(envelope(proof(missingOutput)));
@@ -106,6 +108,29 @@ async function run() {
   await db.$executeRawUnsafe('DROP FUNCTION consumption_fail_adjustment()');
   const restarted = service(); (restarted as any).fetchImpl = async () => { throw new Error('must use retained receipt without a gateway query'); };
   assert.equal((await restarted.reconcile(recovery)).status, 'settled');
+  // A rejected order keeps its zero-consumption proof across a refund rollback.
+  // Restoring its original expired gift lot must not revive expired entitlement.
+  const giftUser = await owner();
+  const giftAccount = await db.creditAccount.findUniqueOrThrow({ where: { userId: giftUser.id } });
+  const gift = await db.creditLot.create({ data: { accountId: giftAccount.id, sourceType: 'gift', validityType: 'fixed_window', totalAmount: 30, remainingAmount: 30,
+    expiresAt: new Date(Date.now() + 60_000), metadata: { reason: 'daily_reward' } } });
+  await db.creditAccount.update({ where: { id: giftAccount.id }, data: { balance: 1030, totalEarned: 1030 } });
+  const rejectedRecovery = await admit(giftUser.id);
+  assert.equal((await db.creditLot.findUniqueOrThrow({ where: { id: gift.id } })).remainingAmount, 0);
+  const originalExpiry = new Date(Date.now() - 1000);
+  await db.creditLot.update({ where: { id: gift.id }, data: { expiresAt: originalExpiry } });
+  await db.$executeRawUnsafe(`CREATE FUNCTION consumption_fail_refund() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'refund' AND NEW."apiUsageId" = '${rejectedRecovery}' THEN RAISE EXCEPTION 'fixture'; END IF; RETURN NEW; END $$`);
+  await db.$executeRawUnsafe('CREATE TRIGGER consumption_fail_refund_trigger BEFORE INSERT ON "CreditTransaction" FOR EACH ROW EXECUTE FUNCTION consumption_fail_refund()');
+  assert.equal((await orders.receiveEnvelope(envelope(proof(rejectedRecovery, 'rejected')))).status, 'reconciliation_required');
+  assert.equal(await balance(giftUser.id), 1000);
+  await db.$executeRawUnsafe('DROP TRIGGER consumption_fail_refund_trigger ON "CreditTransaction"');
+  await db.$executeRawUnsafe('DROP FUNCTION consumption_fail_refund()');
+  assert.equal((await restarted.reconcile(rejectedRecovery)).status, 'rejected');
+  const expiredGift = await db.creditLot.findUniqueOrThrow({ where: { id: gift.id } });
+  assert.equal(expiredGift.status, 'expired'); assert.equal(expiredGift.remainingAmount, 0);
+  assert.equal(expiredGift.expiresAt!.getTime(), originalExpiry.getTime()); assert.equal(await balance(giftUser.id), 1000);
+  await restarted.reconcile(rejectedRecovery);
+  assert.equal(await db.creditTransaction.count({ where: { apiUsageId: rejectedRecovery, type: 'refund' } }), 1);
   const pulled = await admit(user.id); const pulledProof = proof(pulled);
   (restarted as any).fetchImpl = async (input: string, init: RequestInit) => { assert(String(input).includes('/v1/tanva/consumptions/')); assert.equal(init.method, 'GET'); return Response.json(envelope(pulledProof)); };
   await db.apiUsageRecord.update({ where: { id: pulled }, data: { consumptionNextCheckAt: new Date(0) } });

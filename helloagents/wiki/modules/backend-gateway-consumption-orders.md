@@ -18,6 +18,8 @@
 
 启用配置：后端与该Tanva New API使用相同 `TANVA_CONSUMPTION_SECRET`；`TANVA_CONSUMPTION_INSTANCE_ID` 默认 `tanva-new-api`。后端继续使用 `NEW_API_BASE_URL` 和服务端 `NEW_API_KEY` / `NEW_API_TOKEN`。上线要明确启用新协议；配置缺失只保留原兼容合同，不能宣称权威订单闭环已生效。已登记订单配置失效不会降级为响应usage扣费。
 
+部署时先执行新增Prisma迁移，再把同一签名配置注入backend和new-api容器，并配置网关通知地址指向该backend的消费回调。`backend/docker-compose.yml`已声明网关消费配置；修改环境后须重建/重新创建new-api容器，不能只更新宿主机环境文件。人民币外显UI也需要随本次网关镜像编译：现有 `NEW_API_SKIP_WEB_BUILD=1` 需改为 `0`。本文只说明部署条件，当前隔离验证没有部署生产。
+
 供应商请求由后端生成 `X-Tanva-Order-Id`、`X-Tanva-Order-Hash`、`X-Tanva-Timestamp`、`X-Tanva-Signature`。HMAC-SHA256文本依次为timestamp、HTTP METHOD、escaped path、orderId、orderHash、sha256(rawBody)，用换行连接，仍携带服务端Bearer。orderHash是后端原业务正文与钱包身份摘要，由网关原样留存，不由渠道映射后正文重新生成。
 
 `POST /api/internal/new-api/consumptions` 接受 `{timestamp,payload,signature}`；payload为base64url编码UTF-8 JSON，签名为HMAC(secret, timestamp + 换行 + payload)，使用恒时比较，时间窗口±300秒。payload包含version1、稳定eventId、单调revision、订单/网关身份、model、状态、CNY金额/quota、开始/结算时间与usageEvidence。usageEvidence可为 `upstream_tokens`、`gateway_estimated_usage`、`gateway_fixed_price` 或 `unknown`；估算不是供应商真实token，不混称。重复同事件版本仅结算一次，旧版本不能覆盖终态，同版本内容冲突及终态修改拒绝。

@@ -14,7 +14,11 @@ import (
 
 func tanvaModelSetup(t *testing.T) {
 	t.Helper()
-	require.NoError(t, DB.AutoMigrate(&TanvaConsumption{}, &TanvaConsumptionOutbox{}, &UserSubscription{}, &SubscriptionPlan{}))
+	for _, table := range []interface{}{&TanvaConsumption{}, &TanvaConsumptionOutbox{}, &UserSubscription{}, &SubscriptionPlan{}} {
+		if !DB.Migrator().HasTable(table) {
+			require.NoError(t, DB.AutoMigrate(table))
+		}
+	}
 	t.Cleanup(func() {
 		DB.Exec("DELETE FROM tanva_consumption_outboxes")
 		DB.Exec("DELETE FROM tanva_consumptions")

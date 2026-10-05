@@ -2,11 +2,12 @@
 // own ephemeral container; no production datasource or paid API is accessed.
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
+const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const backend = path.resolve(__dirname, '..');
 const name = `tanva-desktop-chat-test-${randomUUID().slice(0, 8)}`;
-function run(command, args, env = process.env, quiet = false) {
-  const result = spawnSync(command, args, { cwd: backend, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+function run(command, args, env = process.env, quiet = false, input) {
+  const result = spawnSync(command, args, { cwd: backend, env, input, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (!quiet) { process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || ''); }
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`);
@@ -30,6 +31,12 @@ async function main() {
     const env = { ...process.env, DATABASE_URL: url, DESKTOP_CHAT_TEST_DATABASE_URL: url };
     console.log('Testing actual schema/services against an isolated local PostgreSQL 16 container. Model HTTP uses fixtures only.');
     run(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], env);
+    // Exercise the deployable migration itself on this disposable database,
+    // rather than only letting Prisma synthesize the final schema.
+    const dropConsumptionColumns = 'ALTER TABLE "ApiUsageRecord" DROP COLUMN "consumptionStatus", DROP COLUMN "consumptionEventId", DROP COLUMN "consumptionReceipt", DROP COLUMN "consumptionNextCheckAt";\n';
+    const consumptionMigration = readFileSync(path.join(backend, 'prisma/migrations/202610050002_gateway_consumption_orders/migration.sql'), 'utf8');
+    run('docker', ['exec', '-i', name, 'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'desktop_chat_test'], env, false, dropConsumptionColumns + consumptionMigration);
+    console.log('PASS: consumption-order SQL migration executed against isolated PostgreSQL.');
     run(process.execPath, ['node_modules/prisma/build/index.js', 'generate'], env, true);
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/deepseek-pricing.spec.ts'], env);
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/consumption-orders/gateway-consumption-orders.spec.ts'], env);
