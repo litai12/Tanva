@@ -23,7 +23,6 @@ import { useLocaleText } from '@/utils/localeText';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 import RunCreditBadge from './RunCreditBadge';
-import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -172,23 +171,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       runText: '#ffffff',
     };
   }, [isDarkTheme, selected]);
-
-  // 获取生文积分（根据模型和路线动态计算）
-  const { credits: backendCredits } = useBackendCreditsPreview({
-    serviceType: 'gemini-text',
-    model: textModel,
-    requestParams: {
-      aiProvider: effectiveProvider,
-      channelHint:
-        bananaImageRoute === 'stable'
-          ? 'tencent'
-          : bananaImageRoute === 'ultra'
-          ? 'beqlee'
-          : 'apimart',
-    },
-    enabled: true,
-  });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
@@ -755,9 +737,7 @@ Rules:
             title={
               status === 'running' || isInvoking
                 ? 'Running...'
-                : resolvedRunCredits
-                ? `${lt('消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
-                : lt('运行对话', 'Run chat')
+                : lt('按实际 token 用量结算，官方人民币价 ×1.5，每次请求积分向上取整', 'Billed by actual token usage at official CNY price ×1.5, credits rounded up per request')
             }
             style={{
               fontSize: 12,
@@ -782,7 +762,7 @@ Rules:
             ) : (
               <>
                 <span className='run-text-trigger'>Run</span>
-                <RunCreditBadge credits={resolvedRunCredits} runButton />
+                <RunCreditBadge usageBased runButton />
               </>
             )}
           </button>

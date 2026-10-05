@@ -66,7 +66,6 @@ import {
 import { resolveImageToDataUrl } from "@/utils/imageSource";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import RunCreditBadge from "./RunCreditBadge";
-import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1188,22 +1187,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     () => getAnalyzeModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
-  const { credits: backendCredits } = useBackendCreditsPreview({
-    serviceType: "gemini-text",
-    model: textModel,
-    requestParams: {
-      aiProvider: effectiveProvider,
-      channelHint:
-        bananaImageRoute === "stable"
-          ? "tencent"
-          : bananaImageRoute === "ultra"
-          ? "beqlee"
-          : "apimart",
-    },
-    enabled: true,
-  });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
-
   React.useEffect(() => {
     setPromptDraft(data.promptDraft || "");
   }, [data.promptDraft]);
@@ -2003,9 +1986,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           className="nodrag nopan run-btn-with-credit"
           onPointerDownCapture={stopFlowPan}
           title={
-            resolvedRunCredits
-              ? `${lt("消耗", "Cost")}: ${resolvedRunCredits} ${lt("积分", "credits")}`
-              : lt("运行", "Run")
+            lt("按实际 token 用量结算，官方人民币价 ×1.5，每次请求积分向上取整", "Billed by actual token usage at official CNY price ×1.5, credits rounded up per request")
           }
           style={{
             minWidth: 64,
@@ -2028,7 +2009,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         >
           {isBusy ? <Loader2 size={15} className="animate-spin" /> : null}
           <span className="run-text-trigger">{isBusy ? "Running..." : "Run"}</span>
-          {resolvedRunCredits ? <RunCreditBadge credits={resolvedRunCredits} runButton /> : null}
+          <RunCreditBadge usageBased runButton />
         </button>
       </div>
 

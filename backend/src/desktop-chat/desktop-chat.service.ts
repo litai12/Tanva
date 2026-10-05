@@ -7,6 +7,7 @@ import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, canonicalJson, hash, identifier, receipt, usageId, validateCompletion } from './desktop-chat.protocol';
+import { createDeepSeekPricingSnapshot, calculateDeepSeekUsage, estimateDeepSeekReservation } from './deepseek-pricing';
 
 /** One durable ApiUsageRecord primary key per user/request. Admission, receipt,
  * and wallet change share a transaction. Unknown accepted work is never resent. */
@@ -66,12 +67,20 @@ export class DesktopChatService {
   }
   async models(userId: string, teamId?: unknown) {
     await this.scope(userId, teamId);
-    const [available, quote] = await Promise.all([this.modelAvailable(), this.credits.previewCredits({ userId, serviceType: 'gemini-text', model: DESKTOP_CHAT_MODEL, requestParams: { model: DESKTOP_CHAT_MODEL, requestedProvider: 'new-api' } })]);
+    const available = await this.modelAvailable();
+    let snapshot: ReturnType<typeof createDeepSeekPricingSnapshot>;
+    try { snapshot = createDeepSeekPricingSnapshot(new Date()); }
+    catch { throw new ServiceUnavailableException('官方用量报价不可用，请更新节假日日历'); }
     // new-api 2026-09-16 official-v41-flash catalog declares vision/tool_calls.
     return { models: [{ id: DESKTOP_CHAT_MODEL, name: 'DeepSeek V4.1 Flash', available,
       supportsTools: true, supportsVision: true, reasoningEfforts: [], streaming: false,
       ...(!available ? { unavailableReason: 'Tanva模型网关未配置或未提供此模型' } : {}),
-      pricing: { unit: 'call', creditsPerCall: quote.credits, currency: 'credits' } }] };
+      pricing: { unit: 'token', currency: 'credits', priceCurrency: 'CNY', rounding: 'ceil', markup: snapshot.markup,
+        creditsPerYuan: snapshot.creditsPerYuan, period: snapshot.period, pricingVersion: snapshot.version,
+        inputCnyPerMillion: snapshot.pricesCnyPerMillion.cacheMiss,
+        cachedInputCnyPerMillion: snapshot.pricesCnyPerMillion.cacheHit,
+        outputCnyPerMillion: snapshot.pricesCnyPerMillion.output,
+        sourceUrl: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/' } }] };
   }
   private async row(userId: string, id: string) {
     const row = await this.prisma.apiUsageRecord.findUnique({ where: { id: usageId(userId, identifier(id, 'requestId')) } });
@@ -115,21 +124,27 @@ export class DesktopChatService {
     const existing = await this.prisma.apiUsageRecord.findUnique({ where: { id } });
     if (existing) { check(existing); return this.replay(await this.recover(existing)); }
     if (!await this.modelAvailable()) throw new ServiceUnavailableException('Tanva模型网关未提供此模型');
-    const quote = await this.credits.previewCredits({ userId, serviceType: 'gemini-text', model: body.model, requestParams: { model: body.model, requestedProvider: 'new-api' } });
-    if (!Number.isSafeInteger(quote.credits) || quote.credits < 0) throw new ServiceUnavailableException('Tanva模型价格无效');
+    let snapshot: ReturnType<typeof createDeepSeekPricingSnapshot>;
+    let estimate: ReturnType<typeof estimateDeepSeekReservation>;
+    try { snapshot = createDeepSeekPricingSnapshot(new Date()); estimate = estimateDeepSeekReservation(snapshot, body); }
+    catch { throw new ServiceUnavailableException('官方用量报价不可用，请检查模型参数与节假日日历'); }
+    const reservedCredits = estimate.creditsReserved;
     const meta: DesktopChatMeta = { requestId, taskId, conversationId, bodyHash, scope,
-      state: 'pending', credits: quote.credits, deadline: new Date(Date.now() + REQUEST_TIMEOUT_MS).toISOString() };
+      state: 'pending', credits: reservedCredits, deadline: new Date(Date.now() + REQUEST_TIMEOUT_MS).toISOString(),
+      billing: { mode: 'official_token_usage', snapshot, markup: snapshot.markup, creditsPerYuan: snapshot.creditsPerYuan,
+        priceCurrency: 'CNY', rounding: 'ceil', period: snapshot.period, pricingVersion: snapshot.version,
+        reservation: { inputTokens: estimate.inputTokenBudget, outputTokens: estimate.outputTokenBudget, credits: reservedCredits } } };
     const admission = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${id}, 0))`;
       const row = await tx.apiUsageRecord.findUnique({ where: { id } });
       if (row) { check(row); return { row, duplicate: true }; }
       await this.scope(userId, headers['x-tanva-team-id'], tx);
-      await this.credits.deductExact(userId, scope.kind === 'team' ? scope.teamId : null, quote.credits, {
+      await this.credits.deductExact(userId, scope.kind === 'team' ? scope.teamId : null, reservedCredits, {
         apiUsageId: id, serviceType: 'gemini-text', serviceName: 'Tanva桌面对话', provider: 'new-api', model: body.model,
         responseStatus: ApiResponseStatus.PENDING, requestParams: { desktopChat: meta, ...(scope.kind === 'team' ? { teamId: scope.teamId } : {}) },
       }, tx);
       if (scope.kind === 'team') {
-        const reserved = await this.ledger.reserve({ teamId: scope.teamId, amount: quote.credits, taskId: id, taskKind: 'gemini-text', actorUserId: userId }, tx);
+        const reserved = await this.ledger.reserve({ teamId: scope.teamId, amount: reservedCredits, taskId: id, taskKind: 'gemini-text', actorUserId: userId }, tx);
         if (!reserved.reserved) throw new ForbiddenException(reserved.reason || '团队积分预留失败');
       }
       return { row: (await tx.apiUsageRecord.findUnique({ where: { id } }))!, duplicate: false };
@@ -145,6 +160,13 @@ export class DesktopChatService {
       const response = await this.fetchImpl(`${base}/v1/chat/completions`, { method: 'POST', redirect: 'error',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': id },
         body: JSON.stringify(body), signal });
+      const upstreamId = response.headers.get('x-oneapi-request-id');
+      if (meta.billing && upstreamId && /^[A-Za-z0-9_.:-]{1,128}$/.test(upstreamId)) {
+        meta.billing.upstreamRequestId = upstreamId;
+        // Retain gateway correlation even if its JSON is invalid or unreadable.
+        await this.prisma.apiUsageRecord.update({ where: { id }, data: { requestParams: {
+          desktopChat: meta, ...(scope.kind === 'team' ? { teamId: scope.teamId } : {}) } as any } });
+      }
       if (!response.ok) {
         confirmedRejected = [400, 401, 402, 403, 404, 405, 413, 415, 422, 429].includes(response.status);
         throw new Error('UPSTREAM_REJECTED');
@@ -171,28 +193,41 @@ export class DesktopChatService {
       const prior = (row.requestParams as any).desktopChat as DesktopChatMeta;
       if (prior.state === 'completed' || prior.state === 'failed') return false;
       const state = response ? 'completed' : rejected ? 'failed' : 'reconciliation_required';
-      const meta = { ...prior, state, ...(knownRejected ? { rejectionConfirmed: true } : {}), ...(knownResponse ? { response: knownResponse } : {}), ...(response ? { response, completedAt: new Date().toISOString() } : { errorCode: rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN' }) };
+      const meta: DesktopChatMeta = { ...prior, state, ...(original.billing?.upstreamRequestId && prior.billing ? {
+        billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}),
+        ...(knownRejected ? { rejectionConfirmed: true } : {}), ...(knownResponse ? { response: knownResponse } : {}), ...(response ? { response, completedAt: new Date().toISOString() } : { errorCode: rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN' }) };
       if (response) { delete meta.errorCode; delete meta.rejectionConfirmed; }
-      if (response && original.scope.kind === 'team') {
+      if (response && meta.billing) {
+        const calculation = calculateDeepSeekUsage(meta.billing.snapshot, response.usage);
+        const settled = original.scope.kind === 'team'
+          ? await this.ledger.settleDesktopChatUsage({ teamId: original.scope.teamId, taskId: id, actorUserId: userId, exactCreditNanos: calculation.exactCreditNanos }, tx)
+          : await this.credits.settleDesktopChatUsage(userId, id, calculation.exactCreditNanos, tx);
+        meta.credits = settled.creditsCharged;
+        meta.billing = { ...meta.billing, officialCostCny: calculation.officialCostCnyDecimal,
+          exactCredits: calculation.exactCreditsDecimal, exactCreditNanos: calculation.exactCreditNanos,
+          usage: { inputTokens: calculation.usage.inputTokens, cachedInputTokens: calculation.usage.cacheHitTokens, outputTokens: calculation.usage.outputTokens } };
+      } else if (response && original.scope.kind === 'team') {
         const committed = await this.ledger.deduct({ teamId: original.scope.teamId, amount: original.credits, taskId: id, taskKind: 'gemini-text', actorUserId: userId }, tx);
         if (!committed.deducted) throw new Error('TEAM_SETTLEMENT_FAILED');
       }
       await tx.apiUsageRecord.update({ where: { id }, data: {
         responseStatus: response ? ApiResponseStatus.SUCCESS : rejected ? ApiResponseStatus.FAILED : ApiResponseStatus.PENDING,
         requestParams: { ...(row.requestParams as any), desktopChat: meta },
-        ...(response ? { inputTokens: safeTokens(response.usage?.prompt_tokens), outputTokens: safeTokens(response.usage?.completion_tokens) } : {}),
+        ...(response && meta.billing ? { creditsUsed: meta.credits } : {}),
+        ...(response ? { inputTokens: safeTokens(meta.billing?.usage?.inputTokens ?? response.usage?.prompt_tokens),
+          outputTokens: safeTokens(meta.billing?.usage?.outputTokens ?? response.usage?.completion_tokens) } : {}),
       } });
       if (rejected) {
         if (original.scope.kind === 'team') await this.ledger.release({ teamId: original.scope.teamId, amount: original.credits, taskId: id }, tx);
         else await this.credits.refundCredits(userId, id, tx);
       }
-      return true;
+      return meta;
     }, { timeout: 30_000 });
-    if (changed && (response || rejected)) this.notify(original, userId, id, response ? 'deduct' : 'release');
+    if (changed && (response || rejected)) this.notify(changed, userId, id, response ? 'deduct' : 'release');
   }
   private notify(meta: DesktopChatMeta, userId: string, id: string, reason: 'reserve' | 'deduct' | 'release') {
     if (meta.scope.kind === 'team') void this.publisher?.publish({ teamId: meta.scope.teamId, reason,
-      delta: reason === 'reserve' ? -meta.credits : reason === 'release' ? meta.credits : 0, actorUserId: userId, taskId: id }).catch(() => undefined);
+      delta: reason === 'reserve' ? -meta.credits : reason === 'release' ? meta.credits : meta.billing ? meta.billing.reservation.credits - meta.credits : 0, actorUserId: userId, taskId: id }).catch(() => undefined);
   }
 }
 function safeTokens(value: unknown): number | undefined { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 2_147_483_647 ? value : undefined; }

@@ -1465,3 +1465,10 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 新增Cookie鉴权 `/api/desktop/v1` 模型/余额/完整ChatCompletions/回执查询，复用既有个人批次与团队积分账本；当前DeepSeek V4.1 Flash每次模型请求30积分，视觉/工具能力依现有new-api注册目录，运行期确认提供型号。
 - 请求主键与事务锁保留永久幂等；受理与个人预扣/团队预留原子提交，未知受理保留费用；已拿到真实回复的结算失败可只补原账本恢复，用户客户端停止不触发退款或重发。
 - 实际隔离PostgreSQL与Nest/Fastify Cookie HTTP回归通过，新增 `npm run test:desktop-chat` 自动容器清理runner；未部署或执行生产付费模型任务。详见 `wiki/modules/backend-desktop-chat.md`。
+
+
+## 2026-10-05 DeepSeek 官方用量结算
+
+- 桌面新请求按官方人民币峰谷/缓存价格和1.5倍率结算，按用户最终要求每个物理请求积分向上取整，保留精确金额对账。预算预扣原子退差、原lot与成员quota保留；上游请求编号留存。旧固定30回执不追改。
+- 无新增钱包/字段/迁移；本次仅本地代码与隔离测试，不部署、不额外生产付费。
+- 网页文字对话、提示词优化与HTML PPT运行按钮改为“按量”，停止显示旧固定积分预览和节点配置兜底；tooltip说明实际token费用和按次向上取整。通用旧预览协议、其他固定价业务与小T2积分保持原边界，见 `wiki/deepseek-web-billing-20261005.md`。

@@ -10,6 +10,7 @@ import {
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { findCreditAccountForUpdate } from './credit-account-lock.util';
+import { roundUpDeepSeekCredits } from '../desktop-chat/deepseek-pricing';
 import { materializeLegacyReferralLots } from './legacy-referral-lots';
 import {
   diffDailyRewardBusinessDays,
@@ -5085,6 +5086,81 @@ export class CreditsService {
     });
   }
 
+  /** Settle one accepted desktop request, retaining its original lot allocation.
+   * Admission and receipt settlement own the transaction and request lock. */
+  async settleDesktopChatUsage(userId: string, apiUsageId: string, exactCreditNanos: string, tx: Prisma.TransactionClient) {
+    let account = await findCreditAccountForUpdate(tx, { userId });
+    if (!account) throw new NotFoundException('用户积分账户不存在');
+    const usage = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: apiUsageId } });
+    if (usage.userId !== userId || (!(usage.requestParams as any)?.desktopChat && !(usage.requestParams as any)?.deepseekBilling) || (usage.requestParams as any)?.teamId) throw new BadRequestException('无效DeepSeek用量结算');
+    const existing = await tx.creditTransaction.findFirst({ where: { apiUsageId, type: TransactionType.ADJUSTMENT,
+      metadata: { path: ['reason'], equals: 'desktop_chat_usage_settlement' } } });
+    if (existing) return (existing.metadata as any).settlement as { creditsCharged: number };
+    if (usage.responseStatus !== ApiResponseStatus.PENDING) throw new BadRequestException('仅受理中的用量可以首次结算');
+    const settlement = { creditsCharged: roundUpDeepSeekCredits(exactCreditNanos) };
+    const delta = settlement.creditsCharged - usage.creditsUsed;
+    const spend = await tx.creditTransaction.findFirst({ where: { apiUsageId, type: TransactionType.SPEND }, orderBy: { createdAt: 'asc' } });
+    let changes: HybridCreditDeduction[] = [];
+    let policyCode = spend?.consumePolicyCode;
+    let policyVersion = spend?.consumePolicyVersion;
+    if (delta < 0) {
+      // Return the tail first: the retained charge still consumes the highest
+      // priority sources, rather than returning gifts while keeping recharge.
+      let remaining = -delta;
+      for (const item of this.extractLotDeductionsFromMetadata(spend?.metadata).reverse()) {
+        const amount = Math.min(item.amount, remaining);
+        if (amount > 0) changes.push({ ...item, amount });
+        remaining -= amount;
+        if (!remaining) break;
+      }
+      if (remaining) throw new Error('DESKTOP_CHAT_LOT_RESERVATION_MISSING');
+      const lotIds = changes.flatMap(item => item.kind === 'lot' && item.lotId ? [item.lotId] : []);
+      const lots = await tx.creditLot.findMany({ where: { id: { in: lotIds }, accountId: account.id } });
+      if (lots.length !== new Set(lotIds).size) throw new Error('DESKTOP_CHAT_LOT_MISSING');
+      for (const lot of applyLotRestorationsToSnapshots({ lots: lots.map(l => this.toCreditLotCandidate(l)), deductions: changes })) {
+        await tx.creditLot.update({ where: { id: lot.id }, data: { remainingAmount: lot.remainingAmount, status: lot.status } });
+      }
+    } else if (delta > 0) {
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
+      await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, { accountId: account.id, now: new Date() });
+      account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) throw new NotFoundException('用户积分账户不存在');
+      await materializeLegacyReferralLots(tx, account.id);
+      const lots = await tx.creditLot.findMany({ where: { accountId: account.id, status: 'active' } });
+      const policy = await this.resolveCreditConsumePolicy(tx, { serviceType: usage.serviceType, provider: usage.provider, model: usage.model });
+      const plan = buildHybridCreditDeductionPlan({ accountBalance: account.balance, amount: delta,
+        lots: lots.map(l => this.toCreditLotCandidate(l)), now: new Date(),
+        scope: { serviceType: usage.serviceType, provider: usage.provider, model: usage.model }, policy });
+      if (!plan.sufficient) throw new BadRequestException('实际对话费用超出可用积分，原结果保留待结算');
+      changes = plan.deductions;
+      policyCode = policy.code; policyVersion = policy.version;
+      for (const lot of applyLotDeductionsToSnapshots({ lots: lots.map(l => this.toCreditLotCandidate(l)), deductions: changes })) {
+        await tx.creditLot.update({ where: { id: lot.id }, data: { remainingAmount: lot.remainingAmount, status: lot.status } });
+      }
+    }
+    const newBalance = account.balance - delta;
+    if (newBalance < 0) throw new BadRequestException('实际对话费用超出可用积分');
+    await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance,
+      totalSpent: Math.max(0, account.totalSpent + delta) } });
+    await tx.creditTransaction.create({ data: { accountId: account.id, type: TransactionType.ADJUSTMENT,
+      amount: -delta, balanceBefore: account.balance, balanceAfter: newBalance, apiUsageId,
+      description: 'Tanva对话按官方实际用量结算', consumePolicyCode: policyCode, consumePolicyVersion: policyVersion,
+      metadata: { reason: 'desktop_chat_usage_settlement', exactCreditNanos, settlement,
+        reservedCredits: usage.creditsUsed, direction: delta < 0 ? 'refund' : delta > 0 ? 'charge' : 'unchanged',
+        deductions: changes as unknown as Prisma.JsonArray } } });
+    if (delta < 0) {
+      // Restoring a reserved lot never renews its original expiry. A grant can
+      // expire while its reserved balance is zero; reconcile it immediately
+      // after the refund so it cannot become spendable again.
+      const restoredAccount = await findCreditAccountForUpdate(tx, { userId });
+      if (!restoredAccount) throw new NotFoundException('用户积分账户不存在');
+      await this.expireDailyRewardLotsForLockedAccount(tx, restoredAccount, new Date());
+      await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, { accountId: account.id, now: new Date() });
+    }
+    return settlement;
+  }
+
   async previewCredits(params: PreviewCreditsParams) {
     const account = await this.getOrCreateAccount(params.userId);
     let cachedQuote = await this.getCachedPreviewQuote(params);
@@ -6401,6 +6477,10 @@ export class CreditsService {
     let errors = 0;
 
     for (const record of staleRecords) {
+      // Paid language requests lack a trustworthy upstream cancellation query.
+      // Elapsed time must not turn accepted desktop/web work into a refund.
+      if ((record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||
+          record.id.startsWith('desktop-chat:') || record.id.startsWith('deepseek-chat:')) continue;
       const processingTime = Math.max(0, Date.now() - record.createdAt.getTime());
       const timeoutMessage = `超时自动关闭：${timeoutMinutes}分钟未完成`;
 

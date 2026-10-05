@@ -1,5 +1,6 @@
 import { BadRequestException, PayloadTooLargeException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { DeepSeekPricingSnapshot } from './deepseek-pricing';
 
 export const DESKTOP_CHAT_MODEL = 'deepseek-v4.1-flash';
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
@@ -10,6 +11,14 @@ export interface DesktopChatMeta {
   requestId: string; taskId: string; conversationId: string; bodyHash: string;
   scope: DesktopScope; state: ReceiptStatus; deadline: string;
   credits: number; rejectionConfirmed?: boolean; completedAt?: string; errorCode?: string; response?: Record<string, any>;
+  billing?: {
+    mode: 'official_token_usage'; snapshot: DeepSeekPricingSnapshot;
+    reservation: { inputTokens: number; outputTokens: number; credits: number };
+    markup: 1.5; creditsPerYuan: 100; priceCurrency: 'CNY'; rounding: 'ceil'; period: 'peak' | 'off_peak'; pricingVersion: string;
+    officialCostCny?: string; exactCredits?: string; exactCreditNanos?: string;
+    upstreamRequestId?: string;
+    usage?: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
+  };
 }
 export const canonicalJson = (value: any): string => {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -37,12 +46,15 @@ export function receipt(row: any, includeResponse = false) {
   const state: ReceiptStatus = meta.state === 'pending' && Date.now() > Date.parse(meta.deadline) ? 'reconciliation_required' : meta.state;
   const funded = meta.scope.kind === 'team';
   const amount = state === 'failed' ? 0 : meta.credits;
+  const metered = !!meta.billing;
+  const pending = state === 'pending' || state === 'reconciliation_required';
   return {
     requestId: meta.requestId, apiUsageId: row.id, taskId: meta.taskId,
     conversationId: meta.conversationId, model: row.model, scope: meta.scope, status: state,
-    creditsCharged: funded && state !== 'completed' ? 0 : amount,
-    creditsReserved: funded && (state === 'pending' || state === 'reconciliation_required') ? amount : 0,
+    creditsCharged: metered ? (state === 'completed' ? amount : 0) : funded && state !== 'completed' ? 0 : amount,
+    creditsReserved: (funded || metered) && pending ? (meta.billing?.reservation.credits ?? amount) : 0,
     unit: 'credits' as const, createdAt: new Date(row.createdAt).toISOString(),
+    ...(meta.billing ? { billing: meta.billing } : {}),
     ...(meta.completedAt ? { completedAt: meta.completedAt } : {}),
     ...(meta.errorCode ? { errorCode: meta.errorCode } : {}),
     ...(includeResponse && state === 'completed' ? { response: meta.response } : {}),

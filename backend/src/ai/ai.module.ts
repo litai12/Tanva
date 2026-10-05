@@ -1,6 +1,7 @@
 ﻿import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiService } from './ai.service';
+import { DeepSeekChatBillingService } from './services/deepseek-chat-billing.service';
 import { ImageGenerationService } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
@@ -63,6 +64,7 @@ import { GlobalImageHistoryModule } from '../global-image-history/global-image-h
   ],
   providers: [
     AiService,
+    DeepSeekChatBillingService,
     ImageGenerationService,
     BackgroundRemovalService,
     GeminiProProvider,

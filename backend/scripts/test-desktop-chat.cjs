@@ -30,6 +30,8 @@ async function main() {
     const env = { ...process.env, DATABASE_URL: url, DESKTOP_CHAT_TEST_DATABASE_URL: url };
     console.log('Testing actual schema/services against an isolated local PostgreSQL 16 container. Model HTTP uses fixtures only.');
     run(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], env);
+    run(process.execPath, ['node_modules/prisma/build/index.js', 'generate'], env, true);
+    run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/deepseek-pricing.spec.ts'], env);
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/desktop-chat.spec.ts'], env);
   } finally {
     if (created) run('docker', ['rm', '-f', name], process.env, true);

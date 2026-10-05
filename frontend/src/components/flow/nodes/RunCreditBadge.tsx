@@ -8,6 +8,7 @@ type RunCreditBadgeProps = {
   compact?: boolean;
   inline?: boolean;
   runButton?: boolean;
+  usageBased?: boolean;
   className?: string;
 };
 
@@ -16,14 +17,18 @@ function RunCreditBadge({
   compact = false,
   inline = false,
   runButton = false,
+  usageBased = false,
   className = "",
 }: RunCreditBadgeProps) {
   const { lt } = useLocaleText();
   const { credits: resolvedCredits } = useNodeRunCredits(credits);
   const value = Number(resolvedCredits);
-  const titleText = `${lt("Cost", "Cost")}: ${value} ${lt("credits", "credits")}`;
+  const titleText = usageBased
+    ? lt("按实际 token 用量结算：官方人民币价 ×1.5 ×100积分/元，每次请求积分向上取整", "Billed by actual token usage: official CNY price ×1.5 ×100 credits/CNY, rounded up per request")
+    : `${lt("Cost", "Cost")}: ${value} ${lt("credits", "credits")}`;
+  const displayValue = usageBased ? lt("按量", "Usage") : value;
 
-  if (!Number.isFinite(value) || value <= 0) {
+  if (!usageBased && (!Number.isFinite(value) || value <= 0)) {
     return null;
   }
 
@@ -40,7 +45,7 @@ function RunCreditBadge({
         }}
       >
         {" · "}
-        {value}
+        {displayValue}
       </span>
     );
   }
@@ -98,7 +103,7 @@ function RunCreditBadge({
             }}
           />
         </span>
-        {value}
+        {displayValue}
       </span>
     );
   }
@@ -123,7 +128,7 @@ function RunCreditBadge({
         whiteSpace: "nowrap",
       }}
     >
-      {value}
+      {displayValue}
     </span>
   );
 }

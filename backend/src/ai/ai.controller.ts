@@ -1,5 +1,7 @@
 import { imageExecutionContext, isImageGenerationService, needsImageReconciliation, ImageExecutionState } from './services/image-execution-state';
 import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
+import { DeepSeekChatBillingService, isDeepSeekChatModel } from './services/deepseek-chat-billing.service';
+import type { IAIProvider, AIProviderResponse, TextChatRequest, TextResult } from './providers/ai-provider.interface';
 import { assertVideoNodeEnabled } from './services/video-node-availability';
 ﻿import {
   Body,
@@ -521,6 +523,7 @@ export class AiController {
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
     @Optional() private readonly creditCharge?: CreditChargeService,
     @Optional() private readonly referenceVideoDuration?: ReferenceVideoDurationService,
+    @Optional() private readonly deepseekChatBilling?: DeepSeekChatBillingService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -4772,17 +4775,44 @@ export class AiController {
       ),
     );
 
-    return this.withCredits(req, serviceType, model, async () => {
+    const userId = this.getUserId(req);
+    const requestIdentity = this.extractIdempotencyKey(req) || crypto.randomUUID();
+    const generateText = async (provider: IAIProvider, request: TextChatRequest, step: string): Promise<AIProviderResponse<TextResult>> => {
+      const operation = async () => {
+        const result = await provider.generateText(request);
+        return result;
+      };
+      if (!userId || !isDeepSeekChatModel(request.model)) {
+        const result = await operation();
+        requireTerminalTextResult(result);
+        return result;
+      }
+      if (!this.deepseekChatBilling) throw new ServiceUnavailableException('DeepSeek按量计费服务暂不可用');
+      return this.deepseekChatBilling.execute({
+        userId, teamId: this.getTeamId(req), model: request.model!, serviceType,
+        serviceName: billingTag === 'prompt_optimize' ? '提示词优化' : '网页文本对话',
+        identity: `${requestIdentity}:${step}`,
+        requestBody: { model: request.model, messages: [{ role: 'user', content: request.imageUrls?.length
+          ? [{ type: 'text', text: request.prompt }, ...request.imageUrls.map(url => ({ type: 'image_url', image_url: { url } }))]
+          : request.prompt }],
+          enableWebSearch: request.enableWebSearch, providerOptions: request.providerOptions,
+          thinkingLevel: request.thinkingLevel, teamId: this.getTeamId(req) },
+      }, operation, result => {
+        requireTerminalTextResult(result);
+        return (result.data?.metadata?.raw as any)?.usage;
+      });
+    };
+    const operation = async () => {
       if (!customApiKey) {
         if (usesBusinessTextRoute) {
           const safetyProvider = this.factory.getProvider(
             BUSINESS_TEXT_SAFETY_MODEL,
             'new-api',
           );
-          const safetyResult = await safetyProvider.generateText({
+          const safetyResult = await generateText(safetyProvider, {
             prompt: buildBusinessTextSafetyPrompt(dto.prompt),
             model: BUSINESS_TEXT_SAFETY_MODEL,
-          });
+          }, 'safety');
           const safetyText = requireTerminalTextResult(safetyResult).text;
           const safetyVerdict = (() => {
             try {
@@ -4803,20 +4833,24 @@ export class AiController {
         }
 
         const provider = this.factory.getProvider(gatewayModel, providerName || 'new-api');
-        const result = await provider.generateText({
+        const result = await generateText(provider, {
           prompt: dto.prompt,
           model: gatewayModel,
           imageUrls: imageUrls.length ? imageUrls : undefined,
           enableWebSearch: dto.enableWebSearch,
           // 图片线路配置（stable/ultra）不能改变业务文本 token 分组；DeepSeek 文本固定走 default。
           providerOptions: usesBusinessTextRoute ? undefined : dto.providerOptions,
-        });
+        }, 'reply');
         return requireTerminalTextResult(result);
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, {
+    };
+    // DeepSeek calls have their own usage receipts and per-request rounded charges;
+    // the legacy fixed-price charge must not run as a second billing layer.
+    if (isDeepSeekChatModel(gatewayModel)) return operation();
+    return this.withCredits(req, serviceType, model, operation, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, {
       billingTag,
       model,
       requestedProvider: dto.aiProvider,

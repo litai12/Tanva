@@ -42,6 +42,15 @@ function createHarness(safetyText: string): HarnessSetup {
 
   Object.assign(controller, {
     logger: { debug: () => undefined },
+    getUserId: () => 'user-test',
+    getTeamId: () => undefined,
+    extractIdempotencyKey: () => undefined,
+    deepseekChatBilling: {
+      execute: async (input: BillingCall, operation: () => Promise<unknown>) => {
+        billingCalls.push({ serviceType: input.serviceType, model: input.model });
+        return operation();
+      },
+    },
     factory: {
       getProvider: (gatewayModel: string, providerName: string) => ({
         generateText: async (request: {
@@ -140,7 +149,8 @@ async function main(): Promise<void> {
     prompt: 'Prompt Optimizer uses the same direct DeepSeek route',
     providerOptions: undefined,
   });
-  assert.deepEqual(allowed.billingCalls[1], {
+  assert.equal(allowed.billingCalls.length, 4, 'safety and reply must each carry real usage');
+  assert.deepEqual(allowed.billingCalls[2], {
     serviceType: 'gemini-prompt-optimize',
     model: 'deepseek-v4.1-flash',
   });

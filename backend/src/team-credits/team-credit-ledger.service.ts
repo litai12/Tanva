@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { roundUpDeepSeekCredits } from '../desktop-chat/deepseek-pricing';
 
 // Expiry schedules reconciliation only; elapsed time never proves a paid task failed.
 const RESERVE_TTL_MS = 20 * 60 * 1000;
@@ -197,6 +198,42 @@ export class TeamCreditLedgerService {
     }
   }
 
+  /** Settle usage against the complete original reservation and member quota.
+   * The integer charge is the rounded fee for this physical request. */
+  async settleDesktopChatUsage(params: { teamId: string; taskId: string; actorUserId: string; exactCreditNanos: string }, tx: Prisma.TransactionClient) {
+    const { teamId, taskId, actorUserId, exactCreditNanos } = params;
+    await tx.$queryRaw`SELECT id FROM "TeamCreditAccount" WHERE "teamId" = ${teamId} FOR UPDATE`;
+    const account = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
+    const key = (entryType: string) => ({ teamAccId_entryType_taskId: { teamAccId: account.id, entryType, taskId } });
+    const prior = await tx.teamCreditLedger.findUnique({ where: key('deduct') });
+    if (prior) {
+      const note = prior.note ? JSON.parse(prior.note) : undefined;
+      if (!note?.settlement) throw new Error('DESKTOP_CHAT_PRIOR_SETTLEMENT_MISSING');
+      return note.settlement as { creditsCharged: number };
+    }
+    const reserve = await tx.teamCreditLedger.findUnique({ where: key('reserve') });
+    if (!reserve || reserve.actorUserId !== actorUserId || await tx.teamCreditLedger.findUnique({ where: key('release') })) throw new Error('DESKTOP_CHAT_RESERVATION_MISSING');
+    await tx.$queryRaw`SELECT "userId" FROM "TeamMembership" WHERE "teamId" = ${teamId} AND "userId" = ${actorUserId} FOR UPDATE`;
+    const member = await tx.teamMembership.findUniqueOrThrow({ where: { teamId_userId: { teamId, userId: actorUserId } } });
+    const settlement = { creditsCharged: roundUpDeepSeekCredits(exactCreditNanos) };
+    const amount = settlement.creditsCharged;
+    const delta = amount - reserve.amount;
+    const monthlyDelta = reserve.createdAt >= member.quotaCycleStartAt ? delta : amount;
+    if (account.frozenBalance < reserve.amount || account.balance - (account.frozenBalance - reserve.amount) < amount) throw new BadRequestException('团队实际费用超出可用积分，原结果保留待结算');
+    const monthlyUsed = Math.max(0, member.creditUsedThisCycle + monthlyDelta);
+    const totalUsed = Math.max(0, member.creditUsedTotal + delta);
+    if ((member.creditQuotaMonthly != null && monthlyUsed > member.creditQuotaMonthly) ||
+        (member.creditQuotaTotal != null && totalUsed > member.creditQuotaTotal)) throw new BadRequestException('团队实际费用超出成员额度，原结果保留待结算');
+    await tx.teamCreditAccount.update({ where: { id: account.id }, data: { balance: { decrement: amount },
+      frozenBalance: { decrement: reserve.amount }, totalSpent: { increment: amount } } });
+    await tx.teamMembership.update({ where: { teamId_userId: { teamId, userId: actorUserId } }, data: {
+      creditUsedThisCycle: monthlyUsed, creditUsedTotal: totalUsed } });
+    await tx.teamCreditLedger.create({ data: { teamAccId: account.id, entryType: 'deduct', amount, taskId,
+      taskKind: reserve.taskKind, actorUserId, note: JSON.stringify({ reason: 'desktop_chat_usage_settlement',
+        reservedCredits: reserve.amount, exactCreditNanos, settlement }) } });
+    return settlement;
+  }
+
   /** 释放预留（任务失败/取消时调用） */
   async release(params: { teamId: string; amount: number; taskId: string }, transaction?: Prisma.TransactionClient): Promise<void> {
     const { teamId, amount, taskId } = params;
@@ -234,9 +271,13 @@ export class TeamCreditLedgerService {
         data: { frozenBalance: { decrement: amount } },
       });
       // 回退成员配额（月度 + 总量）
+      const meteredConversation = taskId.startsWith('desktop-chat:') || taskId.startsWith('deepseek-chat:');
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
-        SET "creditUsedThisCycle" = GREATEST(0, tm."creditUsedThisCycle" - ${amount}),
+        SET "creditUsedThisCycle" = CASE
+              WHEN ${meteredConversation} AND l."createdAt" < tm."quotaCycleStartAt"
+              THEN tm."creditUsedThisCycle"
+              ELSE GREATEST(0, tm."creditUsedThisCycle" - ${amount}) END,
             "creditUsedTotal" = GREATEST(0, tm."creditUsedTotal" - ${amount}),
             "updatedAt" = NOW()
         FROM "TeamCreditLedger" l

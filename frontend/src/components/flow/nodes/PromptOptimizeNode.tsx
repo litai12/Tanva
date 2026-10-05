@@ -23,7 +23,6 @@ import { usePromptSiblingImages } from '../hooks/usePromptSiblingImages';
 import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
-import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
 // 已去除可视化设置面板，采用内部默认参数
 type Props = {
@@ -65,17 +64,6 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     () => resolvePromptOptimizationModel(data.promptOptimizationModel),
     [data.promptOptimizationModel]
   );
-  const { credits: backendCredits } = useBackendCreditsPreview({
-    serviceType: 'gemini-prompt-optimize',
-    model: textModel,
-    requestParams: {
-      aiProvider: effectiveProvider,
-      channelHint: bananaImageRoute === 'stable' ? 'tencent' : bananaImageRoute === 'ultra' ? 'beqlee' : 'apimart',
-    },
-    enabled: true,
-  });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
-
   const readUpstreamText = React.useCallback((optimisticSource?: {
     sourceId: string;
     patch: FlowUpdatePatch;
@@ -372,9 +360,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
             title={
               loading
                 ? 'Generating...'
-                : resolvedRunCredits
-                ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
-                : lt('Run optimization', 'Run optimization')
+                : lt('按实际 token 用量结算，官方人民币价 ×1.5，每次请求积分向上取整', 'Billed by actual token usage at official CNY price ×1.5, credits rounded up per request')
             }
             style={{
               fontSize: 12,
@@ -397,7 +383,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
             ) : (
               <>
                 <span className='run-text-trigger'>Run</span>
-                <RunCreditBadge credits={resolvedRunCredits} runButton />
+                <RunCreditBadge usageBased runButton />
               </>
             )}
           </button>

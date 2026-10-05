@@ -29,6 +29,7 @@
     "verify:agent-image-routing": "ts-node --transpile-only scripts/verify-agent-image-routing.ts",
     "verify:prompt-optimizer-models": "ts-node --transpile-only scripts/verify-prompt-optimizer-models.ts",
     "verify:xiaot-chat-pricing": "ts-node --transpile-only scripts/verify-xiaot-chat-pricing.ts",
+    "verify:deepseek-chat-billing": "ts-node --transpile-only src/ai/services/deepseek-chat-billing.spec.ts",
     "test:xiaot-agent-delivery": "ts-node --transpile-only src/agent/xiaot-agent-delivery.spec.ts",
     "test:xiaot-agent-context-handoff": "ts-node --transpile-only src/agent/xiaot-agent-context-handoff.spec.ts",
     "test:agent-host-context": "ts-node --transpile-only src/agent/agent-host-context.spec.ts",
