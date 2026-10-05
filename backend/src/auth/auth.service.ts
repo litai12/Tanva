@@ -153,7 +153,9 @@ export class AuthService {
     email: string;
     role: string;
   }): Promise<TokenPair> {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    // Keep per-session entropy first: bcrypt only considers the first 72 bytes
+    // of a refresh JWT, so a trailing jti would still alias other devices.
+    const payload = { jti: randomBytes(16).toString('base64url'), sub: user.id, email: user.email, role: user.role };
     const accessTtl = this.config.get<string>("JWT_ACCESS_TTL") || "900s";
     const refreshTtl = this.config.get<string>("JWT_REFRESH_TTL") || "30d";
 

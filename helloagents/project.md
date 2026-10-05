@@ -169,3 +169,11 @@
 - 视频终态计费：Stop 不能清除未确认取消的视频任务身份；预扣视频 pending 节点互斥不按时间释放。视频退款与成功回调须核对所属上游任务终态，禁止按客户端失败/本地超时退款。提交结果不明或上游已受理后的持久化失败保留预扣待核对，详见 `wiki/video-terminal-billing-20260920.md`。
 
 - 图片终态计费：图片提交在 Tanva 与 new-api Images 网关都不自动重试；重复预扣不可继续生成，Worker 必须原子抢占任务。同节点 pending 与显式幂等键不按年龄释放；超时、断网和结果保存失败保留身份及预扣待核实，不能自动退款；团队预留也只按已确认失败释放，不按 20 分钟 TTL 释放。详见 `wiki/image-terminal-billing-20260920.md`。
+
+### 2026-10-05：独立 Tanva 外部桌面授权
+
+`tanvas-desk` 的 Tanva 品牌桌面使用 `tanva://auth/callback` 和本站 `/api/auth/desktop/*` PKCE 一次性浏览器授权。网站保留已有密码/短信/微信/观猹登录；桌面兑换为独立 HttpOnly Cookie，会话与网页登录及 Xiangyu 分离。授权状态生产使用 Redis TTL/Lua CAS，缺失或故障明确失败，不使用内存兜底，不需要数据库迁移。网页 `returnTo` 仅接受固定授权路径和一个 sessionId。新 JWT 首字段随机 jti 避免 bcrypt 前 72 字节碰撞导致设备会话混淆。实现及验收边界见 `wiki/modules/backend-auth.md`，目前未部署生产。
+
+### 2026-10-05：独立 Tanva 桌面对话计费
+
+桌面模型使用 `/api/desktop/v1` Cookie 鉴权、当前真实模型目录和按请求积分报价。受理、个人原来源扣款／团队预留与持久回执在同一 PostgreSQL 事务中提交；未知受理保留原身份和费用，已取得模型结果时只恢复记账，不重新调用模型。沿用现有钱包，无数据库迁移。协议、配置和隔离验证见 `wiki/modules/backend-desktop-chat.md`；尚未部署生产。

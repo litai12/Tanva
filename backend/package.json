@@ -20,6 +20,7 @@
     "test:free-credit-consumption": "ts-node --transpile-only src/credits/free-credit-consumption.spec.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
     "test:new-api-text-terminal": "ts-node --transpile-only src/ai/providers/new-api-text-terminal.spec.ts",
+    "test:desktop-chat": "node scripts/test-desktop-chat.cjs",
     "test:text-chat-terminal-billing": "ts-node --transpile-only src/ai/text-chat-terminal-billing.spec.ts",
     "test:text-chat-right-routing": "ts-node --transpile-only src/ai/text-chat-right-routing.spec.ts",
     "test:tool-selection-right-routing": "ts-node --transpile-only src/ai/tool-selection-right-routing.spec.ts",

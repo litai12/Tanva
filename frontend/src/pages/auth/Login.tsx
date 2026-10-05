@@ -11,6 +11,7 @@ import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
 import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
 import { publicAssetUrl } from "@/utils/publicAssetUrl";
+import { desktopLoginReturnTo } from "@/services/desktopLoginReturnTo";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -35,15 +36,18 @@ export default function LoginPage() {
   const wechatLoadingRef = useRef(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, loginWithSms, error, user, setAuthenticatedUser } = useAuthStore();
+  const { login, loginWithSms, error, user, connection, setAuthenticatedUser } = useAuthStore();
   const watchaError = searchParams.get("watcha_error");
+  const desktopReturnTo = desktopLoginReturnTo(searchParams.get("returnTo"));
   const hasAgreedTerms = tab === "wechat" ? true : agreeTerms;
 
   useEffect(() => {
     if (user) {
+      if (desktopReturnTo && connection !== 'server' && connection !== 'refresh') return;
+      if (desktopReturnTo) { window.location.replace(desktopReturnTo); return; }
       navigate("/app", { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, desktopReturnTo, connection]);
 
   useEffect(() => {
     if (!watchaError) return;
@@ -74,7 +78,8 @@ export default function LoginPage() {
           const result = await authApi.consumeWechatOfficialSession(next.id);
           if (cancelled) return;
           setAuthenticatedUser(result.user, "server");
-          navigate(result.returnTo || "/app", { replace: true });
+          if (desktopReturnTo) window.location.replace(desktopReturnTo);
+          else navigate(result.returnTo || "/app", { replace: true });
           return;
         }
         if (next.status === "expired") {
@@ -102,7 +107,7 @@ export default function LoginPage() {
         window.clearTimeout(timer);
       }
     };
-  }, [wechatSession?.id, navigate, setAuthenticatedUser, t]);
+  }, [wechatSession?.id, navigate, setAuthenticatedUser, t, desktopReturnTo]);
 
   const _isMock =
     (typeof import.meta !== "undefined" &&
@@ -130,7 +135,7 @@ export default function LoginPage() {
   };
 
   const onWatchaLogin = () => {
-    window.location.href = authApi.getWatchaAuthorizeUrl("/app");
+    window.location.href = authApi.getWatchaAuthorizeUrl(desktopReturnTo || "/app");
   };
 
   const sendSmsCode = async (targetPhone: string) => {
@@ -226,7 +231,8 @@ export default function LoginPage() {
         inviteCode: inviteCode.trim() || undefined,
       });
       setAuthenticatedUser(result.user, "server");
-      navigate(result.returnTo || "/app", { replace: true });
+      if (desktopReturnTo) window.location.replace(desktopReturnTo);
+      else navigate(result.returnTo || "/app", { replace: true });
     } catch (err: any) {
       setWechatError(err?.message || t("auth.login.wechatBindFailed"));
     } finally {
@@ -241,7 +247,7 @@ export default function LoginPage() {
     setWechatRefreshCooldown(5);
     setWechatError(null);
     try {
-      const session = await authApi.createWechatOfficialSession("/app");
+      const session = await authApi.createWechatOfficialSession(desktopReturnTo || "/app");
       setWechatSession(session);
     } catch (err: any) {
       setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
@@ -249,7 +255,7 @@ export default function LoginPage() {
       wechatLoadingRef.current = false;
       setWechatLoading(false);
     }
-  }, [t]);
+  }, [t, desktopReturnTo]);
 
   useEffect(() => {
     if (

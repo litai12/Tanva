@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
@@ -27,12 +28,12 @@ export class TeamCreditLedgerService {
     taskId: string;
     taskKind?: string;
     actorUserId: string;
-  }): Promise<{ reserved: boolean; reason?: string }> {
+  }, transaction?: Prisma.TransactionClient): Promise<{ reserved: boolean; reason?: string }> {
     const { teamId, amount, taskId, taskKind, actorUserId } = params;
     const reserveExpiresAt = new Date(Date.now() + RESERVE_TTL_MS);
 
     try {
-      await this.prisma.$transaction(async (tx) => {
+      const work = async (tx: Prisma.TransactionClient) => {
         // 行锁：SELECT FOR UPDATE
         const acc = await tx.$queryRaw<{ id: string; balance: number; frozenBalance: number }[]>`
           SELECT id, balance, "frozenBalance"
@@ -108,9 +109,10 @@ export class TeamCreditLedgerService {
             throw new BadRequestException('已超出个人配额');
           }
         }
-      });
+      };
+      if (transaction) await work(transaction); else await this.prisma.$transaction(work);
 
-      void this.publisher?.publish({
+      if (!transaction) void this.publisher?.publish({
         teamId,
         reason: 'reserve',
         delta: -amount,
@@ -131,10 +133,10 @@ export class TeamCreditLedgerService {
     taskId: string;
     taskKind?: string;
     actorUserId: string;
-  }): Promise<{ deducted: boolean }> {
+  }, transaction?: Prisma.TransactionClient): Promise<{ deducted: boolean }> {
     const { teamId, amount, taskId, taskKind, actorUserId } = params;
     try {
-      const deducted = await this.prisma.$transaction(async (tx) => {
+      const work = async (tx: Prisma.TransactionClient) => {
         const accounts = await tx.$queryRaw<{ id: string }[]>`
           SELECT id
           FROM "TeamCreditAccount"
@@ -176,9 +178,10 @@ export class TeamCreditLedgerService {
           },
         });
         return true;
-      });
+      };
+      const deducted = transaction ? await work(transaction) : await this.prisma.$transaction(work);
       if (!deducted) return { deducted: false };
-      void this.publisher?.publish({
+      if (!transaction) void this.publisher?.publish({
         teamId,
         reason: 'deduct',
         // balance went down by `amount`; frozen also went down by `amount`,
@@ -195,9 +198,9 @@ export class TeamCreditLedgerService {
   }
 
   /** 释放预留（任务失败/取消时调用） */
-  async release(params: { teamId: string; amount: number; taskId: string }): Promise<void> {
+  async release(params: { teamId: string; amount: number; taskId: string }, transaction?: Prisma.TransactionClient): Promise<void> {
     const { teamId, amount, taskId } = params;
-    const released = await this.prisma.$transaction(async (tx) => {
+    const work = async (tx: Prisma.TransactionClient) => {
       const accounts = await tx.$queryRaw<{ id: string }[]>`
         SELECT id
         FROM "TeamCreditAccount"
@@ -243,10 +246,11 @@ export class TeamCreditLedgerService {
           AND tm."teamId" = ${teamId}
       `;
       return true;
-    });
+    };
+    const released = transaction ? await work(transaction) : await this.prisma.$transaction(work);
     // 幂等跳过时不广播，避免误报可用余额回升
     if (!released) return;
-    if (taskId) {
+    if (taskId && !transaction) {
       await this.prisma.apiUsageRecord
         .updateMany({
           where: {
@@ -260,7 +264,7 @@ export class TeamCreditLedgerService {
         })
         .catch((e) => this.logger.warn(`团队任务状态关闭失败 taskId=${taskId}: ${e}`));
     }
-    void this.publisher?.publish({
+    if (!transaction) void this.publisher?.publish({
       teamId,
       reason: 'release',
       delta: amount, // frozen -= amount, so availableCredits goes up

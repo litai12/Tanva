@@ -1,3 +1,4 @@
+import { DesktopChatModule } from './desktop-chat/desktop-chat.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -70,6 +71,7 @@ import { PromptLibraryModule } from './prompt-library/prompt-library.module';
     AsrModule,
     StoryboardSkillsModule,
     PromptLibraryModule,
+    DesktopChatModule,
   ],
 })
 export class AppModule {}

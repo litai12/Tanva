@@ -4888,7 +4888,10 @@ export class CreditsService {
       ipAddress?: string;
       userAgent?: string;
       responseStatus?: ApiResponseStatus;
+      /** Deterministic receipt identity; desktop admission owns the transaction lock. */
+      apiUsageId?: string;
     },
+    transaction?: Prisma.TransactionClient,
   ): Promise<{
     success: boolean;
     newBalance: number;
@@ -4909,15 +4912,9 @@ export class CreditsService {
         ) as Record<string, any>)
       : undefined;
 
-    return await this.prisma.$transaction(async (tx) => {
-      let account = await findCreditAccountForUpdate(tx, { userId });
-      if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
-      }
-      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
-      account = { ...account, balance: expiry.balanceAfter };
-
+    const work = async (tx: Prisma.TransactionClient) => {
       const buildUsageData = (creditsUsed: number, status: ApiResponseStatus) => ({
+        ...(meta.apiUsageId ? { id: meta.apiUsageId } : {}),
         userId,
         serviceType,
         serviceName,
@@ -4937,12 +4934,19 @@ export class CreditsService {
         });
         return {
           success: true,
-          newBalance: account.balance,
+          newBalance: (await tx.creditAccount.findUnique({ where: { userId }, select: { balance: true } }))?.balance ?? 0,
           apiUsageId: apiUsage.id,
           transactionId: `team:${apiUsage.id}`,
           creditsCharged: normalizedAmount,
         };
       }
+
+      let account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+      const expiry = await this.expireDailyRewardLotsForLockedAccount(tx, account, new Date());
+      account = { ...account, balance: expiry.balanceAfter };
 
       // 金额为 0：只记录，不扣费、不建流水。
       if (normalizedAmount === 0) {
@@ -5075,7 +5079,8 @@ export class CreditsService {
         transactionId: transaction.id,
         creditsCharged: normalizedAmount,
       };
-    }, {
+    };
+    return transaction ? work(transaction) : this.prisma.$transaction(work, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
     });
   }
@@ -5916,8 +5921,8 @@ export class CreditsService {
   /**
    * API ?????????
    */
-  async refundCredits(userId: string, apiUsageId: string): Promise<AddCreditsResult> {
-    return await this.prisma.$transaction(async (tx) => {
+  async refundCredits(userId: string, apiUsageId: string, transaction?: Prisma.TransactionClient): Promise<AddCreditsResult> {
+    const work = async (tx: Prisma.TransactionClient) => {
       // ?? API ????
       const apiUsage = await tx.apiUsageRecord.findUnique({
         where: { id: apiUsageId },
@@ -6060,7 +6065,8 @@ export class CreditsService {
         newBalance,
         transactionId: transaction.id,
       };
-    });
+    };
+    return transaction ? work(transaction) : this.prisma.$transaction(work);
   }
 
   /**

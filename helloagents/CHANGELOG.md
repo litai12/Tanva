@@ -1444,3 +1444,15 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 - 2026-09-20：视频生成收敛到 new-api 单轨，移除 Seedance Ark 直连回退、旧生成入口与备用火山密钥；网关失败直接报错，保留网关内资源引用重试。见 `wiki/video-single-gateway-20260920.md`。
 
 - 2026-09-20：修复视频停止后重提与退款状态不一致。运行任务保留身份，预扣 pending 节点防重不再超时失效；退款/成功回调核验上游终态，提交不确定保留预扣，停止视频超时自动退款并扩展网关任务服务端补偿。
+
+## 2026-10-05：Tanva 独立桌面浏览器授权（待部署）
+
+- 新增本企业 `/api/auth/desktop/*` PKCE grant、本站网页登录回授权页、固定 tanva callback、一次兑换为独立 Cookie 会话；生产授权状态要求 Redis 原子 CAS，不改数据库结构。
+- 新 JWT 首字段随机 jti 区分 bcrypt 可见的 refresh token 前缀，桌面退出保留网页登录。
+- 新增安全、真实 Nest/Fastify HTTP 和真实 Redis 跨实例消费测试；前端严格限制桌面授权 returnTo，并通过构建。仅源码与隔离验证，不声明生产端点可用。
+
+### 2026-10-05 · 独立Tanva桌面对话积分与持久回执
+
+- 新增Cookie鉴权 `/api/desktop/v1` 模型/余额/完整ChatCompletions/回执查询，复用既有个人批次与团队积分账本；当前DeepSeek V4.1 Flash每次模型请求30积分，视觉/工具能力依现有new-api注册目录，运行期确认提供型号。
+- 请求主键与事务锁保留永久幂等；受理与个人预扣/团队预留原子提交，未知受理保留费用；已拿到真实回复的结算失败可只补原账本恢复，用户客户端停止不触发退款或重发。
+- 实际隔离PostgreSQL与Nest/Fastify Cookie HTTP回归通过，新增 `npm run test:desktop-chat` 自动容器清理runner；未部署或执行生产付费模型任务。详见 `wiki/modules/backend-desktop-chat.md`。

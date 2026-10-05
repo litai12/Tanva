@@ -13,6 +13,8 @@ import { CreditsModule } from '../credits/credits.module';
 import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCoreModule } from '../team-core/team-core.module';
 import { WechatLoginSessionRateLimitService } from './wechat-login-session-rate-limit.service';
+import { DesktopGrantService } from './desktop-grant.service';
+import { DesktopAuthController, OptionalDesktopJwtGuard } from './desktop-auth.controller';
 
 @Module({
   imports: [
@@ -31,8 +33,10 @@ import { WechatLoginSessionRateLimitService } from './wechat-login-session-rate-
     WechatLoginSessionRateLimitService,
     JwtStrategy,
     RefreshJwtStrategy,
+    DesktopGrantService,
+    OptionalDesktopJwtGuard,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, DesktopAuthController],
   exports: [AuthService],
 })
 export class AuthModule {}

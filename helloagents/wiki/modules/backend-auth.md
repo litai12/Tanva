@@ -42,3 +42,15 @@
 - 创建公众号登录二维码按匿名浏览器 visitor ID 限制为每 5 秒最多一次；旧客户端没有 visitor ID 时回退到真实 IP + User-Agent。生产配置 `REDIS_URL` 后通过 `SET NX PX` 跨实例原子生效，Redis 不可用时退化为进程内锁，超限返回 HTTP 429 与 `retryAfterMs`。
 - 同一进程内并发获取公众号 access token 会复用同一个 in-flight 请求，避免缓存未命中时并发打穿微信 `stable_token` 接口。前端创建失败后必须停在错误态，只有用户主动刷新才可重试。
 - 微信返回 `invalid ip ... not in whitelist` 表示 Tanva 服务端出口 IP 未加入微信公众号后台的 IP 白名单；应用限流只能阻止请求风暴，不能替代公众号后台白名单配置。
+
+## Tanva 外部桌面浏览器授权（2026-10-05，源码已接线，待部署）
+
+- 新增 `backend/src/auth/desktop-grant.service.ts` 与 `desktop-auth.controller.ts`，接入本项目 NestJS `AuthModule`。这是 tanvas.cn 自己的协议，与 TapCanvas / Xiangyu / lluban.com 的账号、团队和 token 无关。
+- `POST /api/auth/desktop/session`：桌面生成随机 state、PKCE S256 challenge，固定 callback `tanva://auth/callback`；返回 `sessionId`、过期时间和本站 `/api/auth/desktop/authorize?sessionId=…`。
+- `GET /api/auth/desktop/authorize`：未登录转 `/auth/login?returnTo=…`；网页登录后返回真实授权页，明确显示账号，用户选择授权或拒绝。密码、短信、微信及观猹保持现有网页流程，只增加经过严格本站路径校验的授权返回目的地。
+- `POST /api/auth/desktop/approve`：JWT 账号、固定本站 Origin 与授权页 csrf nonce 均有效才改变 grant；回调只带 state，不含密码、access token、refresh token 或 PKCE verifier。
+- `POST /api/auth/desktop/exchange`：桌面用 sessionId/state/verifier 轮询；仅已批准 grant 可原子消费一次，然后复用 `AuthService.login()` 创建独立 refresh token 记录，以现有 HttpOnly Cookie 写入原生客户端。JSON 仅返回 `status`，不返回凭证。未批准不签发 cookie；拒绝/过期明确返回状态；已消费再兑返回 409，需用户重新授权，不隐式重放。
+- 生产必须配置可用 `REDIS_URL`：授权 grant 有 5 分钟 TTL，跨实例 approve / consume 使用 Redis Lua CAS；Redis 缺失或失败明确 503，不切换到进程内状态。只有明确非生产环境使用有界内存 fixture。无需新数据库表或迁移。站点地址与回调固定为 tanvas.cn / tanva，不能导向其他企业服务。
+- 新 JWT 把随机 jti 放在 payload 最前面，保证同用户同秒创建的网页登录和桌面 refresh JWT 的前 72 字节不同，避免 bcrypt 截断将两个设备识别成同一 refresh。既有 refresh/logout 仍只匹配当前提交的一枚 token。
+- 验证入口：`npx ts-node --transpile-only src/auth/desktop-grant.spec.ts`；`npx ts-node --transpile-only src/auth/desktop-auth-http.spec.ts`。后者真实经过 Nest/Fastify 路由、JWT Guard、Cookie 签发、refresh 和 logout；持久化使用隔离内存数据库 stub。设置 `TANVA_AUTH_TEST_REDIS_URL=redis://127.0.0.1:<隔离端口>` 时补跑两个 service 实例的真实 Redis 原子消费，测试不接受任意远程 Redis。桌面仓另有真实 Electron 两进程重启 Cookie 持久化 smoke。
+- 此处记录源码和隔离测试，不表示生产端点已部署、真实微信授权已验收或安装包 custom scheme 已注册验证。
