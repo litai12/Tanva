@@ -301,6 +301,13 @@ func InitResources() error {
 
 	model.CheckSetup()
 
+	// Establish the three Flash CNY price invariants before loading any memory
+	// options, so a later SQL patch cannot leave a first-request rejection window.
+	if err = model.EnsureDeepSeekFlashCNYStartupPrices(model.DB); err != nil {
+		common.FatalLog("failed to initialize DeepSeek Flash CNY prices: " + err.Error())
+		return err
+	}
+
 	// Initialize options, should after model.InitDB()
 	model.InitOptionMap()
 
