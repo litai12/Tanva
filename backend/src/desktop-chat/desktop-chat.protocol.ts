@@ -10,7 +10,7 @@ export type ReceiptStatus = 'pending' | 'completed' | 'failed' | 'reconciliation
 export interface DesktopChatMeta {
   requestId: string; taskId: string; conversationId: string; bodyHash: string;
   scope: DesktopScope; state: ReceiptStatus; deadline: string;
-  credits: number; rejectionConfirmed?: boolean; completedAt?: string; errorCode?: string; response?: Record<string, any>;
+  credits: number; rejectionConfirmed?: boolean; completedAt?: string; errorCode?: string; errorMessage?: string; upstreamStatus?: number; response?: Record<string, any>;
   billing?: {
     mode: 'official_token_usage'; snapshot: DeepSeekPricingSnapshot;
     reservation: { inputTokens: number; outputTokens: number; credits: number };
@@ -27,6 +27,61 @@ export const canonicalJson = (value: any): string => {
 };
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const usageId = (userId: string, requestId: string) => `desktop-chat:${hash(`${userId}:${requestId}`)}`;
+
+export interface DesktopChatDiagnostic { errorCode: string; errorMessage: string; upstreamStatus?: number }
+const DIAGNOSTICS: Record<string, string> = {
+  UPSTREAM_INVALID_REQUEST: '模型网关拒绝请求参数，请检查输入与模型能力',
+  UPSTREAM_AUTH_FAILED: '模型网关鉴权失败，请联系管理员检查网关凭据与权限',
+  UPSTREAM_QUOTA_EXHAUSTED: '模型网关可用额度不足，请联系管理员检查上游账户',
+  UPSTREAM_MODEL_UNAVAILABLE: '模型网关未提供请求的模型或可用渠道',
+  UPSTREAM_PROTOCOL_UNSUPPORTED: '模型网关不支持当前请求协议',
+  UPSTREAM_REQUEST_TOO_LARGE: '模型网关拒绝过大的请求，请减少输入内容',
+  UPSTREAM_RATE_LIMITED: '模型网关请求频率受限，请稍后自行重试',
+  UPSTREAM_CONTEXT_TOO_LONG: '输入超过模型上下文上限，请减少输入内容',
+  GATEWAY_ORDER_SIGNATURE_INVALID: '模型网关消费订单签名校验失败，请联系管理员检查签名配置',
+  GATEWAY_QUOTA_UNIT_INVALID: '模型网关积分单位配置不一致，请联系管理员检查消费订单配置',
+  UPSTREAM_PRICING_NOT_CONFIGURED: '服务端模型价格配置未完成，请联系管理员同步模型计价配置',
+  UPSTREAM_REJECTED: '模型网关已拒绝原请求，请检查模型服务配置',
+  UPSTREAM_OUTCOME_UNKNOWN: '原请求已受理，模型结果与费用待核实；仅查询原订单，未重新提交',
+  UPSTREAM_INVALID_RESPONSE: '模型网关未返回完整有效的模型结果；原订单保留待核实',
+  UPSTREAM_TRANSPORT_MISMATCH: '模型网关返回了不支持的流式协议；原订单保留待核实',
+  UPSTREAM_TIMEOUT: '等待模型网关响应超时；原订单保留待核实',
+  UPSTREAM_TRANSPORT_FAILED: '模型网关连接中断或响应读取失败；原订单保留待核实',
+  LOCAL_SETTLEMENT_PENDING: '模型结果已留存，账务结算暂不可用；仅核对原订单',
+};
+export function chatDiagnostic(errorCode: string, upstreamStatus?: number): DesktopChatDiagnostic {
+  const known = Object.prototype.hasOwnProperty.call(DIAGNOSTICS, errorCode) ? errorCode : 'UPSTREAM_OUTCOME_UNKNOWN';
+  return { errorCode: known, errorMessage: DIAGNOSTICS[known],
+    ...(Number.isInteger(upstreamStatus) && upstreamStatus! >= 100 && upstreamStatus! <= 599 ? { upstreamStatus } : {}) };
+}
+/** Never forward arbitrary upstream code/message/body: recognize exact safe identifiers only. */
+export function upstreamDiagnostic(status: number, body?: any): DesktopChatDiagnostic {
+  if (typeof body?.error?.message === 'string'
+    && /^DeepSeek Flash CNY token pricing requires peak ModelRatio=1; apply the model pricing configuration patch(?: \(request id: [A-Za-z0-9_.:-]{1,128}\))?$/.test(body.error.message)) {
+    return chatDiagnostic('UPSTREAM_PRICING_NOT_CONFIGURED', status);
+  }
+  const rawCode = typeof body?.error === 'string' ? body.error : body?.error?.code;
+  const knownCodes: Record<string, string> = {
+    invalid_api_key: 'UPSTREAM_AUTH_FAILED', insufficient_quota: 'UPSTREAM_QUOTA_EXHAUSTED',
+    model_not_found: 'UPSTREAM_MODEL_UNAVAILABLE', no_available_channel: 'UPSTREAM_MODEL_UNAVAILABLE',
+    rate_limit_exceeded: 'UPSTREAM_RATE_LIMITED', context_length_exceeded: 'UPSTREAM_CONTEXT_TOO_LONG',
+    tanva_invalid_order_signature: 'GATEWAY_ORDER_SIGNATURE_INVALID',
+    tanva_quota_unit_must_be_500000: 'GATEWAY_QUOTA_UNIT_INVALID',
+    tanva_invalid_model: 'UPSTREAM_MODEL_UNAVAILABLE', tanva_order_endpoint_not_supported: 'UPSTREAM_PROTOCOL_UNSUPPORTED',
+  };
+  const statuses: Record<number, string> = { 400: 'UPSTREAM_INVALID_REQUEST', 401: 'UPSTREAM_AUTH_FAILED',
+    402: 'UPSTREAM_QUOTA_EXHAUSTED', 403: 'UPSTREAM_AUTH_FAILED', 404: 'UPSTREAM_MODEL_UNAVAILABLE',
+    405: 'UPSTREAM_PROTOCOL_UNSUPPORTED', 413: 'UPSTREAM_REQUEST_TOO_LARGE', 415: 'UPSTREAM_PROTOCOL_UNSUPPORTED',
+    422: 'UPSTREAM_INVALID_REQUEST', 429: 'UPSTREAM_RATE_LIMITED' };
+  return chatDiagnostic(typeof rawCode === 'string' && Object.prototype.hasOwnProperty.call(knownCodes, rawCode)
+    ? knownCodes[rawCode] : statuses[status] || 'UPSTREAM_OUTCOME_UNKNOWN', status);
+}
+export function failedChatHttpStatus(result: { upstreamStatus?: number; errorCode?: string }): number {
+  if (result.errorCode === 'UPSTREAM_PRICING_NOT_CONFIGURED') return 502;
+  if (result.upstreamStatus === 400 || result.upstreamStatus === 422) return 422;
+  if (result.upstreamStatus === 413 || result.upstreamStatus === 429) return result.upstreamStatus;
+  return 502;
+}
 export const identifier = (value: unknown, name: string) => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(value)) throw new BadRequestException(`无效 ${name}`);
   return value;
@@ -70,6 +125,8 @@ export function receipt(row: any, includeResponse = false) {
     ...(billing ? { billing } : {}),
     ...(meta.completedAt ? { completedAt: meta.completedAt } : {}),
     ...(meta.errorCode ? { errorCode: meta.errorCode } : {}),
+    ...(meta.errorCode ? { errorMessage: chatDiagnostic(meta.errorCode).errorMessage } : {}),
+    ...(meta.upstreamStatus !== undefined ? { upstreamStatus: meta.upstreamStatus } : {}),
     ...(includeResponse && state === 'completed' ? { response: meta.response } : {}),
   };
 }

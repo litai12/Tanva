@@ -16,7 +16,7 @@ import { CreditsService } from '../credits/credits.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { DesktopChatService, readBoundedJson } from './desktop-chat.service';
-import { DESKTOP_CHAT_MODEL, MAX_REQUEST_BYTES, usageId, validateCompletion } from './desktop-chat.protocol';
+import { DESKTOP_CHAT_MODEL, MAX_REQUEST_BYTES, upstreamDiagnostic, usageId, validateCompletion } from './desktop-chat.protocol';
 import { createDeepSeekPricingSnapshot, estimateDeepSeekReservation, calculateDeepSeekUsage, roundUpDeepSeekCredits } from './deepseek-pricing';
 import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
 import { signGatewayRequest } from '../consumption-orders/gateway-consumption.protocol';
@@ -37,7 +37,9 @@ const fetchFixture: typeof fetch = async (input: any, init: any) => {
   calls++; sent = JSON.parse(init.body); await new Promise(resolve => setTimeout(resolve, 30)); if (inspect) await inspect();
   if (mode === 'disconnect') throw new Error('fixture disconnect');
   if (mode === 'empty') return new Response(JSON.stringify({ choices: [{ message: {} }] }));
-  if (/^\d+$/.test(mode)) return new Response('{}', { status: Number(mode) });
+  if (/^\d+$/.test(mode)) return new Response(JSON.stringify({ error: { message: 'Bearer fixture-sensitive-key https://user:secret@gateway.invalid/private' } }), { status: Number(mode), headers: { 'x-oneapi-request-id': 'safe-rejection-id' } });
+  if (mode === 'signature-rejected') return new Response(JSON.stringify({ error: 'tanva_invalid_order_signature', secret: 'fixture-sensitive-key' }), { status: 401 });
+  if (mode === 'pricing-not-configured') return new Response(JSON.stringify({ error: { message: 'DeepSeek Flash CNY token pricing requires peak ModelRatio=1; apply the model pricing configuration patch (request id: 202610050918419893130388268d9d6vDBMi2cu)' }, secret: 'fixture-sensitive-key' }), { status: 400 });
   return new Response(JSON.stringify(completion), { headers: { 'content-type': 'application/json', 'x-oneapi-request-id': 'fixture-upstream-id' } });
 };
 function service() { const s = new DesktopChatService(config, db, credits, ledger); (s as any).fetchImpl = fetchFixture; return s; }
@@ -63,6 +65,15 @@ async function user(amount = 1000) {
 async function balance(id: string) { return (await db.creditAccount.findUniqueOrThrow({ where: { userId: id } })).balance; }
 async function teamBalance(id: string) { return db.teamCreditAccount.findUniqueOrThrow({ where: { teamId: id } }); }
 async function run() {
+  const pricingMessage = 'DeepSeek Flash CNY token pricing requires peak ModelRatio=1; apply the model pricing configuration patch';
+  for (const message of [pricingMessage, `${pricingMessage} (request id: strict_safe-id:1)`]) {
+    assert.equal(upstreamDiagnostic(400, { error: { message } }).errorCode, 'UPSTREAM_PRICING_NOT_CONFIGURED');
+  }
+  for (const message of [`prefix ${pricingMessage}`, `${pricingMessage} suffix`,
+    `${pricingMessage} (request id: secret value)`, `${pricingMessage} (request id: ${'x'.repeat(129)})`]) {
+    assert.equal(upstreamDiagnostic(400, { error: { message } }).errorCode, 'UPSTREAM_INVALID_REQUEST');
+    assert.ok(!JSON.stringify(upstreamDiagnostic(400, { error: { message } })).includes('request id:'));
+  }
   await db.$connect(); const owner = await user(10000);
   await db.creditLot.create({ data: { accountId: owner.account, sourceType: 'gift', validityType: 'permanent', totalAmount: 50, remainingAmount: 50, metadata: { reason: 'daily_reward' } } });
   await db.creditAccount.update({ where: { id: owner.account }, data: { balance: 10050, totalEarned: 10050 } });
@@ -97,6 +108,45 @@ async function run() {
   mode = '400'; await code(chat.complete(owner.id, body, headers('rejected')), 'TANVA_REQUEST_FAILED'); assert.equal(await balance(owner.id), beforeReject);
   assert.equal((await request(owner.id, 'rejected')).creditsCharged, 0); const rejectedCalls = calls;
   await code(service().complete(owner.id, body, headers('rejected')), 'TANVA_REQUEST_FAILED'); assert.equal(calls, rejectedCalls);
+  for (const [upstreamStatus, httpStatus, errorCode] of [
+    [400, 422, 'UPSTREAM_INVALID_REQUEST'], [401, 502, 'UPSTREAM_AUTH_FAILED'],
+    [402, 502, 'UPSTREAM_QUOTA_EXHAUSTED'], [403, 502, 'UPSTREAM_AUTH_FAILED'],
+    [404, 502, 'UPSTREAM_MODEL_UNAVAILABLE'], [405, 502, 'UPSTREAM_PROTOCOL_UNSUPPORTED'],
+    [413, 413, 'UPSTREAM_REQUEST_TOO_LARGE'], [415, 502, 'UPSTREAM_PROTOCOL_UNSUPPORTED'],
+    [422, 422, 'UPSTREAM_INVALID_REQUEST'], [429, 429, 'UPSTREAM_RATE_LIMITED'],
+  ] as const) {
+    mode = String(upstreamStatus); const key = `safe-rejected-${upstreamStatus}`;
+    const before = await balance(owner.id);
+    const checkError = (error: any) => {
+      assert.equal(error.getStatus(), httpStatus);
+      const payload = error.getResponse();
+      assert.equal(payload.code, 'TANVA_REQUEST_FAILED'); assert.equal(payload.receipt.status, 'failed');
+      assert.equal(payload.receipt.errorCode, errorCode); assert.equal(payload.receipt.upstreamStatus, upstreamStatus);
+      assert.equal(payload.message, payload.receipt.errorMessage);
+      assert.equal(payload.receipt.requestId, `${prefix}:${key}`);
+      assert.equal(payload.receipt.billing.upstreamRequestId, 'safe-rejection-id');
+      assert.ok(!JSON.stringify(payload).includes('fixture-sensitive-key'));
+      assert.ok(!JSON.stringify(payload).includes('gateway.invalid'));
+      return true;
+    };
+    await assert.rejects(chat.complete(owner.id, body, headers(key)), checkError);
+    assert.equal(await balance(owner.id), before);
+    const submitted = calls;
+    await assert.rejects(service().complete(owner.id, body, headers(key)), checkError);
+    assert.equal(calls, submitted, 'confirmed failed request replay must not call the supplier again');
+    assert.ok(!JSON.stringify((await db.apiUsageRecord.findUniqueOrThrow({ where: { id: uid(owner.id, key) } })).requestParams).includes('fixture-sensitive-key'));
+  }
+  mode = 'signature-rejected';
+  await assert.rejects(chat.complete(owner.id, body, headers('signature-rejected')), (error: any) => {
+    assert.equal(error.getStatus(), 502); assert.equal(error.getResponse().receipt.errorCode, 'GATEWAY_ORDER_SIGNATURE_INVALID'); return true;
+  });
+  mode = 'pricing-not-configured';
+  await assert.rejects(chat.complete(owner.id, body, headers('pricing-not-configured')), (error: any) => {
+    assert.equal(error.getStatus(), 502); assert.equal(error.getResponse().receipt.errorCode, 'UPSTREAM_PRICING_NOT_CONFIGURED');
+    assert.match(error.getResponse().message, /管理员同步模型计价配置/);
+    assert.ok(!JSON.stringify(error.getResponse()).includes('ModelRatio')); return true;
+  });
+  console.log('PASS: confirmed 4xx diagnostics and strict pricing-message suffix mapping, safe JSON persistence, failed replay without another supplier submission');
   for (const outcome of ['503', '409', '425', 'disconnect', 'empty']) {
     mode = outcome; const before = await balance(owner.id); const key = `unknown-${outcome}`;
     await code(chat.complete(owner.id, body, headers(key)), 'TANVA_REQUEST_PENDING'); assert.equal(await balance(owner.id), before - reserve);
@@ -226,7 +276,7 @@ async function run() {
   await assert.rejects(readBoundedJson(stalledCancel, 100), /UPSTREAM_RESULT_TOO_LARGE/);
   const abort = new AbortController(); const hanging = new Response(new ReadableStream({ start() {} }));
   const aborted = readBoundedJson(hanging, 100, abort.signal); abort.abort(); await assert.rejects(aborted);
-  assert.equal((await chat.listReceipts(owner.id, `${prefix}:task`, `${prefix}:conversation`)).receipts.length, 21);
+  assert.equal((await chat.listReceipts(owner.id, `${prefix}:task`, `${prefix}:conversation`)).receipts.length, 33);
   const users = { findById: (id: string) => db.user.findUnique({ where: { id } }), touchLastLoginAt: async () => {} };
   @Module({ imports: [PassportModule.register({ session: false })], controllers: [DesktopChatController], providers: [
     { provide: ConfigService, useValue: config }, { provide: UsersService, useValue: users }, { provide: DesktopChatService, useValue: chat }, JwtStrategy,
@@ -252,11 +302,16 @@ async function run() {
     assert.equal(httpReceipt.statusCode, 200); assert.deepEqual(httpReceipt.json().response.usage, completion.usage);
     const httpConflict = await inject({ method: 'POST', url: '/api/desktop/v1/chat/completions', headers: { ...nativeCookie, ...headers('http') }, payload: { ...body, temperature: 0.3 } });
     assert.equal(httpConflict.statusCode, 409); assert.equal(httpConflict.json().code, 'TANVA_IDEMPOTENCY_CONFLICT');
+    mode = '401';
+    const httpRejected = await inject({ method: 'POST', url: '/api/desktop/v1/chat/completions', headers: { ...nativeCookie, ...headers('http-rejected') }, payload: body });
+    assert.equal(httpRejected.statusCode, 502); assert.equal(httpRejected.json().code, 'TANVA_REQUEST_FAILED');
+    assert.equal(httpRejected.json().receipt.errorCode, 'UPSTREAM_AUTH_FAILED');
+    assert.ok(!httpRejected.body.includes('fixture-sensitive-key'));
     mode = '409';
     const httpPending = await inject({ method: 'POST', url: '/api/desktop/v1/chat/completions', headers: { ...nativeCookie, ...headers('http-pending') }, payload: body });
     assert.equal(httpPending.statusCode, 409); assert.equal(httpPending.json().receipt.status, 'reconciliation_required');
     const list = await inject({ method: 'GET', url: `/api/desktop/v1/billing/receipts?taskId=${prefix}:task&conversationId=${prefix}:conversation`, headers: nativeCookie });
-    assert.equal(list.statusCode, 200); assert.equal(list.json().receipts.length, 23);
+    assert.equal(list.statusCode, 200); assert.equal(list.json().receipts.length, 36);
     if (process.env.TANVA_DESKTOP_TRANSPORT_FILE) {
       // Compile the sibling's actual ESM source into a temporary ESM file;
       // ts-node's CommonJS hook cannot require a type:module TypeScript file.
@@ -268,11 +323,12 @@ async function run() {
         .replace(/from ['"](\.\/[^'"]+)['"]/g, (_: string, relative: string) => `from ${JSON.stringify(pathToFileURL(path.resolve(path.dirname(sourcePath), relative)).href)}`);
       const compiled = path.join(temp, 'transport.mjs'); fs.writeFileSync(compiled, source);
       const { createTanvasModelTransport } = await new Function('url', 'return import(url)')(pathToFileURL(compiled).href);
-      let nativePosts = 0;
+      let nativePosts = 0, nativeGets = 0;
       const session = { identity: 'fixture-native-cookie', assertCurrent() {}, async fetch(input: string | URL, init: RequestInit = {}) {
         const url = new URL(String(input));
         const h = Object.fromEntries(new Headers(init.headers));
         if (init.method === 'POST') nativePosts++;
+        else nativeGets++;
         const value = await inject({ method: init.method || 'GET', url: url.pathname + url.search, headers: { ...nativeCookie, ...h },
           ...(init.body ? { payload: JSON.parse(String(init.body)) } : {}) });
         return new Response(value.body, { status: value.statusCode, headers: { 'content-type': 'application/json' } });
@@ -287,10 +343,29 @@ async function run() {
         assert.equal(result.tanvaReceipt.billing.exactCreditNanos, exactNanos.toString()); assert.equal(result.tanvaReceipt.taskId, `${prefix}:native-task`);
         const repeated = await transport.fetchImpl('https://fixture.invalid/api/desktop/v1/chat/completions', input);
         assert.equal(repeated.status, 200); assert.equal(calls, before + 1); assert.equal(nativePosts, 1);
+        for (const [fixtureMode, expectedStatus, expectedCode, temperature] of [
+          ['pricing-not-configured', 502, 'UPSTREAM_PRICING_NOT_CONFIGURED', 0.7],
+          ['400', 422, 'UPSTREAM_INVALID_REQUEST', 0.8],
+        ] as const) {
+          mode = fixtureMode;
+          const supplierBefore = calls, queriesBefore = nativeGets;
+          const failedInput = { ...input, body: JSON.stringify({ ...body, temperature }) };
+          const failedResponse = await transport.fetchImpl('https://fixture.invalid/api/desktop/v1/chat/completions', failedInput);
+          assert.equal(failedResponse.status, expectedStatus);
+          const failure = await failedResponse.json();
+          assert.equal(failure.error.code, expectedCode); assert.equal(failure.error.reason, 'receipt_failed');
+          assert.equal(failure.error.receipt_status, 'failed'); assert.ok(!JSON.stringify(failure).includes('fixture-sensitive-key'));
+          if (fixtureMode === 'pricing-not-configured') assert.match(failure.error.message, /管理员同步模型计价配置/);
+          const failedReplay = await transport.fetchImpl('https://fixture.invalid/api/desktop/v1/chat/completions', failedInput);
+          assert.equal(failedReplay.status, expectedStatus);
+          assert.equal(calls, supplierBefore + 1, 'native transport failed replay must retain one supplier request');
+          assert.equal(nativeGets, queriesBefore, 'terminal rejection must not enter a pending-receipt polling loop');
+        }
         console.log('PASS: actual sibling tanvas-desk createTanvasModelTransport -> Cookie Nest/Fastify HTTP -> PostgreSQL accounting + exact receipt/choice/usage validation + same-body one provider call');
+        console.log('PASS: actual desktop transport receives safe pricing 502/parameter 422 diagnostics, preserves failed receipt identity, no auto supplier retry or pending polling');
       } finally { transport.dispose(); fs.rmSync(temp, { recursive: true, force: true }); }
     }
-    console.log('PASS: real Nest/Fastify controller + production JwtAuthGuard/JwtStrategy Cookie (no Bearer), PostgreSQL wallet/receipts, full tool history, 401/200/409 JSON contracts');
+    console.log('PASS: real Nest/Fastify controller + production JwtAuthGuard/JwtStrategy Cookie (no Bearer), PostgreSQL wallet/receipts, full tool history, 401/200/409/502 safe JSON contracts');
   } finally { await app.close(); }
   console.log('PASS: actual PG admission concurrency, personal source/refund, team reserve/commit/release/quota rollback, known-result settlement and confirmed-rejection refund recovery, persisted tools/vision/usage, restart/hash conflict, unknown409/425/empty/disconnect, authorization, insufficient balance, payload/response bounds and read abort');
   await gatewayMode();

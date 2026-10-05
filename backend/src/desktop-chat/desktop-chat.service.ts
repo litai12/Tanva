@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, ApiUsageRecord } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,7 +6,7 @@ import { CreditsService } from '../credits/credits.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
-import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, canonicalJson, hash, identifier, receipt, usageId, validateCompletion } from './desktop-chat.protocol';
+import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, canonicalJson, chatDiagnostic, failedChatHttpStatus, hash, identifier, receipt, upstreamDiagnostic, usageId, validateCompletion } from './desktop-chat.protocol';
 import { createDeepSeekPricingSnapshot, calculateDeepSeekUsage, estimateDeepSeekReservation } from './deepseek-pricing';
 import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
 
@@ -117,7 +117,13 @@ export class DesktopChatService {
   private replay(row: ApiUsageRecord) {
     const result = receipt(row, true);
     if (result.status === 'completed') return { ...result.response, tanvaReceipt: receipt(row) };
-    throw new ConflictException({ code: result.status === 'failed' ? 'TANVA_REQUEST_FAILED' : 'TANVA_REQUEST_PENDING', receipt: result });
+    this.throwReceiptError(result);
+  }
+  private throwReceiptError(result: ReturnType<typeof receipt>): never {
+    const failed = result.status === 'failed';
+    throw new HttpException({ code: failed ? 'TANVA_REQUEST_FAILED' : 'TANVA_REQUEST_PENDING',
+      message: result.errorMessage || chatDiagnostic(failed ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN').errorMessage,
+      receipt: result }, failed ? failedChatHttpStatus(result) : 409);
   }
   async complete(userId: string, rawBody: any, headers: Record<string, any>) {
     const body = validateCompletion(rawBody);
@@ -181,6 +187,9 @@ export class DesktopChatService {
       }
       if (!response.ok) {
         confirmedRejected = [400, 401, 402, 403, 404, 405, 413, 415, 422, 429].includes(response.status);
+        let diagnosticBody: unknown;
+        try { diagnosticBody = await readBoundedJson(response, 16 * 1024, AbortSignal.timeout(2_000)); } catch { /* Retain safe status even for invalid/oversized error bodies. */ }
+        Object.assign(meta, upstreamDiagnostic(response.status, diagnosticBody));
         throw new Error('UPSTREAM_REJECTED');
       }
       if ((response.headers.get('content-type') || '').includes('text/event-stream')) throw new Error('UPSTREAM_TRANSPORT_MISMATCH');
@@ -189,13 +198,20 @@ export class DesktopChatService {
       result = json;
       await this.finish(userId, id, meta, result, false);
       return { ...result, tanvaReceipt: receipt(await this.row(userId, requestId)) };
-    } catch {
+    } catch (error) {
       const rejected = confirmedRejected && !result;
+      if (!meta.errorCode) {
+        const code = result ? 'LOCAL_SETTLEMENT_PENDING'
+          : error instanceof Error && ['UPSTREAM_TRANSPORT_MISMATCH', 'UPSTREAM_INVALID_RESPONSE', 'UPSTREAM_EMPTY_RESPONSE'].includes(error.message)
+            ? error.message === 'UPSTREAM_EMPTY_RESPONSE' ? 'UPSTREAM_INVALID_RESPONSE' : error.message
+            : error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name) ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_TRANSPORT_FAILED';
+        Object.assign(meta, chatDiagnostic(code));
+      }
       await this.finish(userId, id, meta, undefined, rejected, result).catch(async () => {
         if (rejected) await this.finish(userId, id, meta, undefined, false, undefined, true).catch(() => undefined);
       });
       const persisted = receipt(await this.row(userId, requestId));
-      throw new ConflictException({ code: persisted.status === 'failed' ? 'TANVA_REQUEST_FAILED' : 'TANVA_REQUEST_PENDING', receipt: persisted });
+      this.throwReceiptError(persisted);
     }
   }
   private async finish(userId: string, id: string, original: DesktopChatMeta, response: Record<string, any> | undefined, rejected: boolean, knownResponse?: Record<string, any>, knownRejected = false) {
@@ -211,10 +227,10 @@ export class DesktopChatService {
         const meta: DesktopChatMeta = { ...prior,
           state: delivered ? 'completed' : rejected ? 'failed' : 'reconciliation_required',
           ...(delivered ? { response: delivered, completedAt: new Date().toISOString() } : {
-            errorCode: rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN' }),
+            ...chatDiagnostic(original.errorCode || (rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN'), original.upstreamStatus) }),
           ...(original.billing?.upstreamRequestId && prior.billing ? {
             billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}) };
-        if (delivered) { delete meta.errorCode; delete meta.rejectionConfirmed; }
+        if (delivered) { delete meta.errorCode; delete meta.errorMessage; delete meta.upstreamStatus; delete meta.rejectionConfirmed; }
         await tx.apiUsageRecord.update({ where: { id }, data: {
           requestParams: { ...(row.requestParams as any), desktopChat: meta },
           // A consumed order can still have a failed/missing model response.
@@ -227,8 +243,8 @@ export class DesktopChatService {
       const state = response ? 'completed' : rejected ? 'failed' : 'reconciliation_required';
       const meta: DesktopChatMeta = { ...prior, state, ...(original.billing?.upstreamRequestId && prior.billing ? {
         billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}),
-        ...(knownRejected ? { rejectionConfirmed: true } : {}), ...(knownResponse ? { response: knownResponse } : {}), ...(response ? { response, completedAt: new Date().toISOString() } : { errorCode: rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN' }) };
-      if (response) { delete meta.errorCode; delete meta.rejectionConfirmed; }
+        ...(knownRejected ? { rejectionConfirmed: true } : {}), ...(knownResponse ? { response: knownResponse } : {}), ...(response ? { response, completedAt: new Date().toISOString() } : chatDiagnostic(original.errorCode || (rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN'), original.upstreamStatus)) };
+      if (response) { delete meta.errorCode; delete meta.errorMessage; delete meta.upstreamStatus; delete meta.rejectionConfirmed; }
       if (response && meta.billing) {
         const calculation = calculateDeepSeekUsage(meta.billing.snapshot, response.usage);
         const settled = original.scope.kind === 'team'

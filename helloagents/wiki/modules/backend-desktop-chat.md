@@ -34,9 +34,9 @@
 
 `X-Tanva-Team-Id` 省略为个人，显式团队必须为非 personal / active 团队及实时成员；非法团队绝不回退个人。POST 必须携带 `Idempotency-Key`、`X-Tanva-Task-Id`、`X-Tanva-Conversation-Id`。三个ID各限128字节ASCII可标识字符。POST体保留完整多轮消息、工具定义和图像 URL/内联运行期输入，限制4 MiB；本机文件路径须由桌面先转可提交素材，不能宣称服务端能读本机文件。模型 allowlist、stream=false 与未声明 reasoning 参数在计费之前校验。模型目录/回复采用流式读取2/8 MiB上限及有界取消，不先全量读入再检查。
 
-回执保留`requestId,apiUsageId,taskId,conversationId,model,scope,status,creditsCharged,creditsReserved,unit,createdAt,completedAt?,errorCode?,response?`。新回执追加billing：mode、snapshot、reservation、markup、creditsPerYuan、priceCurrency、rounding:'ceil'、period、pricingVersion；成功时有officialCostCny/exactCredits十进制字符串、exactCreditNanos整数字符串及usage={inputTokens,cachedInputTokens,outputTokens}。上游X-Oneapi-Request-Id经白名单保存为billing.upstreamRequestId。新pending个人/团队均creditsCharged=0、creditsReserved=原预算；成功creditsCharged为实际整数、reserved=0，未知保留预算。旧无billing回执沿原语义。时间ISO字符串。scope 为 `{kind:'personal'}` / `{kind:'team',teamId}`。
+回执保留`requestId,apiUsageId,taskId,conversationId,model,scope,status,creditsCharged,creditsReserved,unit,createdAt,completedAt?,errorCode?,errorMessage?,upstreamStatus?,response?`。错误诊断仅含服务端安全枚举与固定中文说明，`upstreamStatus` 为原HTTP整数状态码，不保存上游裸消息、错误body、地址或凭据。新回执追加billing：mode、snapshot、reservation、markup、creditsPerYuan、priceCurrency、rounding:'ceil'、period、pricingVersion；成功时有officialCostCny/exactCredits十进制字符串、exactCreditNanos整数字符串及usage={inputTokens,cachedInputTokens,outputTokens}。上游X-Oneapi-Request-Id经白名单保存为billing.upstreamRequestId。新pending个人/团队均creditsCharged=0、creditsReserved=原预算；成功creditsCharged为实际整数、reserved=0，未知保留预算。旧无billing回执沿原语义。时间ISO字符串。scope 为 `{kind:'personal'}` / `{kind:'team',teamId}`。
 
-重复原key：completed重放原JSON；pending / reconciliation_required返回409 `{code:'TANVA_REQUEST_PENDING',receipt}`；已确认失败返回409 `TANVA_REQUEST_FAILED`。相同key但正文/扣费scope/任务/对话不同，409 `TANVA_IDEMPOTENCY_CONFLICT`。GET任何状态返回200。钱包切换只作用于桌面后续任务快照，不改变旧账单scope。
+重复原key：completed重放原JSON；pending / reconciliation_required返回409 `{code:'TANVA_REQUEST_PENDING',message,receipt}`。已确认失败返回 `{code:'TANVA_REQUEST_FAILED',message,receipt}`，HTTP按安全诊断映射：参数400/422→422，超大413→413，限流429→429；上游鉴权401/403、额度402、型号404、协议405/415及旧无细节失败→502。上游401不变成Tanva账号401，避免错误登出。已核实的Flash价格配置未同步错误严格识别固定字符串，映射 `UPSTREAM_PRICING_NOT_CONFIGURED`、HTTP502、`upstreamStatus:400`，提示管理员同步价格配置。错误body读取最多16KiB/2秒，除精确白名单code或已核实固定字符串外仅按HTTP归类，绝不转发原文。首次失败和原key失败重放保持同一诊断及请求身份，不再提交模型。相同key但正文/扣费scope/任务/对话不同，409 `TANVA_IDEMPOTENCY_CONFLICT`。GET任何状态返回200。钱包切换只作用于桌面后续任务快照，不改变旧账单scope。
 
 ## 原子性、恢复与失败
 
@@ -55,6 +55,8 @@ macOS arm64，本机Docker PostgreSQL16，实际Prisma schema与CreditsService/T
 - `TANVA_DESKTOP_TRANSPORT_FILE=/absolute/path/to/tanvas-desk/apps/desktop/src/main/tanvasModelTransport.ts npm run test:desktop-chat`：另验证真实桌面传输源代码 → Cookie Nest/Fastify → PostgreSQL，全身份/金额/tools/usage合同及重复仅一次POST；临时ESM编译后清理，不修改桌面源码。
 - 测试包括8并发同key仅一模型提交/一次扣费，签到/充值批次消费退款、工具/视觉/usage完整回执、重启重放、正文/团队冲突、未知409/425/503/空回复/断线、团队预留确认/释放/成员quota原子回滚、个人余额竞争、PG trigger真实结算失败与只补账恢复、流读取超限与取消。
 - 同一套真实Nest/Fastify Controller + JwtAuthGuard/JwtStrategy以Cookie（无Bearer）验证models/billing/completion/receipt/list200、未登录401、冲突/未知409和完整多轮工具JSON。
+- 桌面诊断回归覆盖十类明确4xx的HTTP/安全code/message映射、签名拒绝及Flash计价配置专门提示、敏感错误body不返回/不落库、首次与重放同原身份且只调用一次、Fastify上游401映射502而保留Tanva登录。费用与退款语义沿现有原单协议；签名消费模式不因模型HTTP拒绝绕过权威消费证明退款。本轮诊断代码仅本地修改，未部署、未新发付费请求。
+- Flash计价错误匹配允许已核验的标准 ` (request id: ID)` 后缀，ID严格限 `[A-Za-z0-9_.:-]{1,128}`，完整字符串锚定；裸句与合法后缀均识别，前后追加文本、含空格或超长ID不识别专门诊断。指定真实桌面传输源码的隔离集成还覆盖价格配置502、参数422、安全message/code/receipt_failed传递、已失败原请求重放不重复调用供应商及不进入pending轮询；测试只读桌面源码，不修改桌面或访问生产模型。
 
 上线前需自行部署本后端，配置正确 `DATABASE_URL`、桌面授权用 `REDIS_URL`、JWT/Cookie站点设置、可用 `NEW_API_BASE_URL` 和 `NEW_API_KEY`；`/v1/models`必须提供本型号。还需真实截图+工具模型调用、个人/团队到账及生产异常对账验收。本次修正没有调用额外生产付费API，没有部署；主任务保留原唯一实测记录作为旧版本证据。
 
