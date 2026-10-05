@@ -35,3 +35,13 @@
 `cd backend && npm run test:desktop-chat` 创建隔离的localhost PostgreSQL16容器并运行消费订单、桌面协议回归，结束删除容器。新增测试覆盖签名篡改/过期、跨语言固定签名、并发Webhook仅一次扣款、真实个人lot/团队quota、正文状态独立、未知费用不退款、PG触发器造成钱包结算失败后保留证明并跨重启恢复、权威GET/cron补偿、固定价小T费用与历史排除。
 
 设置 `TANVA_CONSUMPTION_GO_INTEGRATION=1` 可运行跨真实Go relay与本地供应商fixture、网关账务/outbox、签名HTTP回调、Nest/Fastify到真实PG钱包的额外测试。该开关仅用于本地隔离runner，不启动生产网关或发送真实供应商请求。桌面原传输源可用 `TANVA_DESKTOP_TRANSPORT_FILE=/absolute/path/to/tanvasModelTransport.ts` 同时验证。
+
+2026-10-05最终在macOS arm64运行以下命令，均exit 0：
+
+```bash
+cd backend
+npm run build
+TANVA_CONSUMPTION_GO_INTEGRATION=1 TANVA_DESKTOP_TRANSPORT_FILE=/Volumes/ZHITAI-System/UserData-libiqiang-20260913/workspace/tanvas-desk/apps/desktop/src/main/tanvasModelTransport.ts npm run test:desktop-chat
+```
+
+runner在临时PG中先创建当前schema，再删除四个消费字段并实际执行新增migration SQL，确认两项索引创建成功。真实Go Relay从本地供应商收到18171输入/285输出，网关实际quota9656对应人民币0.019312；经outbox、权威签名GET和两次HTTP通知，backend实际扣3积分且模型输出仍pending。测试同时证明并发回调只结算一次、钱包和退款事务失败后仅用持久证明恢复、过期赠送lot恢复后仍过期、旧pending revision不回退终态，以及实际桌面transport、Cookie鉴权、个人/团队原钱包回归。测试容器随runner完成删除。这里的真实是本地代码与数据库闭环；生产签名配置、通知网络和真实供应商链路仍需部署后验收。

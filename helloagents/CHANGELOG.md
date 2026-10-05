@@ -1477,3 +1477,4 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 
 - 既有ApiUsageRecord新增独立消费状态、权威证明和自动对账游标；签名Webhook/主动查询按网关实际人民币消费×1.5×100按单ceil，不依赖模型正文usage。原个人lot/团队预留账本只结算一次，输出状态与费用状态分开。
 - 未知消费、响应丢失、进程重启均保留原订单只查账/补账；只有权威零消费拒绝退款。迁移不回填旧记录；本地隔离PG验证及协议文档已新增，部署仍须两端配置签名secret和权威通知/查询。
+- 最终 `npm run build` 与开启 `TANVA_CONSUMPTION_GO_INTEGRATION=1`、指定真实桌面transport的 `npm run test:desktop-chat` 全部通过。临时PG实际执行新增迁移SQL；真实Go Relay经本地供应商、网关账务/outbox、签名GET与重复HTTP通知，收敛到PG个人钱包只扣3积分（quota9656、人民币0.019312），输出仍待恢复。真实退款事务失败恢复、过期gift不复活、旧revision不回退终态与团队quota回归通过；未部署生产。完整命令见 `wiki/modules/backend-gateway-consumption-orders.md`。
