@@ -15,9 +15,6 @@ export function isFreeCreditDecayLot(lot: FreeCreditDecayLotLike): boolean {
   const metadata = asRecord(lot.metadata);
 
   if (lot.sourceType === 'gift') {
-    // A legacy allocation is not proof of unspent rewards. Keep it spendable
-    // with normal gift priority, but only resume decay after ledger verification.
-    if (metadata?.legacyReferralUnverified === true) return false;
     // 签到积分单独按凌晨 3 点业务日边界整批清理；不能再叠加每日 50 衰减。
     if (metadata?.reason === 'daily_reward') return false;
     return true;

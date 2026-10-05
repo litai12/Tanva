@@ -86,7 +86,7 @@ async function run() {
   await materializeLegacyReferralLots(tx, 'account');
   assert.equal(account.balance, 1210);
   assert.deepEqual(lots.slice(1).map(l => l.remainingAmount), [150, 60]);
-  assert(lots.slice(1).every(l => !isFreeCreditDecayLot(l)), 'unverified history must not decay');
+  assert(lots.slice(1).every(isFreeCreditDecayLot), 'legacy referral gifts decay even while awaiting audit');
   assert(isFreeCreditDecayLot(gift), 'ordinary gift still decays');
   const migratedSpend = buildHybridCreditDeductionPlan({ lots, accountBalance: account.balance, amount: 210, now, policy });
   assert(migratedSpend.deductions.every(d => d.lotId !== 'existing'));
@@ -116,17 +116,13 @@ async function run() {
   db.$transaction = async (fn: any) => fn(db);
   const service = Object.create(MembershipService.prototype) as MembershipService;
   Object.assign(service, { prisma: db, businessPolicyService: { getMembershipCreditPolicy: async () => ({ dailyGiftDecayCredits: 50 }) } });
-  assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
-  assert.equal(account.balance, 1210);
-  // Verified remainder resumes normal daily decay; the earlier spend plan
-  // already proved that even unverified gifts are consumed before recharge.
-  for (const l of lots.slice(1)) {
-    l.metadata = { ...(l.metadata as Record<string, unknown>), legacyReferralUnverified: false };
-  }
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 50);
   assert.equal(account.balance, 1160);
   assert.equal(lots[1].remainingAmount, 100);
+  assert.equal((lots[1].metadata as Record<string, unknown>).legacyReferralUnverified, true,
+    'decay must not clear the legacy audit marker');
   assert.equal((await service.decayDailyGiftCredits(now)).decayedCredits, 0);
+  assert.equal(account.balance, 1160);
   assert.equal(recorded.length, 1);
   // Advance business days and verify the last 10 points cannot become a 50-point deduction.
   let nextDay = new Date(now);
