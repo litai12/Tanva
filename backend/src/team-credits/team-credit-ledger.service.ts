@@ -246,6 +246,8 @@ export class TeamCreditLedgerService {
       `;
       if (!accounts.length) throw new BadRequestException('团队积分账户不存在');
       const acc = accounts[0];
+      const consumption = await tx.apiUsageRecord.findUnique({ where: { id: taskId }, select: { consumptionStatus: true } });
+      if (consumption?.consumptionStatus && consumption.consumptionStatus !== 'rejected') throw new BadRequestException('网关消费未确认拒绝，不得按模型输出状态释放预算');
       // 幂等：release 流水已存在说明本任务预留已释放，跳过账户/配额回退，避免重复释放
       // （video-task-refund + 过期 reserve cron 可能对同一 taskId 并发触发）。
       const existing = await tx.teamCreditLedger.findUnique({
@@ -271,7 +273,7 @@ export class TeamCreditLedgerService {
         data: { frozenBalance: { decrement: amount } },
       });
       // 回退成员配额（月度 + 总量）
-      const meteredConversation = taskId.startsWith('desktop-chat:') || taskId.startsWith('deepseek-chat:');
+      const meteredConversation = !!consumption?.consumptionStatus || taskId.startsWith('desktop-chat:') || taskId.startsWith('deepseek-chat:');
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
         SET "creditUsedThisCycle" = CASE
@@ -331,10 +333,10 @@ export class TeamCreditLedgerService {
     for (const entry of expired) {
       if (!entry.taskId) continue;
       const usage = await this.prisma.apiUsageRecord.findUnique({
-        where: { id: entry.taskId }, select: { responseStatus: true },
+        where: { id: entry.taskId }, select: { responseStatus: true, consumptionStatus: true },
       });
       // Pending/unknown/successful upstream work still owns its reservation.
-      if (usage?.responseStatus !== ApiResponseStatus.FAILED) continue;
+      if (usage?.consumptionStatus ? usage.consumptionStatus !== 'rejected' : usage?.responseStatus !== ApiResponseStatus.FAILED) continue;
       // 检查是否已有对应 deduct/release
       const settled = await this.prisma.teamCreditLedger.findFirst({
         where: {

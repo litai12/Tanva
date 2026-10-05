@@ -408,6 +408,11 @@ model ApiUsageRecord {
   ipAddress        String?
   userAgent        String?
   createdAt        DateTime @default(now())
+  // Authoritative gateway consumption is independent of model output status.
+  consumptionStatus String?
+  consumptionEventId String? @unique
+  consumptionReceipt Json?
+  consumptionNextCheckAt DateTime?
   user             User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
@@ -415,6 +420,7 @@ model ApiUsageRecord {
   @@index([provider])
   @@index([responseStatus])
   @@index([responseStatus, serviceType, createdAt])
+  @@index([consumptionStatus, consumptionNextCheckAt])
 }
 
 /// 按天预聚合的 API 用量统计（rollup）。

@@ -48,13 +48,26 @@ export function receipt(row: any, includeResponse = false) {
   const amount = state === 'failed' ? 0 : meta.credits;
   const metered = !!meta.billing;
   const pending = state === 'pending' || state === 'reconciliation_required';
+  const gatewayOrder = !!row.consumptionStatus;
+  const consumption = row.consumptionReceipt;
+  const consumed = gatewayOrder && row.consumptionStatus === 'settled';
+  const closed = consumed || row.consumptionStatus === 'rejected';
+  const billing = meta.billing && gatewayOrder ? { ...meta.billing,
+    mode: 'gateway_consumption' as const, settlementStatus: row.consumptionStatus,
+    ...(consumption?.receipt?.costCny !== undefined ? { gatewayCostCny: consumption.receipt.costCny } : {}),
+    ...(consumption?.receipt?.eventId ? { gatewayEventId: consumption.receipt.eventId } : {}),
+    ...(consumption?.receipt?.gatewayRequestId ? { upstreamRequestId: consumption.receipt.gatewayRequestId } : {}),
+    ...(consumed ? { exactCredits: consumption.exactCredits, exactCreditNanos: consumption.exactCreditNanos } : {}),
+  } : meta.billing;
   return {
     requestId: meta.requestId, apiUsageId: row.id, taskId: meta.taskId,
     conversationId: meta.conversationId, model: row.model, scope: meta.scope, status: state,
-    creditsCharged: metered ? (state === 'completed' ? amount : 0) : funded && state !== 'completed' ? 0 : amount,
-    creditsReserved: (funded || metered) && pending ? (meta.billing?.reservation.credits ?? amount) : 0,
+    creditsCharged: gatewayOrder ? (consumed ? consumption.creditsCharged : 0)
+      : metered ? (state === 'completed' ? amount : 0) : funded && state !== 'completed' ? 0 : amount,
+    creditsReserved: gatewayOrder ? (closed ? 0 : consumption.creditsReserved)
+      : (funded || metered) && pending ? (meta.billing?.reservation.credits ?? amount) : 0,
     unit: 'credits' as const, createdAt: new Date(row.createdAt).toISOString(),
-    ...(meta.billing ? { billing: meta.billing } : {}),
+    ...(billing ? { billing } : {}),
     ...(meta.completedAt ? { completedAt: meta.completedAt } : {}),
     ...(meta.errorCode ? { errorCode: meta.errorCode } : {}),
     ...(includeResponse && state === 'completed' ? { response: meta.response } : {}),

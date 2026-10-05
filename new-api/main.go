@@ -113,6 +113,7 @@ func main() {
 
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
+	service.StartTanvaConsumptionWorker()
 
 	// Auto-cleanup runtime logs older than 3 days, runs every hour.
 	// Task records are retained permanently for audit and export.

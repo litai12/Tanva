@@ -311,6 +311,9 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	if relayInfo.TanvaConsumptionID != 0 && relayInfo.TanvaSettlementHandled {
+		return
+	}
 	originUsage := usage
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
@@ -321,6 +324,24 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	if relayInfo.TanvaConsumptionID != 0 {
+		relayInfo.TanvaSettlementHandled = true
+		if relayInfo.TanvaUsageEvidence == "" {
+			relayInfo.TanvaUsageEvidence = "gateway_estimated_usage"
+			if relayInfo.OriginModelName == "xiaot-agent-deepseek-v4-flash" {
+				relayInfo.TanvaUsageEvidence = "gateway_fixed_price"
+			}
+			if data, err := common.Marshal(usage); err == nil {
+				relayInfo.TanvaUsageJSON = string(data)
+			}
+		}
+		if err := SettleTanvaTextConsumption(ctx, relayInfo, summary); err != nil {
+			RecordUnsettledBilling(ctx, relayInfo, err)
+		} else {
+			RecordTanvaConsumptionLog(ctx, relayInfo, summary)
+		}
+		return
+	}
 	if summary.BillingError != nil {
 		RecordUnsettledBilling(ctx, relayInfo, summary.BillingError)
 		return

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Module, ValidationPipe, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -18,6 +18,8 @@ import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.serv
 import { DesktopChatService, readBoundedJson } from './desktop-chat.service';
 import { DESKTOP_CHAT_MODEL, MAX_REQUEST_BYTES, usageId, validateCompletion } from './desktop-chat.protocol';
 import { createDeepSeekPricingSnapshot, estimateDeepSeekReservation, calculateDeepSeekUsage, roundUpDeepSeekCredits } from './deepseek-pricing';
+import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
+import { signGatewayRequest } from '../consumption-orders/gateway-consumption.protocol';
 // Real PostgreSQL transactions, row/advisory locks and actual credit services.
 // Only external HTTP is stubbed; refuse a production datasource explicitly.
 const dbUrl = process.env.DESKTOP_CHAT_TEST_DATABASE_URL;
@@ -291,5 +293,72 @@ async function run() {
     console.log('PASS: real Nest/Fastify controller + production JwtAuthGuard/JwtStrategy Cookie (no Bearer), PostgreSQL wallet/receipts, full tool history, 401/200/409 JSON contracts');
   } finally { await app.close(); }
   console.log('PASS: actual PG admission concurrency, personal source/refund, team reserve/commit/release/quota rollback, known-result settlement and confirmed-rejection refund recovery, persisted tools/vision/usage, restart/hash conflict, unknown409/425/empty/disconnect, authorization, insufficient balance, payload/response bounds and read abort');
+  await gatewayMode();
+}
+
+async function gatewayMode() {
+  const secret = 'isolated-gateway-consumption-test';
+  const settings = { get: (key: string) => key === 'TANVA_CONSUMPTION_SECRET' ? secret : config.get(key) } as ConfigService;
+  const orders = new GatewayConsumptionOrdersService(db, settings, credits, ledger, { publish: async () => {} } as any);
+  const gateway = new DesktopChatService(settings, db, credits, ledger, undefined, orders);
+  const owner = await user(10000);
+  const claims = new Map<string, any>(), proofs = new Map<string, unknown>(); let posts = 0;
+  const envelope = (proof: any) => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const payload = Buffer.from(JSON.stringify(proof)).toString('base64url');
+    return { timestamp, payload, signature: createHmac('sha256', secret).update(`${timestamp}\n${payload}`).digest('hex') };
+  };
+  const makeProof = (id: string, status = 'consumed') => {
+    const claim = claims.get(id); assert(claim);
+    return envelope({ version: 1, eventId: `event:${id}`, revision: 2, orderId: id, orderHash: claim.orderHash,
+      gatewayInstanceId: 'tanva-new-api', gatewayRequestId: 'gateway-posted-request', model: DESKTOP_CHAT_MODEL,
+      status, priceCurrency: 'CNY', costCny: status === 'consumed' ? '0.019312' : '0', quota: status === 'consumed' ? '9656' : '0',
+      quotaPerUnit: '500000', startedAt: new Date().toISOString(), settledAt: new Date().toISOString(), usageEvidence: 'upstream_tokens' });
+  };
+  let outcome = 'success';
+  (orders as any).fetchImpl = async (url: string) => {
+    const id = decodeURIComponent(new URL(url).pathname.split('/').pop()!);
+    return proofs.has(id) ? new Response(JSON.stringify(proofs.get(id))) : new Response('{}', { status: 404 });
+  };
+  (gateway as any).fetchImpl = async (input: string, init: RequestInit) => {
+    if (input.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: DESKTOP_CHAT_MODEL }] }));
+    posts++;
+    const h = new Headers(init.headers), id = h.get('X-Tanva-Order-Id')!;
+    assert.equal(h.get('X-Tanva-Signature'), signGatewayRequest(secret, h.get('X-Tanva-Timestamp')!, 'POST', '/v1/chat/completions', id, h.get('X-Tanva-Order-Hash')!, String(init.body)));
+    claims.set(id, { orderHash: h.get('X-Tanva-Order-Hash') });
+    if (outcome === 'lost-response') { proofs.set(id, makeProof(id)); throw new Error('response lost after gateway consumption'); }
+    if (outcome === '400-consumed') { proofs.set(id, makeProof(id)); return new Response('{}', { status: 400 }); }
+    if (outcome === '400-rejected') { proofs.set(id, makeProof(id, 'rejected')); return new Response('{}', { status: 400 }); }
+    // The model can return without token usage; only the gateway receipt bills it.
+    return new Response(JSON.stringify({ id: 'actual-output', model: DESKTOP_CHAT_MODEL, choices: completion.choices }));
+  };
+  assert.equal((await gateway.models(owner.id)).models[0].pricing.settlementSource, 'new_api_consumption');
+  const first = await gateway.complete(owner.id, body, headers('consumption-pending'));
+  assert.equal(first.tanvaReceipt.status, 'completed'); assert.equal(first.tanvaReceipt.billing.mode, 'gateway_consumption');
+  assert.notEqual(first.tanvaReceipt.billing.settlementStatus, 'settled'); assert.equal(first.tanvaReceipt.creditsCharged, 0);
+  assert.equal(first.tanvaReceipt.creditsReserved, reserve); assert.deepEqual(first.choices, completion.choices);
+  const firstId = uid(owner.id, 'consumption-pending');
+  const proof = makeProof(firstId); await Promise.all(Array.from({ length: 8 }, () => orders.receiveEnvelope(proof)));
+  const settled = await gateway.request(owner.id, `${prefix}:consumption-pending`);
+  assert.equal(settled.status, 'completed'); assert.equal(settled.billing.settlementStatus, 'settled');
+  assert.equal(settled.billing.gatewayCostCny, '0.019312'); assert.equal(settled.billing.exactCredits, '2.8968');
+  assert.equal(settled.creditsCharged, 3); assert.equal(settled.creditsReserved, 0); assert.equal(await balance(owner.id), 9997);
+  const beforeReplay = posts; await gateway.complete(owner.id, body, headers('consumption-pending')); assert.equal(posts, beforeReplay);
+  outcome = 'lost-response';
+  await code(gateway.complete(owner.id, body, headers('consumption-lost')), 'TANVA_REQUEST_PENDING');
+  const lost = await gateway.request(owner.id, `${prefix}:consumption-lost`);
+  assert.equal(lost.status, 'reconciliation_required'); assert.equal(lost.billing.settlementStatus, 'settled');
+  assert.equal(lost.creditsCharged, 3); assert.equal(lost.response, undefined); assert.equal(await balance(owner.id), 9994);
+  const noRepeat = posts; await code(gateway.complete(owner.id, body, headers('consumption-lost')), 'TANVA_REQUEST_PENDING'); assert.equal(posts, noRepeat);
+  outcome = '400-consumed';
+  await code(gateway.complete(owner.id, body, headers('consumption-failed')), 'TANVA_REQUEST_FAILED');
+  const failed = await gateway.request(owner.id, `${prefix}:consumption-failed`);
+  assert.equal(failed.status, 'failed'); assert.equal(failed.billing.settlementStatus, 'settled'); assert.equal(failed.creditsCharged, 3);
+  assert.equal(await balance(owner.id), 9991);
+  outcome = '400-rejected';
+  await code(gateway.complete(owner.id, body, headers('consumption-rejected')), 'TANVA_REQUEST_FAILED');
+  const rejected = await gateway.request(owner.id, `${prefix}:consumption-rejected`);
+  assert.equal(rejected.billing.settlementStatus, 'rejected'); assert.equal(rejected.creditsReserved, 0); assert.equal(await balance(owner.id), 9991);
+  console.log('PASS: desktop delivery independent of actual New API consumption; signed exact body, missing usage accepted, callback concurrency, response loss reconciled without new POST, failed output still charged, authoritative rejection releases reservation');
 }
 run().finally(() => db.$disconnect()).catch(e => { console.error(e); process.exitCode = 1; });

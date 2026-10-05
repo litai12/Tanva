@@ -40,9 +40,6 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		c.Set("image_generation_call_size", responsesResponse.GetSize())
 	}
 
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	// compute usage
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
@@ -54,6 +51,11 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	}
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		if info != nil && info.TanvaConsumptionID != 0 {
+			service.ObserveTanvaUsage(info, &usage, responsesResponse.Usage != nil)
+			service.PostTextConsumeQuota(c, info, &usage, nil)
+		}
+		service.IOCopyBytesGracefully(c, resp, responseBody)
 		return &usage, nil
 	}
 	// 解析 Tools 用量
@@ -65,6 +67,11 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		buildToolinfo.CallCount++
 	}
+	if info.TanvaConsumptionID != 0 {
+		service.ObserveTanvaUsage(info, &usage, responsesResponse.Usage != nil)
+		service.PostTextConsumeQuota(c, info, &usage, nil)
+	}
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return &usage, nil
 }
 
@@ -80,6 +87,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	var streamError *types.NewAPIError
 	terminalEventReceived := false
+	hasUpstreamUsage := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -97,6 +105,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			terminalEventReceived = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
+					hasUpstreamUsage = true
 					if streamResponse.Type == "response.completed" && c.GetBool("responses_prewarm") &&
 						streamResponse.Response.Usage.InputTokens == 0 && streamResponse.Response.Usage.OutputTokens == 0 && streamResponse.Response.Usage.TotalTokens == 0 {
 						c.Set("responses_prewarm_no_usage", true)
@@ -155,6 +164,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		)
 	}
 
+	service.ObserveTanvaUsage(info, usage, hasUpstreamUsage)
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
@@ -170,6 +180,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	if info.TanvaConsumptionID != 0 {
+		service.PostTextConsumeQuota(c, info, usage, nil)
+	}
 
 	return usage, nil
 }

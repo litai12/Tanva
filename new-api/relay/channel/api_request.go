@@ -121,6 +121,9 @@ func shouldSkipPassthroughHeader(name string) bool {
 		return true
 	}
 	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, "x-tanva-") {
+		return true
+	}
 	if _, ok := passthroughSkipHeaderNamesLower[lower]; ok {
 		return true
 	}
@@ -137,6 +140,9 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 		}
 
 		name := strings.TrimSpace(afterPrefix[:end])
+		if strings.HasPrefix(strings.ToLower(name), "x-tanva-") {
+			return "", false, fmt.Errorf("private accounting headers cannot be forwarded")
+		}
 		if name == "" {
 			return "", false, fmt.Errorf("client_header placeholder name is empty: %q", template)
 		}
@@ -515,6 +521,12 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if info.TanvaConsumptionID != 0 {
+		if err := service.DispatchTanvaConsumption(info); err != nil {
+			return nil, err
+		}
+		req = req.WithContext(c.Request.Context())
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())

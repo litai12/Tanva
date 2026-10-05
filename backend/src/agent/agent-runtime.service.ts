@@ -97,7 +97,7 @@ export class AgentRuntimeService {
           .run(dto, userId, (type, payload) => this.emit(run, type, payload), teamId,
             undefined, dto.browserContextQueries
               ? (args) => this.requestCanvasContext(run, args)
-              : undefined)
+              : undefined, run.id)
           .then(() => {
             run.status = 'completed';
             run.completedAt = new Date();

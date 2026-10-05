@@ -1,4 +1,5 @@
 import { DesktopChatModule } from './desktop-chat/desktop-chat.module';
+import { GatewayConsumptionOrdersModule } from './consumption-orders/gateway-consumption-orders.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -72,6 +73,7 @@ import { PromptLibraryModule } from './prompt-library/prompt-library.module';
     StoryboardSkillsModule,
     PromptLibraryModule,
     DesktopChatModule,
+    GatewayConsumptionOrdersModule,
   ],
 })
 export class AppModule {}

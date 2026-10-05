@@ -2,6 +2,8 @@
 
 状态：旧固定价版本已由用户部署并实测一次。2026-10-05 本次按量计费修正仅改本地源码，不部署、不自动重跑，也不追改旧回执或生产积分。桌面截图真实端到端任务仍未验收。
 
+后续新增[网关权威消费订单闭环](backend-gateway-consumption-orders.md)：配置 `TANVA_CONSUMPTION_SECRET` 后以网关实际quota人民币费用结算，模型输出与账单状态分离，签名通知和cron补偿不依赖此次模型HTTP响应。下文usage快照收费为未启用新协议的兼容模式；新合同需部署消费字段迁移和两端通知/查询协议，不能仅部署一端即声称生效。
+
 ## 身份、模型与真实价格
 
 独立 `tanvas-desk` 只使用本站 `/api/auth/desktop/*` 授权所得 HttpOnly Cookie。`DesktopChatModule` 明确导入 `AuthModule`，复用 `JwtAuthGuard` / `JwtStrategy`；账号状态及团队成员资格以数据库当前记录为准，不读取享语 token 或钱包，不引入第二份余额。

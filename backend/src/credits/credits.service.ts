@@ -5092,11 +5092,11 @@ export class CreditsService {
     let account = await findCreditAccountForUpdate(tx, { userId });
     if (!account) throw new NotFoundException('用户积分账户不存在');
     const usage = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: apiUsageId } });
-    if (usage.userId !== userId || (!(usage.requestParams as any)?.desktopChat && !(usage.requestParams as any)?.deepseekBilling) || (usage.requestParams as any)?.teamId) throw new BadRequestException('无效DeepSeek用量结算');
+    if (usage.userId !== userId || (!usage.consumptionStatus && !(usage.requestParams as any)?.desktopChat && !(usage.requestParams as any)?.deepseekBilling) || (usage.requestParams as any)?.teamId) throw new BadRequestException('无效网关用量结算');
     const existing = await tx.creditTransaction.findFirst({ where: { apiUsageId, type: TransactionType.ADJUSTMENT,
       metadata: { path: ['reason'], equals: 'desktop_chat_usage_settlement' } } });
     if (existing) return (existing.metadata as any).settlement as { creditsCharged: number };
-    if (usage.responseStatus !== ApiResponseStatus.PENDING) throw new BadRequestException('仅受理中的用量可以首次结算');
+    if (usage.responseStatus !== ApiResponseStatus.PENDING && !usage.consumptionStatus) throw new BadRequestException('仅受理中的用量可以首次结算');
     const settlement = { creditsCharged: roundUpDeepSeekCredits(exactCreditNanos) };
     const delta = settlement.creditsCharged - usage.creditsUsed;
     const spend = await tx.creditTransaction.findFirst({ where: { apiUsageId, type: TransactionType.SPEND }, orderBy: { createdAt: 'asc' } });
@@ -5145,7 +5145,7 @@ export class CreditsService {
       totalSpent: Math.max(0, account.totalSpent + delta) } });
     await tx.creditTransaction.create({ data: { accountId: account.id, type: TransactionType.ADJUSTMENT,
       amount: -delta, balanceBefore: account.balance, balanceAfter: newBalance, apiUsageId,
-      description: 'Tanva对话按官方实际用量结算', consumePolicyCode: policyCode, consumePolicyVersion: policyVersion,
+      description: usage.consumptionStatus ? 'Tanva网关消费订单结算' : 'Tanva对话按官方实际用量结算', consumePolicyCode: policyCode, consumePolicyVersion: policyVersion,
       metadata: { reason: 'desktop_chat_usage_settlement', exactCreditNanos, settlement,
         reservedCredits: usage.creditsUsed, direction: delta < 0 ? 'refund' : delta > 0 ? 'charge' : 'unchanged',
         deductions: changes as unknown as Prisma.JsonArray } } });
@@ -5556,6 +5556,10 @@ export class CreditsService {
       const lotDeductions = this.extractLotDeductionsFromMetadata(
         spendTransaction?.metadata,
       );
+      if (apiUsage.consumptionStatus && creditsToRefund > 0 &&
+          lotDeductions.reduce((sum, item) => sum + item.amount, 0) !== creditsToRefund) {
+        throw new BadRequestException('消费订单原预扣批次证据不完整，保留原记录待对账');
+      }
 
       if (deltaCredits < 0) {
         const refundCredits = Math.abs(deltaCredits);
@@ -5592,6 +5596,7 @@ export class CreditsService {
           const lots = await tx.creditLot.findMany({
             where: {
               id: { in: lotIds },
+              ...(apiUsage.consumptionStatus ? { accountId: account.id } : {}),
             },
             select: {
               id: true,
@@ -5608,6 +5613,8 @@ export class CreditsService {
               status: true,
             },
           });
+
+          if (apiUsage.consumptionStatus && lots.length !== new Set(lotIds).size) throw new BadRequestException('消费订单原积分批次不存在');
 
           const restoredLots = applyLotRestorationsToSnapshots({
             lots: lots.map((lot) => this.toCreditLotCandidate(lot)),
@@ -6012,7 +6019,10 @@ export class CreditsService {
         throw new BadRequestException('无权访问该 API 记录');
       }
 
-      if (apiUsage.responseStatus !== ApiResponseStatus.FAILED) {
+      if (apiUsage.consumptionStatus && apiUsage.consumptionStatus !== 'rejected') {
+        throw new BadRequestException('网关消费未确认拒绝，不得按模型输出状态退款');
+      }
+      if (apiUsage.responseStatus !== ApiResponseStatus.FAILED && apiUsage.consumptionStatus !== 'rejected') {
         throw new BadRequestException('只有失败的API调用才能退款');
       }
 
@@ -6136,9 +6146,17 @@ export class CreditsService {
         },
       });
 
+      let finalBalance = newBalance;
+      if (apiUsage.consumptionStatus) {
+        const restoredAccount = await findCreditAccountForUpdate(tx, { userId });
+        if (!restoredAccount) throw new NotFoundException('用户积分账户不存在');
+        await this.expireDailyRewardLotsForLockedAccount(tx, restoredAccount, new Date());
+        await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, { accountId: account.id, now: new Date() });
+        finalBalance = (await findCreditAccountForUpdate(tx, { userId }))!.balance;
+      }
       return {
         success: true,
-        newBalance,
+        newBalance: finalBalance,
         transactionId: transaction.id,
       };
     };
@@ -6458,6 +6476,7 @@ export class CreditsService {
         serviceName: true,
         createdAt: true,
         requestParams: true,
+        consumptionStatus: true,
       },
     });
 
@@ -6479,7 +6498,7 @@ export class CreditsService {
     for (const record of staleRecords) {
       // Paid language requests lack a trustworthy upstream cancellation query.
       // Elapsed time must not turn accepted desktop/web work into a refund.
-      if ((record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||
+      if (record.consumptionStatus || (record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||
           record.id.startsWith('desktop-chat:') || record.id.startsWith('deepseek-chat:')) continue;
       const processingTime = Math.max(0, Date.now() - record.createdAt.getTime());
       const timeoutMessage = `超时自动关闭：${timeoutMinutes}分钟未完成`;

@@ -1,6 +1,8 @@
 // 经 Tanva new-api 渠道流式调用小T（xiaot-agent 模型），把标准 chat.completion.chunk
 // 翻译成 AgentRunEvent 推给前端；完整成功的对话固定扣费，生成/分析宿主任务由各自链路另行计费。
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { DeepSeekChatBillingService, DeepSeekChatCharge } from '../ai/services/deepseek-chat-billing.service';
 import { ConfigService } from '@nestjs/config';
 import { CreditsService } from '../credits/credits.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,6 +55,9 @@ type RunContinuation = {
   hostUiCount: number;
   model: string;
   hostScopeId: string;
+  billingIdentity?: string;
+  billingTeamId?: string | null;
+  billingOrders?: unknown[];
 };
 
 class XiaotInterruptedStreamError extends Error {
@@ -92,6 +97,7 @@ export class XiaotAgentService {
     private readonly config: ConfigService,
     private readonly creditsService: CreditsService,
     private readonly prisma: PrismaService,
+    @Optional() private readonly chatBilling?: DeepSeekChatBillingService,
   ) {}
 
   private get baseUrl(): string {
@@ -153,9 +159,17 @@ export class XiaotAgentService {
    * `teamId = (activeTeam && !activeTeam.isPersonal) ? activeTeam.id : null`；
    * 个人空间(isPersonal)或空 header 一律返 null，走个人隔离分支。
    */
-  private async resolveRealTeamId(teamId?: string): Promise<string | null> {
+  private async resolveRealTeamId(teamId?: string, userId?: string): Promise<string | null> {
     const id = typeof teamId === 'string' ? teamId.trim() : '';
     if (!id) return null;
+    if (this.chatBilling?.isGatewayEnabled()) {
+      const team = await this.prisma.team.findUnique({ where: { id }, select: { isPersonal: true, status: true } });
+      const member = await this.prisma.teamMembership.findUnique({
+        where: { teamId_userId: { teamId: id, userId: userId! } }, select: { userId: true },
+      });
+      if (!team || team.status !== 'active' || !member) throw new ForbiddenException('当前账号无权使用此团队积分');
+      return team.isPersonal === false ? id : null;
+    }
     try {
       const team = await this.prisma.team.findUnique({
         where: { id },
@@ -174,6 +188,7 @@ export class XiaotAgentService {
     teamId?: string,
     continuation?: RunContinuation,
     resolveCanvasQuery?: (args: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    rootRunId?: string,
   ): Promise<void> {
     // 小T固定使用 DeepSeek；旧请求、环境配置和续跑参数均不能重新启用 GPT。
     const model = DEFAULT_XIAOT_CHAT_MODEL;
@@ -191,7 +206,9 @@ export class XiaotAgentService {
 
     // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
     // 前缀防 team/user id 命名空间相撞。
-    const realTeamId = continuation ? null : await this.resolveRealTeamId(teamId);
+    const realTeamId = continuation ? continuation.billingTeamId ?? null : await this.resolveRealTeamId(teamId, userId);
+    const billingIdentity = continuation?.billingIdentity || rootRunId || randomUUID();
+    const billingOrders = [...(continuation?.billingOrders || [])];
     const hostScopeId = continuation?.hostScopeId ||
       (realTeamId ? `team:${realTeamId}` : `user:${userId}`);
     if (!continuation) {
@@ -208,6 +225,9 @@ export class XiaotAgentService {
     if (remainingMs <= 0) throw new Error('小T请求超时，未取得完整执行结果');
     const timeout = setTimeout(() => controller.abort(), remainingMs);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let charge: DeepSeekChatCharge | undefined;
+    let outputSaved = false;
+    let billingResponse: unknown;
     try {
       const requestBody = {
         model,
@@ -221,13 +241,37 @@ export class XiaotAgentService {
         host_user_id: hostScopeId,
         messages: this.buildMessages(dto, true),
       };
+      const rawBody = JSON.stringify(requestBody);
+      if (this.chatBilling?.isGatewayEnabled()) {
+        charge = await this.chatBilling.begin({ userId, teamId: teamId || null, model,
+          serviceType: 'agent-chat', serviceName: 'xiaot-agent', requestBody,
+          identity: `${billingIdentity}:${continuation?.depth || 0}` });
+        if (charge.duplicate) {
+          if (charge.response === undefined) {
+            const billing = await this.chatBilling.reconcileGateway(charge);
+            outputSaved = true;
+            throw new ConflictException({ code: 'XIAOT_REQUEST_ACCEPTED', outputStatus: 'unknown',
+              orderId: charge.apiUsageId, billing });
+          }
+          const saved = readRecord(charge.response);
+          const billing = await this.chatBilling.gatewayOutput(charge, charge.response,
+            saved?.success === false ? 'failed' : 'ready');
+          emit('final', { message: typeof saved?.text === 'string' ? saved.text : '',
+            data: { ...saved, billing, orderId: charge.apiUsageId, replayed: true } });
+          emit('done', {});
+          return;
+        }
+      }
+      const orderHeaders = charge ? await this.chatBilling!.gatewayHeaders(charge,
+        { method: 'POST', path: '/v1/chat/completions', rawBody }) : {};
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
+          ...orderHeaders,
         },
-        body: JSON.stringify(requestBody),
+        body: rawBody,
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -635,10 +679,17 @@ export class XiaotAgentService {
       const nextPatchCount = (continuation?.patchCount || 0) + patchCount;
       const nextHostToolCount = (continuation?.hostToolCount || 0) + hostToolCount;
       const nextHostUiCount = (continuation?.hostUiCount || 0) + hostUiCount;
+      billingResponse = { text: fullText, patchCount, hostToolCount, hostUiCount,
+        contextQueryCount: contextQueries.length };
 
       if (contextQueries.length > 0) {
         if (!doneReceived || toolCallBuffers.size > 0 || finishReason !== 'tool_calls') {
           throw new Error('xiaot-agent context query ended with an invalid tool-call state');
+        }
+        if (charge) {
+          const billing = await this.chatBilling!.gatewayOutput(charge, billingResponse, 'ready');
+          outputSaved = true;
+          billingOrders.push({ ...billing, orderId: charge.apiUsageId, basis: 'gateway_fixed_price' });
         }
         const depth = continuation?.depth || 0;
         emit('step_started', { title: '正在读取画布与工具信息' });
@@ -680,8 +731,12 @@ export class XiaotAgentService {
             hostUiCount: nextHostUiCount,
             model,
             hostScopeId,
+            billingIdentity,
+            billingTeamId: realTeamId,
+            billingOrders,
           },
           resolveCanvasQuery,
+          rootRunId,
         );
         return;
       }
@@ -696,7 +751,11 @@ export class XiaotAgentService {
         doneReceived,
       });
 
-      await this.settleCredits(userId, nextUsageUnits, model, {
+      if (charge) {
+        const billing = await this.chatBilling!.gatewayOutput(charge, billingResponse, 'ready');
+        outputSaved = true;
+        billingOrders.push({ ...billing, orderId: charge.apiUsageId, basis: 'gateway_fixed_price' });
+      } else await this.settleCredits(userId, nextUsageUnits, model, {
         textChars: nextText.length,
         patchCount: nextPatchCount,
         hostToolCount: nextHostToolCount,
@@ -709,10 +768,16 @@ export class XiaotAgentService {
       }
       emit('final', {
         message: nextText,
-        data: { text: nextText, patchCount: nextPatchCount, usageUnits: nextUsageUnits },
+        data: { text: nextText, patchCount: nextPatchCount, usageUnits: nextUsageUnits,
+          ...(billingOrders.length ? { billingOrders } : {}) },
       });
       emit('done', {});
     } catch (error) {
+      if (charge && !outputSaved) {
+        const billing = await this.chatBilling!.gatewayOutput(charge,
+          { success: false, error: { message: error instanceof Error ? error.message : String(error) }, partial: billingResponse }, 'failed');
+        emit('step_completed', { title: '消费订单已记录', data: { billing, orderId: charge.apiUsageId } });
+      }
       if (controller.signal.aborted) {
         throw new Error('小T执行超时，未收到完整结果；已下发的画布操作和生成资产会保留，请查看画布状态');
       }

@@ -141,6 +141,11 @@ type RelayInfo struct {
 	SubscriptionPlanTitle string
 	// RequestId is used for idempotent pre-consume/refund
 	RequestId string
+	// Trusted Tanva consumption orders settle through the persistent main DB ledger.
+	TanvaConsumptionID     int64
+	TanvaUsageEvidence     string
+	TanvaUsageJSON         string
+	TanvaSettlementHandled bool
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.
 	SubscriptionAmountTotal               int64
 	SubscriptionAmountUsedAfterPreConsume int64

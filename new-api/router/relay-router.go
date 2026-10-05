@@ -15,6 +15,9 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
+	tanvaReceiptRouter := router.Group("/v1/tanva/consumptions")
+	tanvaReceiptRouter.Use(middleware.RouteTag("relay"), middleware.TanvaConsumptionQueryAuth())
+	tanvaReceiptRouter.GET("/:orderId", controller.GetTanvaConsumption)
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
@@ -70,6 +73,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
+	relayV1Router.Use(middleware.TanvaConsumption())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// WebSocket 路由（统一到 Relay）

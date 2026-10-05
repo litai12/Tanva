@@ -4,7 +4,7 @@ import { DeepSeekChatBillingService, isDeepSeekChatModel } from './deepseek-chat
 import { calculateDeepSeekUsage } from '../../desktop-chat/deepseek-pricing';
 import * as pricing from '../../desktop-chat/deepseek-pricing';
 
-function harness() {
+function harness(orders?: any) {
   const rows = new Map<string, any>();
   const settled: Array<{ id: string; amount: string; team: boolean }> = [];
   let refunds = 0;
@@ -52,7 +52,7 @@ function harness() {
       const before = new Map([...rows].map(([id, row]) => [id, structuredClone(row)]));
       try { return await work(tx); }
       catch (error) { rows.clear(); for (const [id, row] of before) rows.set(id, row); throw error; }
-    } } as any, credits as any, ledger as any,
+    } } as any, credits as any, ledger as any, orders,
   );
   return { service, rows, settled, tx, refunds: () => refunds,
     blockSettlement: (blocked: boolean) => { settlementBlocked = blocked; },
@@ -133,6 +133,34 @@ async function main() {
   assert.deepEqual(await recovery.service.execute(input('known-result'), knownOperation, r => r.usage), result);
   assert.equal(recoverySubmissions, 1, 'accounting recovery must use the stored result without re-submitting the model');
   assert.equal(recovery.settled.length, 1);
+
+  let orderQueries = 0;
+  const orders = { isEnabled: () => true, register: async () => true,
+    reconcile: async () => { orderQueries++; return { enabled: true, status: 'pending' }; } };
+  const gateway = harness(orders);
+  let gatewaySubmissions = 0;
+  const noTokenResult = { success: true, data: { text: '真实正文', metadata: {} } };
+  const submittedOrders: string[] = [];
+  const gatewayOperation = async (charge: any) => {
+    gatewaySubmissions++; submittedOrders.push(charge.apiUsageId); return noTokenResult;
+  };
+  const first = await gateway.service.execute(input('gateway-body'), gatewayOperation, () => undefined);
+  assert.equal(first.data.text, '真实正文', 'pending payment must preserve completed model output');
+  assert.equal((first.data.metadata as any).billing.status, 'pending');
+  const replay = await gateway.service.execute(input('gateway-body'), gatewayOperation, () => undefined);
+  assert.equal(replay.data.text, '真实正文');
+  assert.equal(gatewaySubmissions, 1, 'pending orders only query their original order');
+  assert.equal(orderQueries, 2);
+  assert.equal(gateway.settled.length, 0, 'caller cannot settle or reprice gateway consumption using model tokens');
+  assert.equal(gateway.refunds(), 0);
+  await gateway.service.execute(input('gateway-body:reply'), gatewayOperation, () => undefined);
+  assert.notEqual(submittedOrders[0], submittedOrders[1], 'physical requests have distinct orders');
+  const failedOutput = { success: false, error: { message: 'model failed after gateway consumption' } };
+  await gateway.service.execute(input('gateway-model-failure'), async () => failedOutput, () => { throw new Error('output failed'); });
+  const failedRow = [...gateway.rows.values()].find(r => r.requestParams.deepseekBilling.response?.success === false);
+  assert.equal(failedRow.requestParams.deepseekBilling.outputStatus, 'failed');
+  assert.equal(gateway.refunds(), 0, 'model failure must not decide consumption refund');
+  assert.equal(orderQueries, 4);
 
   console.log('DeepSeek web usage, cache, replay, payer scope and uncertain outcome: passed');
 }

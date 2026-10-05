@@ -1,4 +1,5 @@
-import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
+import { GatewayConsumptionOrdersService } from '../../consumption-orders/gateway-consumption-orders.service';
 import { createHash, randomUUID } from 'crypto';
 import { CreditsService } from '../../credits/credits.service';
 import { ApiResponseStatus } from '../../credits/dto/credits.dto';
@@ -18,12 +19,14 @@ export interface DeepSeekChatCharge {
   apiUsageId: string;
   userId: string;
   teamId: string | null;
-  snapshot: DeepSeekPricingSnapshot;
+  snapshot?: DeepSeekPricingSnapshot;
   reservedCredits: number;
   duplicate: boolean;
   response?: unknown;
   knownUsage?: unknown;
   needsSettlement?: boolean;
+  gatewayMode?: boolean;
+  gatewayBasis?: 'gateway_fixed_price' | 'gateway_consumption';
 }
 
 /** One receipt and one rounded charge per accepted physical model request. */
@@ -33,13 +36,52 @@ export class DeepSeekChatBillingService {
     private readonly prisma: PrismaService,
     private readonly credits: CreditsService,
     private readonly ledger: TeamCreditLedgerService,
+    @Optional() private readonly orders?: GatewayConsumptionOrdersService,
   ) {}
+
+  isGatewayEnabled(): boolean { return this.orders?.isEnabled() === true; }
+
+  handlesModel(model?: string): boolean {
+    return isDeepSeekChatModel(model) || (this.isGatewayEnabled() && model === 'xiaot-agent-deepseek-v4-flash');
+  }
+
+  async gatewayHeaders(charge: DeepSeekChatCharge, request: { method: string; path: string; rawBody: string }) {
+    if (!charge.gatewayMode || !this.orders) return {};
+    const headers = await this.orders.gatewayHeaders(charge.apiUsageId, request);
+    if (headers['X-Tanva-Order-Id'] !== charge.apiUsageId || !headers['X-Tanva-Signature']) {
+      throw new ConflictException('消费订单签名不可用，未提交模型');
+    }
+    return headers;
+  }
+
+  async gatewayOutput(charge: DeepSeekChatCharge, response: unknown, outputStatus: 'ready' | 'failed') {
+    try { await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${charge.apiUsageId}, 0))`;
+      const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: charge.apiUsageId } });
+      const billing = (row.requestParams as any)?.deepseekBilling;
+      await tx.apiUsageRecord.update({ where: { id: charge.apiUsageId }, data: {
+        responseStatus: outputStatus === 'ready' ? ApiResponseStatus.SUCCESS : ApiResponseStatus.FAILED,
+        requestParams: { ...(row.requestParams as any), deepseekBilling: { ...billing,
+          outputStatus, ...(response === undefined ? {} : { response }) } },
+      } });
+    }); } catch {
+      return { enabled: true, status: 'reconciliation_required', outputRecordPending: true };
+    }
+    // Consumption is authoritative even when the model output failed. Querying
+    // never submits another model request; billing delays never discard output.
+    return this.reconcileGateway(charge);
+  }
+
+  async reconcileGateway(charge: DeepSeekChatCharge) {
+    try { return await this.orders!.reconcile(charge.apiUsageId); }
+    catch { return { enabled: true, status: 'reconciliation_required' }; }
+  }
 
   async begin(input: {
     userId: string; teamId?: string | null; model: string; serviceType: ServiceType;
     serviceName: string; requestBody: Record<string, unknown>; identity?: string;
+    gatewayOnly?: boolean; reservedCredits?: number;
   }): Promise<DeepSeekChatCharge> {
-    if (!isDeepSeekChatModel(input.model)) throw new ForbiddenException('此模型未纳入DeepSeek Flash计价合同');
     const identity = input.identity || randomUUID();
     const apiUsageId = `deepseek-chat:${createHash('sha256').update(`${input.userId}:${identity}`).digest('hex')}`;
     const bodyHash = createHash('sha256').update(JSON.stringify({ requestBody: input.requestBody,
@@ -53,17 +95,22 @@ export class DeepSeekChatBillingService {
         if (prior.userId !== input.userId || billing?.bodyHash !== bodyHash) {
           throw new ConflictException({ code: 'DEEPSEEK_IDEMPOTENCY_CONFLICT', apiUsageId });
         }
-        if (billing.state !== 'completed' && billing.response === undefined) {
+        if (!billing.gatewayMode && billing.state !== 'completed' && billing.response === undefined) {
           throw new ConflictException({ code: 'DEEPSEEK_REQUEST_ACCEPTED', apiUsageId, state: billing.state });
         }
         return { apiUsageId, userId: input.userId, teamId: (prior.requestParams as any)?.teamId || null,
           snapshot: billing.snapshot, reservedCredits: billing.reservation.creditsReserved,
           duplicate: true, response: billing.response, knownUsage: billing.usage,
-          needsSettlement: billing.state !== 'completed' };
+          needsSettlement: billing.state !== 'completed', gatewayMode: billing.gatewayMode === true,
+          gatewayBasis: billing.basis };
+      }
+      if (!this.handlesModel(input.model) && !(input.gatewayOnly && this.isGatewayEnabled())) {
+        throw new ForbiddenException('此模型未纳入对话计价合同');
       }
       // Replays use their original quote even if today's calendar cannot quote a new request.
-      const snapshot = createDeepSeekPricingSnapshot(new Date());
-      const reservation = estimateDeepSeekReservation(snapshot, input.requestBody);
+      const snapshot = isDeepSeekChatModel(input.model) ? createDeepSeekPricingSnapshot(new Date()) : undefined;
+      const reservation = snapshot ? estimateDeepSeekReservation(snapshot, input.requestBody)
+        : { creditsReserved: input.reservedCredits ?? 2, basis: 'gateway_budget_estimate' };
       let teamId: string | null = null;
       if (input.teamId) {
         const team = await tx.team.findUnique({ where: { id: input.teamId }, select: { isPersonal: true, status: true } });
@@ -76,7 +123,8 @@ export class DeepSeekChatBillingService {
       await this.credits.deductExact(input.userId, teamId, reservation.creditsReserved, {
         apiUsageId, serviceType: input.serviceType, serviceName: input.serviceName,
         provider: 'new-api', model: input.model, responseStatus: ApiResponseStatus.PENDING,
-        requestParams: { deepseekBilling: { state: 'pending', bodyHash, snapshot, reservation },
+        requestParams: { deepseekBilling: { state: 'pending', bodyHash,
+          ...(snapshot ? { snapshot } : {}), reservation },
           ...(teamId ? { teamId } : {}) },
       }, tx);
       if (teamId) {
@@ -84,13 +132,26 @@ export class DeepSeekChatBillingService {
           taskId: apiUsageId, taskKind: input.serviceType, actorUserId: input.userId }, tx);
         if (!reserved.reserved) throw new ForbiddenException(reserved.reason || '团队积分预留失败');
       }
+      const gatewayMode = this.orders ? await this.orders.register(apiUsageId, tx) : false;
+      if (!gatewayMode && !snapshot) throw new ConflictException('消费订单配置已变化，未提交模型');
+      if (gatewayMode) {
+        const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: apiUsageId } });
+        await tx.apiUsageRecord.update({ where: { id: apiUsageId }, data: {
+          requestParams: { ...(row.requestParams as any), deepseekBilling: {
+            ...(row.requestParams as any).deepseekBilling, gatewayMode: true,
+            basis: input.model === 'xiaot-agent-deepseek-v4-flash' ? 'gateway_fixed_price' : 'gateway_consumption',
+          } },
+        } });
+      }
       return { apiUsageId, userId: input.userId, teamId, snapshot,
-        reservedCredits: reservation.creditsReserved, duplicate: false };
+        reservedCredits: reservation.creditsReserved, duplicate: false, gatewayMode,
+        gatewayBasis: input.model === 'xiaot-agent-deepseek-v4-flash' ? 'gateway_fixed_price' : 'gateway_consumption' };
     }, { timeout: 30_000 });
   }
 
   async complete(charge: DeepSeekChatCharge, usage: unknown, response?: unknown): Promise<void> {
-    const calculation = calculateDeepSeekUsage(charge.snapshot, usage);
+    if (charge.gatewayMode) { await this.gatewayOutput(charge, response, 'ready'); return; }
+    const calculation = calculateDeepSeekUsage(charge.snapshot!, usage);
     await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${charge.apiUsageId}, 0))`;
       const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: charge.apiUsageId } });
@@ -142,8 +203,31 @@ export class DeepSeekChatBillingService {
   }
 
   async execute<T>(input: Parameters<DeepSeekChatBillingService['begin']>[0],
-    operation: () => Promise<T>, extractUsage: (result: T) => unknown): Promise<T> {
+    operation: (charge: DeepSeekChatCharge) => Promise<T>, extractUsage: (result: T) => unknown): Promise<T> {
     const charge = await this.begin(input);
+    if (charge.gatewayMode) {
+      if (charge.duplicate) {
+        if (charge.response === undefined) {
+          const billing = await this.reconcileGateway(charge);
+          throw new ConflictException({ code: 'DEEPSEEK_REQUEST_ACCEPTED', apiUsageId: charge.apiUsageId,
+            outputStatus: 'unknown', billing });
+        }
+        const billing = await this.gatewayOutput(charge, charge.response,
+          (charge.response as any)?.success === false ? 'failed' : 'ready');
+        return this.withGatewayBilling(charge.response as T, charge, billing);
+      }
+      let response: T;
+      try { response = await operation(charge); }
+      catch (error) {
+        await this.gatewayOutput(charge, { success: false, error: { message: error instanceof Error ? error.message : String(error) } }, 'failed');
+        throw error;
+      }
+      // Terminal text validation determines output status, never payment status.
+      let outputStatus: 'ready' | 'failed' = 'ready';
+      try { extractUsage(response); } catch { outputStatus = 'failed'; }
+      const billing = await this.gatewayOutput(charge, response, outputStatus);
+      return this.withGatewayBilling(response, charge, billing);
+    }
     if (charge.duplicate) {
       const rejection = charge.response as { rejectionConfirmed?: boolean; message?: string } | undefined;
       if (rejection?.rejectionConfirmed === true) {
@@ -164,7 +248,7 @@ export class DeepSeekChatBillingService {
     let response: T | undefined;
     let usage: unknown;
     try {
-      response = await operation();
+      response = await operation(charge);
       usage = extractUsage(response);
       await this.complete(charge, usage, response);
       return response;
@@ -183,5 +267,12 @@ export class DeepSeekChatBillingService {
       throw new ConflictException({ code: 'DEEPSEEK_RECONCILIATION_REQUIRED', apiUsageId: charge.apiUsageId,
         message: '请求已受理，费用或结果待核实；原记录保留，未自动重新提交' });
     }
+  }
+
+  private withGatewayBilling<T>(response: T, charge: DeepSeekChatCharge, billing: unknown): T {
+    const value = response as any;
+    if (!value?.data || typeof value.data !== 'object') return response;
+    return { ...value, data: { ...value.data, metadata: { ...value.data.metadata,
+      billing: { ...(billing as any), orderId: charge.apiUsageId, basis: charge.gatewayBasis || 'gateway_consumption' } } } };
   }
 }

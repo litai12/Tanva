@@ -180,12 +180,17 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		logger.LogError(c, "error processing tokens: "+err.Error())
 	}
 
+	service.ObserveTanvaUsage(info, usage, containStreamUsage)
 	if !containStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+	service.ObserveTanvaUsage(info, usage, containStreamUsage)
+	if info.TanvaConsumptionID != 0 {
+		service.PostTextConsumeQuota(c, info, usage, nil)
+	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
@@ -240,6 +245,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		forceFormat = true
 	}
 
+	service.ObserveTanvaUsage(info, &simpleResponse.Usage, simpleResponse.Usage.TotalTokens > 0 || simpleResponse.Usage.PromptTokens > 0 || simpleResponse.Usage.CompletionTokens > 0)
 	usageModified := false
 	if simpleResponse.Usage.PromptTokens == 0 {
 		completionTokens := simpleResponse.Usage.CompletionTokens
@@ -294,6 +300,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		responseBody = geminiRespStr
 	}
 
+	if info.TanvaConsumptionID != 0 {
+		service.PostTextConsumeQuota(c, info, &simpleResponse.Usage, nil)
+	}
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &simpleResponse.Usage, nil

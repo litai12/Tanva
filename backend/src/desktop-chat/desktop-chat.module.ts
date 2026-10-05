@@ -7,5 +7,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { TeamCreditsModule } from '../team-credits/team-credits.module';
 import { DesktopChatController } from './desktop-chat.controller';
 import { DesktopChatService } from './desktop-chat.service';
-@Module({ imports: [ConfigModule, AuthModule, PrismaModule, CreditsModule, TeamCreditsModule, TeamCollabModule], controllers: [DesktopChatController], providers: [DesktopChatService] })
+import { GatewayConsumptionOrdersModule } from '../consumption-orders/gateway-consumption-orders.module';
+@Module({ imports: [ConfigModule, AuthModule, PrismaModule, CreditsModule, TeamCreditsModule, TeamCollabModule, GatewayConsumptionOrdersModule], controllers: [DesktopChatController], providers: [DesktopChatService] })
 export class DesktopChatModule {}

@@ -8,6 +8,7 @@ import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.serv
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, canonicalJson, hash, identifier, receipt, usageId, validateCompletion } from './desktop-chat.protocol';
 import { createDeepSeekPricingSnapshot, calculateDeepSeekUsage, estimateDeepSeekReservation } from './deepseek-pricing';
+import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
 
 /** One durable ApiUsageRecord primary key per user/request. Admission, receipt,
  * and wallet change share a transaction. Unknown accepted work is never resent. */
@@ -16,7 +17,8 @@ export class DesktopChatService {
   private fetchImpl: typeof fetch = fetch;
   private modelCache?: { expires: number; available: boolean };
   constructor(private readonly config: ConfigService, private readonly prisma: PrismaService,
-    private readonly credits: CreditsService, private readonly ledger: TeamCreditLedgerService, @Optional() private readonly publisher?: TeamCreditsPublisher) {}
+    private readonly credits: CreditsService, private readonly ledger: TeamCreditLedgerService, @Optional() private readonly publisher?: TeamCreditsPublisher,
+    @Optional() private readonly consumptionOrders?: GatewayConsumptionOrdersService) {}
   private gateway() {
     const base = (this.config.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458').replace(/\/+$/, '').replace(/\/v1$/, '');
     const key = this.config.get<string>('NEW_API_KEY') || this.config.get<string>('NEW_API_TOKEN') || '';
@@ -76,6 +78,7 @@ export class DesktopChatService {
       supportsTools: true, supportsVision: true, reasoningEfforts: [], streaming: false,
       ...(!available ? { unavailableReason: 'Tanva模型网关未配置或未提供此模型' } : {}),
       pricing: { unit: 'token', currency: 'credits', priceCurrency: 'CNY', rounding: 'ceil', markup: snapshot.markup,
+        ...(this.consumptionOrders?.isEnabled() ? { settlementSource: 'new_api_consumption' } : {}),
         creditsPerYuan: snapshot.creditsPerYuan, period: snapshot.period, pricingVersion: snapshot.version,
         inputCnyPerMillion: snapshot.pricesCnyPerMillion.cacheMiss,
         cachedInputCnyPerMillion: snapshot.pricesCnyPerMillion.cacheHit,
@@ -90,6 +93,12 @@ export class DesktopChatService {
   async request(userId: string, id: string) { return receipt(await this.recover(await this.row(userId, id)), true); }
   private async recover(row: ApiUsageRecord): Promise<ApiUsageRecord> {
     const meta = (row.requestParams as any).desktopChat as DesktopChatMeta;
+    if (row.consumptionStatus) {
+      // A missing model body cannot prevent settlement of an accepted gateway
+      // consumption. Query only the original order; never POST the model again.
+      await this.consumptionOrders?.reconcile(row.id).catch(() => undefined);
+      return this.row(row.userId, meta.requestId);
+    }
     if (meta.state === 'reconciliation_required' && (validResponse(meta.response) || meta.rejectionConfirmed)) {
       await this.finish(row.userId, row.id, meta, meta.response, !!meta.rejectionConfirmed).catch(() => undefined);
       return this.row(row.userId, meta.requestId);
@@ -147,6 +156,7 @@ export class DesktopChatService {
         const reserved = await this.ledger.reserve({ teamId: scope.teamId, amount: reservedCredits, taskId: id, taskKind: 'gemini-text', actorUserId: userId }, tx);
         if (!reserved.reserved) throw new ForbiddenException(reserved.reason || '团队积分预留失败');
       }
+      await this.consumptionOrders?.register(id, tx);
       return { row: (await tx.apiUsageRecord.findUnique({ where: { id } }))!, duplicate: false };
     }, { timeout: 30_000 });
     if (admission.duplicate) return this.replay(await this.recover(admission.row));
@@ -157,14 +167,16 @@ export class DesktopChatService {
     try {
       // Client disconnect does not abort accepted server work. No provider retry.
       const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+      const rawBody = JSON.stringify(body);
+      const orderHeaders = await this.consumptionOrders?.gatewayHeaders(id, { method: 'POST', path: '/v1/chat/completions', rawBody }) ?? {};
       const response = await this.fetchImpl(`${base}/v1/chat/completions`, { method: 'POST', redirect: 'error',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': id },
-        body: JSON.stringify(body), signal });
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': id, ...orderHeaders },
+        body: rawBody, signal });
       const upstreamId = response.headers.get('x-oneapi-request-id');
       if (meta.billing && upstreamId && /^[A-Za-z0-9_.:-]{1,128}$/.test(upstreamId)) {
         meta.billing.upstreamRequestId = upstreamId;
         // Retain gateway correlation even if its JSON is invalid or unreadable.
-        await this.prisma.apiUsageRecord.update({ where: { id }, data: { requestParams: {
+        if (!admission.row.consumptionStatus) await this.prisma.apiUsageRecord.update({ where: { id }, data: { requestParams: {
           desktopChat: meta, ...(scope.kind === 'team' ? { teamId: scope.teamId } : {}) } as any } });
       }
       if (!response.ok) {
@@ -192,6 +204,26 @@ export class DesktopChatService {
       const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id } });
       const prior = (row.requestParams as any).desktopChat as DesktopChatMeta;
       if (prior.state === 'completed' || prior.state === 'failed') return false;
+      if (row.consumptionStatus) {
+        // Model delivery and consumption are independent. Only a verified
+        // gateway receipt may charge/refund a registered consumption order.
+        const delivered = response ?? knownResponse;
+        const meta: DesktopChatMeta = { ...prior,
+          state: delivered ? 'completed' : rejected ? 'failed' : 'reconciliation_required',
+          ...(delivered ? { response: delivered, completedAt: new Date().toISOString() } : {
+            errorCode: rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN' }),
+          ...(original.billing?.upstreamRequestId && prior.billing ? {
+            billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}) };
+        if (delivered) { delete meta.errorCode; delete meta.rejectionConfirmed; }
+        await tx.apiUsageRecord.update({ where: { id }, data: {
+          requestParams: { ...(row.requestParams as any), desktopChat: meta },
+          // A consumed order can still have a failed/missing model response.
+          responseStatus: delivered ? ApiResponseStatus.SUCCESS : rejected ? ApiResponseStatus.FAILED : ApiResponseStatus.PENDING,
+          ...(delivered ? { inputTokens: safeTokens(delivered.usage?.prompt_tokens ?? delivered.usage?.input_tokens),
+            outputTokens: safeTokens(delivered.usage?.completion_tokens ?? delivered.usage?.output_tokens) } : {}),
+        } });
+        return { gatewayOrder: true as const };
+      }
       const state = response ? 'completed' : rejected ? 'failed' : 'reconciliation_required';
       const meta: DesktopChatMeta = { ...prior, state, ...(original.billing?.upstreamRequestId && prior.billing ? {
         billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}),
@@ -223,7 +255,11 @@ export class DesktopChatService {
       }
       return meta;
     }, { timeout: 30_000 });
-    if (changed && (response || rejected)) this.notify(changed, userId, id, response ? 'deduct' : 'release');
+    if (changed && 'gatewayOrder' in changed) {
+      // Durable polling also runs after a restart; the response path only
+      // accelerates it and never makes delivery depend on callback timing.
+      void this.consumptionOrders?.reconcile(id).catch(() => undefined);
+    } else if (changed && (response || rejected)) this.notify(changed, userId, id, response ? 'deduct' : 'release');
   }
   private notify(meta: DesktopChatMeta, userId: string, id: string, reason: 'reserve' | 'deduct' | 'release') {
     if (meta.scope.kind === 'team') void this.publisher?.publish({ teamId: meta.scope.teamId, reason,

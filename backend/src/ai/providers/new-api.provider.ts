@@ -1,6 +1,7 @@
 import { recordImageRejection, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { GatewayConsumptionOrdersService } from '../../consumption-orders/gateway-consumption-orders.service';
 import { ConfigService } from '@nestjs/config';
 import { Agent } from 'undici';
 import { randomUUID } from 'node:crypto';
@@ -91,7 +92,8 @@ export class NewApiProvider implements IAIProvider {
   private vipApiKey = '';
   private svipApiKey = '';
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService,
+    @Optional() private readonly consumptionOrders?: GatewayConsumptionOrdersService) {}
 
   async initialize(): Promise<void> {
     this.baseUrl = this.normalizeBaseUrl(
@@ -261,6 +263,7 @@ export class NewApiProvider implements IAIProvider {
         messages: [{ role: 'user', content }],
       },
       request.providerOptions,
+      request.consumptionOrderId,
     );
 
     if (!result.success) return result as AIProviderResponse<AnalysisResult>;
@@ -447,11 +450,11 @@ export class NewApiProvider implements IAIProvider {
     };
 
     if (isAgentFacade && !request.enableWebSearch) {
-      return this.chatAgentFacade(payload, request.providerOptions);
+      return this.chatAgentFacade(payload, request.providerOptions, request.consumptionOrderId);
     }
 
     if (!request.enableWebSearch) {
-      return this.chat(payload, request.providerOptions);
+      return this.chat(payload, request.providerOptions, request.consumptionOrderId);
     }
 
     return this.responses(
@@ -460,6 +463,7 @@ export class NewApiProvider implements IAIProvider {
         tools: [{ type: 'web_search' }],
       },
       request.providerOptions,
+      request.consumptionOrderId,
     );
   }
 
@@ -733,6 +737,7 @@ export class NewApiProvider implements IAIProvider {
   private async chat(
     payload: Record<string, unknown>,
     providerOptions?: ProviderOptionsPayload,
+    consumptionOrderId?: string,
   ): Promise<AIProviderResponse<TextResult>> {
     try {
       if (typeof payload.model === 'string') {
@@ -748,6 +753,7 @@ export class NewApiProvider implements IAIProvider {
         },
         this.resolveApiKey(providerOptions),
         TERMINAL_TEXT_RESPONSE_POLICY,
+        consumptionOrderId,
       );
       const text = this.requireTerminalText(result);
       return {
@@ -770,6 +776,7 @@ export class NewApiProvider implements IAIProvider {
   private async chatAgentFacade(
     payload: Record<string, unknown>,
     providerOptions?: ProviderOptionsPayload,
+    consumptionOrderId?: string,
   ): Promise<AIProviderResponse<TextResult>> {
     const controller = new AbortController();
     const timeoutId = setTimeout(
@@ -799,6 +806,10 @@ export class NewApiProvider implements IAIProvider {
         );
       }
 
+      const rawBody = JSON.stringify(this.stripUndefined(this.stripUnsupportedTextPayloadFields({
+        ...payload, model, stream: true, stream_options: { include_usage: true },
+      })));
+      const orderHeaders = await this.consumptionHeaders(consumptionOrderId, '/v1/chat/completions', rawBody);
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
@@ -807,17 +818,9 @@ export class NewApiProvider implements IAIProvider {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           Authorization: `Bearer ${apiKey}`,
+          ...orderHeaders,
         },
-        body: JSON.stringify(
-          this.stripUndefined(
-            this.stripUnsupportedTextPayloadFields({
-              ...payload,
-              model,
-              stream: true,
-              stream_options: { include_usage: true },
-            }),
-          ),
-        ),
+        body: rawBody,
         signal: controller.signal,
       });
 
@@ -873,6 +876,7 @@ export class NewApiProvider implements IAIProvider {
   private async responses(
     payload: Record<string, unknown>,
     providerOptions?: ProviderOptionsPayload,
+    consumptionOrderId?: string,
   ): Promise<AIProviderResponse<TextResult>> {
     try {
       const result = await this.requestJson(
@@ -885,6 +889,7 @@ export class NewApiProvider implements IAIProvider {
         },
         this.resolveApiKey(providerOptions),
         TERMINAL_TEXT_RESPONSE_POLICY,
+        consumptionOrderId,
       );
       const text = this.requireTerminalText(result);
       return {
@@ -990,6 +995,7 @@ export class NewApiProvider implements IAIProvider {
     init: RequestInit,
     apiKey?: string,
     responsePolicy?: JsonResponsePolicy,
+    consumptionOrderId?: string,
   ): Promise<any> {
     const key = apiKey || this.apiKey;
     if (!key) {
@@ -997,6 +1003,7 @@ export class NewApiProvider implements IAIProvider {
     }
 
     if (path === "/v1/images/generations") setImageSubmissionStarted(true);
+    const orderHeaders = await this.consumptionHeaders(consumptionOrderId, path, String(init.body || ''));
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
@@ -1005,6 +1012,7 @@ export class NewApiProvider implements IAIProvider {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
         ...(init.headers || {}),
+        ...orderHeaders,
       },
     });
 
@@ -1039,6 +1047,16 @@ export class NewApiProvider implements IAIProvider {
       }
     }
     return data;
+  }
+
+  private async consumptionHeaders(orderId: string | undefined, path: string, rawBody: string) {
+    if (!orderId) return {};
+    if (!this.consumptionOrders) throw new Error('消费订单签名服务不可用，未提交模型');
+    const headers = await this.consumptionOrders.gatewayHeaders(orderId, { method: 'POST', path, rawBody });
+    if (headers['X-Tanva-Order-Id'] !== orderId || !headers['X-Tanva-Signature']) {
+      throw new Error('消费订单签名不可用，未提交模型');
+    }
+    return headers;
   }
 
   private extractNewApiErrorEnvelopeMessage(data: unknown): string | undefined {

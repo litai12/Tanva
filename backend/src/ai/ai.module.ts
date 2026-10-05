@@ -2,6 +2,7 @@
 import { ConfigModule } from '@nestjs/config';
 import { AiService } from './ai.service';
 import { DeepSeekChatBillingService } from './services/deepseek-chat-billing.service';
+import { GatewayConsumptionOrdersModule } from '../consumption-orders/gateway-consumption-orders.module';
 import { ImageGenerationService } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
@@ -51,6 +52,7 @@ import { GlobalImageHistoryModule } from '../global-image-history/global-image-h
 
 @Module({
   imports: [
+    GatewayConsumptionOrdersModule,
     ConfigModule,
     UsersModule,
     CreditsModule,
@@ -102,6 +104,6 @@ import { GlobalImageHistoryModule } from '../global-image-history/global-image-h
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController, InternalTencentVodController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, SeedAudioVoiceService, GenerationTaskService],
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, SeedAudioVoiceService, GenerationTaskService, DeepSeekChatBillingService],
 })
 export class AiModule {}

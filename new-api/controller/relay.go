@@ -157,7 +157,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
-	if priceData.FreeModel {
+	if service.TanvaOrder(c) != nil {
+		NewAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
+		if NewAPIError != nil {
+			return
+		}
+	} else if priceData.FreeModel {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
 	} else {
 		NewAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
@@ -182,6 +187,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// This lets any model fall through to an alternative channel/model-name when the
 	// primary attempt fails, without per-model hardcoding.
 	modelsChain, retryBudget := relayAttemptPolicy(relayInfo.OriginModelName, relayInfo.RelayMode)
+	if relayInfo.TanvaConsumptionID != 0 {
+		modelsChain = []string{relayInfo.OriginModelName}
+		retryBudget = 0
+	}
 	triedChannelIds := make([]int, 0)
 
 	for _, tryModel := range modelsChain {

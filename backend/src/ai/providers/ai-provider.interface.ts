@@ -121,6 +121,7 @@ export interface ImageAnalysisRequest {
   sourceImages?: string[]; // base64/url array (optional, multi-image analysis)
   model?: string;
   providerOptions?: ProviderOptionsPayload;
+  consumptionOrderId?: string;
 }
 
 export interface VideoAnalysisRequest {
@@ -147,6 +148,8 @@ export interface TextChatRequest {
   language?: string;
   thinkingLevel?: 'high' | 'low';
   providerOptions?: ProviderOptionsPayload;
+  /** Server-owned consumption receipt; never accepted from provider options or sent to the model body. */
+  consumptionOrderId?: string;
 }
 
 export interface AIProviderResponse<T> {
