@@ -18,7 +18,7 @@
 
 启用配置：后端与该Tanva New API使用相同 `TANVA_CONSUMPTION_SECRET`；`TANVA_CONSUMPTION_INSTANCE_ID` 默认 `tanva-new-api`。后端继续使用 `NEW_API_BASE_URL` 和服务端 `NEW_API_KEY` / `NEW_API_TOKEN`。上线要明确启用新协议；配置缺失只保留原兼容合同，不能宣称权威订单闭环已生效。已登记订单配置失效不会降级为响应usage扣费。
 
-部署时先执行新增Prisma迁移，再把同一签名配置注入backend和new-api容器，并配置网关通知地址指向该backend的消费回调。`backend/docker-compose.yml`已声明网关消费配置；修改环境后须重建/重新创建new-api容器，不能只更新宿主机环境文件。人民币外显UI也需要随本次网关镜像编译：现有 `NEW_API_SKIP_WEB_BUILD=1` 需改为 `0`。本文只说明部署条件，当前隔离验证没有部署生产。
+部署时先执行新增Prisma迁移，再把同一签名配置注入backend和new-api容器，并配置网关通知地址指向该backend的消费回调。`backend/docker-compose.yml`已声明网关消费配置；修改环境后须重建/重新创建new-api容器，不能只更新宿主机环境文件。人民币外显UI也需要随本次网关镜像编译：compose的 `NEW_API_SKIP_WEB_BUILD` 默认已为 `0`，现有环境显式设为 `1` 时仍须改为 `0`。本文只说明部署条件，当前隔离验证没有部署生产。
 
 供应商请求由后端生成 `X-Tanva-Order-Id`、`X-Tanva-Order-Hash`、`X-Tanva-Timestamp`、`X-Tanva-Signature`。HMAC-SHA256文本依次为timestamp、HTTP METHOD、escaped path、orderId、orderHash、sha256(rawBody)，用换行连接，仍携带服务端Bearer。orderHash是后端原业务正文与钱包身份摘要，由网关原样留存，不由渠道映射后正文重新生成。
 
