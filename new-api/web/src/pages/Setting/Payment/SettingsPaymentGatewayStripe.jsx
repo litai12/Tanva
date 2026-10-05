@@ -229,15 +229,17 @@ export default function SettingsPaymentGateway(props) {
               <Form.InputNumber
                 field='StripeUnitPrice'
                 precision={2}
-                label={t('充值价格（x元/美金）')}
-                placeholder={t('例如：7，就是7元/美金')}
+                label={t('Stripe 供应商支付单价（币种以 Stripe 商品为准）')}
+                placeholder={t(
+                  '此处为 Stripe 实际支付单价，不是网关人民币计价换算',
+                )}
               />
             </Col>
             <Col xs={24} sm={24} md={8} lg={8} xl={8}>
               <Form.InputNumber
                 field='StripeMinTopUp'
-                label={t('最低充值美元数量')}
-                placeholder={t('例如：2，就是最低充值2$')}
+                label={t('最低人民币充值额度')}
+                placeholder={t('例如：2，就是最低充值 ¥2 额度')}
               />
             </Col>
             <Col xs={24} sm={24} md={8} lg={8} xl={8}>

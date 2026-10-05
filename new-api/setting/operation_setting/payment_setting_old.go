@@ -13,9 +13,10 @@ var PayAddress = ""
 var CustomCallbackAddress = ""
 var EpayId = ""
 var EpayKey = ""
-var Price = 7.3
+// Tanva gateway amounts are RMB numeric units, not USD conversions.
+var Price = 1.0
 var MinTopUp = 1
-var USDExchangeRate = 7.3
+var USDExchangeRate = 1.0
 
 var PayMethods = []map[string]string{
 	{

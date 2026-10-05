@@ -40,6 +40,7 @@ var defaultCacheRatio = map[string]float64{
 	"deepseek-reasoner":                   0.25,
 	"deepseek-v4.1-flash":                 0.02,
 	"deepseek-flash":                      0.02,
+	"deepseek-v4-flash":                   0.02,
 	"deepseek-coder":                      0.25,
 	"deepseek-v3-0324":                    0.25,
 	"deepseek-v3.1-250821":                0.25,

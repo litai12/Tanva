@@ -283,7 +283,9 @@ const RechargeCard = ({
                           }
                         >
                           <Text type='secondary' className='text-red-600'>
-                            {t('实付金额：')}
+                            {payWay === 'stripe'
+                              ? t('供应商支付金额（币种以 Stripe 结算页为准）：')
+                              : t('实付金额：')}
                             <span style={{ color: 'red' }}>
                               {renderAmount()}
                             </span>
@@ -382,7 +384,7 @@ const RechargeCard = ({
                               fontWeight: 'normal',
                             }}
                           >
-                            (1 $ = {rate.toFixed(2)} {symbol})
+                            (1 ¥ = {rate.toFixed(2)} {symbol})
                           </span>
                         );
                       })()}
@@ -402,11 +404,11 @@ const RechargeCard = ({
                       // 根据当前货币类型换算显示金额和数量
                       const { symbol, rate, type } = getCurrencyConfig();
                       const statusStr = localStorage.getItem('status');
-                      let usdRate = 7; // 默认CNY汇率
+                      let usdRate = 1; // 默认CNY汇率
                       try {
                         if (statusStr) {
                           const s = JSON.parse(statusStr);
-                          usdRate = s?.usd_exchange_rate || 7;
+                          usdRate = 1;
                         }
                       } catch (e) { }
 
@@ -541,10 +543,10 @@ const RechargeCard = ({
                           {product.name}
                         </div>
                         <div className='text-sm text-gray-600 mb-2'>
-                          {t('充值额度')}: {product.quota}
+                          {t('充值额度')}: {renderQuotaWithAmount(product.quota)}
                         </div>
                         <div className='text-lg font-semibold text-blue-600'>
-                          {product.currency === 'EUR' ? '€' : '$'}
+                          {t('供应商支付价格')}：{product.currency || t('币种以供应商支付页为准')}{' '}
                           {product.price}
                         </div>
                       </Card>

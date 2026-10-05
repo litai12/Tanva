@@ -197,6 +197,7 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	value = normalizeTanvaCurrencyOption(key, value)
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -213,6 +214,7 @@ func UpdateOption(key string, value string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	value = normalizeTanvaCurrencyOption(key, value)
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
@@ -354,9 +356,9 @@ func updateOptionMap(key string, value string) (err error) {
 	case "EpayKey":
 		operation_setting.EpayKey = value
 	case "Price":
-		operation_setting.Price, _ = strconv.ParseFloat(value, 64)
+		operation_setting.Price = 1 // Tanva: RMB numeric units, no USD conversion.
 	case "USDExchangeRate":
-		operation_setting.USDExchangeRate, _ = strconv.ParseFloat(value, 64)
+		operation_setting.USDExchangeRate = 1 // Tanva: legacy rate field is fixed 1:1.
 	case "MinTopUp":
 		operation_setting.MinTopUp, _ = strconv.Atoi(value)
 	case "StripeApiSecret":
@@ -519,6 +521,19 @@ func updateOptionMap(key string, value string) (err error) {
 		// No additional in-memory variable to update.
 	}
 	return err
+}
+
+// Tanva stores CNY numeric units directly, including historical USD field names.
+// Keep persisted edits and legacy option reloads consistent with public display.
+func normalizeTanvaCurrencyOption(key, value string) string {
+	switch key {
+	case "Price", "USDExchangeRate":
+		return "1"
+	case "general_setting.quota_display_type":
+		return operation_setting.QuotaDisplayTypeCNY
+	default:
+		return value
+	}
 }
 
 // handleConfigUpdate 处理分层配置更新，返回是否已处理

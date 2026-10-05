@@ -197,7 +197,23 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
         title: t('支付金额'),
         dataIndex: 'money',
         key: 'money',
-        render: (money) => <Text type='danger'>¥{money.toFixed(2)}</Text>,
+        render: (money, record) => {
+          const externalPayment = ['stripe', 'creem', 'waffo'].includes(
+            record?.payment_method,
+          );
+          return (
+            <div>
+              <Text type='danger'>
+                {externalPayment ? '' : '¥'}{money.toFixed(2)}
+              </Text>
+              {externalPayment && (
+                <div className='text-xs text-gray-500'>
+                  {t('订单记录数值；实际支付金额及币种以供应商账单为准')}
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         title: t('状态'),

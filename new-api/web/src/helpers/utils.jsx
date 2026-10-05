@@ -615,7 +615,7 @@ export const calculateModelPrice = ({
   tokenUnit,
   displayPrice,
   currency,
-  quotaDisplayType = 'USD',
+  quotaDisplayType = 'CNY',
   precision = 4,
 }) => {
   // 1. 选择实际使用的分组
@@ -677,22 +677,7 @@ export const calculateModelPrice = ({
       };
     }
 
-    let symbol = '$';
-    if (currency === 'CNY') {
-      symbol = '¥';
-    } else if (currency === 'CUSTOM') {
-      try {
-        const statusStr = localStorage.getItem('status');
-        if (statusStr) {
-          const s = JSON.parse(statusStr);
-          symbol = s?.custom_currency_symbol || '¤';
-        } else {
-          symbol = '¤';
-        }
-      } catch (e) {
-        symbol = '¤';
-      }
-    }
+    const symbol = '¥'; // Tanva model prices are RMB numeric units.
 
     const formatTokenPrice = (priceUSD) => {
       const rawDisplayPrice = displayPrice(priceUSD);
@@ -715,7 +700,9 @@ export const calculateModelPrice = ({
         ? formatTokenPrice(inputRatioPriceUSD * Number(record.cache_ratio))
         : null,
       createCachePrice: hasRatioValue(record.create_cache_ratio)
-        ? formatTokenPrice(inputRatioPriceUSD * Number(record.create_cache_ratio))
+        ? formatTokenPrice(
+            inputRatioPriceUSD * Number(record.create_cache_ratio),
+          )
         : null,
       imagePrice: hasRatioValue(record.image_ratio)
         ? formatTokenPrice(inputRatioPriceUSD * Number(record.image_ratio))
@@ -740,7 +727,10 @@ export const calculateModelPrice = ({
   if (record.quota_type === 1) {
     // 视频：linear_by_duration_and_resolution — 展示各分辨率的按秒单价
     const pp = record.param_pricing;
-    if (pp?.billing_mode === 'linear_by_duration_and_resolution' && Array.isArray(pp.results)) {
+    if (
+      pp?.billing_mode === 'linear_by_duration_and_resolution' &&
+      Array.isArray(pp.results)
+    ) {
       // 按分辨率分组，取第一条记录计算 CNY/秒
       const seen = new Set();
       const perSecondRates = [];
@@ -766,7 +756,10 @@ export const calculateModelPrice = ({
     }
 
     // 图片：fixed_by_image_spec — 展示各规格固定价（CNY，来自 param_pricing.results）
-    if (pp?.billing_mode === 'fixed_by_image_spec' && Array.isArray(pp.results)) {
+    if (
+      pp?.billing_mode === 'fixed_by_image_spec' &&
+      Array.isArray(pp.results)
+    ) {
       const specPrices = pp.results.map((r) => ({
         specKey: r.spec_key || '',
         cny: r.price_cny,
@@ -807,13 +800,12 @@ export const calculateModelPrice = ({
   };
 };
 
-export const getModelPriceItems = (
-  priceData,
-  t,
-  quotaDisplayType = 'USD',
-) => {
+export const getModelPriceItems = (priceData, t, quotaDisplayType = 'CNY') => {
   // param_pricing 视频：各分辨率按秒单价
-  if (priceData.isParamPricing && priceData.billingMode === 'linear_by_duration_and_resolution') {
+  if (
+    priceData.isParamPricing &&
+    priceData.billingMode === 'linear_by_duration_and_resolution'
+  ) {
     return (priceData.perSecondRates || []).map((r, i) => ({
       key: `pps-${i}`,
       label: r.resolution,
@@ -823,7 +815,10 @@ export const getModelPriceItems = (
   }
 
   // param_pricing 图片：各规格固定价
-  if (priceData.isParamPricing && priceData.billingMode === 'fixed_by_image_spec') {
+  if (
+    priceData.isParamPricing &&
+    priceData.billingMode === 'fixed_by_image_spec'
+  ) {
     return (priceData.specPrices || []).map((s, i) => ({
       key: `spec-${i}`,
       label: s.specKey,
@@ -927,7 +922,10 @@ export const getModelPriceItems = (
         value: priceData.audioOutputPrice,
         suffix: unitSuffix,
       },
-    ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
+    ].filter(
+      (item) =>
+        item.value !== null && item.value !== undefined && item.value !== '',
+    );
   }
 
   return [
@@ -937,11 +935,14 @@ export const getModelPriceItems = (
       value: priceData.price,
       suffix: ` / ${t('次')}`,
     },
-  ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
+  ].filter(
+    (item) =>
+      item.value !== null && item.value !== undefined && item.value !== '',
+  );
 };
 
 // 格式化价格信息（用于卡片视图）
-export const formatPriceInfo = (priceData, t, quotaDisplayType = 'USD') => {
+export const formatPriceInfo = (priceData, t, quotaDisplayType = 'CNY') => {
   const allItems = getModelPriceItems(priceData, t, quotaDisplayType);
   // 卡片视图最多展示 3 条，多余的用 +N 提示
   const MAX_CARD_ITEMS = 3;
@@ -1017,7 +1018,7 @@ export const createCardProPagination = ({
 const DEFAULT_PRICING_FILTERS = {
   search: '',
   showWithRecharge: false,
-  currency: 'USD',
+  currency: 'CNY',
   showRatio: false,
   viewMode: 'card',
   tokenUnit: 'M',

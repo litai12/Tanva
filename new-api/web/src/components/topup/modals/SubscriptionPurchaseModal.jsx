@@ -68,6 +68,7 @@ const SubscriptionPurchaseModal = ({
   // 只有当管理员开启支付网关 AND 套餐配置了对应的支付ID时才显示
   const hasStripe = enableStripeTopUp && !!plan?.stripe_price_id;
   const hasCreem = enableCreemTopUp && !!plan?.creem_product_id;
+  const hasExternalPayment = hasStripe || hasCreem;
   const hasEpay = enableOnlineTopUp && epayMethods.length > 0;
   const hasAnyPayment = hasStripe || hasCreem || hasEpay;
   const purchaseLimit = Number(purchaseLimitInfo?.limit || 0);
@@ -159,13 +160,18 @@ const SubscriptionPurchaseModal = ({
               <Divider margin={8} />
               <div className='flex justify-between items-center'>
                 <Text strong className='text-slate-700 dark:text-slate-200'>
-                  {t('应付金额')}：
+                  {t(hasExternalPayment ? '本站人民币参考价' : '应付金额')}：
                 </Text>
                 <Text strong className='text-xl text-purple-600'>
                   {symbol}
                   {displayPrice}
                 </Text>
               </div>
+              {hasExternalPayment && (
+                <Text type='tertiary' size='small'>
+                  {t('Stripe/Creem 实际支付金额及币种以供应商支付页为准')}
+                </Text>
+              )}
             </div>
           </Card>
 

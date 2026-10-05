@@ -43,7 +43,7 @@ export const useModelPricingData = () => {
   const [filterModelKind, setFilterModelKind] = useState('all'); // 模型类型筛选: 'all' | 'chat' | 'image' | 'video'
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('CNY');
   const [showWithRecharge, setShowWithRecharge] = useState(false);
   const [tokenUnit, setTokenUnit] = useState('M');
   const [models, setModels] = useState([]);
@@ -57,15 +57,9 @@ export const useModelPricingData = () => {
   const [statusState] = useContext(StatusContext);
   const [userState] = useContext(UserContext);
 
-  // 充值汇率（price）与美元兑人民币汇率（usd_exchange_rate）
-  const priceRate = useMemo(
-    () => statusState?.status?.price ?? 1,
-    [statusState],
-  );
-  const usdExchangeRate = useMemo(
-    () => statusState?.status?.usd_exchange_rate ?? priceRate,
-    [statusState, priceRate],
-  );
+  // Tanva uses RMB numeric units directly, including legacy USD fields.
+  const priceRate = 1;
+  const usdExchangeRate = 1;
   const customExchangeRate = useMemo(
     () => statusState?.status?.custom_currency_exchange_rate ?? 1,
     [statusState],
@@ -75,28 +69,8 @@ export const useModelPricingData = () => {
     [statusState],
   );
 
-  // 默认货币与站点展示类型同步；TOKENS 由视图层走倍率展示
-  const siteDisplayType = useMemo(
-    () => statusState?.status?.quota_display_type || 'USD',
-    [statusState],
-  );
-  useEffect(() => {
-    if (
-      siteDisplayType === 'USD' ||
-      siteDisplayType === 'CNY' ||
-      siteDisplayType === 'CUSTOM'
-    ) {
-      setCurrency(siteDisplayType);
-    }
-  }, [siteDisplayType]);
-
-  useEffect(() => {
-    if (siteDisplayType === 'TOKENS') {
-      setShowWithRecharge(false);
-      setCurrency('USD');
-    }
-  }, [siteDisplayType]);
-
+  // Tanva 全站固定人民币展示，不读取旧币种偏好。
+  const siteDisplayType = 'CNY';
   const filteredModels = useMemo(() => {
     let result = models;
 
@@ -146,7 +120,9 @@ export const useModelPricingData = () => {
 
     // 模型类型筛选
     if (filterModelKind !== 'all') {
-      result = result.filter((model) => getModelKind(model) === filterModelKind);
+      result = result.filter(
+        (model) => getModelKind(model) === filterModelKind,
+      );
     }
 
     // 搜索筛选
@@ -186,19 +162,7 @@ export const useModelPricingData = () => {
     [selectedRowKeys],
   );
 
-  const displayPrice = (usdPrice) => {
-    let priceInUSD = usdPrice;
-    if (showWithRecharge) {
-      priceInUSD = (usdPrice * priceRate) / usdExchangeRate;
-    }
-
-    if (currency === 'CNY') {
-      return `¥${(priceInUSD * usdExchangeRate).toFixed(3)}`;
-    } else if (currency === 'CUSTOM') {
-      return `${customCurrencySymbol}${(priceInUSD * customExchangeRate).toFixed(3)}`;
-    }
-    return `$${priceInUSD.toFixed(3)}`;
-  };
+  const displayPrice = (amount) => `¥${Number(amount).toFixed(3)}`;
 
   const setModelsFormat = (models, groupRatio, vendorMap) => {
     for (let i = 0; i < models.length; i++) {

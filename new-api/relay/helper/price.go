@@ -64,6 +64,9 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+	if usePrice && ratio_setting.IsDeepSeekFlashCNYModel(info.OriginModelName) {
+		return types.PriceData{}, fmt.Errorf("DeepSeek Flash CNY token pricing requires removing its fixed ModelPrice configuration")
+	}
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
@@ -97,11 +100,19 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			}
 		}
 		completionRatio = ratio_setting.GetCompletionRatio(info.OriginModelName)
+		var periodErr error
+		modelRatio, _, periodErr = ratio_setting.ResolveDeepSeekFlashCNYRatio(info.OriginModelName, modelRatio, info.StartTime)
+		if periodErr != nil {
+			return types.PriceData{}, periodErr
+		}
 		baseModelRatio = modelRatio
 		baseCompletionRatio = completionRatio
 		modelRatio, _ = ratio_setting.ResolveModelRatioForPromptTokens(info.OriginModelName, baseModelRatio, promptTokens)
 		completionRatio = ratio_setting.ResolveCompletionRatioForPromptTokens(info.OriginModelName, baseCompletionRatio, promptTokens)
 		cacheRatio, _ = ratio_setting.GetCacheRatio(info.OriginModelName)
+		if ratio_setting.IsDeepSeekFlashCNYModel(info.OriginModelName) && (completionRatio != 4 || cacheRatio != 0.02) {
+			return types.PriceData{}, fmt.Errorf("DeepSeek Flash CNY token pricing requires CompletionRatio=4 and CacheRatio=0.02")
+		}
 		cacheCreationRatio, _ = ratio_setting.GetCreateCacheRatio(info.OriginModelName)
 		cacheCreationRatio5m = cacheCreationRatio
 		// 固定1h和5min缓存写入价格的比例

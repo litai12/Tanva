@@ -446,10 +446,10 @@ const NotificationSettings = ({
                   }
                   placeholder={t('请输入预警额度')}
                   data={[
-                    { value: 100000, label: '0.2$' },
-                    { value: 500000, label: '1$' },
-                    { value: 1000000, label: '2$' },
-                    { value: 5000000, label: '10$' },
+                    { value: 100000, label: '¥0.2' },
+                    { value: 500000, label: '¥1' },
+                    { value: 1000000, label: '¥2' },
+                    { value: 5000000, label: '¥10' },
                   ]}
                   onChange={(val) => handleFormChange('warningThreshold', val)}
                   prefix={<IconBell />}
@@ -478,7 +478,10 @@ const NotificationSettings = ({
                     checkedText={t('开')}
                     uncheckedText={t('关')}
                     onChange={(value) =>
-                      handleFormChange('upstreamModelUpdateNotifyEnabled', value)
+                      handleFormChange(
+                        'upstreamModelUpdateNotifyEnabled',
+                        value,
+                      )
                     }
                     extraText={t(
                       '仅管理员可用。开启后，当系统定时检测全部渠道发现上游模型变更或检测异常时，将按你选择的通知方式发送汇总通知；渠道或模型过多时会自动省略部分明细。',
@@ -552,7 +555,7 @@ const NotificationSettings = ({
                               title: '额度预警通知',
                               content:
                                 '您的额度即将用尽，当前剩余额度为 {{value}}',
-                              values: ['$0.99'],
+                              values: ['¥0.99'],
                               timestamp: 1739950503,
                             }}
                             title='webhook'

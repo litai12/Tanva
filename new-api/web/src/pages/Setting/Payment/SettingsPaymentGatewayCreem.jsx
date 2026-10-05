@@ -217,11 +217,10 @@ export default function SettingsPaymentGatewayCreem(props) {
       key: 'productId',
     },
     {
-      title: t('展示价格'),
+      title: t('供应商支付价格'),
       dataIndex: 'price',
       key: 'price',
-      render: (price, record) =>
-        `${record.currency === 'EUR' ? '€' : '$'}${price}`,
+      render: (price, record) => `${record.currency || t('币种以供应商支付页为准')} ${price}`,
     },
     {
       title: t('充值额度'),
@@ -367,7 +366,7 @@ export default function SettingsPaymentGatewayCreem(props) {
           </div>
           <div>
             <Text strong className='block mb-2'>
-              {t('货币')}
+              {t('供应商支付币种')}
             </Text>
             <Select
               value={productForm.currency}
@@ -383,7 +382,7 @@ export default function SettingsPaymentGatewayCreem(props) {
           </div>
           <div>
             <Text strong className='block mb-2'>
-              {t('价格')} (
+              {t('供应商支付价格')} (
               {productForm.currency === 'EUR' ? t('欧元') : t('美元')})
             </Text>
             <InputNumber

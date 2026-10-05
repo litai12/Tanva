@@ -36,7 +36,7 @@ export default function SettingsPaymentGateway(props) {
     PayAddress: '',
     EpayId: '',
     EpayKey: '',
-    Price: 7.3,
+    Price: 1,
     MinTopUp: 1,
     TopupGroupRatio: '',
     CustomCallbackAddress: '',
@@ -56,7 +56,7 @@ export default function SettingsPaymentGateway(props) {
         Price:
           props.options.Price !== undefined
             ? parseFloat(props.options.Price)
-            : 7.3,
+            : 1,
         MinTopUp:
           props.options.MinTopUp !== undefined
             ? parseFloat(props.options.MinTopUp)
@@ -261,15 +261,16 @@ export default function SettingsPaymentGateway(props) {
               <Form.InputNumber
                 field='Price'
                 precision={2}
-                label={t('充值价格（x元/美金）')}
-                placeholder={t('例如：7，就是7元/美金')}
+                label={t('充值金额单位（人民币 1:1）')}
+                disabled
+                placeholder='1'
               />
             </Col>
             <Col xs={24} sm={24} md={8} lg={8} xl={8}>
               <Form.InputNumber
                 field='MinTopUp'
-                label={t('最低充值美元数量')}
-                placeholder={t('例如：2，就是最低充值2$')}
+                label={t('最低充值人民币金额')}
+                placeholder={t('例如：2，就是最低充值 ¥2')}
               />
             </Col>
           </Row>

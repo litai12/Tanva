@@ -496,6 +496,9 @@ const SubscriptionPlansCard = ({
                 const displayPrice = convertedPrice.toFixed(
                   Number.isInteger(convertedPrice) ? 0 : 2,
                 );
+                const hasExternalPayment =
+                  (enableStripeTopUp && !!plan?.stripe_price_id) ||
+                  (enableCreemTopUp && !!plan?.creem_product_id);
                 const isPopular = index === 0 && plans.length > 1;
                 const limit = Number(plan?.max_purchase_per_user || 0);
                 const limitLabel = limit > 0 ? `${t('限购')} ${limit}` : null;
@@ -566,6 +569,11 @@ const SubscriptionPlansCard = ({
 
                       {/* 价格区域 */}
                       <div className='py-2'>
+                        {hasExternalPayment && (
+                          <Text type='tertiary' size='small'>
+                            {t('本站人民币参考价')}
+                          </Text>
+                        )}
                         <div className='flex items-baseline justify-start'>
                           <span className='text-xl font-bold text-purple-600'>
                             {symbol}
@@ -574,6 +582,11 @@ const SubscriptionPlansCard = ({
                             {displayPrice}
                           </span>
                         </div>
+                        {hasExternalPayment && (
+                          <div className='text-xs text-gray-500 mt-1'>
+                            {t('Stripe/Creem 实际支付金额及币种以供应商支付页为准')}
+                          </div>
+                        )}
                       </div>
 
                       {/* 套餐权益描述 */}

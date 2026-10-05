@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import i18next from 'i18next';
+import { TANVA_CURRENCY_CONFIG, formatTanvaMoney } from './currency';
 import { Modal, Tag, Typography, Avatar } from '@douyinfe/semi-ui';
 import { copy, showSuccess } from './utils';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
@@ -991,28 +992,8 @@ export function renderNumber(num) {
 }
 
 export function renderQuotaNumberWithDigit(num, digits = 2) {
-  if (typeof num !== 'number' || isNaN(num)) {
-    return 0;
-  }
-  const quotaDisplayType = localStorage.getItem('quota_display_type') || 'USD';
-  num = num.toFixed(digits);
-  if (quotaDisplayType === 'CNY') {
-    return '¥' + num;
-  } else if (quotaDisplayType === 'USD') {
-    return '$' + num;
-  } else if (quotaDisplayType === 'CUSTOM') {
-    const statusStr = localStorage.getItem('status');
-    let symbol = '¤';
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        symbol = s?.custom_currency_symbol || symbol;
-      }
-    } catch (e) {}
-    return symbol + num;
-  } else {
-    return num;
-  }
+  if (typeof num !== 'number' || isNaN(num)) return 0;
+  return formatTanvaMoney(num, digits);
 }
 
 export function renderNumberWithPoint(num) {
@@ -1064,30 +1045,7 @@ export function getQuotaWithUnit(quota, digits = 6) {
 }
 
 export function renderQuotaWithAmount(amount) {
-  const quotaDisplayType = localStorage.getItem('quota_display_type') || 'USD';
-  if (quotaDisplayType === 'TOKENS') {
-    return renderNumber(renderUnitWithQuota(amount));
-  }
-
-  const numericAmount = Number(amount);
-  const formattedAmount = Number.isFinite(numericAmount)
-    ? numericAmount.toFixed(2)
-    : amount;
-
-  if (quotaDisplayType === 'CNY') {
-    return '¥' + formattedAmount;
-  } else if (quotaDisplayType === 'CUSTOM') {
-    const statusStr = localStorage.getItem('status');
-    let symbol = '¤';
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        symbol = s?.custom_currency_symbol || symbol;
-      }
-    } catch (e) {}
-    return symbol + formattedAmount;
-  }
-  return '$' + formattedAmount;
+  return formatTanvaMoney(amount);
 }
 
 /**
@@ -1095,36 +1053,12 @@ export function renderQuotaWithAmount(amount) {
  * @returns {Object} - { symbol, rate, type }
  */
 export function getCurrencyConfig() {
-  const quotaDisplayType = localStorage.getItem('quota_display_type') || 'USD';
-  const statusStr = localStorage.getItem('status');
-
-  let symbol = '$';
-  let rate = 1;
-
-  if (quotaDisplayType === 'CNY') {
-    symbol = '¥';
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        rate = s?.usd_exchange_rate || 7;
-      }
-    } catch (e) {}
-  } else if (quotaDisplayType === 'CUSTOM') {
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        symbol = s?.custom_currency_symbol || '¤';
-        rate = s?.custom_currency_exchange_rate || 1;
-      }
-    } catch (e) {}
-  }
-
-  return { symbol, rate, type: quotaDisplayType };
+  return TANVA_CURRENCY_CONFIG;
 }
 
 /**
- * 将美元金额转换为当前选择的货币
- * @param {number} usdAmount - 美元金额
+ * 将网关人民币数值格式化为人民币金额
+ * @param {number} usdAmount - 人民币金额（保留旧参数名兼容调用）
  * @param {number} digits - 小数位数
  * @returns {string} - 格式化后的货币字符串
  */
@@ -1135,46 +1069,13 @@ export function convertUSDToCurrency(usdAmount, digits = 2) {
 }
 
 export function renderQuota(quota, digits = 2) {
-  let quotaPerUnit = localStorage.getItem('quota_per_unit');
-  const quotaDisplayType = localStorage.getItem('quota_display_type') || 'USD';
-  quotaPerUnit = parseFloat(quotaPerUnit);
-  if (quotaDisplayType === 'TOKENS') {
-    return renderNumber(quota);
-  }
-  const resultUSD = quota / quotaPerUnit;
-  let symbol = '$';
-  let value = resultUSD;
-  if (quotaDisplayType === 'CNY') {
-    const statusStr = localStorage.getItem('status');
-    let usdRate = 1;
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        usdRate = s?.usd_exchange_rate || 1;
-      }
-    } catch (e) {}
-    value = resultUSD * usdRate;
-    symbol = '¥';
-  } else if (quotaDisplayType === 'CUSTOM') {
-    const statusStr = localStorage.getItem('status');
-    let symbolCustom = '¤';
-    let rate = 1;
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        symbolCustom = s?.custom_currency_symbol || symbolCustom;
-        rate = s?.custom_currency_exchange_rate || rate;
-      }
-    } catch (e) {}
-    value = resultUSD * rate;
-    symbol = symbolCustom;
-  }
+  const quotaPerUnit = parseFloat(localStorage.getItem('quota_per_unit'));
+  const value = quota / quotaPerUnit;
   const fixedResult = value.toFixed(digits);
   if (parseFloat(fixedResult) === 0 && quota > 0 && value > 0) {
-    const minValue = Math.pow(10, -digits);
-    return symbol + minValue.toFixed(digits);
+    return formatTanvaMoney(Math.pow(10, -digits), digits);
   }
-  return symbol + fixedResult;
+  return formatTanvaMoney(value, digits);
 }
 
 function isValidGroupRatio(ratio) {
@@ -1202,7 +1103,7 @@ function getEffectiveRatio(groupRatio, user_group_ratio) {
 }
 
 function getQuotaDisplayType() {
-  return localStorage.getItem('quota_display_type') || 'USD';
+  return TANVA_CURRENCY_CONFIG.type;
 }
 
 function resolveBillingDisplayMode(displayMode, modelPrice = -1) {
@@ -1622,10 +1523,9 @@ function renderPriceSimpleCore({
 
 export function renderTaskBillingProcess(other, content) {
   if (other?.task_id != null) {
-    return renderBillingArticle(
-      [content].filter(Boolean),
-      { showReferenceNote: false },
-    );
+    return renderBillingArticle([content].filter(Boolean), {
+      showReferenceNote: false,
+    });
   }
   return renderBillingArticle([
     buildBillingText('任务预扣费（将在任务完成后按实际token重算）'),
@@ -2540,7 +2440,7 @@ export function renderAudioModelPrice(
 }
 
 export function renderQuotaWithPrompt(quota, digits) {
-  const quotaDisplayType = localStorage.getItem('quota_display_type') || 'USD';
+  const quotaDisplayType = TANVA_CURRENCY_CONFIG.type;
   if (quotaDisplayType !== 'TOKENS') {
     return i18next.t('等价金额：') + renderQuota(quota, digits);
   }

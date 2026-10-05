@@ -60,11 +60,7 @@ const PricingDisplaySettings = ({
     },
   ];
 
-  const currencyItems = [
-    { value: 'USD', label: 'USD ($)' },
-    { value: 'CNY', label: 'CNY (¥)' },
-    { value: 'CUSTOM', label: t('自定义货币') },
-  ];
+  const currencyItems = [{ value: 'CNY', label: 'CNY (¥)' }];
 
   const handleChange = (value) => {
     switch (value) {
@@ -85,7 +81,8 @@ const PricingDisplaySettings = ({
 
   const getActiveValues = () => {
     const activeValues = [];
-    if (supportsCurrencyDisplay && showWithRecharge) activeValues.push('recharge');
+    if (supportsCurrencyDisplay && showWithRecharge)
+      activeValues.push('recharge');
     if (showRatio) activeValues.push('ratio');
     if (viewMode === 'table') activeValues.push('tableView');
     if (tokenUnit === 'K') activeValues.push('tokenUnit');

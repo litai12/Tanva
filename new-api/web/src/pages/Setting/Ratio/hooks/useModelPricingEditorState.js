@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { API, showError, showSuccess } from '../../../../helpers';
 
 export const PAGE_SIZE = 10;
-export const PRICE_SUFFIX = '$/1M tokens';
+export const PRICE_SUFFIX = '¥/1M tokens';
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
 
 const EMPTY_MODEL = {
@@ -245,7 +245,7 @@ export const getModelWarnings = (model, t) => {
 
 export const buildSummaryText = (model, t) => {
   if (model.billingMode === 'per-request' && hasValue(model.fixedPrice)) {
-    return `${t('按次')} $${model.fixedPrice} / ${t('次')}`;
+    return `${t('按次')} ¥${model.fixedPrice} / ${t('次')}`;
   }
 
   if (hasValue(model.inputPrice)) {
@@ -259,7 +259,7 @@ export const buildSummaryText = (model, t) => {
     ].filter(hasValue).length;
     const extraLabel =
       extraCount > 0 ? `，${t('额外价格项')} ${extraCount}` : '';
-    return `${t('输入')} $${model.inputPrice}${extraLabel}`;
+    return `${t('输入')} ¥${model.inputPrice}${extraLabel}`;
   }
 
   return t('未设置价格');

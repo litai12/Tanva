@@ -27,7 +27,7 @@ var generalSetting = GeneralSetting{
 	DocsLink:                   "/console/docs",
 	PingIntervalEnabled:        false,
 	PingIntervalSeconds:        60,
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
+	QuotaDisplayType:           QuotaDisplayTypeCNY,
 	CustomCurrencySymbol:       "¤",
 	CustomCurrencyExchangeRate: 1.0,
 }
@@ -38,54 +38,34 @@ func init() {
 }
 
 func GetGeneralSetting() *GeneralSetting {
-	return &generalSetting
+	// This Tanva deployment stores RMB numbers directly. Ignore legacy display
+	// preferences rather than relabeling or multiplying those numbers again.
+	view := generalSetting
+	view.QuotaDisplayType = QuotaDisplayTypeCNY
+	return &view
 }
 
-// IsCurrencyDisplay 是否以货币形式展示（美元或人民币）
+// IsCurrencyDisplay Tanva 全站使用人民币金额展示。
 func IsCurrencyDisplay() bool {
-	return generalSetting.QuotaDisplayType != QuotaDisplayTypeTokens
+	return true
 }
 
 // IsCNYDisplay 是否以人民币展示
 func IsCNYDisplay() bool {
-	return generalSetting.QuotaDisplayType == QuotaDisplayTypeCNY
+	return true
 }
 
 // GetQuotaDisplayType 返回额度展示类型
 func GetQuotaDisplayType() string {
-	return generalSetting.QuotaDisplayType
+	return QuotaDisplayTypeCNY
 }
 
 // GetCurrencySymbol 返回当前展示类型对应符号
 func GetCurrencySymbol() string {
-	switch generalSetting.QuotaDisplayType {
-	case QuotaDisplayTypeUSD:
-		return "$"
-	case QuotaDisplayTypeCNY:
-		return "¥"
-	case QuotaDisplayTypeCustom:
-		if generalSetting.CustomCurrencySymbol != "" {
-			return generalSetting.CustomCurrencySymbol
-		}
-		return "¤"
-	default:
-		return ""
-	}
+	return "¥"
 }
 
-// GetUsdToCurrencyRate 返回 1 USD = X <currency> 的 X（TOKENS 不适用）
+// GetUsdToCurrencyRate 兼容旧接口；Tanva 人民币数字固定 1:1，不取市场汇率。
 func GetUsdToCurrencyRate(usdToCny float64) float64 {
-	switch generalSetting.QuotaDisplayType {
-	case QuotaDisplayTypeUSD:
-		return 1
-	case QuotaDisplayTypeCNY:
-		return usdToCny
-	case QuotaDisplayTypeCustom:
-		if generalSetting.CustomCurrencyExchangeRate > 0 {
-			return generalSetting.CustomCurrencyExchangeRate
-		}
-		return 1
-	default:
-		return 1
-	}
+	return 1
 }
