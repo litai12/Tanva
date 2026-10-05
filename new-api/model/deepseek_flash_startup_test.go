@@ -2,13 +2,18 @@ package model
 
 import (
 	"errors"
+	"net/url"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -87,6 +92,39 @@ func TestDeepSeekFlashStartupMissingMaps(t *testing.T) {
 	require.Len(t, deepSeekStartupOptions(t, db), 3)
 }
 
+func TestDeepSeekFlashStartupFirstOptionLoadNeedsNoPeriodicSync(t *testing.T) {
+	db := deepSeekStartupTestDB(t, ":memory:")
+	require.NoError(t, db.Create(&Option{Key: "ModelRatio", Value: `{"deepseek-flash":0.15}`}).Error)
+	previousDB := DB
+	previousOptions := common.OptionMap
+	previousModel := ratio_setting.ModelRatio2JSONString()
+	previousCompletion := ratio_setting.CompletionRatio2JSONString()
+	previousCache := ratio_setting.CacheRatio2JSONString()
+	previousPrice := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		DB = previousDB
+		common.OptionMap = previousOptions
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousModel))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(previousCompletion))
+		require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(previousCache))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrice))
+	})
+	DB = db
+	require.NoError(t, EnsureDeepSeekFlashCNYStartupPrices(DB))
+	InitOptionMap()
+	for _, alias := range deepSeekFlashContractAliases {
+		modelRatio, _, _ := ratio_setting.GetModelRatio(alias)
+		require.Equal(t, float64(1), modelRatio)
+		require.Equal(t, float64(4), ratio_setting.GetCompletionRatio(alias))
+		cacheRatio, _ := ratio_setting.GetCacheRatio(alias)
+		require.Equal(t, 0.02, cacheRatio)
+		resolved, period, err := ratio_setting.ResolveDeepSeekFlashCNYRatio(alias, modelRatio, time.Date(2026, 10, 5, 9, 18, 41, 0, time.UTC))
+		require.NoError(t, err)
+		require.Equal(t, 0.5, resolved)
+		require.Equal(t, "off_peak", period)
+	}
+}
+
 func TestDeepSeekFlashStartupInvalidMapsRollback(t *testing.T) {
 	for _, invalid := range []string{`{broken`, `null`, `[]`, `{"unrelated":"do not destroy"}`, `{"unrelated":null}`} {
 		t.Run(invalid, func(t *testing.T) {
@@ -157,4 +195,56 @@ func TestDeepSeekFlashStartupConcurrentInstancesPreserveOtherKeys(t *testing.T) 
 	require.NoError(t, common.UnmarshalJsonStr(deepSeekStartupOptions(t, first)["ModelRatio"], &values))
 	require.Equal(t, float64(13), values["unrelated"])
 	require.Equal(t, float64(77), values["concurrent-model"])
+}
+
+// Optional PostgreSQL verification accepts only the dedicated disposable local
+// database. It cannot use production DSNs or the ordinary application DB.
+func TestDeepSeekFlashStartupPostgresConcurrentInstances(t *testing.T) {
+	dsn := os.Getenv("TANVA_STARTUP_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("requires disposable local startup PostgreSQL fixture")
+	}
+	u, err := url.Parse(dsn)
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1", u.Hostname())
+	require.NotEmpty(t, u.Port())
+	require.Equal(t, "/deepseek_startup_test", u.Path)
+	open := func() *gorm.DB {
+		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+		return db
+	}
+	first, second := open(), open()
+	require.NoError(t, first.AutoMigrate(&Option{}))
+	require.NoError(t, first.Create(&Option{Key: "ModelRatio", Value: `{"deepseek-flash":0.15,"preserved":99}`}).Error)
+	var wg sync.WaitGroup
+	errors := make(chan error, 12)
+	start := make(chan struct{})
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			db := first
+			if i%2 == 1 {
+				db = second
+			}
+			errors <- EnsureDeepSeekFlashCNYStartupPrices(db)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+	assertDeepSeekStartupContract(t, first)
+	require.Contains(t, deepSeekStartupOptions(t, first)["ModelRatio"], `"preserved":99`)
+	require.NoError(t, first.Model(&Option{}).Where("key = ?", "ModelRatio").Update("value", "{broken").Error)
+	before := deepSeekStartupOptions(t, first)
+	require.Error(t, EnsureDeepSeekFlashCNYStartupPrices(second))
+	require.Equal(t, before, deepSeekStartupOptions(t, first))
 }

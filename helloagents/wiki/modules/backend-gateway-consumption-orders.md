@@ -45,3 +45,11 @@ TANVA_CONSUMPTION_GO_INTEGRATION=1 TANVA_DESKTOP_TRANSPORT_FILE=/Volumes/ZHITAI-
 ```
 
 runner在临时PG中先创建当前schema，再删除四个消费字段并实际执行新增migration SQL，确认两项索引创建成功。真实Go Relay从本地供应商收到18171输入/285输出，网关实际quota9656对应人民币0.019312；经outbox、权威签名GET和两次HTTP通知，backend实际扣3积分且模型输出仍pending。测试同时证明并发回调只结算一次、钱包和退款事务失败后仅用持久证明恢复、过期赠送lot恢复后仍过期、旧pending revision不回退终态，以及实际桌面transport、Cookie鉴权、个人/团队原钱包回归。测试容器随runner完成删除。这里的真实是本地代码与数据库闭环；生产签名配置、通知网络和真实供应商链路仍需部署后验收。
+
+## 2026-10-05 首次请求价格缓存窗口修复
+
+线上只读证据显示：网关UTC09:18:00启动，定价SQL补丁09:18:13完成，09:18:41的Flash请求因旧内存价目返回400，具体错误为 `DeepSeek Flash CNY token pricing requires peak ModelRatio=1; apply the model pricing configuration patch`。第一次60秒周期配置同步发生在09:19:03。该原请求预扣160分后退回160分，净扣0；没有消费订单或供应商消费记录。当前价目随后已同步正确，本次未重新写线上配置或重启服务。
+
+`model.EnsureDeepSeekFlashCNYStartupPrices` 现在在 `InitDB` 成功后、首次 `InitOptionMap` 前事务校正三个契约alias（`deepseek-v4.1-flash`、`deepseek-flash`、`deepseek-v4-flash`）的peak `ModelRatio=1`、`CompletionRatio=4`、`CacheRatio=.02`，并只删除其旧 `ModelPrice` 固定价；其他模型、渠道、key、分组倍率与小T固定价原样保留。稳定顺序锁、唯一键插入与原值CAS保护并发启动；SQLite锁冲突/数据库死锁或序列化冲突有界重试。坏JSON或持久化失败整笔回滚并阻止启动，不清空其他配置。首次内存加载即得到正确价目，无需等待SQL补丁或定时同步。
+
+`cd new-api && go test ./model -run '^TestDeepSeekFlashStartup' -count=1 -v` 通过SQLite隔离数据库验证：仅三alias修正、无变化不update、缺行初始化、坏JSON/类型和后置写入失败全事务回滚、首次内存加载可直接计价，以及12个并发启动与独立写入保留其他键。设置 `TANVA_STARTUP_TEST_POSTGRES_DSN` 可额外跑真实PostgreSQL并发测试；测试严格只接受127.0.0.1端口及专用 `deepseek_startup_test` 数据库。最终临时PostgreSQL16的12并发启动/坏JSON回滚测试也已通过；临时容器已删除，`go build -o /tmp/tanva-new-api-startup-check .` 通过。源码修复尚未部署；线上两端消费签名配置仍缺失，不能将响应usage兼容计费称为权威消费订单闭环。
