@@ -9,6 +9,7 @@ type GroupRatioInfo struct {
 }
 
 type PriceData struct {
+	ChannelTextPricing *ChannelTextPricing
 	// Base ratios are captured before tier selection and reused for actual-usage settlement.
 	BaseModelRatio       float64
 	BaseCompletionRatio  float64

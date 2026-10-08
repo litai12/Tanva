@@ -849,6 +849,11 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	for name := range channelParams.TextCostPerMillionCNY {
+		if _, err := channelParams.TextPricing(name); err != nil {
+			return fmt.Errorf("text_cost_per_million_cny[%q]: %w", name, err)
+		}
+	}
 	return nil
 }
 

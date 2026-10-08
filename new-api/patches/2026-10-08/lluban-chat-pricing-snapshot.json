@@ -1,0 +1,1449 @@
+{
+  "source": "https://tt-api.lluban.com/api/pricing",
+  "docs": "https://tt-api.lluban.com/docs",
+  "captured_date": "2026-10-08",
+  "upstream_pricing_version": "a42d372ccf0b5dd13ecf71203521f9d2",
+  "selection": "Intersection of authenticated /v1/models and enabled default-group catalog entries with model_kind=chat; no model aliases or UI list.",
+  "currency": "CNY",
+  "unit": "per_million_tokens",
+  "upstream_discount_from_public_base": 0.2,
+  "sale_multiplier": 2,
+  "discount_basis": "User-specified 0.2 upstream channel rate; the public catalog exposes base prices, not authenticated channel discounts.",
+  "models": [
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "claude-fable-5-1",
+        "provider": "Anthropic",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "verified_at": "2026-10-05",
+        "input": 10,
+        "output": 50,
+        "cache_read": 0.25,
+        "cache_write": 12.5,
+        "cache_write_5m": 12.5,
+        "cache_write_1h": 20,
+        "image_input": 10,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 10,
+            "output": 50,
+            "cache_read": 0.25,
+            "cache_write": 12.5,
+            "cache_write_5m": 12.5,
+            "cache_write_1h": 20,
+            "image_input": 10
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "claude-fable-5.1",
+      "model_kind": "chat",
+      "description": "Claude Fable 5.1 · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 36.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.024999999999999998,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "claude-opus-5",
+        "provider": "Anthropic",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "verified_at": "2026-10-05",
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_write": 6.25,
+        "cache_write_5m": 6.25,
+        "cache_write_1h": 10,
+        "image_input": 5,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25,
+            "cache_write_5m": 6.25,
+            "cache_write_1h": 10,
+            "image_input": 5
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "claude-opus-5",
+      "model_kind": "chat",
+      "description": "Claude Opus 5（right-auto-fable / rightapi claude-aws 渠道）",
+      "quota_type": 0,
+      "model_ratio": 18.25,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.09999999999999999,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "claude-opus-5-5",
+        "provider": "Anthropic",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "verified_at": "2026-10-05",
+        "input": 4,
+        "output": 20,
+        "cache_read": 0.2,
+        "cache_write": 5,
+        "cache_write_5m": 5,
+        "cache_write_1h": 8,
+        "image_input": 4,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2,
+            "cache_write": 5,
+            "cache_write_5m": 5,
+            "cache_write_1h": 8,
+            "image_input": 4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "claude-opus-5-5",
+      "model_kind": "chat",
+      "description": "Claude Opus 5.5 · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 14.6,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.05,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "claude-sonnet-5-5",
+        "provider": "Anthropic",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "verified_at": "2026-10-08",
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.1,
+        "cache_write": 2.5,
+        "cache_write_5m": 2.5,
+        "cache_write_1h": 4,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1,
+            "cache_write": 2.5,
+            "cache_write_5m": 2.5,
+            "cache_write_1h": 4,
+            "image_input": 2
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "claude-sonnet-5-5",
+      "model_kind": "chat",
+      "description": "Claude Sonnet 5.5 · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.05,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "deepseek-v4.1-flash",
+        "provider": "DeepSeek",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "verified_at": "2026-10-08",
+        "notes": "First-party DeepSeek-V4.1-Flash (API model deepseek-flash) USD peak prices. Off-peak prices are 50% lower; this catalog does not automatically apply time-based discounts. Peak hours are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC, excluding Chinese public holidays. The separate CNY price table is not converted into this USD catalog.",
+        "input": 0.3,
+        "output": 1.2,
+        "cache_read": 0.006,
+        "image_input": 0.3,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.3,
+            "output": 1.2,
+            "cache_read": 0.006,
+            "image_input": 0.3
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "deepseek-v4.1-flash",
+      "model_kind": "chat",
+      "description": "DeepSeek V4.1 Flash — b-ai",
+      "icon": "DeepSeek.Color",
+      "tags": "chat,text,deepseek",
+      "quota_type": 0,
+      "model_ratio": 1.095,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4,
+      "cache_ratio": 0.02,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": null,
+      "baseline_usd_to_cny": null,
+      "official_price_multiplier": null,
+      "model_name": "doubao-seed-2-0-lite-260428",
+      "model_kind": "chat",
+      "description": "Doubao Seed 2.0 Lite（多模态视觉理解，ARK 官渠）",
+      "tags": "tapcanvas:capability=video-analysis,tapcanvas:default-for=video-analysis",
+      "quota_type": 0,
+      "model_ratio": 0.45,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "cache_ratio": 0.2,
+      "create_cache_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": null,
+      "baseline_usd_to_cny": null,
+      "official_price_multiplier": null,
+      "model_name": "doubao-seed-2-1-turbo-260628",
+      "model_kind": "chat",
+      "description": "Doubao Seed 2.1 Turbo（图片理解，ARK 官渠；输入 ¥4.5/M，输出 ¥22.5/M）",
+      "quota_type": 0,
+      "model_ratio": 2.25,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gemini-3.6-flash",
+        "provider": "Google",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "effective_until": "2026-12-31",
+        "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+        "input": 0.75,
+        "output": 3.75,
+        "cache_read": 0.075,
+        "cache_storage_usd_per_million_token_hour": 0.5,
+        "image_input": 0.75,
+        "video_input": 0.75,
+        "audio_input": 0.75,
+        "audio_cache_read": 0.075,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075,
+            "image_input": 0.75,
+            "video_input": 0.75,
+            "audio_input": 0.75,
+            "audio_cache_read": 0.075,
+            "cache_storage_usd_per_million_token_hour": 0.5
+          }
+        ],
+        "upcoming_rates": [
+          {
+            "effective_from": "2027-01-01",
+            "tiers": [
+              {
+                "max_prompt_tokens": 0,
+                "input": 1.5,
+                "output": 7.5,
+                "cache_read": 0.15,
+                "image_input": 1.5,
+                "video_input": 1.5,
+                "audio_input": 1.5,
+                "audio_cache_read": 0.15,
+                "cache_storage_usd_per_million_token_hour": 1
+              }
+            ]
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gemini-3.6-flash",
+      "model_kind": "chat",
+      "description": "Gemini 3.6 Flash",
+      "quota_type": 0,
+      "model_ratio": 2.7375,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gemini-3.7-flash",
+        "provider": "Google",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "effective_until": "2026-12-31",
+        "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+        "input": 0.75,
+        "output": 3.75,
+        "cache_read": 0.075,
+        "cache_storage_usd_per_million_token_hour": 0.5,
+        "image_input": 0.75,
+        "video_input": 0.75,
+        "audio_input": 0.75,
+        "audio_cache_read": 0.075,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075,
+            "image_input": 0.75,
+            "video_input": 0.75,
+            "audio_input": 0.75,
+            "audio_cache_read": 0.075,
+            "cache_storage_usd_per_million_token_hour": 0.5
+          }
+        ],
+        "upcoming_rates": [
+          {
+            "effective_from": "2027-01-01",
+            "tiers": [
+              {
+                "max_prompt_tokens": 0,
+                "input": 1.5,
+                "output": 7.5,
+                "cache_read": 0.15,
+                "image_input": 1.5,
+                "video_input": 1.5,
+                "audio_input": 1.5,
+                "audio_cache_read": 0.15,
+                "cache_storage_usd_per_million_token_hour": 1
+              }
+            ]
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gemini-3.7-flash",
+      "model_kind": "chat",
+      "description": "Gemini 3.7 Flash",
+      "quota_type": 0,
+      "model_ratio": 2.7375,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gemini-3.8-flash",
+        "provider": "Google",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "effective_until": "2026-12-31",
+        "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+        "input": 0.75,
+        "output": 3.75,
+        "cache_read": 0.075,
+        "cache_storage_usd_per_million_token_hour": 0.5,
+        "image_input": 0.75,
+        "video_input": 0.75,
+        "audio_input": 0.75,
+        "audio_cache_read": 0.075,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075,
+            "image_input": 0.75,
+            "video_input": 0.75,
+            "audio_input": 0.75,
+            "audio_cache_read": 0.075,
+            "cache_storage_usd_per_million_token_hour": 0.5
+          }
+        ],
+        "upcoming_rates": [
+          {
+            "effective_from": "2027-01-01",
+            "tiers": [
+              {
+                "max_prompt_tokens": 0,
+                "input": 1.5,
+                "output": 7.5,
+                "cache_read": 0.15,
+                "image_input": 1.5,
+                "video_input": 1.5,
+                "audio_input": 1.5,
+                "audio_cache_read": 0.15,
+                "cache_storage_usd_per_million_token_hour": 1
+              }
+            ]
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gemini-3.8-flash",
+      "model_kind": "chat",
+      "description": "Gemini 3.8 Flash 文本模型，适合日常对话、写作与快速任务。",
+      "icon": "Gemini.Color",
+      "tags": "chat,text,gemini,fast",
+      "quota_type": 0,
+      "model_ratio": 2.7375,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini",
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "glm-5.3",
+        "provider": "Z.ai",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://docs.z.ai/guides/overview/pricing",
+        "verified_at": "2026-10-06",
+        "input": 1.4,
+        "output": 4.4,
+        "cache_read": 0.26,
+        "image_input": 1.4,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26,
+            "image_input": 1.4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "glm-5.3",
+      "model_kind": "chat",
+      "description": "GLM-5.3 · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 5.109999999999999,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3.1428571428571437,
+      "cache_ratio": 0.18571428571428572,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "glm-5.3-flash",
+        "provider": "Z.ai",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://docs.z.ai/guides/overview/pricing",
+        "verified_at": "2026-10-06",
+        "input": 0.15,
+        "output": 0.5,
+        "cache_read": 0.03,
+        "image_input": 0.15,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03,
+            "image_input": 0.15
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "glm-5.3-flash",
+      "model_kind": "chat",
+      "description": "GLM-5.3 Flash — b-ai",
+      "tags": "chat,text,glm",
+      "quota_type": 0,
+      "model_ratio": 0.5475,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3.3333333333333335,
+      "cache_ratio": 0.2,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-5.6-luna",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "input": 0.2,
+        "output": 1.2,
+        "cache_read": 0.02,
+        "cache_write": 0.25,
+        "image_input": 0.2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02,
+            "cache_write": 0.25,
+            "image_input": 0.2
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.4,
+            "output": 1.7999999999999998,
+            "cache_read": 0.04,
+            "cache_write": 0.5,
+            "image_input": 0.4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-5.6-luna",
+      "model_kind": "chat",
+      "description": "gpt-5.6-luna via right.codes Codex gateway",
+      "quota_type": 0,
+      "model_ratio": 0.73,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "cache_ratio": 0.09999999999999999,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai-response",
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-5.6-sol",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "notes": "Official promotional rate is guaranteed at least through 2026-11-21; no later price has been published.",
+        "input": 4,
+        "output": 20,
+        "cache_read": 0.4,
+        "cache_write": 5,
+        "image_input": 4,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.4,
+            "cache_write": 5,
+            "image_input": 4
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 8,
+            "output": 30,
+            "cache_read": 0.8,
+            "cache_write": 10,
+            "image_input": 8
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-5.6-sol",
+      "model_kind": "chat",
+      "description": "gpt-5.6-sol via right.codes Codex gateway",
+      "quota_type": 0,
+      "model_ratio": 14.6,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai-response",
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-5.6-terra",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "input": 2,
+        "output": 12,
+        "cache_read": 0.2,
+        "cache_write": 2.5,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2,
+            "cache_write": 2.5,
+            "image_input": 2
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 4,
+            "output": 18,
+            "cache_read": 0.4,
+            "cache_write": 5,
+            "image_input": 4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-5.6-terra",
+      "model_kind": "chat",
+      "description": "gpt-5.6-terra via right.codes Codex gateway",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai-response",
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-6-astra",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "input": 10,
+        "output": 50,
+        "cache_read": 1,
+        "cache_write": 12.5,
+        "image_input": 10,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 10,
+            "output": 50,
+            "cache_read": 1,
+            "cache_write": 12.5,
+            "image_input": 10
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 20,
+            "output": 75,
+            "cache_read": 2,
+            "cache_write": 25,
+            "image_input": 20
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-6-astra",
+      "model_kind": "chat",
+      "description": "gpt-6-astra — OpenCodex verified",
+      "quota_type": 0,
+      "model_ratio": 36.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.09999999999999999,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-6-luna",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "input": 0.1,
+        "output": 0.5,
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "image_input": 0.1,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "image_input": 0.1
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 0.2,
+            "output": 0.75,
+            "cache_read": 0.02,
+            "cache_write": 0.25,
+            "image_input": 0.2
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-6-luna",
+      "model_kind": "chat",
+      "description": "gpt-6-luna — OpenCodex verified",
+      "quota_type": 0,
+      "model_ratio": 0.365,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.09999999999999999,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "gpt-6-sol",
+        "provider": "OpenAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://developers.openai.com/api/docs/pricing",
+        "verified_at": "2026-10-05",
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.2,
+        "cache_write": 2.5,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 272000,
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2.5,
+            "image_input": 2
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 4,
+            "output": 15,
+            "cache_read": 0.4,
+            "cache_write": 5,
+            "image_input": 4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "gpt-6-sol",
+      "model_kind": "chat",
+      "description": "gpt-6-sol — OpenCodex verified",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "grok-4.6",
+        "provider": "xAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://docs.x.ai/developers/models/grok-4.6",
+        "verified_at": "2026-10-08",
+        "notes": "Global standard API rates. Requests with at least 200,000 prompt tokens use the long-context rate for all tokens. US regional endpoint rates are 1.1x these prices.",
+        "input": 2,
+        "output": 6,
+        "cache_read": 0.5,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 199999,
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5,
+            "image_input": 2
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 4,
+            "output": 12,
+            "cache_read": 1,
+            "image_input": 4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "grok-4.6",
+      "model_kind": "chat",
+      "description": "grok-4.6 · HeyRoute",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3,
+      "cache_ratio": 0.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai-response",
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "grok-4.7",
+        "provider": "xAI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://docs.x.ai/developers/models/grok-4.7",
+        "verified_at": "2026-10-08",
+        "notes": "Global standard API rates. Requests with at least 200,000 prompt tokens use the long-context rate for all tokens. US regional endpoint rates are 1.1x these prices.",
+        "input": 2,
+        "output": 6,
+        "cache_read": 0.5,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 199999,
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5,
+            "image_input": 2
+          },
+          {
+            "max_prompt_tokens": 0,
+            "input": 4,
+            "output": 12,
+            "cache_read": 1,
+            "image_input": 4
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "grok-4.7",
+      "model_kind": "chat",
+      "description": "Grok 4.7 · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3,
+      "cache_ratio": 0.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai-response",
+        "openai",
+        "anthropic"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "kimi-k3",
+        "provider": "Moonshot AI",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://platform.moonshot.ai/docs/pricing/chat",
+        "verified_at": "2026-10-08",
+        "notes": "Uniform rates across the 1M-token context. Cache writes are billed separately: the default 5-minute TTL costs $3/M tokens, and 1-hour TTL costs $6/M tokens. Cache hits refresh the TTL without an additional write charge.",
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_write": 3,
+        "cache_write_5m": 3,
+        "cache_write_1h": 6,
+        "image_input": 3,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 3,
+            "output": 15,
+            "cache_read": 0.3,
+            "cache_write": 3,
+            "cache_write_5m": 3,
+            "cache_write_1h": 6,
+            "image_input": 3
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "kimi-k3",
+      "model_kind": "chat",
+      "description": "kimi-k3",
+      "quota_type": 0,
+      "model_ratio": 10.95,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai"
+      ]
+    },
+    {
+      "retail_currency": "CNY",
+      "official_pricing": {
+        "official_model_id": "qwen3.8-max",
+        "provider": "Alibaba Cloud",
+        "currency": "USD",
+        "tier": "standard",
+        "source_url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+        "verified_at": "2026-10-08",
+        "notes": "Singapore (International) standard API prices. CacheRead is the implicit-cache input rate ($0.25/M tokens); explicit-cache creation costs $2.5/M tokens and explicit-cache reads cost $0.17/M tokens. Other deployment regions publish different prices.",
+        "input": 2,
+        "output": 6,
+        "cache_read": 0.25,
+        "cache_write": 2.5,
+        "image_input": 2,
+        "tiers": [
+          {
+            "max_prompt_tokens": 0,
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.25,
+            "cache_write": 2.5,
+            "image_input": 2
+          }
+        ]
+      },
+      "baseline_usd_to_cny": 7.3,
+      "official_price_multiplier": 1,
+      "model_name": "qwen3.8-max",
+      "model_kind": "chat",
+      "description": "Qwen3.8 Max · Factory Droid",
+      "quota_type": 0,
+      "model_ratio": 7.3,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3,
+      "cache_ratio": 0.125,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ]
+    }
+  ],
+  "channel_costs": {
+    "claude-fable-5.1": {
+      "input": 14.6,
+      "output": 73.0,
+      "cache_read": 0.365,
+      "cache_write": 18.25,
+      "image_input": 14.6,
+      "cache_write_1h": 29.2,
+      "cache_write_5m": 18.25
+    },
+    "claude-opus-5": {
+      "input": 7.3,
+      "output": 36.5,
+      "cache_read": 0.73,
+      "cache_write": 9.125,
+      "image_input": 7.3,
+      "cache_write_1h": 14.6,
+      "cache_write_5m": 9.125
+    },
+    "claude-opus-5-5": {
+      "input": 5.84,
+      "output": 29.2,
+      "cache_read": 0.292,
+      "cache_write": 7.3,
+      "image_input": 5.84,
+      "cache_write_1h": 11.68,
+      "cache_write_5m": 7.3
+    },
+    "claude-sonnet-5-5": {
+      "input": 2.92,
+      "output": 14.6,
+      "cache_read": 0.146,
+      "cache_write": 3.65,
+      "image_input": 2.92,
+      "cache_write_1h": 5.84,
+      "cache_write_5m": 3.65
+    },
+    "deepseek-v4.1-flash": {
+      "input": 0.438,
+      "output": 1.752,
+      "cache_read": 0.00876,
+      "cache_write": 0.438,
+      "image_input": 0.438
+    },
+    "doubao-seed-2-0-lite-260428": {
+      "input": 0.18,
+      "output": 1.08,
+      "cache_read": 0.036,
+      "cache_write": 0.0
+    },
+    "doubao-seed-2-1-turbo-260628": {
+      "input": 0.9,
+      "output": 4.5,
+      "cache_read": 0.9,
+      "cache_write": 0.9
+    },
+    "gemini-3.6-flash": {
+      "input": 1.095,
+      "output": 5.475,
+      "cache_read": 0.1095,
+      "cache_write": 1.095,
+      "image_input": 1.095,
+      "audio_input": 1.095
+    },
+    "gemini-3.7-flash": {
+      "input": 1.095,
+      "output": 5.475,
+      "cache_read": 0.1095,
+      "cache_write": 1.095,
+      "image_input": 1.095,
+      "audio_input": 1.095
+    },
+    "gemini-3.8-flash": {
+      "input": 1.095,
+      "output": 5.475,
+      "cache_read": 0.1095,
+      "cache_write": 1.095,
+      "image_input": 1.095,
+      "audio_input": 1.095
+    },
+    "glm-5.3": {
+      "input": 2.0439999999999996,
+      "output": 6.424,
+      "cache_read": 0.37959999999999994,
+      "cache_write": 2.0439999999999996,
+      "image_input": 2.0439999999999996
+    },
+    "glm-5.3-flash": {
+      "input": 0.219,
+      "output": 0.73,
+      "cache_read": 0.0438,
+      "cache_write": 0.219,
+      "image_input": 0.219
+    },
+    "gpt-5.6-luna": {
+      "input": 0.292,
+      "output": 1.752,
+      "cache_read": 0.029199999999999997,
+      "cache_write": 0.365,
+      "image_input": 0.292,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 0.0292,
+          "cache_write": 0.365,
+          "input": 0.292,
+          "output": 1.752,
+          "image_input": 0.292
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 0.0584,
+          "cache_write": 0.73,
+          "input": 0.584,
+          "output": 2.6279999999999997,
+          "image_input": 0.584
+        }
+      ]
+    },
+    "gpt-5.6-sol": {
+      "input": 5.84,
+      "output": 29.2,
+      "cache_read": 0.584,
+      "cache_write": 7.3,
+      "image_input": 5.84,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 0.584,
+          "cache_write": 7.3,
+          "input": 5.84,
+          "output": 29.2,
+          "image_input": 5.84
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 1.168,
+          "cache_write": 14.6,
+          "input": 11.68,
+          "output": 43.8,
+          "image_input": 11.68
+        }
+      ]
+    },
+    "gpt-5.6-terra": {
+      "input": 2.92,
+      "output": 17.52,
+      "cache_read": 0.292,
+      "cache_write": 3.65,
+      "image_input": 2.92,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 0.292,
+          "cache_write": 3.65,
+          "input": 2.92,
+          "output": 17.52,
+          "image_input": 2.92
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 0.584,
+          "cache_write": 7.3,
+          "input": 5.84,
+          "output": 26.28,
+          "image_input": 5.84
+        }
+      ]
+    },
+    "gpt-6-astra": {
+      "input": 14.6,
+      "output": 73.0,
+      "cache_read": 1.46,
+      "cache_write": 18.25,
+      "image_input": 14.6,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 1.46,
+          "cache_write": 18.25,
+          "input": 14.6,
+          "output": 73.0,
+          "image_input": 14.6
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 2.92,
+          "cache_write": 36.5,
+          "input": 29.2,
+          "output": 109.5,
+          "image_input": 29.2
+        }
+      ]
+    },
+    "gpt-6-luna": {
+      "input": 0.146,
+      "output": 0.73,
+      "cache_read": 0.014599999999999998,
+      "cache_write": 0.1825,
+      "image_input": 0.146,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 0.0146,
+          "cache_write": 0.1825,
+          "input": 0.146,
+          "output": 0.73,
+          "image_input": 0.146
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 0.0292,
+          "cache_write": 0.365,
+          "input": 0.292,
+          "output": 1.095,
+          "image_input": 0.292
+        }
+      ]
+    },
+    "gpt-6-sol": {
+      "input": 2.92,
+      "output": 14.6,
+      "cache_read": 0.292,
+      "cache_write": 3.65,
+      "image_input": 2.92,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "cache_read": 0.292,
+          "cache_write": 3.65,
+          "input": 2.92,
+          "output": 14.6,
+          "image_input": 2.92
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 0.584,
+          "cache_write": 7.3,
+          "input": 5.84,
+          "output": 21.9,
+          "image_input": 5.84
+        }
+      ]
+    },
+    "grok-4.6": {
+      "input": 2.92,
+      "output": 8.76,
+      "cache_read": 0.73,
+      "cache_write": 2.92,
+      "image_input": 2.92,
+      "tiers": [
+        {
+          "max_prompt_tokens": 199999,
+          "cache_read": 0.73,
+          "cache_write": 2.92,
+          "input": 2.92,
+          "output": 8.76,
+          "image_input": 2.92
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 1.46,
+          "cache_write": 5.84,
+          "input": 5.84,
+          "output": 17.52,
+          "image_input": 5.84
+        }
+      ]
+    },
+    "grok-4.7": {
+      "input": 2.92,
+      "output": 8.76,
+      "cache_read": 0.73,
+      "cache_write": 2.92,
+      "image_input": 2.92,
+      "tiers": [
+        {
+          "max_prompt_tokens": 199999,
+          "cache_read": 0.73,
+          "cache_write": 2.92,
+          "input": 2.92,
+          "output": 8.76,
+          "image_input": 2.92
+        },
+        {
+          "max_prompt_tokens": 0,
+          "cache_read": 1.46,
+          "cache_write": 5.84,
+          "input": 5.84,
+          "output": 17.52,
+          "image_input": 5.84
+        }
+      ]
+    },
+    "kimi-k3": {
+      "input": 4.38,
+      "output": 21.9,
+      "cache_read": 0.438,
+      "cache_write": 4.38,
+      "image_input": 4.38,
+      "cache_write_1h": 8.76,
+      "cache_write_5m": 4.38
+    },
+    "qwen3.8-max": {
+      "input": 2.92,
+      "output": 8.76,
+      "cache_read": 0.365,
+      "cache_write": 3.65,
+      "image_input": 2.92
+    }
+  }
+}

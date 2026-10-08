@@ -5,6 +5,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -63,6 +65,44 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
+	settings, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	if info.ChannelMeta != nil {
+		settings = info.ChannelSetting
+	}
+	contract, err := settings.TextPricing(info.OriginModelName)
+	if err != nil {
+		return types.PriceData{}, err
+	}
+	if contract != nil {
+		if meta.MaxTokens < 0 {
+			return types.PriceData{}, fmt.Errorf("negative token estimate")
+		}
+		rate, err := contract.Retail(promptTokens)
+		if err != nil {
+			return types.PriceData{}, err
+		}
+		group := HandleGroupRatio(c, info)
+		// Numeric quota units are CNY: one million tokens at ratio 1 cost CNY 2.
+		modelRatio := rate.Input / 2
+		completionRatio := rate.Output / rate.Input
+		quota, err := common.CheckedQuota(decimal.NewFromInt(int64(common.Max(promptTokens, common.PreConsumedQuota))).
+			Mul(decimal.NewFromFloat(modelRatio)).
+			Add(decimal.NewFromInt(int64(meta.MaxTokens)).Mul(decimal.NewFromFloat(modelRatio)).Mul(decimal.NewFromFloat(completionRatio))).
+			Mul(decimal.NewFromFloat(group.GroupRatio)))
+		if err != nil {
+			return types.PriceData{}, err
+		}
+		price := types.PriceData{
+			ChannelTextPricing: contract, BaseModelRatio: modelRatio, BaseCompletionRatio: completionRatio,
+			HasBaseTokenRatios: true, ModelRatio: modelRatio, CompletionRatio: completionRatio,
+			CacheRatio: rate.CacheRead / rate.Input, CacheCreationRatio: rate.CacheWrite / rate.Input,
+			CacheCreation5mRatio: *rate.CacheWrite5m / rate.Input, CacheCreation1hRatio: *rate.CacheWrite1h / rate.Input,
+			ImageRatio: *rate.ImageInput / rate.Input, AudioRatio: *rate.AudioInput / rate.Input,
+			GroupRatioInfo: group, QuotaToPreConsume: quota, FreeModel: group.GroupRatio == 0,
+		}
+		info.PriceData = price
+		return price, nil
+	}
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 	if usePrice && ratio_setting.IsDeepSeekFlashCNYModel(info.OriginModelName) {
 		return types.PriceData{}, fmt.Errorf("DeepSeek Flash CNY token pricing requires removing its fixed ModelPrice configuration")

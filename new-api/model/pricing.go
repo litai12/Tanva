@@ -16,6 +16,7 @@ import (
 )
 
 type Pricing struct {
+	ChannelTextPrices      []ChannelTextPrice      `json:"channel_text_prices,omitempty"`
 	ModelName              string                  `json:"model_name"`
 	Description            string                  `json:"description,omitempty"`
 	Icon                   string                  `json:"icon,omitempty"`
@@ -570,6 +571,11 @@ func updatePricing() {
 		common.SysLog(fmt.Sprintf("GetAllEnableAbilityWithChannels error: %v", err))
 		return
 	}
+	channelQuotes, legacyTextModels, err := channelTextQuotes(enableAbilities)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("channel text pricing error: %v", err))
+		return
+	}
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
 	_ = DB.Find(&allMeta).Error
@@ -880,6 +886,8 @@ func updatePricing() {
 		if audioCompletionRatio, ok := findCanonicalAudioCompletionRatio(model); ok {
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
+		pricing.ChannelTextPrices = channelQuotes[model]
+		applyExclusiveChannelTextQuote(&pricing, pricing.ChannelTextPrices, legacyTextModels[model])
 		pricingMap = append(pricingMap, pricing)
 	}
 

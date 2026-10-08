@@ -9,7 +9,7 @@
 #   2. For each *.sql under /patches (sorted): skip if recorded; else psql -f then INSERT
 #
 # Env (provided by docker-compose):
-#   PGPASSWORD, PG_USER, PG_DB, DEEPSEEK_API_KEY
+#   PGPASSWORD, PG_USER, PG_DB, DEEPSEEK_API_KEY, LLUBAN_API_KEY
 set -e
 
 PSQL="psql -h new-api-postgres -U ${PG_USER} -d ${PG_DB} -v ON_ERROR_STOP=on"
@@ -48,7 +48,24 @@ for f in $(find . -name '*.sql' | sort); do
       fi
       ;;
   esac
-  if [ "$key" = "2026-07-13/001-add-xiaot-agent-channel.sql" ]; then
+  if [ "$key" = "2026-10-08/001-add-lluban-chat-channel.sql" ]; then
+    if [ -z "${LLUBAN_API_KEY:-}" ]; then
+      echo "Deferred ${key}: LLUBAN_API_KEY is required"
+      deferred=$((deferred + 1))
+      continue
+    fi
+    echo "Applying ${key}"
+    # The SQL imports LLUBAN_API_KEY with psql's \getenv. Never interpolate it
+    # into command arguments. Suppress SQL diagnostics because PostgreSQL may
+    # include expanded credential values in an error's statement or detail.
+    if $PSQL -f "${f}" >/dev/null 2>&1; then
+      :
+    else
+      patch_status=$?
+      echo "Failed ${key}: psql exit ${patch_status}; migration not recorded" >&2
+      exit "$patch_status"
+    fi
+  elif [ "$key" = "2026-07-13/001-add-xiaot-agent-channel.sql" ]; then
     if [ -z "${XIAOT_API_KEY:-}" ] || [ -z "${XIAOT_BASE_URL:-}" ]; then
       echo "Deferred ${key}: XIAOT_API_KEY and XIAOT_BASE_URL are required"
       deferred=$((deferred + 1))

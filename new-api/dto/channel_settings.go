@@ -1,17 +1,35 @@
 package dto
 
+import "github.com/QuantumNous/new-api/types"
+
+type TextTokenCostCNY = types.TextTokenCostCNY
+
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	TextCostPerMillionCNY  map[string]TextTokenCostCNY `json:"text_cost_per_million_cny,omitempty"`
+	TextSaleMultiplier     float64                     `json:"text_sale_multiplier,omitempty"`
+	ForceFormat            bool                        `json:"force_format,omitempty"`
+	ThinkingToContent      bool                        `json:"thinking_to_content,omitempty"`
+	Proxy                  string                      `json:"proxy"`
+	PassThroughBodyEnabled bool                        `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string                      `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                        `json:"system_prompt_override,omitempty"`
 	// ImageUpstreamStream 让 Gemini 出图请求改用上游 streamGenerateContent(SSE)，
 	// 使上游响应头尽早返回（规避经 Cloudflare 代理时的 ~100s 524 超时）；
 	// new-api 仍在内部把 SSE 流收完后，向下游返回一次性 images JSON。
 	// 仅影响 Gemini imagine 出图链路（RelayModeImagesGenerations）。
 	ImageUpstreamStream bool `json:"image_upstream_stream,omitempty"`
+}
+
+func (s ChannelSettings) TextPricing(model string) (*types.ChannelTextPricing, error) {
+	cost, configured := s.TextCostPerMillionCNY[model]
+	if !configured {
+		return nil, nil
+	}
+	pricing := types.ChannelTextPricing{Cost: cost, Multiplier: s.TextSaleMultiplier}
+	if err := pricing.Validate(); err != nil {
+		return nil, err
+	}
+	return pricing.Snapshot(), nil
 }
 
 type VertexKeyType string

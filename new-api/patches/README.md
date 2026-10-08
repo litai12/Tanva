@@ -53,3 +53,7 @@ Compose 的 `new-api-patch` 支持 `XIAOT_API_KEY` 和 `XIAOT_BASE_URL`。首次
 ### DeepSeek 官方渠道配置
 
 `2026-09-16/001-add-deepseek-official-v41-flash.sql` 使用 `DEEPSEEK_API_KEY` 注入官方密钥。未配置时该 patch 会暂缓且不会写入 `schema_migrations`；配置后重新运行 `new-api-patch` 即可补齐。仓库中的 SQL 不保存明文密钥。
+
+### 鲁班对话渠道（2026-10-08）
+
+实际 Tanva Compose 入口为 `backend/docker-compose.yml`。`2026-10-08/001-add-lluban-chat-channel.sql` 与本次 Go 渠道独立人民币计价代码配套，导入密钥可访问且上游启用的 22 个 chat 模型；`LLUBAN_API_KEY` 由 patch 容器环境注入，缺失则暂缓。按用户指定 0.2 采购基准、2 倍售价，不覆盖旧渠道全局价格。当前 patch 服务在 new-api healthy 后执行，随后等运行时缓存同步，不能把 healthy 当配置已加载。部署与定价表见 `helloagents/wiki/lluban-chat-channel-20261008.md`（仓库根目录）。

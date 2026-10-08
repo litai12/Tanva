@@ -114,7 +114,21 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
-	if !relayInfo.PriceData.UsePrice {
+	if contract := relayInfo.PriceData.ChannelTextPricing; contract != nil {
+		rate, err := contract.Retail(summary.PromptTokens)
+		if err != nil {
+			summary.BillingError = err
+			return summary
+		}
+		summary.ModelRatio = rate.Input / 2
+		summary.CompletionRatio = rate.Output / rate.Input
+		summary.CacheRatio = rate.CacheRead / rate.Input
+		summary.CacheCreationRatio = rate.CacheWrite / rate.Input
+		summary.CacheCreationRatio5m = *rate.CacheWrite5m / rate.Input
+		summary.CacheCreationRatio1h = *rate.CacheWrite1h / rate.Input
+		summary.ImageRatio = *rate.ImageInput / rate.Input
+		summary.AudioInputPrice = *rate.AudioInput
+	} else if !relayInfo.PriceData.UsePrice {
 		baseModelRatio := relayInfo.PriceData.BaseModelRatio
 		baseCompletionRatio := relayInfo.PriceData.BaseCompletionRatio
 		if !relayInfo.PriceData.HasBaseTokenRatios {
@@ -135,7 +149,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 	if isOpenRouterClaudeBilling {
 		summary.PromptTokens -= summary.CacheTokens
-		isUsingCustomSettings := relayInfo.PriceData.UsePrice || hasCustomModelRatio(summary.ModelName, relayInfo.PriceData.ModelRatio)
+		isUsingCustomSettings := relayInfo.PriceData.ChannelTextPricing != nil || relayInfo.PriceData.UsePrice || hasCustomModelRatio(summary.ModelName, relayInfo.PriceData.ModelRatio)
 		if summary.CacheCreationTokens == 0 && relayInfo.PriceData.CacheCreationRatio != 1 && usage.Cost != 0 && !isUsingCustomSettings {
 			maybeCacheCreationTokens := CalcOpenRouterCacheCreateTokens(*usage, relayInfo.PriceData)
 			if maybeCacheCreationTokens >= 0 && summary.PromptTokens >= maybeCacheCreationTokens {
@@ -246,8 +260,10 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		}
 
 		if !dAudioTokens.IsZero() {
-			summary.AudioInputPrice = operation_setting.GetGeminiInputAudioPricePerMillionTokens(summary.ModelName)
-			if summary.AudioInputPrice > 0 {
+			if relayInfo.PriceData.ChannelTextPricing == nil {
+				summary.AudioInputPrice = operation_setting.GetGeminiInputAudioPricePerMillionTokens(summary.ModelName)
+			}
+			if summary.AudioInputPrice > 0 || relayInfo.PriceData.ChannelTextPricing != nil {
 				baseTokens = baseTokens.Sub(dAudioTokens)
 				audioInputQuota = decimal.NewFromFloat(summary.AudioInputPrice).
 					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dGroupRatio).Mul(dQuotaPerUnit)

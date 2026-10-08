@@ -27,6 +27,7 @@ import {
   verifyJSON,
 } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
+import { preserveChannelTextPricing } from '../../../../helpers/channelTextPricing';
 import { CHANNEL_OPTIONS, MODEL_FETCHABLE_CHANNEL_TYPES } from '../../../../constants';
 import {
   SideSheet,
@@ -978,6 +979,7 @@ const EditChannelModal = (props) => {
       setBasicModels(getChannelModels(data.type));
       // 同步更新channelSettings状态显示
       setChannelSettings({
+        ...preserveChannelTextPricing(data.setting),
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
         proxy: data.proxy,
@@ -1737,6 +1739,7 @@ const EditChannelModal = (props) => {
 
     // 生成渠道额外设置JSON
     const channelExtraSettings = {
+      ...preserveChannelTextPricing(channelSettings),
       force_format: localInputs.force_format || false,
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
