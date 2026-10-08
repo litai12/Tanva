@@ -29,6 +29,7 @@ export class TeamCreditLedgerService {
     taskId: string;
     taskKind?: string;
     actorUserId: string;
+    deferredSettlement?: boolean;
   }, transaction?: Prisma.TransactionClient): Promise<{ reserved: boolean; reason?: string }> {
     const { teamId, amount, taskId, taskKind, actorUserId } = params;
     const reserveExpiresAt = new Date(Date.now() + RESERVE_TTL_MS);
@@ -44,6 +45,31 @@ export class TeamCreditLedgerService {
         `;
         if (!acc.length) throw new BadRequestException('团队积分账户不存在');
         const { id: accId, balance, frozenBalance: frozen } = acc[0];
+        // Signed desktop orders retain only an idempotent wallet identity.
+        // Admission does not reserve balance or consume member quota; actual
+        // signed usage is checked under the same locks at settlement.
+        if (params.deferredSettlement && amount === 0) {
+          if (balance - frozen < 1) throw new BadRequestException('团队积分不足');
+          if (actorUserId) {
+            await tx.$queryRaw`SELECT "userId" FROM "TeamMembership" WHERE "teamId" = ${teamId} AND "userId" = ${actorUserId} FOR UPDATE`;
+            let member = await tx.teamMembership.findUnique({ where: { teamId_userId: { teamId, userId: actorUserId } } });
+            if (!member) throw new BadRequestException('团队成员不存在');
+            if (Date.now() - member.quotaCycleStartAt.getTime() >= 30 * 86400_000) {
+              member = await tx.teamMembership.update({ where: { teamId_userId: { teamId, userId: actorUserId } },
+                data: { creditUsedThisCycle: 0, quotaCycleStartAt: new Date() } });
+            }
+            if ((member.creditQuotaMonthly != null && member.creditQuotaMonthly - member.creditUsedThisCycle < 1) ||
+                (member.creditQuotaTotal != null && member.creditQuotaTotal - member.creditUsedTotal < 1)) {
+              throw new BadRequestException('当前团队成员可用额度不足');
+            }
+          }
+          await tx.teamCreditLedger.upsert({
+            where: { teamAccId_entryType_taskId: { teamAccId: accId, entryType: 'reserve', taskId } },
+            create: { teamAccId: accId, entryType: 'reserve', amount: 0, taskId, taskKind, actorUserId, reserveExpiresAt },
+            update: {},
+          });
+          return;
+        }
         const available = balance - frozen;
         if (available < amount) throw new BadRequestException('团队积分不足');
 

@@ -82,7 +82,7 @@ async function run() {
   assert(concurrent.some(r => r.status === 'fulfilled'), JSON.stringify(concurrent.map((r: any) => r.reason?.message)));
   assert.equal(calls, 1); assert.equal(await balance(owner.id), 10050 - charged);
   assert.equal(await db.creditTransaction.count({ where: { apiUsageId: uid(owner.id, 'first'), type: 'spend' } }), 1);
-  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: owner.account, sourceType: 'gift' } })).remainingAmount, 50 - charged);
+  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: owner.account, sourceType: 'gift' } })).remainingAmount, Math.max(0, 50 - charged));
   const firstReceipt = await request(owner.id, 'first');
   assert.equal(firstReceipt.billing?.upstreamRequestId, 'fixture-upstream-id');
   assert.equal(firstReceipt.billing?.exactCreditNanos, exactNanos.toString());
@@ -101,8 +101,8 @@ async function run() {
   await db.creditAccount.update({ where: { id: sourceOwner.account }, data: { balance: 1005, totalEarned: 1005 } });
   const sourceResult = await chat.complete(sourceOwner.id, body, headers('sources'));
   const sourceCharge = sourceResult.tanvaReceipt.creditsCharged;
-  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: sourceOwner.account, sourceType: 'gift' } })).remainingAmount, 5 - sourceCharge);
-  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: sourceOwner.account, sourceType: 'recharge' } })).remainingAmount, 1000);
+  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: sourceOwner.account, sourceType: 'gift' } })).remainingAmount, Math.max(0, 5 - sourceCharge));
+  assert.equal((await db.creditLot.findFirstOrThrow({ where: { accountId: sourceOwner.account, sourceType: 'recharge' } })).remainingAmount, 1000 - Math.max(0, sourceCharge - 5));
   const another = await user(); await assert.rejects(chat.request(another.id, `${prefix}:first`), (e: any) => e.getStatus?.() === 404);
   const beforeReject = await balance(owner.id);
   mode = '400'; await code(chat.complete(owner.id, body, headers('rejected')), 'TANVA_REQUEST_FAILED'); assert.equal(await balance(owner.id), beforeReject);
@@ -155,16 +155,17 @@ async function run() {
     await code(service().complete(owner.id, body, headers(key)), 'TANVA_REQUEST_PENDING'); assert.equal(calls, count);
   }
   mode = 'success';
-  const team = await db.team.create({ data: { ownerId: owner.id, name: `${prefix}:team`, memberships: { create: { userId: owner.id, role: 'owner', creditQuotaTotal: 1000 } }, creditAccount: { create: { balance: 1000, totalEarned: 1000 } } } });
+  const teamFunds = Math.max(1000, reserve * 4 + charged * 10);
+  const team = await db.team.create({ data: { ownerId: owner.id, name: `${prefix}:team`, memberships: { create: { userId: owner.id, role: 'owner', creditQuotaTotal: teamFunds } }, creditAccount: { create: { balance: teamFunds, totalEarned: teamFunds } } } });
   const personal = await balance(owner.id);
-  inspect = async () => { const acc = await teamBalance(team.id); assert.equal(acc.frozenBalance, reserve); assert.equal(acc.balance, 1000); assert.equal(await balance(owner.id), personal); };
+  inspect = async () => { const acc = await teamBalance(team.id); assert.equal(acc.frozenBalance, reserve); assert.equal(acc.balance, teamFunds); assert.equal(await balance(owner.id), personal); };
   const beforeTeam = calls; await Promise.allSettled(Array.from({ length: 8 }, () => chat.complete(owner.id, body, headers('team-first', team.id))));
   const teamCharge = charged;
-  assert.equal(calls, beforeTeam + 1); assert.equal((await teamBalance(team.id)).balance, 1000 - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, 0);
+  assert.equal(calls, beforeTeam + 1); assert.equal((await teamBalance(team.id)).balance, teamFunds - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, 0);
   assert.equal(await balance(owner.id), personal); assert.equal((await request(owner.id, 'team-first')).creditsCharged, teamCharge);
   assert.equal(await db.teamCreditLedger.count({ where: { taskId: uid(owner.id, 'team-first'), entryType: 'deduct' } }), 1);
   inspect = undefined; mode = '400'; await code(chat.complete(owner.id, body, headers('team-reject', team.id)), 'TANVA_REQUEST_FAILED');
-  assert.equal((await teamBalance(team.id)).balance, 1000 - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, 0);
+  assert.equal((await teamBalance(team.id)).balance, teamFunds - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, 0);
   assert.equal((await db.teamMembership.findUniqueOrThrow({ where: { teamId_userId: { teamId: team.id, userId: owner.id } } })).creditUsedTotal, teamCharge);
   mode = '503'; await code(chat.complete(owner.id, body, headers('team-unknown', team.id)), 'TANVA_REQUEST_PENDING');
   assert.equal((await request(owner.id, 'team-unknown')).creditsReserved, reserve);
@@ -178,17 +179,17 @@ async function run() {
   const limited = await user(reserve); const beforeLimited = calls;
   const competition = await Promise.allSettled([chat.complete(limited.id, body, headers('limited-one')), chat.complete(limited.id, body, headers('limited-two'))]);
   assert.equal(competition.filter(r => r.status === 'fulfilled').length, 1); assert.equal(calls, beforeLimited + 1); assert.equal(await balance(limited.id), reserve - teamCharge);
-  await db.teamMembership.update({ where: { teamId_userId: { teamId: team.id, userId: owner.id } }, data: { creditQuotaTotal: 1000 } });
+  await db.teamMembership.update({ where: { teamId_userId: { teamId: team.id, userId: owner.id } }, data: { creditQuotaTotal: teamFunds } });
   await db.$executeRawUnsafe(`CREATE FUNCTION fixture_fail_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."responseStatus"='success' AND NEW.id='${uid(owner.id, 'recover')}' THEN RAISE EXCEPTION 'fixture failure'; END IF; RETURN NEW; END $$`);
   await db.$executeRawUnsafe('CREATE TRIGGER fixture_completion_failure BEFORE UPDATE ON "ApiUsageRecord" FOR EACH ROW EXECUTE FUNCTION fixture_fail_completion()');
   try {
     await code(chat.complete(owner.id, body, headers('recover', team.id)), 'TANVA_REQUEST_PENDING');
-    assert.equal((await teamBalance(team.id)).balance, 1000 - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, reserve * 2);
+    assert.equal((await teamBalance(team.id)).balance, teamFunds - teamCharge); assert.equal((await teamBalance(team.id)).frozenBalance, reserve * 2);
     const row = await db.apiUsageRecord.findUniqueOrThrow({ where: { id: uid(owner.id, 'recover') } });
     assert.deepEqual((row.requestParams as any).desktopChat.response, completion);
   } finally { await db.$executeRawUnsafe('DROP TRIGGER fixture_completion_failure ON "ApiUsageRecord"'); await db.$executeRawUnsafe('DROP FUNCTION fixture_fail_completion()'); }
   const beforeRecovery = calls; assert.equal((await service().request(owner.id, `${prefix}:recover`)).status, 'completed');
-  assert.equal(calls, beforeRecovery); assert.equal((await teamBalance(team.id)).balance, 1000 - charged * 2); assert.equal((await teamBalance(team.id)).frozenBalance, reserve);
+  assert.equal(calls, beforeRecovery); assert.equal((await teamBalance(team.id)).balance, teamFunds - charged * 2); assert.equal((await teamBalance(team.id)).frozenBalance, reserve);
   await service().complete(owner.id, body, headers('recover', team.id)); assert.equal(calls, beforeRecovery);
   await db.$executeRawUnsafe(`CREATE FUNCTION fixture_fail_refund() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='refund' AND NEW."apiUsageId"='${uid(owner.id, 'refund-recover')}' THEN RAISE EXCEPTION 'fixture refund failure'; END IF; RETURN NEW; END $$`);
   await db.$executeRawUnsafe('CREATE TRIGGER fixture_refund_failure BEFORE INSERT ON "CreditTransaction" FOR EACH ROW EXECUTE FUNCTION fixture_fail_refund()');
@@ -235,9 +236,10 @@ async function run() {
   // A gift that expires while fully reserved is not renewed by the partial
   // refund: the restored remainder is expired in the settlement transaction.
   const expiresOwner = await user(1000);
-  const expiringGift = await db.creditLot.create({ data: { accountId: expiresOwner.account, sourceType: 'gift', validityType: 'fixed_window', totalAmount: 5, remainingAmount: 5,
+  const expiringGiftAmount = charged + 5;
+  const expiringGift = await db.creditLot.create({ data: { accountId: expiresOwner.account, sourceType: 'gift', validityType: 'fixed_window', totalAmount: expiringGiftAmount, remainingAmount: expiringGiftAmount,
     expiresAt: new Date(Date.now() + 60000), metadata: { reason: 'daily_reward' } } });
-  await db.creditAccount.update({ where: { id: expiresOwner.account }, data: { balance: 1005, totalEarned: 1005 } });
+  await db.creditAccount.update({ where: { id: expiresOwner.account }, data: { balance: 1000 + expiringGiftAmount, totalEarned: 1000 + expiringGiftAmount } });
   const originalExpiry = new Date(Date.now() - 1000);
   inspect = async () => { await db.creditLot.update({ where: { id: expiringGift.id }, data: { expiresAt: originalExpiry } }); };
   await chat.complete(expiresOwner.id, body, headers('expired-reserve')); inspect = undefined;
@@ -269,7 +271,7 @@ async function run() {
   await code(chat.complete(owner.id, body, headers('missing-cache')), 'TANVA_REQUEST_PENDING');
   const missingCalls = calls; await request(owner.id, 'missing-cache'); assert.equal(calls, missingCalls);
   completion.usage = savedUsage;
-  assert.throws(() => validateCompletion({ ...body, model: 'unpriced-model' }));
+  assert.equal(validateCompletion({ ...body, model: 'unpriced-model' }).model, 'unpriced-model');
   assert.throws(() => validateCompletion({ ...body, messages: [{ role: 'user', content: 'x'.repeat(MAX_REQUEST_BYTES) }] }));
   await assert.rejects(readBoundedJson(new Response('x'.repeat(300)), 100));
   const stalledCancel = new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(101)); }, cancel() { return new Promise(() => {}); } }));
@@ -397,6 +399,8 @@ async function gatewayMode() {
   };
   (gateway as any).fetchImpl = async (input: string, init: RequestInit) => {
     if (input.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: DESKTOP_CHAT_MODEL }] }));
+    if (input.endsWith('/pricing')) return Response.json({ data: [{ model_name: DESKTOP_CHAT_MODEL, model_kind: 'chat', model_ratio: 0.4,
+      channel_text_prices: [{ channel_id: 100, model_name: DESKTOP_CHAT_MODEL, currency: 'CNY', enable_groups: ['default'], input: 0.8, output: 1.6 }] }] });
     posts++;
     const h = new Headers(init.headers), id = h.get('X-Tanva-Order-Id')!;
     assert.equal(h.get('X-Tanva-Signature'), signGatewayRequest(secret, h.get('X-Tanva-Timestamp')!, 'POST', '/v1/chat/completions', id, h.get('X-Tanva-Order-Hash')!, String(init.body)));
@@ -411,29 +415,29 @@ async function gatewayMode() {
   const first = await gateway.complete(owner.id, body, headers('consumption-pending'));
   assert.equal(first.tanvaReceipt.status, 'completed'); assert.equal(first.tanvaReceipt.billing.mode, 'gateway_consumption');
   assert.notEqual(first.tanvaReceipt.billing.settlementStatus, 'settled'); assert.equal(first.tanvaReceipt.creditsCharged, 0);
-  assert.equal(first.tanvaReceipt.creditsReserved, reserve); assert.deepEqual(first.choices, completion.choices);
+  assert.equal(first.tanvaReceipt.creditsReserved, 0); assert.deepEqual(first.choices, completion.choices);
   const firstId = uid(owner.id, 'consumption-pending');
   const proof = makeProof(firstId); await Promise.all(Array.from({ length: 8 }, () => orders.receiveEnvelope(proof)));
   const settled = await gateway.request(owner.id, `${prefix}:consumption-pending`);
   assert.equal(settled.status, 'completed'); assert.equal(settled.billing.settlementStatus, 'settled');
-  assert.equal(settled.billing.gatewayCostCny, '0.019312'); assert.equal(settled.billing.exactCredits, '2.8968');
-  assert.equal(settled.creditsCharged, 3); assert.equal(settled.creditsReserved, 0); assert.equal(await balance(owner.id), 9997);
+  assert.equal(settled.billing.gatewayCostCny, '0.019312'); assert.equal(settled.billing.exactCredits, '1.9312');
+  assert.equal(settled.creditsCharged, 2); assert.equal(settled.creditsReserved, 0); assert.equal(await balance(owner.id), 9998);
   const beforeReplay = posts; await gateway.complete(owner.id, body, headers('consumption-pending')); assert.equal(posts, beforeReplay);
   outcome = 'lost-response';
   await code(gateway.complete(owner.id, body, headers('consumption-lost')), 'TANVA_REQUEST_PENDING');
   const lost = await gateway.request(owner.id, `${prefix}:consumption-lost`);
   assert.equal(lost.status, 'reconciliation_required'); assert.equal(lost.billing.settlementStatus, 'settled');
-  assert.equal(lost.creditsCharged, 3); assert.equal(lost.response, undefined); assert.equal(await balance(owner.id), 9994);
+  assert.equal(lost.creditsCharged, 2); assert.equal(lost.response, undefined); assert.equal(await balance(owner.id), 9996);
   const noRepeat = posts; await code(gateway.complete(owner.id, body, headers('consumption-lost')), 'TANVA_REQUEST_PENDING'); assert.equal(posts, noRepeat);
   outcome = '400-consumed';
   await code(gateway.complete(owner.id, body, headers('consumption-failed')), 'TANVA_REQUEST_FAILED');
   const failed = await gateway.request(owner.id, `${prefix}:consumption-failed`);
-  assert.equal(failed.status, 'failed'); assert.equal(failed.billing.settlementStatus, 'settled'); assert.equal(failed.creditsCharged, 3);
-  assert.equal(await balance(owner.id), 9991);
+  assert.equal(failed.status, 'failed'); assert.equal(failed.billing.settlementStatus, 'settled'); assert.equal(failed.creditsCharged, 2);
+  assert.equal(await balance(owner.id), 9994);
   outcome = '400-rejected';
   await code(gateway.complete(owner.id, body, headers('consumption-rejected')), 'TANVA_REQUEST_FAILED');
   const rejected = await gateway.request(owner.id, `${prefix}:consumption-rejected`);
-  assert.equal(rejected.billing.settlementStatus, 'rejected'); assert.equal(rejected.creditsReserved, 0); assert.equal(await balance(owner.id), 9991);
+  assert.equal(rejected.billing.settlementStatus, 'rejected'); assert.equal(rejected.creditsReserved, 0); assert.equal(await balance(owner.id), 9994);
   console.log('PASS: desktop delivery independent of actual New API consumption; signed exact body, missing usage accepted, callback concurrency, response loss reconciled without new POST, failed output still charged, authoritative rejection releases reservation');
 }
 run().finally(() => db.$disconnect()).catch(e => { console.error(e); process.exitCode = 1; });

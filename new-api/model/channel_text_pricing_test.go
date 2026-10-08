@@ -43,6 +43,15 @@ func TestChannelTextQuotesPublishFinalCNYAndAllTiers(t *testing.T) {
 	require.Contains(t, string(data), `"tiers"`)
 	channel := Channel{Setting: common.GetPointer(testTextContract)}
 	require.NoError(t, channel.ValidateSettings())
+	channel.Models = "new-contract-model,unpriced-auto-sync-model"
+	require.ErrorContains(t, channel.ValidateSettings(), "not configured")
+	filtered, err := filterUnpricedContractAbilities([]AbilityWithChannel{
+		{Ability: Ability{ChannelId: 10, Model: "unpriced-auto-sync-model", Group: "default"}, ChannelSetting: testTextContract},
+		{Ability: Ability{ChannelId: 20, Model: "unpriced-auto-sync-model", Group: "default"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.Equal(t, 20, filtered[0].ChannelId)
 	channel.Setting = common.GetPointer(`{"text_sale_multiplier":0,"text_cost_per_million_cny":{"bad":{"input":1}}}`)
 	require.Error(t, channel.ValidateSettings())
 }
@@ -93,10 +102,14 @@ func TestChannelTextPricingRealLLubanSnapshotPublicCatalog(t *testing.T) {
 	require.NoError(t, channel.ValidateSettings())
 	require.NoError(t, DB.Create(&channel).Error)
 	for _, name := range names {
+		require.NoError(t, DB.Create(&Model{ModelName: name, Kind: "chat", Status: 1, NameRule: NameRuleExact}).Error)
 		for _, group := range []string{"default", "vip", "svip"} {
 			require.NoError(t, DB.Create(&Ability{ChannelId: 501, Model: name, Group: group, Enabled: true}).Error)
 		}
 	}
+	// Simulate upstream auto-sync bypassing admin validation: a missing cost
+	// must not appear in /api/pricing with a default or free global quote.
+	require.NoError(t, DB.Create(&Ability{ChannelId: 501, Model: "unpriced-auto-sync-model", Group: "default", Enabled: true}).Error)
 	pricing := GetPricing()
 	require.Len(t, pricing, 22)
 	for _, item := range pricing {
@@ -129,7 +142,7 @@ func TestChannelTextPricingRealLLubanSnapshotPublicCatalog(t *testing.T) {
 	}
 }
 
-func TestChannelTextSummaryOnlyFillsNewExclusiveModels(t *testing.T) {
+func TestChannelTextSummaryUsesActualExclusiveContracts(t *testing.T) {
 	modelsBefore := ratio_setting.ModelRatio2JSONString()
 	pricesBefore := ratio_setting.ModelPrice2JSONString()
 	t.Cleanup(func() {
@@ -143,12 +156,8 @@ func TestChannelTextSummaryOnlyFillsNewExclusiveModels(t *testing.T) {
 		original := Pricing{ModelName: name, ModelRatio: 37.5, CompletionRatio: 6}
 		pricing := original
 		applyExclusiveChannelTextQuote(&pricing, quotes, false)
-		if name != "new-contract-model" {
-			require.Equal(t, original, pricing)
-		} else {
-			require.Equal(t, .2, pricing.ModelRatio)
-			require.Equal(t, 5.0, pricing.CompletionRatio)
-		}
+		require.Equal(t, .2, pricing.ModelRatio)
+		require.Equal(t, 5.0, pricing.CompletionRatio)
 		pricing = original
 		applyExclusiveChannelTextQuote(&pricing, quotes, true)
 		require.Equal(t, original, pricing)

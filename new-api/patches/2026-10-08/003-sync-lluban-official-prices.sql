@@ -1,0 +1,1021 @@
+-- PostgreSQL data-only migration: one administrator-controlled official price multiplier.
+-- Requires 001 and the accompanying pricing implementation. No credentials in this patch.
+-- Official snapshots are copied from TapCanvasPro's verified catalog (dates kept intact).
+-- Two Doubao entries keep the upstream public CNY baseline, without official attribution.
+\set ON_ERROR_STOP on
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext('tanva:lluban-chat-channel'));
+DO $migration$
+DECLARE
+  seed jsonb := $baseline${
+  "text_official_pricing": {
+    "claude-fable-5.1": {
+      "official_model_id": "claude-fable-5-1",
+      "provider": "Anthropic",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "verified_at": "2026-10-05",
+      "input": 10,
+      "output": 50,
+      "cache_read": 0.25,
+      "cache_write": 12.5,
+      "cache_write_5m": 12.5,
+      "cache_write_1h": 20,
+      "image_input": 10,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 10,
+          "output": 50,
+          "cache_read": 0.25,
+          "cache_write": 12.5,
+          "cache_write_5m": 12.5,
+          "cache_write_1h": 20,
+          "image_input": 10
+        }
+      ]
+    },
+    "claude-opus-5": {
+      "official_model_id": "claude-opus-5",
+      "provider": "Anthropic",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "verified_at": "2026-10-05",
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "cache_write_5m": 6.25,
+      "cache_write_1h": 10,
+      "image_input": 5,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25,
+          "cache_write_5m": 6.25,
+          "cache_write_1h": 10,
+          "image_input": 5
+        }
+      ]
+    },
+    "claude-opus-5-5": {
+      "official_model_id": "claude-opus-5-5",
+      "provider": "Anthropic",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "verified_at": "2026-10-05",
+      "input": 4,
+      "output": 20,
+      "cache_read": 0.2,
+      "cache_write": 5,
+      "cache_write_5m": 5,
+      "cache_write_1h": 8,
+      "image_input": 4,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.2,
+          "cache_write": 5,
+          "cache_write_5m": 5,
+          "cache_write_1h": 8,
+          "image_input": 4
+        }
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "official_model_id": "claude-sonnet-5-5",
+      "provider": "Anthropic",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "verified_at": "2026-10-08",
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.1,
+      "cache_write": 2.5,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.1,
+          "cache_write": 2.5,
+          "cache_write_5m": 2.5,
+          "cache_write_1h": 4,
+          "image_input": 2
+        }
+      ]
+    },
+    "deepseek-v4.1-flash": {
+      "official_model_id": "deepseek-v4.1-flash",
+      "provider": "DeepSeek",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "verified_at": "2026-10-08",
+      "notes": "First-party DeepSeek-V4.1-Flash (API model deepseek-flash) USD peak prices. Off-peak prices are 50% lower; this catalog does not automatically apply time-based discounts. Peak hours are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC, excluding Chinese public holidays. The separate CNY price table is not converted into this USD catalog.",
+      "input": 0.3,
+      "output": 1.2,
+      "cache_read": 0.006,
+      "image_input": 0.3,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.006,
+          "image_input": 0.3
+        }
+      ]
+    },
+    "gemini-3.6-flash": {
+      "official_model_id": "gemini-3.6-flash",
+      "provider": "Google",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "effective_until": "2026-12-31",
+      "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "cache_storage_usd_per_million_token_hour": 0.5,
+      "image_input": 0.75,
+      "video_input": 0.75,
+      "audio_input": 0.75,
+      "audio_cache_read": 0.075,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "image_input": 0.75,
+          "video_input": 0.75,
+          "audio_input": 0.75,
+          "audio_cache_read": 0.075,
+          "cache_storage_usd_per_million_token_hour": 0.5
+        }
+      ],
+      "upcoming_rates": [
+        {
+          "effective_from": "2027-01-01",
+          "tiers": [
+            {
+              "max_prompt_tokens": 0,
+              "input": 1.5,
+              "output": 7.5,
+              "cache_read": 0.15,
+              "image_input": 1.5,
+              "video_input": 1.5,
+              "audio_input": 1.5,
+              "audio_cache_read": 0.15,
+              "cache_storage_usd_per_million_token_hour": 1
+            }
+          ]
+        }
+      ]
+    },
+    "gemini-3.7-flash": {
+      "official_model_id": "gemini-3.7-flash",
+      "provider": "Google",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "effective_until": "2026-12-31",
+      "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "cache_storage_usd_per_million_token_hour": 0.5,
+      "image_input": 0.75,
+      "video_input": 0.75,
+      "audio_input": 0.75,
+      "audio_cache_read": 0.075,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "image_input": 0.75,
+          "video_input": 0.75,
+          "audio_input": 0.75,
+          "audio_cache_read": 0.075,
+          "cache_storage_usd_per_million_token_hour": 0.5
+        }
+      ],
+      "upcoming_rates": [
+        {
+          "effective_from": "2027-01-01",
+          "tiers": [
+            {
+              "max_prompt_tokens": 0,
+              "input": 1.5,
+              "output": 7.5,
+              "cache_read": 0.15,
+              "image_input": 1.5,
+              "video_input": 1.5,
+              "audio_input": 1.5,
+              "audio_cache_read": 0.15,
+              "cache_storage_usd_per_million_token_hour": 1
+            }
+          ]
+        }
+      ]
+    },
+    "gemini-3.8-flash": {
+      "official_model_id": "gemini-3.8-flash",
+      "provider": "Google",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "effective_until": "2026-12-31",
+      "notes": "Standard paid tier promotional price through 2026-12-31. Cache storage is a separate token-hour charge, not a token write rate.",
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "cache_storage_usd_per_million_token_hour": 0.5,
+      "image_input": 0.75,
+      "video_input": 0.75,
+      "audio_input": 0.75,
+      "audio_cache_read": 0.075,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "image_input": 0.75,
+          "video_input": 0.75,
+          "audio_input": 0.75,
+          "audio_cache_read": 0.075,
+          "cache_storage_usd_per_million_token_hour": 0.5
+        }
+      ],
+      "upcoming_rates": [
+        {
+          "effective_from": "2027-01-01",
+          "tiers": [
+            {
+              "max_prompt_tokens": 0,
+              "input": 1.5,
+              "output": 7.5,
+              "cache_read": 0.15,
+              "image_input": 1.5,
+              "video_input": 1.5,
+              "audio_input": 1.5,
+              "audio_cache_read": 0.15,
+              "cache_storage_usd_per_million_token_hour": 1
+            }
+          ]
+        }
+      ]
+    },
+    "glm-5.3": {
+      "official_model_id": "glm-5.3",
+      "provider": "Z.ai",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://docs.z.ai/guides/overview/pricing",
+      "verified_at": "2026-10-06",
+      "input": 1.4,
+      "output": 4.4,
+      "cache_read": 0.26,
+      "image_input": 1.4,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 1.4,
+          "output": 4.4,
+          "cache_read": 0.26,
+          "image_input": 1.4
+        }
+      ]
+    },
+    "glm-5.3-flash": {
+      "official_model_id": "glm-5.3-flash",
+      "provider": "Z.ai",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://docs.z.ai/guides/overview/pricing",
+      "verified_at": "2026-10-06",
+      "input": 0.15,
+      "output": 0.5,
+      "cache_read": 0.03,
+      "image_input": 0.15,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.15,
+          "output": 0.5,
+          "cache_read": 0.03,
+          "image_input": 0.15
+        }
+      ]
+    },
+    "gpt-5.6-luna": {
+      "official_model_id": "gpt-5.6-luna",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "input": 0.2,
+      "output": 1.2,
+      "cache_read": 0.02,
+      "cache_write": 0.25,
+      "image_input": 0.2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 0.2,
+          "output": 1.2,
+          "cache_read": 0.02,
+          "cache_write": 0.25,
+          "image_input": 0.2
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.4,
+          "output": 1.7999999999999998,
+          "cache_read": 0.04,
+          "cache_write": 0.5,
+          "image_input": 0.4
+        }
+      ]
+    },
+    "gpt-5.6-sol": {
+      "official_model_id": "gpt-5.6-sol",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "notes": "Official promotional rate is guaranteed at least through 2026-11-21; no later price has been published.",
+      "input": 4,
+      "output": 20,
+      "cache_read": 0.4,
+      "cache_write": 5,
+      "image_input": 4,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 5,
+          "image_input": 4
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 8,
+          "output": 30,
+          "cache_read": 0.8,
+          "cache_write": 10,
+          "image_input": 8
+        }
+      ]
+    },
+    "gpt-5.6-terra": {
+      "official_model_id": "gpt-5.6-terra",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "input": 2,
+      "output": 12,
+      "cache_read": 0.2,
+      "cache_write": 2.5,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 2.5,
+          "image_input": 2
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 4,
+          "output": 18,
+          "cache_read": 0.4,
+          "cache_write": 5,
+          "image_input": 4
+        }
+      ]
+    },
+    "gpt-6-astra": {
+      "official_model_id": "gpt-6-astra",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "input": 10,
+      "output": 50,
+      "cache_read": 1,
+      "cache_write": 12.5,
+      "image_input": 10,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5,
+          "image_input": 10
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 20,
+          "output": 75,
+          "cache_read": 2,
+          "cache_write": 25,
+          "image_input": 20
+        }
+      ]
+    },
+    "gpt-6-luna": {
+      "official_model_id": "gpt-6-luna",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "input": 0.1,
+      "output": 0.5,
+      "cache_read": 0.01,
+      "cache_write": 0.125,
+      "image_input": 0.1,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 0.1,
+          "output": 0.5,
+          "cache_read": 0.01,
+          "cache_write": 0.125,
+          "image_input": 0.1
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 0.2,
+          "output": 0.75,
+          "cache_read": 0.02,
+          "cache_write": 0.25,
+          "image_input": 0.2
+        }
+      ]
+    },
+    "gpt-6-sol": {
+      "official_model_id": "gpt-6-sol",
+      "provider": "OpenAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "verified_at": "2026-10-05",
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.2,
+      "cache_write": 2.5,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 272000,
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.2,
+          "cache_write": 2.5,
+          "image_input": 2
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 4,
+          "output": 15,
+          "cache_read": 0.4,
+          "cache_write": 5,
+          "image_input": 4
+        }
+      ]
+    },
+    "grok-4.6": {
+      "official_model_id": "grok-4.6",
+      "provider": "xAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://docs.x.ai/developers/models/grok-4.6",
+      "verified_at": "2026-10-08",
+      "notes": "Global standard API rates. Requests with at least 200,000 prompt tokens use the long-context rate for all tokens. US regional endpoint rates are 1.1x these prices.",
+      "input": 2,
+      "output": 6,
+      "cache_read": 0.5,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 199999,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.5,
+          "image_input": 2
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 4,
+          "output": 12,
+          "cache_read": 1,
+          "image_input": 4
+        }
+      ]
+    },
+    "grok-4.7": {
+      "official_model_id": "grok-4.7",
+      "provider": "xAI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://docs.x.ai/developers/models/grok-4.7",
+      "verified_at": "2026-10-08",
+      "notes": "Global standard API rates. Requests with at least 200,000 prompt tokens use the long-context rate for all tokens. US regional endpoint rates are 1.1x these prices.",
+      "input": 2,
+      "output": 6,
+      "cache_read": 0.5,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 199999,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.5,
+          "image_input": 2
+        },
+        {
+          "max_prompt_tokens": 0,
+          "input": 4,
+          "output": 12,
+          "cache_read": 1,
+          "image_input": 4
+        }
+      ]
+    },
+    "kimi-k3": {
+      "official_model_id": "kimi-k3",
+      "provider": "Moonshot AI",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://platform.moonshot.ai/docs/pricing/chat",
+      "verified_at": "2026-10-08",
+      "notes": "Uniform rates across the 1M-token context. Cache writes are billed separately: the default 5-minute TTL costs $3/M tokens, and 1-hour TTL costs $6/M tokens. Cache hits refresh the TTL without an additional write charge.",
+      "input": 3,
+      "output": 15,
+      "cache_read": 0.3,
+      "cache_write": 3,
+      "cache_write_5m": 3,
+      "cache_write_1h": 6,
+      "image_input": 3,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3,
+          "cache_write_5m": 3,
+          "cache_write_1h": 6,
+          "image_input": 3
+        }
+      ]
+    },
+    "qwen3.8-max": {
+      "official_model_id": "qwen3.8-max",
+      "provider": "Alibaba Cloud",
+      "currency": "USD",
+      "tier": "standard",
+      "source_url": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+      "verified_at": "2026-10-08",
+      "notes": "Singapore (International) standard API prices. CacheRead is the implicit-cache input rate ($0.25/M tokens); explicit-cache creation costs $2.5/M tokens and explicit-cache reads cost $0.17/M tokens. Other deployment regions publish different prices.",
+      "input": 2,
+      "output": 6,
+      "cache_read": 0.25,
+      "cache_write": 2.5,
+      "image_input": 2,
+      "tiers": [
+        {
+          "max_prompt_tokens": 0,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.25,
+          "cache_write": 2.5,
+          "image_input": 2
+        }
+      ]
+    }
+  },
+  "text_official_usd_to_cny": 7.3,
+  "text_base_per_million_cny": {
+    "claude-fable-5.1": {
+      "input": 73,
+      "output": 365,
+      "cache_read": 1.825,
+      "cache_write": 91.25,
+      "cache_write_5m": 91.25,
+      "cache_write_1h": 146,
+      "image_input": 73,
+      "max_prompt_tokens": 0
+    },
+    "claude-opus-5": {
+      "input": 36.5,
+      "output": 182.5,
+      "cache_read": 3.65,
+      "cache_write": 45.625,
+      "cache_write_5m": 45.625,
+      "cache_write_1h": 73,
+      "image_input": 36.5,
+      "max_prompt_tokens": 0
+    },
+    "claude-opus-5-5": {
+      "input": 29.2,
+      "output": 146,
+      "cache_read": 1.46,
+      "cache_write": 36.5,
+      "cache_write_5m": 36.5,
+      "cache_write_1h": 58.4,
+      "image_input": 29.2,
+      "max_prompt_tokens": 0
+    },
+    "claude-sonnet-5-5": {
+      "input": 14.6,
+      "output": 73,
+      "cache_read": 0.73,
+      "cache_write": 18.25,
+      "cache_write_5m": 18.25,
+      "cache_write_1h": 29.2,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0
+    },
+    "deepseek-v4.1-flash": {
+      "input": 2.19,
+      "output": 8.76,
+      "cache_read": 0.0438,
+      "cache_write": 2.19,
+      "image_input": 2.19,
+      "max_prompt_tokens": 0
+    },
+    "doubao-seed-2-0-lite-260428": {
+      "input": 0.9,
+      "output": 5.4,
+      "cache_read": 0.18000000000000002,
+      "cache_write": 0,
+      "max_prompt_tokens": 0
+    },
+    "doubao-seed-2-1-turbo-260628": {
+      "input": 4.5,
+      "output": 22.5,
+      "cache_read": 4.5,
+      "cache_write": 4.5,
+      "max_prompt_tokens": 0
+    },
+    "gemini-3.6-flash": {
+      "input": 5.475,
+      "output": 27.375,
+      "cache_read": 0.5475,
+      "cache_write": 5.475,
+      "image_input": 5.475,
+      "audio_input": 5.475,
+      "max_prompt_tokens": 0
+    },
+    "gemini-3.7-flash": {
+      "input": 5.475,
+      "output": 27.375,
+      "cache_read": 0.5475,
+      "cache_write": 5.475,
+      "image_input": 5.475,
+      "audio_input": 5.475,
+      "max_prompt_tokens": 0
+    },
+    "gemini-3.8-flash": {
+      "input": 5.475,
+      "output": 27.375,
+      "cache_read": 0.5475,
+      "cache_write": 5.475,
+      "image_input": 5.475,
+      "audio_input": 5.475,
+      "max_prompt_tokens": 0
+    },
+    "glm-5.3": {
+      "input": 10.219999999999999,
+      "output": 32.120000000000005,
+      "cache_read": 1.898,
+      "cache_write": 10.219999999999999,
+      "image_input": 10.219999999999999,
+      "max_prompt_tokens": 0
+    },
+    "glm-5.3-flash": {
+      "input": 1.095,
+      "output": 3.65,
+      "cache_read": 0.219,
+      "cache_write": 1.095,
+      "image_input": 1.095,
+      "max_prompt_tokens": 0
+    },
+    "gpt-5.6-luna": {
+      "input": 1.46,
+      "output": 8.76,
+      "cache_read": 0.146,
+      "cache_write": 1.825,
+      "image_input": 1.46,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 1.46,
+          "output": 8.76,
+          "cache_read": 0.146,
+          "cache_write": 1.825,
+          "image_input": 1.46,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 2.92,
+          "output": 13.139999999999999,
+          "cache_read": 0.292,
+          "cache_write": 3.65,
+          "image_input": 2.92,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "gpt-5.6-sol": {
+      "input": 29.2,
+      "output": 146,
+      "cache_read": 2.92,
+      "cache_write": 36.5,
+      "image_input": 29.2,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 29.2,
+          "output": 146,
+          "cache_read": 2.92,
+          "cache_write": 36.5,
+          "image_input": 29.2,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 58.4,
+          "output": 219,
+          "cache_read": 5.84,
+          "cache_write": 73,
+          "image_input": 58.4,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "gpt-5.6-terra": {
+      "input": 14.6,
+      "output": 87.6,
+      "cache_read": 1.46,
+      "cache_write": 18.25,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 14.6,
+          "output": 87.6,
+          "cache_read": 1.46,
+          "cache_write": 18.25,
+          "image_input": 14.6,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 29.2,
+          "output": 131.4,
+          "cache_read": 2.92,
+          "cache_write": 36.5,
+          "image_input": 29.2,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "gpt-6-astra": {
+      "input": 73,
+      "output": 365,
+      "cache_read": 7.3,
+      "cache_write": 91.25,
+      "image_input": 73,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 73,
+          "output": 365,
+          "cache_read": 7.3,
+          "cache_write": 91.25,
+          "image_input": 73,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 146,
+          "output": 547.5,
+          "cache_read": 14.6,
+          "cache_write": 182.5,
+          "image_input": 146,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "gpt-6-luna": {
+      "input": 0.73,
+      "output": 3.65,
+      "cache_read": 0.073,
+      "cache_write": 0.9125,
+      "image_input": 0.73,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 0.73,
+          "output": 3.65,
+          "cache_read": 0.073,
+          "cache_write": 0.9125,
+          "image_input": 0.73,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 1.46,
+          "output": 5.475,
+          "cache_read": 0.146,
+          "cache_write": 1.825,
+          "image_input": 1.46,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "gpt-6-sol": {
+      "input": 14.6,
+      "output": 73,
+      "cache_read": 1.46,
+      "cache_write": 18.25,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 14.6,
+          "output": 73,
+          "cache_read": 1.46,
+          "cache_write": 18.25,
+          "image_input": 14.6,
+          "max_prompt_tokens": 272000
+        },
+        {
+          "input": 29.2,
+          "output": 109.5,
+          "cache_read": 2.92,
+          "cache_write": 36.5,
+          "image_input": 29.2,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "grok-4.6": {
+      "input": 14.6,
+      "output": 43.8,
+      "cache_read": 3.65,
+      "cache_write": 14.6,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 14.6,
+          "output": 43.8,
+          "cache_read": 3.65,
+          "cache_write": 14.6,
+          "image_input": 14.6,
+          "max_prompt_tokens": 199999
+        },
+        {
+          "input": 29.2,
+          "output": 87.6,
+          "cache_read": 7.3,
+          "cache_write": 29.2,
+          "image_input": 29.2,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "grok-4.7": {
+      "input": 14.6,
+      "output": 43.8,
+      "cache_read": 3.65,
+      "cache_write": 14.6,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0,
+      "tiers": [
+        {
+          "input": 14.6,
+          "output": 43.8,
+          "cache_read": 3.65,
+          "cache_write": 14.6,
+          "image_input": 14.6,
+          "max_prompt_tokens": 199999
+        },
+        {
+          "input": 29.2,
+          "output": 87.6,
+          "cache_read": 7.3,
+          "cache_write": 29.2,
+          "image_input": 29.2,
+          "max_prompt_tokens": 0
+        }
+      ]
+    },
+    "kimi-k3": {
+      "input": 21.9,
+      "output": 109.5,
+      "cache_read": 2.19,
+      "cache_write": 21.9,
+      "cache_write_5m": 21.9,
+      "cache_write_1h": 43.8,
+      "image_input": 21.9,
+      "max_prompt_tokens": 0
+    },
+    "qwen3.8-max": {
+      "input": 14.6,
+      "output": 43.8,
+      "cache_read": 1.825,
+      "cache_write": 18.25,
+      "image_input": 14.6,
+      "max_prompt_tokens": 0
+    }
+  },
+  "text_price_multiplier": 0.4
+}$baseline$::jsonb;
+  target record;
+  settings jsonb;
+  base_prices jsonb;
+  official_prices jsonb;
+  ratio numeric;
+BEGIN
+  IF (SELECT count(*) FROM channels WHERE name='lluban-chat') <> 1 THEN
+    RAISE EXCEPTION 'Exactly one configured lluban-chat channel is required';
+  END IF;
+  SELECT id, type, base_url, models, setting INTO STRICT target FROM channels WHERE name='lluban-chat' FOR UPDATE;
+  IF target.type <> 1 OR target.base_url IS DISTINCT FROM 'https://tt-api.lluban.com' THEN
+    RAISE EXCEPTION 'lluban-chat identifies a different upstream';
+  END IF;
+  settings := COALESCE(NULLIF(target.setting,''),'{}')::jsonb;
+  IF EXISTS (SELECT 1 FROM models WHERE model_name IN
+      (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name))
+      AND COALESCE(btrim(kind),'') NOT IN ('','chat','text')) THEN
+    RAISE EXCEPTION 'A configured chat model has conflicting non-chat metadata';
+  END IF;
+  -- The application directory classifies models dynamically from this field.
+  -- Preserve status, descriptions, aliases and other administrator metadata.
+  UPDATE models SET kind='chat' WHERE COALESCE(btrim(kind),'') IN ('','text')
+    AND model_name IN (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name));
+  -- The successful migration or a deliberate administrator update already owns
+  -- this contract. A replay must not reset the multiplier or resync prices.
+  IF settings ? 'text_base_per_million_cny' AND settings ? 'text_price_multiplier' THEN
+    RETURN;
+  END IF;
+  IF COALESCE(btrim(target.models),'')='' THEN
+    RAISE EXCEPTION 'lluban-chat has no enabled model configuration';
+  END IF;
+  IF EXISTS (SELECT 1 FROM regexp_split_to_table(target.models, ',') AS m(name)
+      WHERE btrim(name)='' OR NOT (seed->'text_base_per_million_cny' ? btrim(name))) THEN
+    RAISE EXCEPTION 'A configured model has no reviewed CNY baseline';
+  END IF;
+  SELECT jsonb_object_agg(name,value) INTO base_prices
+    FROM jsonb_each(seed->'text_base_per_million_cny') AS b(name,value)
+    WHERE name IN (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name));
+  SELECT COALESCE(jsonb_object_agg(name,value),'{}'::jsonb) INTO official_prices
+    FROM jsonb_each(seed->'text_official_pricing') AS b(name,value)
+    WHERE name IN (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name));
+  -- Preserve an operator's earlier deliberate selling adjustment during upgrade.
+  ratio := COALESCE((settings->>'text_sale_multiplier')::numeric,2) * 0.2;
+  IF ratio <= 0 OR ratio = 'NaN'::numeric THEN
+    RAISE EXCEPTION 'Invalid legacy multiplier';
+  END IF;
+  UPDATE channels SET setting = ((settings - 'text_cost_per_million_cny' - 'text_sale_multiplier'
+      - 'text_procurement_discount') || jsonb_build_object(
+      'text_base_per_million_cny',base_prices,
+      'text_price_multiplier',ratio,
+      'text_official_pricing',official_prices,
+      'text_official_usd_to_cny',seed->'text_official_usd_to_cny'))::text
+    WHERE id=target.id;
+END $migration$;
+COMMIT;
+SELECT id,name,(setting::jsonb->>'text_price_multiplier') AS official_price_multiplier
+  FROM channels WHERE name='lluban-chat';

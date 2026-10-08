@@ -26,6 +26,7 @@ import ModelHeader from './components/ModelHeader';
 import ModelBasicInfo from './components/ModelBasicInfo';
 import ModelEndpoints from './components/ModelEndpoints';
 import ModelPricingTable from './components/ModelPricingTable';
+import ChannelTextPrices from './components/ChannelTextPrices';
 
 const { Text } = Typography;
 
@@ -87,6 +88,12 @@ const ModelDetailSideSheet = ({
             <ModelEndpoints
               modelData={modelData}
               endpointMap={endpointMap}
+              t={t}
+            />
+            <ChannelTextPrices
+              modelData={modelData}
+              groupRatio={groupRatio}
+              usableGroup={usableGroup}
               t={t}
             />
             <ModelPricingTable

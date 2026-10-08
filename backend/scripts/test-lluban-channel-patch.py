@@ -13,6 +13,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 PATCH = ROOT / 'new-api/patches/2026-10-08/001-add-lluban-chat-channel.sql'
 SNAPSHOT = PATCH.with_name('lluban-chat-pricing-snapshot.json')
+SINGLE_PATCH = PATCH.with_name('003-sync-lluban-official-prices.sql')
+BASELINE = PATCH.with_name('lluban-chat-official-baseline.json')
 CONTAINER = 'tanva-lluban-patch-test-' + uuid.uuid4().hex[:10]
 
 
@@ -80,6 +82,7 @@ try:
     original_channel = query("SELECT row_to_json(c) FROM channels c WHERE name='existing';")
     original_models = query('SELECT json_agg(m ORDER BY id) FROM models m;')
     before = fingerprint()
+    assert psql(SINGLE_PATCH.read_text(), check=False).returncode != 0
     assert psql(PATCH.read_text(), check=False).returncode != 0
     assert psql(PATCH.read_text(), secret=' ', check=False).returncode != 0
     assert fingerprint() == before, 'Missing credentials must not change data'
@@ -102,11 +105,40 @@ try:
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(lambda _: psql(PATCH.read_text(), secret='fixture-concurrent-key'), range(2)))
     assert all(result.returncode == 0 for result in results) and fingerprint() == once
+    # Final migration rejects explicit media collisions before changing any metadata.
+    psql("UPDATE models SET kind='image' WHERE model_name='glm-5.3';")
+    collision = fingerprint()
+    assert psql(SINGLE_PATCH.read_text(), check=False).returncode != 0
+    assert fingerprint() == collision
+    psql("UPDATE models SET kind=NULL WHERE model_name='glm-5.3';")
+    # Final migration has one multiplier, official sources and exact CNY baselines.
+    psql(SINGLE_PATCH.read_text())
+    assert query("SELECT kind FROM models WHERE model_name='glm-5.3';") == 'chat'
+    final = json.loads(query("SELECT setting FROM channels WHERE name='lluban-chat';"))
+    baseline = json.loads(BASELINE.read_text())
+    assert final == baseline
+    assert len(final['text_official_pricing']) == 20
+    assert 'text_sale_multiplier' not in final and 'text_cost_per_million_cny' not in final
+    assert final['text_price_multiplier'] == 0.4
+    assert query('SELECT json_agg(o ORDER BY key) FROM options o;') == original_options
+    assert query("SELECT row_to_json(c) FROM channels c WHERE name='existing';") == original_channel
+    psql("UPDATE channels SET setting=jsonb_set(setting::jsonb,'{text_price_multiplier}','0.6')::text WHERE name='lluban-chat';")
+    customized = fingerprint()
+    psql(SINGLE_PATCH.read_text())
+    assert fingerprint() == customized, 'Replay must preserve the configured single multiplier'
+    # A pre-existing legacy operator adjustment must survive the one-time upgrade.
+    psql("UPDATE channels SET setting=('{\"text_sale_multiplier\":3,\"proxy\":\"fixture\"}') WHERE name='lluban-chat';")
+    psql(SINGLE_PATCH.read_text())
+    assert query("SELECT setting::jsonb->>'text_price_multiplier' FROM channels WHERE name='lluban-chat';") == '0.6'
+    assert query("SELECT setting::jsonb->>'proxy' FROM channels WHERE name='lluban-chat';") == 'fixture'
     psql("UPDATE channels SET base_url='https://conflict.invalid' WHERE name='lluban-chat';")
     conflict = fingerprint()
     assert psql(PATCH.read_text(), secret='fixture-key', check=False).returncode != 0
     assert fingerprint() == conflict, 'Conflicting upstream must fail atomically'
+    assert psql(SINGLE_PATCH.read_text(), check=False).returncode != 0
+    assert fingerprint() == conflict, 'Single multiplier migration must reject an upstream collision'
     print('PASS: 22 models, 66 routes, exact snapshot pricing, missing key, SQL quoting, '
-          'idempotency, concurrent replay, conflict rollback, existing data unchanged.')
+          'single multiplier/official seed, administrator multiplier preserved, idempotency, '
+          'concurrent replay, conflict rollback, unrelated data unchanged.')
 finally:
     subprocess.run(['docker', 'stop', CONTAINER], capture_output=True)

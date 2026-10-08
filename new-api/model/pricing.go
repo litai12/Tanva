@@ -16,6 +16,7 @@ import (
 )
 
 type Pricing struct {
+	ModelKind              string                  `json:"model_kind,omitempty"`
 	ChannelTextPrices      []ChannelTextPrice      `json:"channel_text_prices,omitempty"`
 	ModelName              string                  `json:"model_name"`
 	Description            string                  `json:"description,omitempty"`
@@ -571,6 +572,11 @@ func updatePricing() {
 		common.SysLog(fmt.Sprintf("GetAllEnableAbilityWithChannels error: %v", err))
 		return
 	}
+	enableAbilities, err = filterUnpricedContractAbilities(enableAbilities)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("channel text pricing error: %v", err))
+		return
+	}
 	channelQuotes, legacyTextModels, err := channelTextQuotes(enableAbilities)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("channel text pricing error: %v", err))
@@ -850,6 +856,7 @@ func updatePricing() {
 				continue
 			}
 			pricing.Description = meta.Description
+			pricing.ModelKind = meta.Kind
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
@@ -886,8 +893,10 @@ func updatePricing() {
 		if audioCompletionRatio, ok := findCanonicalAudioCompletionRatio(model); ok {
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		pricing.ChannelTextPrices = channelQuotes[model]
-		applyExclusiveChannelTextQuote(&pricing, pricing.ChannelTextPrices, legacyTextModels[model])
+		if pricing.ModelKind == "chat" {
+			pricing.ChannelTextPrices = channelQuotes[model]
+			applyExclusiveChannelTextQuote(&pricing, pricing.ChannelTextPrices, legacyTextModels[model])
+		}
 		pricingMap = append(pricingMap, pricing)
 	}
 

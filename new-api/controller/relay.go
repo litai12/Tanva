@@ -154,6 +154,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		NewAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
 	}
+	pricedChannelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	pricedModel := relayInfo.OriginModelName
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
@@ -221,6 +223,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				}
 				break
 			}
+			if priceErr := refreshRelayPricingForSelectedChannel(c, relayInfo, pricedChannelID, pricedModel, tokens, meta); priceErr != nil {
+				NewAPIError = priceErr
+				return
+			}
+			pricedChannelID, pricedModel = channel.Id, relayInfo.OriginModelName
 
 			addUsedChannel(c, channel.Id)
 			triedChannelIds = appendUniqueInt(triedChannelIds, channel.Id)
@@ -277,6 +284,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
+}
+
+// A retry can select a channel with a different contract. Resolve that price
+// before sending upstream, while preserving the one existing billing session
+// and its original reservation. Same-channel retries keep the accepted snapshot.
+func refreshRelayPricingForSelectedChannel(c *gin.Context, info *relaycommon.RelayInfo, pricedChannelID int, pricedModel string, tokens int, meta *types.TokenCountMeta) *types.NewAPIError {
+	if common.GetContextKeyInt(c, constant.ContextKeyChannelId) == pricedChannelID && info.OriginModelName == pricedModel {
+		return nil
+	}
+	if _, err := helper.ModelPriceHelper(c, info, tokens, meta); err != nil {
+		return types.NewError(err, types.ErrorCodeModelPriceError,
+			types.ErrOptionWithStatusCode(http.StatusBadRequest), types.ErrOptionWithSkipRetry())
+	}
+	return nil
 }
 
 // Image creation is not idempotent: a lost response can still represent paid work.

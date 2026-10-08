@@ -41,6 +41,7 @@ async function main() {
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/deepseek-pricing.spec.ts'], env);
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/consumption-orders/gateway-consumption-orders.spec.ts'], env);
     run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/desktop-chat.spec.ts'], env);
+    run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/desktop-gateway-dynamic.spec.ts'], env);
   } finally {
     if (created) run('docker', ['rm', '-f', name], process.env, true);
   }

@@ -65,8 +65,8 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
-	settings, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
-	if info.ChannelMeta != nil {
+	settings, selected := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	if !selected && info.ChannelMeta != nil {
 		settings = info.ChannelSetting
 	}
 	contract, err := settings.TextPricing(info.OriginModelName)

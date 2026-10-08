@@ -4951,6 +4951,9 @@ export class CreditsService {
 
       // 金额为 0：只记录，不扣费、不建流水。
       if (normalizedAmount === 0) {
+        if (requestParams?.desktopChat?.billing?.mode === 'gateway_consumption' && account.balance < 1) {
+          throw new BadRequestException('当前积分不足，请充值后发起新对话');
+        }
         const apiUsage = await tx.apiUsageRecord.create({
           data: buildUsageData(0, responseStatus),
         });

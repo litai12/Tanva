@@ -1,18 +1,26 @@
 package dto
 
-import "github.com/QuantumNous/new-api/types"
+import (
+	"fmt"
+	"github.com/QuantumNous/new-api/setting/official_pricing"
+	"github.com/QuantumNous/new-api/types"
+)
 
 type TextTokenCostCNY = types.TextTokenCostCNY
 
 type ChannelSettings struct {
-	TextCostPerMillionCNY  map[string]TextTokenCostCNY `json:"text_cost_per_million_cny,omitempty"`
-	TextSaleMultiplier     float64                     `json:"text_sale_multiplier,omitempty"`
-	ForceFormat            bool                        `json:"force_format,omitempty"`
-	ThinkingToContent      bool                        `json:"thinking_to_content,omitempty"`
-	Proxy                  string                      `json:"proxy"`
-	PassThroughBodyEnabled bool                        `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string                      `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool                        `json:"system_prompt_override,omitempty"`
+	TextOfficialPricing    map[string]official_pricing.ModelPrice `json:"text_official_pricing,omitempty"`
+	TextOfficialUSDToCNY   float64                                `json:"text_official_usd_to_cny,omitempty"`
+	TextBasePerMillionCNY  map[string]TextTokenCostCNY            `json:"text_base_per_million_cny,omitempty"`
+	TextPriceMultiplier    *float64                               `json:"text_price_multiplier,omitempty"`
+	TextCostPerMillionCNY  map[string]TextTokenCostCNY            `json:"text_cost_per_million_cny,omitempty"`
+	TextSaleMultiplier     float64                                `json:"text_sale_multiplier,omitempty"`
+	ForceFormat            bool                                   `json:"force_format,omitempty"`
+	ThinkingToContent      bool                                   `json:"thinking_to_content,omitempty"`
+	Proxy                  string                                 `json:"proxy"`
+	PassThroughBodyEnabled bool                                   `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string                                 `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                                   `json:"system_prompt_override,omitempty"`
 	// ImageUpstreamStream 让 Gemini 出图请求改用上游 streamGenerateContent(SSE)，
 	// 使上游响应头尽早返回（规避经 Cloudflare 代理时的 ~100s 524 超时）；
 	// new-api 仍在内部把 SSE 流收完后，向下游返回一次性 images JSON。
@@ -21,15 +29,40 @@ type ChannelSettings struct {
 }
 
 func (s ChannelSettings) TextPricing(model string) (*types.ChannelTextPricing, error) {
-	cost, configured := s.TextCostPerMillionCNY[model]
+	prices, multiplier := s.TextCostPerMillionCNY, s.TextSaleMultiplier
+	if s.TextPriceMultiplier != nil || s.TextBasePerMillionCNY != nil {
+		prices, multiplier = s.TextBasePerMillionCNY, s.GetTextPriceMultiplier()
+	}
+	cost, configured := prices[model]
 	if !configured {
+		if s.HasTextPricing() {
+			return nil, fmt.Errorf("channel text pricing not configured for model %q", model)
+		}
 		return nil, nil
 	}
-	pricing := types.ChannelTextPricing{Cost: cost, Multiplier: s.TextSaleMultiplier}
+	pricing := types.ChannelTextPricing{Cost: cost, Multiplier: multiplier}
 	if err := pricing.Validate(); err != nil {
 		return nil, err
 	}
 	return pricing.Snapshot(), nil
+}
+
+func (s ChannelSettings) GetTextPriceMultiplier() float64 {
+	if s.TextPriceMultiplier == nil {
+		return .4
+	}
+	return *s.TextPriceMultiplier
+}
+
+func (s ChannelSettings) TextPriceBases() map[string]TextTokenCostCNY {
+	if s.TextPriceMultiplier != nil || s.TextBasePerMillionCNY != nil {
+		return s.TextBasePerMillionCNY
+	}
+	return s.TextCostPerMillionCNY
+}
+
+func (s ChannelSettings) HasTextPricing() bool {
+	return s.TextPriceMultiplier != nil || s.TextBasePerMillionCNY != nil || len(s.TextCostPerMillionCNY) > 0
 }
 
 type VertexKeyType string

@@ -35,7 +35,7 @@ func tanvaRelayFixture(t *testing.T, upstream http.Handler) (*httptest.Server, *
 	beforeTimeout := constant.StreamingTimeout
 	constant.StreamingTimeout = 10
 	t.Cleanup(func() { constant.StreamingTimeout = beforeTimeout })
-	for _, table := range []interface{}{&model.TanvaConsumption{}, &model.TanvaConsumptionOutbox{}, &model.RequestTrace{}, &model.SubscriptionPlan{}} {
+	for _, table := range []interface{}{&model.TanvaConsumption{}, &model.TanvaConsumptionOutbox{}, &model.RequestTrace{}, &model.SubscriptionPlan{}, &model.Model{}, &model.Ability{}, &model.Vendor{}} {
 		if !model.DB.Migrator().HasTable(table) {
 			require.NoError(t, model.DB.AutoMigrate(table))
 		}
@@ -48,6 +48,10 @@ func tanvaRelayFixture(t *testing.T, upstream http.Handler) (*httptest.Server, *
 		model.DB.Exec("DELETE FROM tokens")
 		model.DB.Exec("DELETE FROM channels")
 		model.DB.Exec("DELETE FROM logs")
+		model.DB.Exec("DELETE FROM models")
+		model.DB.Exec("DELETE FROM abilities")
+		model.DB.Exec("DELETE FROM vendors")
+		model.RefreshPricing()
 	})
 	beforeModel, beforeOutput, beforeCache, beforePrice := ratio_setting.ModelRatio2JSONString(), ratio_setting.CompletionRatio2JSONString(), ratio_setting.CacheRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"deepseek-v4.1-flash":1}`))
@@ -235,4 +239,88 @@ func TestTanvaConsumptionRelayToBackend(t *testing.T) {
 	}
 	require.EqualValues(t, 1, calls.Load())
 	t.Logf("real Go relay settled quota=%d costCny=%s; emitted real outbox proof and signed query; duplicate backend notification accepted", o.ActualQuota, o.Receipt().CostCny)
+}
+
+func TestTanvaConsumptionSignedDynamicChatSingleMultiplierAndRejectionProof(t *testing.T) {
+	secret := "isolated-dynamic-chat-secret"
+	t.Setenv("TANVA_CONSUMPTION_SECRET", secret)
+	var calls atomic.Int32
+	gateway, channel := tanvaRelayFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"dynamic-fixture","object":"chat.completion","model":"gpt-6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"actual fixture output"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":100,"total_tokens":1100,"prompt_tokens_details":{"cached_tokens":100}}}`)
+	}))
+	multiplier := .4
+	settings := dto.ChannelSettings{TextPriceMultiplier: &multiplier, TextBasePerMillionCNY: map[string]dto.TextTokenCostCNY{
+		"gpt-6-luna": {Input: 2, Output: 10, CacheRead: .2, CacheWrite: 2.5},
+	}}
+	channel.Models = "gpt-6-luna"
+	channel.SetSetting(settings)
+	require.NoError(t, model.DB.Model(channel).Updates(map[string]interface{}{"models": channel.Models, "setting": channel.Setting}).Error)
+	require.NoError(t, model.DB.Create(&model.Model{ModelName: "gpt-6-luna", Kind: "chat", Status: 1, NameRule: model.NameRuleExact}).Error)
+	require.NoError(t, model.DB.Create(&model.Ability{ChannelId: 720, Model: "gpt-6-luna", Group: "default", Enabled: true}).Error)
+	// Even a historical allowed ID cannot carry an explicitly declared media model.
+	require.NoError(t, model.DB.Create(&model.Model{ModelName: "gemini-3.5-flash", Kind: "image", Status: 1, NameRule: model.NameRuleExact}).Error)
+	model.RefreshPricing()
+	body := []byte(`{"model":"gpt-6-luna","messages":[{"role":"user","content":"hello"}],"max_tokens":100}`)
+	resp, err := http.DefaultClient.Do(signedTanvaFixtureRequest(t, "POST", gateway.URL+"/v1/chat/completions", "dynamic:success", "hash", secret, body))
+	require.NoError(t, err)
+	output, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(output))
+	order, err := model.GetTanvaConsumption(720, 720, "dynamic:success")
+	require.NoError(t, err)
+	receipt := order.Receipt()
+	require.Equal(t, "consumed", receipt.Status)
+	require.Equal(t, "gpt-6-luna", receipt.Model)
+	require.Equal(t, "CNY", receipt.PriceCurrency)
+	require.Equal(t, "500000", receipt.QuotaPerUnit)
+	// Base CNY/M input/output/cache = 2/10/.2; .4 is applied exactly once:
+	// ((900*2 + 100*.2 + 100*10)*.4)/2 = 564 quota = CNY .001128.
+	require.Equal(t, "564", receipt.Quota)
+	require.Equal(t, "0.001128", receipt.CostCny)
+	require.Equal(t, "upstream_tokens", receipt.UsageEvidence)
+	query := signedTanvaFixtureRequest(t, "GET", gateway.URL+"/v1/tanva/consumptions/dynamic%3Asuccess", "dynamic:success", "hash", secret, nil)
+	qresp, err := http.DefaultClient.Do(query)
+	require.NoError(t, err)
+	var envelope service.TanvaSignedEnvelope
+	require.NoError(t, common.DecodeJson(qresp.Body, &envelope))
+	qresp.Body.Close()
+	proof, err := base64.RawURLEncoding.DecodeString(envelope.Payload)
+	require.NoError(t, err)
+	require.Equal(t, service.TanvaHMAC(secret, envelope.Timestamp+"\n"+envelope.Payload), envelope.Signature)
+	var signed model.TanvaConsumptionReceipt
+	require.NoError(t, common.Unmarshal(proof, &signed))
+	require.Equal(t, receipt, signed)
+	// Disabling a route after acceptance cannot invalidate the original order replay.
+	require.NoError(t, model.DB.Model(&model.Ability{}).Where("channel_id = ?", 720).Update("enabled", false).Error)
+	model.RefreshPricing()
+	replay, err := http.DefaultClient.Do(signedTanvaFixtureRequest(t, "POST", gateway.URL+"/v1/chat/completions", "dynamic:success", "hash", secret, body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, replay.StatusCode)
+	require.NoError(t, common.DecodeJson(replay.Body, &envelope))
+	replay.Body.Close()
+	proof, err = base64.RawURLEncoding.DecodeString(envelope.Payload)
+	require.NoError(t, err)
+	require.NoError(t, common.Unmarshal(proof, &signed))
+	require.Equal(t, receipt, signed)
+	for _, rejected := range []struct{ id, model string }{
+		{"dynamic:disabled", "gpt-6-luna"}, {"dynamic:media", "gemini-3.5-flash"}, {"dynamic:unpriced", "unpriced-chat"},
+	} {
+		rejectedBody := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}]}`, rejected.model))
+		rejectedResp, err := http.DefaultClient.Do(signedTanvaFixtureRequest(t, "POST", gateway.URL+"/v1/chat/completions", rejected.id, "hash", secret, rejectedBody))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusBadRequest, rejectedResp.StatusCode)
+		rejectedResp.Body.Close()
+		rejectedOrder, err := model.GetTanvaConsumption(720, 720, rejected.id)
+		require.NoError(t, err)
+		require.Equal(t, "rejected", rejectedOrder.Status)
+		require.Equal(t, "0", rejectedOrder.Receipt().CostCny)
+		require.Equal(t, "0", rejectedOrder.Receipt().Quota)
+		var events []model.TanvaConsumptionOutbox
+		require.NoError(t, model.DB.Where("consumption_id = ?", rejectedOrder.ID).Find(&events).Error)
+		require.NotEmpty(t, events, "rejection remains queryable/deliverable to the backend's registered order")
+	}
+	require.EqualValues(t, 1, calls.Load(), "only the admitted physical request reached the supplier")
 }

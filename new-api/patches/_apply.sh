@@ -48,6 +48,25 @@ for f in $(find . -name '*.sql' | sort); do
       fi
       ;;
   esac
+  if [ "$key" = "2026-10-08/002-use-only-lluban-chat-channel.sql" ] ||
+     [ "$key" = "2026-10-08/003-sync-lluban-official-prices.sql" ]; then
+    lluban_seed_applied=$($PSQL -tA -c "SELECT 1 FROM schema_migrations WHERE filename='2026-10-08/001-add-lluban-chat-channel.sql'")
+    if [ -z "$lluban_seed_applied" ]; then
+      echo "Deferred ${key}: Lluban chat seed has not been applied"
+      deferred=$((deferred + 1))
+      continue
+    fi
+    # The SQL validates the actual enabled channel, model list, contract coverage
+    # and group abilities. Reuse it for preflight instead of a weaker shell query.
+    # Its check-only transaction rolls back; failures leave all other routes intact.
+    if $PSQL -v lluban_scope_check_only=on -f "./2026-10-08/002-use-only-lluban-chat-channel.sql" >/dev/null 2>&1; then
+      :
+    else
+      echo "Deferred ${key}: Lluban chat channel, pricing or routes are not ready"
+      deferred=$((deferred + 1))
+      continue
+    fi
+  fi
   if [ "$key" = "2026-10-08/001-add-lluban-chat-channel.sql" ]; then
     if [ -z "${LLUBAN_API_KEY:-}" ]; then
       echo "Deferred ${key}: LLUBAN_API_KEY is required"

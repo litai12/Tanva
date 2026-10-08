@@ -6,20 +6,45 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/official_pricing"
 	"github.com/QuantumNous/new-api/types"
 )
 
 // These are final retail CNY/M quotes, before existing group discounts.
 // The multiplier is explanatory and must not be applied to these rates again.
 type ChannelTextPrice struct {
-	ChannelID      int      `json:"channel_id"`
-	ModelName      string   `json:"model_name"`
-	EnableGroups   []string `json:"enable_groups"`
-	Currency       string   `json:"currency"`
-	PricingSource  string   `json:"pricing_source"`
-	SaleMultiplier float64  `json:"text_sale_multiplier"`
+	ChannelID               int                          `json:"channel_id"`
+	ModelName               string                       `json:"model_name"`
+	EnableGroups            []string                     `json:"enable_groups"`
+	Currency                string                       `json:"currency"`
+	PricingSource           string                       `json:"pricing_source"`
+	PriceMultiplier         float64                      `json:"text_price_multiplier"`
+	OfficialPricing         *official_pricing.ModelPrice `json:"official_pricing,omitempty"`
+	BaselineUSDToCNY        *float64                     `json:"baseline_usd_to_cny,omitempty"`
+	OfficialPriceMultiplier *float64                     `json:"official_price_multiplier,omitempty"`
 	types.TextTokenCostCNY
+}
+
+// Auto-sync may append a model without passing channel-setting validation.
+// Such abilities cannot execute a procurement contract and must not acquire
+// a global fallback quote in the public directory. Other channels stay visible.
+func filterUnpricedContractAbilities(abilities []AbilityWithChannel) ([]AbilityWithChannel, error) {
+	filtered := make([]AbilityWithChannel, 0, len(abilities))
+	for _, ability := range abilities {
+		var settings dto.ChannelSettings
+		if ability.ChannelSetting != "" {
+			if err := common.UnmarshalJsonStr(ability.ChannelSetting, &settings); err != nil {
+				return nil, err
+			}
+		}
+		if settings.HasTextPricing() {
+			if _, exists := settings.TextPriceBases()[ability.Model]; !exists {
+				continue
+			}
+		}
+		filtered = append(filtered, ability)
+	}
+	return filtered, nil
 }
 
 func channelTextQuotes(abilities []AbilityWithChannel) (map[string][]ChannelTextPrice, map[string]bool, error) {
@@ -64,9 +89,19 @@ func channelTextQuotes(abilities []AbilityWithChannel) (map[string][]ChannelText
 			}
 			rate.Tiers = append(rate.Tiers, tierRate)
 		}
-		seen[key] = &ChannelTextPrice{ChannelID: ability.ChannelId, ModelName: ability.Model,
-			EnableGroups: []string{ability.Group}, Currency: "CNY", PricingSource: "procurement",
-			SaleMultiplier: contract.Multiplier, TextTokenCostCNY: rate}
+		quote := &ChannelTextPrice{ChannelID: ability.ChannelId, ModelName: ability.Model,
+			EnableGroups: []string{ability.Group}, Currency: "CNY", PricingSource: "legacy_contract",
+			PriceMultiplier: contract.Multiplier, TextTokenCostCNY: rate}
+		if len(settings.TextBasePerMillionCNY) > 0 {
+			quote.PricingSource = "channel_base"
+			if official, exists := settings.TextOfficialPricing[ability.Model]; exists {
+				copy := official_pricing.Clone(official)
+				quote.OfficialPricing = &copy
+				fx, multiplier := settings.TextOfficialUSDToCNY, contract.Multiplier
+				quote.BaselineUSDToCNY, quote.OfficialPriceMultiplier = &fx, &multiplier
+			}
+		}
+		seen[key] = quote
 	}
 	for _, quote := range seen {
 		sort.Strings(quote.EnableGroups)
@@ -84,21 +119,11 @@ func channelTextQuotes(abilities []AbilityWithChannel) (map[string][]ChannelText
 	return quotes, legacy, nil
 }
 
-// Models without a global token/fixed price and served only under channel
-// contracts expose the highest base quote in the legacy summary. Existing
-// global summaries are preserved. Neither case changes persisted options.
+// When every active route uses a channel contract, its real quote must also
+// replace stale global display prices. This never changes persisted options.
 func applyExclusiveChannelTextQuote(pricing *Pricing, quotes []ChannelTextPrice, hasLegacy bool) {
 	if hasLegacy || len(quotes) == 0 {
 		return
-	}
-	modelRatios := ratio_setting.GetModelRatioCopy()
-	for _, candidate := range RoutingModelCandidates(pricing.ModelName) {
-		if _, configured := ratio_setting.GetModelPrice(candidate, false); configured {
-			return
-		}
-		if _, configured := modelRatios[ratio_setting.FormatMatchingModelName(candidate)]; configured {
-			return
-		}
 	}
 	var input, output, read, write float64
 	for _, quote := range quotes {

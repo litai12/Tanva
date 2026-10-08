@@ -30,7 +30,7 @@ type ChannelTextPricing struct {
 
 func (p ChannelTextPricing) Validate() error {
 	if p.Multiplier <= 0 || math.IsNaN(p.Multiplier) || math.IsInf(p.Multiplier, 0) {
-		return fmt.Errorf("text_sale_multiplier must be finite and positive")
+		return fmt.Errorf("text price multiplier must be finite and positive")
 	}
 	validateRate := func(rate TextTokenCostCNY) error {
 		if rate.Input <= 0 {

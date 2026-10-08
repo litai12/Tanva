@@ -7,18 +7,24 @@ export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 export const REQUEST_TIMEOUT_MS = 10 * 60_000;
 export type DesktopScope = { kind: 'personal' } | { kind: 'team'; teamId: string };
 export type ReceiptStatus = 'pending' | 'completed' | 'failed' | 'reconciliation_required';
+export interface GatewayDesktopBilling {
+  mode: 'gateway_consumption'; markup: 1; creditsPerYuan: 100;
+  priceCurrency: 'CNY'; rounding: 'ceil'; reservation: { credits: 0 };
+  upstreamRequestId?: string;
+}
+export interface LegacyDesktopBilling {
+  mode: 'official_token_usage'; snapshot: DeepSeekPricingSnapshot;
+  reservation: { inputTokens: number; outputTokens: number; credits: number };
+  markup: 1.5; creditsPerYuan: 100; priceCurrency: 'CNY'; rounding: 'ceil'; period: 'peak' | 'off_peak'; pricingVersion: string;
+  officialCostCny?: string; exactCredits?: string; exactCreditNanos?: string;
+  upstreamRequestId?: string;
+  usage?: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
+}
 export interface DesktopChatMeta {
   requestId: string; taskId: string; conversationId: string; bodyHash: string;
   scope: DesktopScope; state: ReceiptStatus; deadline: string;
   credits: number; rejectionConfirmed?: boolean; completedAt?: string; errorCode?: string; errorMessage?: string; upstreamStatus?: number; response?: Record<string, any>;
-  billing?: {
-    mode: 'official_token_usage'; snapshot: DeepSeekPricingSnapshot;
-    reservation: { inputTokens: number; outputTokens: number; credits: number };
-    markup: 1.5; creditsPerYuan: 100; priceCurrency: 'CNY'; rounding: 'ceil'; period: 'peak' | 'off_peak'; pricingVersion: string;
-    officialCostCny?: string; exactCredits?: string; exactCreditNanos?: string;
-    upstreamRequestId?: string;
-    usage?: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
-  };
+  billing?: LegacyDesktopBilling | GatewayDesktopBilling;
 }
 export const canonicalJson = (value: any): string => {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -90,10 +96,9 @@ export const identifier = (value: unknown, name: string) => {
 export function validateCompletion(body: any): Record<string, any> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequestException('请求必须为JSON对象');
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_REQUEST_BYTES) throw new PayloadTooLargeException('模型请求超过4 MiB');
-  if (body.model !== DESKTOP_CHAT_MODEL) throw new BadRequestException('模型未在Tanva桌面目录启用');
+  identifier(body.model, 'model');
   if (body.stream === true) throw new BadRequestException('Tanva桌面对话使用完整JSON回执');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.some((item: any) => !item || !['system', 'developer', 'user', 'assistant', 'tool'].includes(item.role))) throw new BadRequestException('无效对话消息');
-  if (body.reasoning_effort !== undefined) throw new BadRequestException('此模型未声明推理强度参数');
   return { ...body, stream: false };
 }
 export function receipt(row: any, includeResponse = false) {

@@ -78,9 +78,10 @@ function decimal(value: unknown): { units: bigint; scale: bigint } {
   const [whole, fraction = ''] = value.split('.');
   return { units: BigInt(whole + fraction), scale: 10n ** BigInt(fraction.length) };
 }
-export function consumptionCredits(costCny: string) {
+export function consumptionCredits(costCny: string, markup: 1 | 1.5 = 1.5) {
+  if (markup !== 1 && markup !== 1.5) throw new Error('Invalid consumption markup');
   const cost = decimal(costCny);
-  const nanos = cost.units * 150n * 1_000_000_000n / cost.scale;
+  const nanos = cost.units * (markup === 1 ? 100n : 150n) * 1_000_000_000n / cost.scale;
   const credits = (nanos + 999_999_999n) / 1_000_000_000n;
   if (credits > 2147483647n) throw new Error('Consumption integer credits overflow');
   const fraction = (nanos % 1_000_000_000n).toString().padStart(9, '0').replace(/0+$/, '');

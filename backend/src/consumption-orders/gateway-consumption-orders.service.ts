@@ -12,7 +12,7 @@ const TERMINAL = new Set(['settled', 'rejected']);
 const FLASH = new Set(['deepseek-v4.1-flash', 'deepseek-flash', 'deepseek-v4-flash']);
 type StoredOrder = {
   version: 1; orderHash: string; gatewayInstanceId: string; userId: string; teamId: string | null;
-  markup: 1.5; creditsPerYuan: 100; creditsReserved: number; registeredAt: string;
+  markup: 1 | 1.5; creditsPerYuan: 100; creditsReserved: number; registeredAt: string;
   receipt?: GatewayConsumptionPayload; payloadHash?: string; lastErrorCode?: string; checkAttempts?: number;
   creditsCharged?: number; exactCredits?: string; exactCreditNanos?: string;
 };
@@ -49,7 +49,9 @@ export class GatewayConsumptionOrdersService {
     if (typeof orderHash !== 'string' || !/^[A-Za-z0-9_.:-]{1,256}$/.test(orderHash)
       || row.provider !== 'new-api') throw new ConflictException('无效网关消费订单');
     const stored: StoredOrder = { version: 1, orderHash, gatewayInstanceId: this.instance(), userId: row.userId,
-      teamId: params?.teamId || null, markup: 1.5, creditsPerYuan: 100,
+      teamId: params?.teamId || null,
+      markup: params?.desktopChat?.billing?.mode === 'gateway_consumption' && params.desktopChat.billing.markup === 1 ? 1 : 1.5,
+      creditsPerYuan: 100,
       creditsReserved: row.creditsUsed, registeredAt: new Date().toISOString() };
     await tx.apiUsageRecord.update({ where: { id: apiUsageId }, data: { consumptionStatus: 'pending',
       consumptionReceipt: stored as any, consumptionNextCheckAt: new Date(Date.now() + 30_000) } });
@@ -120,7 +122,7 @@ export class GatewayConsumptionOrdersService {
         const proof = order.receipt;
         if (!proof || !['consumed', 'rejected'].includes(proof.status)) return null;
         if (order.userId !== row.userId || order.teamId !== ((row.requestParams as any)?.teamId || null)) throw new ConflictException('消费订单原钱包归属已改变');
-        const fee = consumptionCredits(proof.costCny!);
+        const fee = consumptionCredits(proof.costCny!, order.markup);
         if (proof.status === 'consumed') {
           const settled = order.teamId
             ? await this.ledger.settleDesktopChatUsage({ teamId: order.teamId, taskId: row.id, actorUserId: row.userId, exactCreditNanos: fee.exactCreditNanos }, tx)

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, ApiUsageRecord } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +9,7 @@ import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.serv
 import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, canonicalJson, chatDiagnostic, failedChatHttpStatus, hash, identifier, receipt, upstreamDiagnostic, usageId, validateCompletion } from './desktop-chat.protocol';
 import { createDeepSeekPricingSnapshot, calculateDeepSeekUsage, estimateDeepSeekReservation } from './deepseek-pricing';
 import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
+import { desktopModelsFromGateway } from './desktop-model-catalog';
 
 /** One durable ApiUsageRecord primary key per user/request. Admission, receipt,
  * and wallet change share a transaction. Unknown accepted work is never resent. */
@@ -69,6 +70,10 @@ export class DesktopChatService {
   }
   async models(userId: string, teamId?: unknown) {
     await this.scope(userId, teamId);
+    if (this.consumptionOrders?.isEnabled()) {
+      const models = await this.gatewayModels();
+      return { data: models, models };
+    }
     const available = await this.modelAvailable();
     let snapshot: ReturnType<typeof createDeepSeekPricingSnapshot>;
     try { snapshot = createDeepSeekPricingSnapshot(new Date()); }
@@ -84,6 +89,24 @@ export class DesktopChatService {
         cachedInputCnyPerMillion: snapshot.pricesCnyPerMillion.cacheHit,
         outputCnyPerMillion: snapshot.pricesCnyPerMillion.output,
         sourceUrl: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/' } }] };
+  }
+  private async gatewayModels() {
+    const { base, key } = this.gateway();
+    if (!key) throw new ServiceUnavailableException('模型网关凭据未配置');
+    try {
+      const signal = AbortSignal.timeout(10_000);
+      const responses = await Promise.all(['/v1/models', '/api/pricing'].map(path => this.fetchImpl(`${base}${path}`, {
+        headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal,
+      })));
+      if (responses.some(response => !response.ok)) {
+        for (const response of responses) void response.body?.cancel().catch(() => undefined);
+        throw new Error('Gateway catalog unavailable');
+      }
+      const [models, pricing] = await Promise.all(responses.map(response => readBoundedJson(response, 4 * 1024 * 1024, signal)));
+      return desktopModelsFromGateway(models, pricing);
+    } catch {
+      throw new ServiceUnavailableException('模型网关动态对话目录暂不可用');
+    }
   }
   private async row(userId: string, id: string) {
     const row = await this.prisma.apiUsageRecord.findUnique({ where: { id: usageId(userId, identifier(id, 'requestId')) } });
@@ -138,17 +161,27 @@ export class DesktopChatService {
     };
     const existing = await this.prisma.apiUsageRecord.findUnique({ where: { id } });
     if (existing) { check(existing); return this.replay(await this.recover(existing)); }
-    if (!await this.modelAvailable()) throw new ServiceUnavailableException('Tanva模型网关未提供此模型');
-    let snapshot: ReturnType<typeof createDeepSeekPricingSnapshot>;
-    let estimate: ReturnType<typeof estimateDeepSeekReservation>;
-    try { snapshot = createDeepSeekPricingSnapshot(new Date()); estimate = estimateDeepSeekReservation(snapshot, body); }
-    catch { throw new ServiceUnavailableException('官方用量报价不可用，请检查模型参数与节假日日历'); }
-    const reservedCredits = estimate.creditsReserved;
+    const gatewayBilling = this.consumptionOrders?.isEnabled() === true;
+    let billing: NonNullable<DesktopChatMeta['billing']>;
+    if (gatewayBilling) {
+      if (!(await this.gatewayModels()).some(model => model.id === body.model)) throw new BadRequestException('模型未在当前网关对话目录启用或缺少有效价格');
+      billing = { mode: 'gateway_consumption', markup: 1, creditsPerYuan: 100, priceCurrency: 'CNY', rounding: 'ceil', reservation: { credits: 0 } };
+    } else {
+      if (body.model !== DESKTOP_CHAT_MODEL) throw new ServiceUnavailableException('新模型需要配置网关签名消费结算');
+      if (body.reasoning_effort !== undefined) throw new BadRequestException('此模型未声明推理强度参数');
+      if (!await this.modelAvailable()) throw new ServiceUnavailableException('Tanva模型网关未提供此模型');
+      try {
+        const snapshot = createDeepSeekPricingSnapshot(new Date());
+        const estimate = estimateDeepSeekReservation(snapshot, body);
+        billing = { mode: 'official_token_usage', snapshot, markup: snapshot.markup, creditsPerYuan: snapshot.creditsPerYuan,
+          priceCurrency: 'CNY', rounding: 'ceil', period: snapshot.period, pricingVersion: snapshot.version,
+          reservation: { inputTokens: estimate.inputTokenBudget, outputTokens: estimate.outputTokenBudget, credits: estimate.creditsReserved } };
+      } catch { throw new ServiceUnavailableException('官方用量报价不可用，请检查模型参数与节假日日历'); }
+    }
+    const reservedCredits = billing.reservation.credits;
     const meta: DesktopChatMeta = { requestId, taskId, conversationId, bodyHash, scope,
       state: 'pending', credits: reservedCredits, deadline: new Date(Date.now() + REQUEST_TIMEOUT_MS).toISOString(),
-      billing: { mode: 'official_token_usage', snapshot, markup: snapshot.markup, creditsPerYuan: snapshot.creditsPerYuan,
-        priceCurrency: 'CNY', rounding: 'ceil', period: snapshot.period, pricingVersion: snapshot.version,
-        reservation: { inputTokens: estimate.inputTokenBudget, outputTokens: estimate.outputTokenBudget, credits: reservedCredits } } };
+      billing };
     const admission = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${id}, 0))`;
       const row = await tx.apiUsageRecord.findUnique({ where: { id } });
@@ -159,10 +192,12 @@ export class DesktopChatService {
         responseStatus: ApiResponseStatus.PENDING, requestParams: { desktopChat: meta, ...(scope.kind === 'team' ? { teamId: scope.teamId } : {}) },
       }, tx);
       if (scope.kind === 'team') {
-        const reserved = await this.ledger.reserve({ teamId: scope.teamId, amount: reservedCredits, taskId: id, taskKind: 'gemini-text', actorUserId: userId }, tx);
+        const reserved = await this.ledger.reserve({ teamId: scope.teamId, amount: reservedCredits, taskId: id, taskKind: 'gemini-text', actorUserId: userId,
+          ...(gatewayBilling ? { deferredSettlement: true } : {}) }, tx);
         if (!reserved.reserved) throw new ForbiddenException(reserved.reason || '团队积分预留失败');
       }
-      await this.consumptionOrders?.register(id, tx);
+      const registered = await this.consumptionOrders?.register(id, tx);
+      if (gatewayBilling && !registered) throw new ServiceUnavailableException('网关签名消费结算不可用');
       return { row: (await tx.apiUsageRecord.findUnique({ where: { id } }))!, duplicate: false };
     }, { timeout: 30_000 });
     if (admission.duplicate) return this.replay(await this.recover(admission.row));
@@ -245,7 +280,8 @@ export class DesktopChatService {
         billing: { ...prior.billing, upstreamRequestId: original.billing.upstreamRequestId } } : {}),
         ...(knownRejected ? { rejectionConfirmed: true } : {}), ...(knownResponse ? { response: knownResponse } : {}), ...(response ? { response, completedAt: new Date().toISOString() } : chatDiagnostic(original.errorCode || (rejected ? 'UPSTREAM_REJECTED' : 'UPSTREAM_OUTCOME_UNKNOWN'), original.upstreamStatus)) };
       if (response) { delete meta.errorCode; delete meta.errorMessage; delete meta.upstreamStatus; delete meta.rejectionConfirmed; }
-      if (response && meta.billing) {
+      if (response && meta.billing?.mode === 'gateway_consumption') throw new Error('SIGNED_CONSUMPTION_ORDER_MISSING');
+      if (response && meta.billing?.mode === 'official_token_usage') {
         const calculation = calculateDeepSeekUsage(meta.billing.snapshot, response.usage);
         const settled = original.scope.kind === 'team'
           ? await this.ledger.settleDesktopChatUsage({ teamId: original.scope.teamId, taskId: id, actorUserId: userId, exactCreditNanos: calculation.exactCreditNanos }, tx)
@@ -262,8 +298,8 @@ export class DesktopChatService {
         responseStatus: response ? ApiResponseStatus.SUCCESS : rejected ? ApiResponseStatus.FAILED : ApiResponseStatus.PENDING,
         requestParams: { ...(row.requestParams as any), desktopChat: meta },
         ...(response && meta.billing ? { creditsUsed: meta.credits } : {}),
-        ...(response ? { inputTokens: safeTokens(meta.billing?.usage?.inputTokens ?? response.usage?.prompt_tokens),
-          outputTokens: safeTokens(meta.billing?.usage?.outputTokens ?? response.usage?.completion_tokens) } : {}),
+        ...(response ? { inputTokens: safeTokens((meta.billing?.mode === 'official_token_usage' ? meta.billing.usage?.inputTokens : undefined) ?? response.usage?.prompt_tokens),
+          outputTokens: safeTokens((meta.billing?.mode === 'official_token_usage' ? meta.billing.usage?.outputTokens : undefined) ?? response.usage?.completion_tokens) } : {}),
       } });
       if (rejected) {
         if (original.scope.kind === 'team') await this.ledger.release({ teamId: original.scope.teamId, amount: original.credits, taskId: id }, tx);
@@ -278,6 +314,7 @@ export class DesktopChatService {
     } else if (changed && (response || rejected)) this.notify(changed, userId, id, response ? 'deduct' : 'release');
   }
   private notify(meta: DesktopChatMeta, userId: string, id: string, reason: 'reserve' | 'deduct' | 'release') {
+    if (meta.billing?.mode === 'gateway_consumption') return;
     if (meta.scope.kind === 'team') void this.publisher?.publish({ teamId: meta.scope.teamId, reason,
       delta: reason === 'reserve' ? -meta.credits : reason === 'release' ? meta.credits : meta.billing ? meta.billing.reservation.credits - meta.credits : 0, actorUserId: userId, taskId: id }).catch(() => undefined);
   }

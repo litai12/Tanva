@@ -108,12 +108,37 @@ func TanvaOrder(c *gin.Context) *model.TanvaConsumption {
 }
 
 func IsTanvaConsumptionModel(name string) bool {
+	// Preserve the existing signed chat contracts, while explicit media
+	// metadata can never borrow one of their historical names.
 	switch name {
 	case "deepseek-v4.1-flash", "deepseek-flash", "deepseek-v4-flash", "xiaot-agent-deepseek-v4-flash", "gemini-3.5-flash":
+		var metas []model.Model
+		if model.DB.Migrator().HasTable(&model.Model{}) {
+			if err := model.DB.Where("model_name = ?", name).Find(&metas).Error; err != nil {
+				return false
+			}
+			for _, meta := range metas {
+				if meta.Kind != "" && meta.Kind != "chat" {
+					return false
+				}
+			}
+		}
 		return true
+	}
+	for _, pricing := range model.GetPricing() {
+		if pricing.ModelName != name || pricing.ModelKind != "chat" {
+			continue
+		}
+		for _, quote := range pricing.ChannelTextPrices {
+			if quote.ModelName == name && quote.Currency == "CNY" && quote.Input > 0 && quote.Output >= 0 {
+				return true
+			}
+		}
 	}
 	return false
 }
+
+func IsTanvaConsumptionModelID(name string) bool { return tanvaIdentifier(name) }
 
 func DispatchTanvaConsumption(info *relaycommon.RelayInfo) error {
 	return model.DispatchTanvaConsumption(info.TanvaConsumptionID, info.ChannelId)

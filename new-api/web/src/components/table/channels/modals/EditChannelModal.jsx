@@ -27,7 +27,8 @@ import {
   verifyJSON,
 } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
-import { preserveChannelTextPricing } from '../../../../helpers/channelTextPricing';
+import { isPositiveChannelMultiplier, preserveChannelTextPricing } from '../../../../helpers/channelTextPricing';
+import ChannelTextPricingEditor from './ChannelTextPricingEditor';
 import { CHANNEL_OPTIONS, MODEL_FETCHABLE_CHANNEL_TYPES } from '../../../../constants';
 import {
   SideSheet,
@@ -1536,6 +1537,10 @@ const EditChannelModal = (props) => {
     const formValues = formApiRef.current ? formApiRef.current.getValues() : {};
     let localInputs = { ...formValues };
     localInputs.param_override = inputs.param_override;
+    if (channelSettings.text_base_per_million_cny && !isPositiveChannelMultiplier(channelSettings.text_price_multiplier)) {
+      showError(t('官价倍率必须为正数'));
+      return;
+    }
 
     if (localInputs.type === 57) {
       if (batch) {
@@ -3252,6 +3257,20 @@ const EditChannelModal = (props) => {
                       />
                     )}
 
+                  <ChannelTextPricingEditor
+                    setting={channelSettings}
+                    channelId={channelId}
+                    onChange={handleChannelSettingsChange}
+                    onSynchronized={(pricing) => {
+                      setChannelSettings((current) => ({
+                        ...current,
+                        ...pricing,
+                        text_price_multiplier: current.text_price_multiplier ?? pricing.text_price_multiplier,
+                      }));
+                      props.refresh();
+                    }}
+                    t={t}
+                  />
                   {/* API Configuration Section */}
                   {showApiConfigCard && (
                     <div onClick={handleApiConfigSecretClick}>

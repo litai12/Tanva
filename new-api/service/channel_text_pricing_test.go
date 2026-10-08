@@ -22,10 +22,11 @@ func TestChannelTextPricingEstimateActualTiersAndSnapshotAcrossProtocols(t *test
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(pricesBefore)) })
 	for _, format := range []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatClaude, types.RelayFormatOpenAIResponses} {
 		for _, counts := range [][2]int{{100, 101}, {101, 100}} {
-			settings := dto.ChannelSettings{TextSaleMultiplier: 2, TextCostPerMillionCNY: map[string]dto.TextTokenCostCNY{
-				"gpt-6-astra": {Input: .2, Output: 1, CacheRead: .02, CacheWrite: .25, Tiers: []dto.TextTokenCostCNY{
-					{MaxPromptTokens: 100, Input: .2, Output: 1, CacheRead: .02, CacheWrite: .25},
-					{Input: .4, Output: 1.5, CacheRead: .04, CacheWrite: .5},
+			multiplier := .4
+			settings := dto.ChannelSettings{TextPriceMultiplier: &multiplier, TextBasePerMillionCNY: map[string]dto.TextTokenCostCNY{
+				"gpt-6-astra": {Input: 1, Output: 5, CacheRead: .1, CacheWrite: 1.25, Tiers: []dto.TextTokenCostCNY{
+					{MaxPromptTokens: 100, Input: 1, Output: 5, CacheRead: .1, CacheWrite: 1.25},
+					{Input: 2, Output: 7.5, CacheRead: .2, CacheWrite: 2.5},
 				}},
 			}}
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -41,7 +42,7 @@ func TestChannelTextPricingEstimateActualTiersAndSnapshotAcrossProtocols(t *test
 			pre := (float64(common.Max(counts[0], common.PreConsumedQuota))*quoted.Input + 20*quoted.Output) / 2
 			require.InDelta(t, pre*price.GroupRatioInfo.GroupRatio, price.QuotaToPreConsume, .5)
 			// A later admin edit must not replace the accepted procurement contract.
-			settings.TextCostPerMillionCNY["gpt-6-astra"].Tiers[1].Input = 100
+			settings.TextBasePerMillionCNY["gpt-6-astra"].Tiers[1].Input = 100
 			ctx.Set(string(constant.ContextKeyChannelSetting), settings)
 			usage := &dto.Usage{PromptTokens: counts[1], CompletionTokens: 20}
 			summary := calculateTextQuotaSummary(ctx, info, usage)
@@ -122,4 +123,20 @@ func TestChannelTextPricingPreservesExplicitFreeAudioAndImageInput(t *testing.T)
 		PromptTokensDetails: dto.InputTokenDetails{ImageTokens: 20, AudioTokens: 30}})
 	require.NoError(t, summary.BillingError)
 	require.InDelta(t, 50*2*price.GroupRatioInfo.GroupRatio, summary.Quota, .5)
+}
+
+func TestChannelTextPricingRejectsMissingModelBeforeUpstream(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set(string(constant.ContextKeyChannelSetting), dto.ChannelSettings{
+		TextSaleMultiplier: 2, TextCostPerMillionCNY: map[string]dto.TextTokenCostCNY{
+			"priced-model": {Input: .2, Output: 1},
+		},
+	})
+	info := &relaycommon.RelayInfo{OriginModelName: "gpt-6-astra", UsingGroup: "default", UserGroup: "default", StartTime: time.Now()}
+	_, err := helper.ModelPriceHelper(ctx, info, 100, &types.TokenCountMeta{})
+	require.ErrorContains(t, err, "not configured")
+	require.Empty(t, info.PriceData)
+	legacy, err := (dto.ChannelSettings{}).TextPricing("gpt-6-astra")
+	require.NoError(t, err)
+	require.Nil(t, legacy)
 }

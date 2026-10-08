@@ -76,7 +76,7 @@ func TanvaConsumption() gin.HandlerFunc {
 		var request struct {
 			Model string `json:"model"`
 		}
-		if common.Unmarshal(body, &request) != nil || !service.IsTanvaConsumptionModel(request.Model) {
+		if common.Unmarshal(body, &request) != nil || !service.IsTanvaConsumptionModelID(request.Model) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "tanva_invalid_model"})
 			return
 		}
@@ -107,6 +107,17 @@ func TanvaConsumption() gin.HandlerFunc {
 			}
 			// A receipt is accounting evidence, never fabricated model output.
 			c.AbortWithStatusJSON(http.StatusConflict, envelope)
+			return
+		}
+		// Claim/replay precedes live model availability. Fresh invalid models
+		// still produce a signed zero-cost rejection for the backend's registered
+		// order; disabled models cannot invalidate a prior immutable receipt.
+		if !service.IsTanvaConsumptionModel(request.Model) {
+			if err := model.FailTanvaConsumption(order.ID, "tanva_invalid_model"); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "tanva_order_rejection_failed"})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "tanva_invalid_model"})
 			return
 		}
 		c.Set(service.TanvaConsumptionContextKey, order)

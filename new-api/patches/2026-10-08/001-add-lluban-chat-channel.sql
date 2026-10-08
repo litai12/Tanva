@@ -357,14 +357,25 @@ DECLARE
   channel_id_value integer;
   vendor_id_value integer;
   model_list text;
+  existing_setting jsonb;
+  preserve_new_contract boolean;
 BEGIN
   SELECT id INTO STRICT channel_id_value FROM channels WHERE name = 'lluban-chat';
   SELECT string_agg(name, ',' ORDER BY name) INTO model_list
     FROM jsonb_object_keys(contract->'text_cost_per_million_cny') AS name;
-  UPDATE channels SET
-    setting = (COALESCE(NULLIF(setting, ''), '{}')::jsonb || contract)::text,
-    models = model_list
-  WHERE id = channel_id_value;
+  SELECT COALESCE(NULLIF(setting,''),'{}')::jsonb INTO existing_setting
+    FROM channels WHERE id=channel_id_value FOR UPDATE;
+  -- Once migrated to the administrator's single-multiplier contract, this seed
+  -- must not restore the old two-part pricing, model list or disabled abilities.
+  -- The migration runner already skips applied seeds; protect manual replay too.
+  preserve_new_contract := existing_setting ? 'text_base_per_million_cny'
+    AND existing_setting ? 'text_price_multiplier';
+  IF NOT preserve_new_contract THEN
+    UPDATE channels SET
+      setting = (existing_setting || contract)::text,
+      models = model_list
+    WHERE id = channel_id_value;
+  END IF;
 
   IF (SELECT count(*) FROM vendors WHERE name='Luban Chat' AND deleted_at IS NULL) > 1 THEN
     RAISE EXCEPTION 'Duplicate Luban Chat vendors; review before applying';
@@ -390,7 +401,7 @@ BEGIN
   FROM channels c
   CROSS JOIN LATERAL regexp_split_to_table(c."group", ',') AS g
   CROSS JOIN jsonb_object_keys(contract->'text_cost_per_million_cny') AS model_names(model_name)
-  WHERE c.id=channel_id_value AND btrim(g)<>''
+  WHERE c.id=channel_id_value AND btrim(g)<>'' AND NOT preserve_new_contract
   ON CONFLICT ("group",model,channel_id) DO UPDATE SET
     enabled=EXCLUDED.enabled, priority=EXCLUDED.priority, weight=EXCLUDED.weight, tag=EXCLUDED.tag;
 END $lluban$;

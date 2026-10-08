@@ -849,9 +849,28 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	for name := range channelParams.TextCostPerMillionCNY {
+	for name := range channelParams.TextPriceBases() {
 		if _, err := channelParams.TextPricing(name); err != nil {
-			return fmt.Errorf("text_cost_per_million_cny[%q]: %w", name, err)
+			return fmt.Errorf("channel text price[%q]: %w", name, err)
+		}
+	}
+	if channelParams.HasTextPricing() {
+		for _, name := range channel.GetModels() {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, err := channelParams.TextPricing(name); err != nil {
+				return err
+			}
+		}
+	}
+	for name, official := range channelParams.TextOfficialPricing {
+		if official.OfficialModelID == "" {
+			return fmt.Errorf("model %s official ID is missing", name)
+		}
+		if _, err := dto.ChannelBaseFromOfficial(official, channelParams.TextOfficialUSDToCNY); err != nil {
+			return fmt.Errorf("model %s official metadata: %w", name, err)
 		}
 	}
 	return nil
