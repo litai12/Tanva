@@ -25,6 +25,52 @@ type ChannelTextPrice struct {
 	types.TextTokenCostCNY
 }
 
+// GetChannelTextPricedModels returns published models with a valid channel
+// contract on a currently enabled route in one of the caller's routing groups.
+// It does not add global ratios or change channel settings while reading them.
+func GetChannelTextPricedModels(groups []string) (map[string]bool, error) {
+	result := make(map[string]bool)
+	if len(groups) == 0 {
+		return result, nil
+	}
+	published := make(map[string]bool)
+	for _, pricing := range GetPricing() {
+		if len(pricing.ChannelTextPrices) > 0 {
+			published[pricing.ModelName] = true
+		}
+	}
+	if len(published) == 0 {
+		return result, nil
+	}
+	var abilities []AbilityWithChannel
+	err := DB.Table("abilities").
+		Select("abilities.*, channels.type as channel_type, channels.setting as channel_setting").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities.enabled = ? AND channels.status = ?", true, common.ChannelStatusEnabled).
+		Where("abilities."+commonGroupCol+" IN ?", groups).
+		Scan(&abilities).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, ability := range abilities {
+		canonical := CanonicalModelKey(ability.Model)
+		if !published[canonical] {
+			continue
+		}
+		var settings dto.ChannelSettings
+		if err := common.UnmarshalJsonStr(ability.ChannelSetting, &settings); err != nil {
+			continue
+		}
+		contract, err := settings.TextPricing(ability.Model)
+		if err != nil || contract == nil {
+			continue
+		}
+		result[ability.Model] = true
+		result[canonical] = true
+	}
+	return result, nil
+}
+
 // Auto-sync may append a model without passing channel-setting validation.
 // Such abilities cannot execute a procurement contract and must not acquire
 // a global fallback quote in the public directory. Other channels stay visible.

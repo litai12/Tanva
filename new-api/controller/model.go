@@ -149,6 +149,33 @@ func init() {
 
 func ListModels(c *gin.Context, modelType int) {
 	userOpenAiModels := make([]dto.OpenAIModels, 0)
+	// Resolve channel-only prices lazily once per request. The group-scoped
+	// fallback must not publish another group's prices through a token allowlist.
+	var channelPricedModels map[string]bool
+	channelPricesLoaded := false
+	hasModelPrice := func(name string) bool {
+		if _, _, exists := ratio_setting.GetModelRatioOrPrice(name); exists {
+			return true
+		}
+		if !channelPricesLoaded {
+			channelPricesLoaded = true
+			group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+			groups := []string{group}
+			if group == "" || group == "auto" {
+				userGroup, err := model.GetUserGroup(c.GetInt("id"), false)
+				if err != nil {
+					return false
+				}
+				groups = []string{userGroup}
+				if group == "auto" {
+					groups = service.GetUserAutoGroup(userGroup)
+				}
+			}
+			// A failed read cannot grant visibility to a channel-only model.
+			channelPricedModels, _ = model.GetChannelTextPricedModels(groups)
+		}
+		return channelPricedModels[name]
+	}
 
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -170,12 +197,9 @@ func ListModels(c *gin.Context, modelType int) {
 		} else {
 			tokenModelLimit = map[string]bool{}
 		}
-		for allowModel, _ := range tokenModelLimit {
-			if !acceptUnsetRatioModel {
-				_, _, exist := ratio_setting.GetModelRatioOrPrice(allowModel)
-				if !exist {
-					continue
-				}
+		for allowModel, allowed := range tokenModelLimit {
+			if !allowed || (!acceptUnsetRatioModel && !hasModelPrice(allowModel)) {
+				continue
 			}
 			if oaiModel, ok := openAIModelsMap[allowModel]; ok {
 				oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(allowModel)
@@ -219,11 +243,8 @@ func ListModels(c *gin.Context, modelType int) {
 			models = model.GetGroupEnabledModels(group)
 		}
 		for _, modelName := range models {
-			if !acceptUnsetRatioModel {
-				_, _, exist := ratio_setting.GetModelRatioOrPrice(modelName)
-				if !exist {
-					continue
-				}
+			if !acceptUnsetRatioModel && !hasModelPrice(modelName) {
+				continue
 			}
 			if oaiModel, ok := openAIModelsMap[modelName]; ok {
 				oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)

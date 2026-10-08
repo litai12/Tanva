@@ -1,4 +1,27 @@
-# 鲁班对话渠道（2026-10-08，本地待部署）
+# 鲁班对话渠道（2026-10-08，程序及渠道已部署，保留旧路由）
+
+## 2026-10-08 生产部署状态
+
+- 用户明确授权更新 new-api。服务器源码与本地均为 `f6f0b941eac74bf7c2fcc3219ba711e9572e5af3`。
+- 为避免生产编译的内存峰值，在本机从该提交的独立目录重新构建 web，再用 Go 1.25.1、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0`、`-p 2`、`GOMEMLIMIT=2GiB` 编译静态程序。web 使用 `NODE_OPTIONS=--max-old-space-size=3072`，构建通过。未复用仓库旧 `web/dist`。
+- 原计划使用 5 GiB / 2 CPU 的独立 BuildKit 构建器，但其镜像下载停滞；已取消自身下载进程并移除该构建器及配置。生产最后仅用已有运行时镜像复制新二进制，无 Vite/Go 编译。
+- 镜像 `backend-new-api:lluban-20261008-f6f0b941` 已通过 `docker compose up -d --no-deps --no-build --wait --wait-timeout 90 new-api` 部署；仅替换 `tanva-new-api`，未运行 patch 服务。容器 healthy、重启计数 0，公网 `https://t-api.tanvas.cn/api/status` 及 Tanva 后端健康接口均为 HTTP 200。
+- 运行二进制 SHA-256：`5583c354d6685882f3a065a180d7b0a6bcb27f26329037ce0a180c5d926ef8f5`；部署页面主 bundle 与本机构建 SHA-256 一致。发布清单：服务器 `/opt/tanva-releases/lluban-20261008/release.json`。
+- 保留旧镜像 `backend-new-api:pre-lluban-20261008`；更新前 new-api 数据库快照位于 `/opt/tanva-backups/new-api-luban-20261008/predeploy.dump`（约 401 MiB），已验证 archive list 可读。这是本次 new-api 回退备份，与用户要求删除的 TapCanvas 历史备份不同。
+- 用户随后提供密钥并授权 SQL 更新。密钥仅通过执行补丁的临时子进程环境注入，实际持久化在渠道数据库中；未修改 `.env`，未写入仓库。最终 `001` 与 `003` 合并在一个事务内执行并登记迁移，新增 `lluban-chat`（ID 51、status 1），22 个模型及 default/vip/svip 各 22 条启用路由，官价倍率 0.4。公开 `/api/pricing` 已出现对应渠道报价。
+- 第一次 SQL 事务因真实 `channels.settings` 列与 `003` 的 PL/pgSQL 局部变量同名而完整回滚。已将局部变量改为 `channel_pricing_settings`，同步生产 SQL；隔离测试 schema 增加真实 `settings` 列及内容保留断言，两个 PostgreSQL 迁移测试均通过后重跑成功。
+- 独立审查确认 `002` 会关闭生产仍启用的 `xiaot-agent-deepseek-v4-flash`、`gemini-3.5-flash` 等专用路由，而后端小T、带图文本、视频理解仍有依赖。本次保留旧渠道和原优先级，**未执行、未登记 `002`**；不得将新增鲁班理解为所有普通对话已强制切换。现有 Ark 豆包 lite 优先级 9999，高于新增鲁班 0，分发本身没有 Responses 端点筛选。
+- 后续运行全量 `new-api-patch` 会尝试尚未应用的 `002`，应先解决专用路由保留及同模型不同协议的分发范围。两端消费签名配置仍未启用，不能宣称桌面签名结算已上线。
+- 下文“用户自行部署”与“本地验证”保留原实现时的说明；当前实际生产状态以上述记录为准，尚无真实付费推理验收。
+
+## `/v1/models` 渠道独立定价修复（已上线）
+
+- 根因：`ListModels` 仅认可全局 `ModelRatio` / `ModelPrice`，导致鲁班 22 个已发布报价模型中，仅 4 个碰巧有全局价格的模型可见。
+- 模型目录补充渠道独立报价判断：报价须已发布、当前渠道与能力启用、调用者分组匹配、合同有效。保留旧全局价格路径；令牌白名单值为 false 的条目不会发布。空 token 分组回退用户组，auto 仅合并用户可用组；读取失败不放行渠道报价模型。
+- 验证：真实 Gin + SQLite 7 个控制器回归场景通过，覆盖分组/auto/白名单、停用渠道与能力/元数据、无效与缺失合同及旧价格兼容；`go test ./model -run TestChannelText -count=1` 与 `go vet ./controller ./model` 通过。
+- 在本机限并发交叉编译，复用同日已核对的前端构建。生产仅复制静态二进制并重建 new-api 运行容器，未进行生产 Go/Vite 编译、数据库迁移或执行 patch 服务；两处源码同步服务器且原件保存在发布目录。
+- 发布目录 `/opt/tanva-releases/model-list-20261008/`，镜像 `backend-new-api:model-list-20261008`，回退镜像 `backend-new-api:pre-model-list-fix-20261008`。二进制 SHA-256：`01f2fc49993c4ab678ef762763903764b54909bc4ec6c08d45ce50891a7655d4`。
+- 使用后端现有访问令牌实测公网 `/v1/models`：**75 → 93 个模型，鲁班 4 → 22 个，原有模型丢失 0 个**。未进行付费推理，目录出现不等于每个模型均已实测生成。
 
 ## 范围与来源
 

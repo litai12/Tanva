@@ -963,7 +963,7 @@ DECLARE
   "text_price_multiplier": 0.4
 }$baseline$::jsonb;
   target record;
-  settings jsonb;
+  channel_pricing_settings jsonb;
   base_prices jsonb;
   official_prices jsonb;
   ratio numeric;
@@ -975,7 +975,7 @@ BEGIN
   IF target.type <> 1 OR target.base_url IS DISTINCT FROM 'https://tt-api.lluban.com' THEN
     RAISE EXCEPTION 'lluban-chat identifies a different upstream';
   END IF;
-  settings := COALESCE(NULLIF(target.setting,''),'{}')::jsonb;
+  channel_pricing_settings := COALESCE(NULLIF(target.setting,''),'{}')::jsonb;
   IF EXISTS (SELECT 1 FROM models WHERE model_name IN
       (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name))
       AND COALESCE(btrim(kind),'') NOT IN ('','chat','text')) THEN
@@ -987,7 +987,7 @@ BEGIN
     AND model_name IN (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name));
   -- The successful migration or a deliberate administrator update already owns
   -- this contract. A replay must not reset the multiplier or resync prices.
-  IF settings ? 'text_base_per_million_cny' AND settings ? 'text_price_multiplier' THEN
+  IF channel_pricing_settings ? 'text_base_per_million_cny' AND channel_pricing_settings ? 'text_price_multiplier' THEN
     RETURN;
   END IF;
   IF COALESCE(btrim(target.models),'')='' THEN
@@ -1004,11 +1004,11 @@ BEGIN
     FROM jsonb_each(seed->'text_official_pricing') AS b(name,value)
     WHERE name IN (SELECT btrim(name) FROM regexp_split_to_table(target.models, ',') AS m(name));
   -- Preserve an operator's earlier deliberate selling adjustment during upgrade.
-  ratio := COALESCE((settings->>'text_sale_multiplier')::numeric,2) * 0.2;
+  ratio := COALESCE((channel_pricing_settings->>'text_sale_multiplier')::numeric,2) * 0.2;
   IF ratio <= 0 OR ratio = 'NaN'::numeric THEN
     RAISE EXCEPTION 'Invalid legacy multiplier';
   END IF;
-  UPDATE channels SET setting = ((settings - 'text_cost_per_million_cny' - 'text_sale_multiplier'
+  UPDATE channels SET setting = ((channel_pricing_settings - 'text_cost_per_million_cny' - 'text_sale_multiplier'
       - 'text_procurement_discount') || jsonb_build_object(
       'text_base_per_million_cny',base_prices,
       'text_price_multiplier',ratio,

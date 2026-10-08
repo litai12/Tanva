@@ -41,7 +41,7 @@ schema = '''
 CREATE TABLE channels (id serial PRIMARY KEY, type integer, key text, status integer, name text,
  weight integer, created_time bigint, test_time bigint, response_time bigint, base_url text,
  other text, balance double precision, balance_updated_time bigint, models text, "group" text,
- used_quota bigint, priority bigint, tag text, setting text, model_mapping text);
+ used_quota bigint, priority bigint, tag text, setting text, settings text, model_mapping text);
 CREATE TABLE abilities ("group" text, model text, channel_id integer, enabled boolean,
  priority bigint, weight integer, tag text, PRIMARY KEY ("group",model,channel_id));
 CREATE TABLE vendors (id serial PRIMARY KEY, name text, description text, icon text, status integer,
@@ -111,8 +111,13 @@ try:
     assert psql(SINGLE_PATCH.read_text(), check=False).returncode != 0
     assert fingerprint() == collision
     psql("UPDATE models SET kind=NULL WHERE model_name='glm-5.3';")
+    # Production also has channels.settings, distinct from pricing in setting.
+    # It must neither shadow the migration's PL/pgSQL variable nor be overwritten.
+    unrelated_settings = '{"azure_api_version":"fixture-preserved"}'
+    psql("UPDATE channels SET settings='" + unrelated_settings + "' WHERE name='lluban-chat';")
     # Final migration has one multiplier, official sources and exact CNY baselines.
     psql(SINGLE_PATCH.read_text())
+    assert query("SELECT settings FROM channels WHERE name='lluban-chat';") == unrelated_settings
     assert query("SELECT kind FROM models WHERE model_name='glm-5.3';") == 'chat'
     final = json.loads(query("SELECT setting FROM channels WHERE name='lluban-chat';"))
     baseline = json.loads(BASELINE.read_text())
