@@ -28,6 +28,14 @@ import type {
 const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
 const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
 const CURRENT_MEMBERSHIP_PRICE_VERSION = '2026-08-v2';
+// 首期可能来自支付、换购、升级或后台变更；带当前周期期号的记录共用发放/去重口径。
+const YEARLY_INSTALLMENT_TRANSACTION_TYPES = [
+  'membership_grant',
+  'membership_yearly_installment',
+  'membership_cycle_switch',
+  'membership_upgrade_prorated',
+  'membership_admin_change',
+];
 
 type MembershipCreditBalances = {
   freeCredits: number;
@@ -1684,11 +1692,11 @@ export class MembershipService {
       if (dueInstallments <= 1) continue;
 
       const existingTransactions = await this.prisma.creditTransaction.findMany({
-        // 管理员即时变更套餐的首期仍保留 membership_admin_change 审计类型；
-        // 只要带有 annualInstallmentIndex，也应与常规首期一起参与去重判断。
+        // 支付和后台变更保留各自业务类型，按当前周期的期号识别首期，
+        // 不能把正常支付的 membership_grant 误判为旧版全年一次性发放。
         where: {
           subscriptionId: subscription.id,
-          businessType: { in: ['membership_yearly_installment', 'membership_admin_change'] },
+          businessType: { in: YEARLY_INSTALLMENT_TRANSACTION_TYPES },
         },
         select: { metadata: true },
       });
@@ -1732,7 +1740,7 @@ export class MembershipService {
           const issuedInTransaction = await tx.creditTransaction.findMany({
             where: {
               subscriptionId: subscription.id,
-              businessType: { in: ['membership_yearly_installment', 'membership_admin_change'] },
+              businessType: { in: YEARLY_INSTALLMENT_TRANSACTION_TYPES },
             },
             select: { metadata: true },
           });
@@ -1816,6 +1824,10 @@ export class MembershipService {
         throw new BadRequestException('当前年费订阅不是按月到账套餐，不能手动发放下一期');
       }
 
+      // 先锁账户，再决定下一期；与定时发放和重复手动请求共用账户锁，避免同一期重复入账。
+      const account = await findCreditAccountForUpdate(tx, { userId });
+      if (!account) throw new NotFoundException('用户积分账户不存在');
+
       const durationMs = Math.max(0, subscription.currentPeriodEndAt.getTime() - subscription.currentPeriodStartAt.getTime());
       const perInstallmentMs = Math.max(1, policy.membershipRefreshCycleDays) * 24 * 60 * 60 * 1000;
       const installmentCount = Math.min(12, Math.ceil(durationMs / perInstallmentMs));
@@ -1823,7 +1835,7 @@ export class MembershipService {
       const issued = await tx.creditTransaction.findMany({
         where: {
           subscriptionId: subscription.id,
-          businessType: { in: ['membership_grant', 'membership_yearly_installment', 'membership_cycle_switch', 'membership_upgrade_prorated', 'membership_admin_change'] },
+          businessType: { in: YEARLY_INSTALLMENT_TRANSACTION_TYPES },
         },
         select: { metadata: true },
       });
@@ -1843,8 +1855,6 @@ export class MembershipService {
 
       const amount = this.resolveYearlyInstallmentGrant(snapshot, nextIndex);
       if (amount <= 0) throw new BadRequestException('下一期积分金额无效');
-      const account = await findCreditAccountForUpdate(tx, { userId });
-      if (!account) throw new NotFoundException('用户积分账户不存在');
       const lot = await tx.creditLot.create({
         data: buildMembershipCreditLotData({
           accountId: account.id, amount, grantedAt: now, activeAt: now,
@@ -3069,15 +3079,7 @@ export class MembershipService {
     const transactions = await this.prisma.creditTransaction.findMany({
       where: {
         subscriptionId: params.subscriptionId,
-        businessType: {
-          in: [
-            'membership_grant',
-            'membership_yearly_installment',
-            'membership_cycle_switch',
-            'membership_upgrade_prorated',
-            'membership_admin_change',
-          ],
-        },
+        businessType: { in: YEARLY_INSTALLMENT_TRANSACTION_TYPES },
       },
       select: { metadata: true },
     });
@@ -3119,7 +3121,7 @@ export class MembershipService {
     if (installmentCount <= 0) return [];
     const cycleStartAt = subscription.currentPeriodStartAt.toISOString();
     const transactions = await client.creditTransaction.findMany({
-      where: { subscriptionId: subscription.id, businessType: { in: ['membership_grant', 'membership_yearly_installment', 'membership_cycle_switch', 'membership_upgrade_prorated', 'membership_admin_change'] } },
+      where: { subscriptionId: subscription.id, businessType: { in: YEARLY_INSTALLMENT_TRANSACTION_TYPES } },
       select: { metadata: true, createdAt: true },
     });
     const issuedAtByIndex = new Map<number, Date>();

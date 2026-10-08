@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",
+    "verify:membership-yearly-installments": "ts-node --transpile-only scripts/verify-membership-yearly-installments.ts",
     "verify:membership-coverage-upgrade": "ts-node --transpile-only scripts/verify-membership-coverage-upgrade.ts",
     "verify:recharge-bonus-policy": "ts-node --transpile-only scripts/verify-recharge-bonus-policy.ts",
     "verify:recharge-discount-policy": "npm run verify:recharge-bonus-policy",

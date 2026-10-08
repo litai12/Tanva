@@ -226,7 +226,7 @@
   - 免费用户一次性额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；不会再按 30 天周期续发，定时清理任务仅兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
   - `MembershipService.decayDailyGiftCredits()` 以“执行时是否处于 VIP 有效期”为唯一会员判断：非有效 VIP 的邀请奖励、运营赠送、注册 `promo` 批次与受邀注册免费额度等普通免费积分池每天默认衰减 `50`，有效 VIP/VIP 白名单暂停。对于没有任何已支付订单的历史账号，未被 `CreditLot` 覆盖的旧注册/签到/退款余额也按非付费免费余额参与衰减，避免旧账因缺少 lot 标记永久保留；有付费记录的账号仍不自动扣减无法追溯来源的混合余额。签到 gift 明确排除此任务，统一交给凌晨 `3:00` 业务日清理，避免先衰减再整批清除。充值本金与充值赠送统一归类为 `recharge`，不参与衰减。签到 lot 使用 `priority=-200`，消费时优先于会员额度、其他赠送与充值批次。流水使用 `businessType=free_credit_decay`，同一用户同一自然日幂等。
-  - 年卡额度在购买时一次性发放，`MembershipService.refreshYearlySubscriptionQuotaLots()` 保留兼容入口但固定空转，不再按月重复补发年卡额度。
+  - 新版分期年卡开通只发首期，`MembershipService.refreshYearlySubscriptionQuotaLots()` 每日 4 点按 `membershipRefreshCycleDays`（默认 30 天）补齐当前订阅周期内已到期、尚未发放的第 2～12 期。支付、换购、升级与管理员变更的带期号流水使用同一识别集合；以 `subscriptionId + annualCycleStartAt + annualInstallmentIndex` 查重，事务内先锁账户再复查。旧版无分期标签且已存在一次性首期流水的年卡继续跳过，避免重复发放全年额度。管理员显式发下一期同样先锁账户，再读取已发期数；详细回归与故障说明见 [年卡分期发放修复](../membership-yearly-installments-20261008.md)。
   - 会员升级订单会记录 `membershipCycleSwitch`；支付入账同时根据当前订阅与目标套餐的真实周期推断，月卡→年卡即使订单标记缺失也会从支付时刻重开完整年周期。事务提交前会复读订阅、权益快照与新积分 lot，任一周期不一致则整体回滚。
   - `MembershipSchedulerService` 每小时只读巡检最近 48 小时的已支付年卡升级，检查订阅、权益快照和积分 lot 周期；异常只写错误日志，不自动修复或补积分。
 - `MembershipSchedulerService` 每日 2 点执行免费积分池衰减；`CreditsSchedulerService` 每日 3 点在签到业务日切换时清理昨日签到余额，并把所有账号的免费一次性额度原 2 点到期扫描保持为独立任务；余额汇总同时排除已过期但尚未被定时任务收敛的 lot；原每日 5 点会员自动赠送任务已停用。
