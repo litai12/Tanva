@@ -22,7 +22,7 @@ GPT-Image-2 节点点击 Run 后可能显示「已有生成请求，请查看原
 
 ## 验证与发布边界
 
-验证终态旧记录可重跑、更早的在途任务仍防重、跨用户与未知任务不误放行、相同幂等键不重复扣费，以及前端项目身份与连点锁。使用模拟计费和供应商，不发起真实付费生成。此次修复不自动重跑用户节点，不处理历史账目；本地验证完成后仍需发布前后端才能在线生效。
+验证终态旧记录可重跑、更早的在途任务仍防重、跨用户与未知任务不误放行、相同幂等键不重复扣费，以及前端项目身份与连点锁。使用模拟计费和供应商，不发起真实付费生成。此次修复不自动重跑用户节点，不手动处理历史账目；前后端已按下述记录发布。
 
 - 后端定向回归：`cd backend && npx ts-node --transpile-only src/credits/image-node-rerun.spec.ts`。
 - 耗时与只读历史回归：`cd backend && npx ts-node --transpile-only src/credits/image-usage-duration.spec.ts`。
@@ -32,3 +32,11 @@ GPT-Image-2 节点点击 Run 后可能显示「已有生成请求，请查看原
 - 前端状态展示回归：`cd frontend && node --test src/utils/creditGenerationStatus.test.ts`。与提交/恢复回归共 12 条通过。
 - 后端上述回归、前后端完整构建通过。全量前端 lint 有既有错误；FlowOverlay 的 HEAD 与修改版均为 674 个错误、19 个警告，规则和消息签名一致，无新增；其余改动 UI/测试/格式化文件的定向 lint 通过。
 - 仓库约定的 AI Metadata 同步脚本 `/Users/libiqiang/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs` 在本机不存在，无法执行该附加同步。
+
+## 101 部署（用户授权）
+
+- 2026-10-09 17:35（UTC+8），修复提交 `8ef3433f` 已推送 main；101 的 `/www/wwwroot/tanvas.cn` 执行 `git pull --ff-only origin main` 并确认该版本。
+- 服务器前后端构建成功，重跑节点计费、耗时/历史与孤儿清理三组回归通过。构建先输出到独立目录，再切换产物；旧前端散列资源保留，index 最后原子替换。
+- 备份及新产物目录：`/opt/tanva-backups/image-node-rerun-8ef3433f-20261009/`。重载前图片队列 active=0、paused=false；执行 `pm2 reload tanvas-api`、`pm2 save`，未暂停队列。重载后进程 online，队列 paused=false，并开始处理新的正常请求。
+- 本机及公网 `/api/health` 返回 200 / ok，公网 `/app` 和新主脚本 `/assets/index-EFEQQoTP.js` 返回 200。公网 index 与脚本 SHA-256 均与服务器发布文件一致，编译产物包含本次前后端修复。
+- 无数据库迁移、无 new-api 重建；未发起付费验收、未重跑用户节点。现有页面需刷新加载新前端。
