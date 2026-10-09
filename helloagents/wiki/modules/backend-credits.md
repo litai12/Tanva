@@ -175,7 +175,7 @@
 - 异步任务失败可调用 `POST /api/ai/video-task-refund`：先标记 `failed` 再退款；退款交易按 `apiUsageId` 幂等。
 - 状态机保护：`updateApiUsageStatus` 禁止 `failed -> success` 与 `success -> failed` 的反向回写，避免“已退款后又标记成功”或“已成功后又标记失败”的状态/账务不一致。
 - 定时任务每 5 分钟扫描超时 `pending` 并自动退款：
-  - 图像类：`CREDITS_PENDING_TIMEOUT_MINUTES`（默认 15 分钟）
+  - 图像类：`CREDITS_PENDING_TIMEOUT_MINUTES`（默认 60 分钟）；只退「关联 ImageTask 已 failed 且无 imageUrl」的孤儿用量，不按年龄单独退款；仅处理 `createdAt >= 2026-10-09T02:30Z` 的新账，旧账不自动退（`CREDITS_ORPHAN_IMAGE_REFUND_CUTOVER_AT` 可改为实际部署时间）（见 `wiki/orphan-image-refund-20261009.md`）
   - 视频类：`CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES`（默认 30 分钟）
 - Hailuo H3 使用 new-api 实际回报积分，但异步创建阶段保持 `pending`；创建响应必须带回 `apiUsageId` 并持久化上游 `taskId`，查询终态可按 taskId 找回同一 pending 记录并自动确认/退款，前端回写仅作快速路径。`hailuo-video` 已纳入视频超时自动退款范围。
 - 视频类自动退款默认带分界线：仅处理 `createdAt >= 2026-03-28T00:00:00.000Z` 的记录，避免历史 `pending` 上线后集中退款。

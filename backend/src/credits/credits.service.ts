@@ -78,7 +78,11 @@ try {
   IORedis = null;
 }
 
-const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
+const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 60;
+// Orphan image refunds only settle usages created after the 2026-10-09 manual
+// cleanup; older pending rows are never auto-refunded (override with
+// CREDITS_ORPHAN_IMAGE_REFUND_CUTOVER_AT, e.g. the exact deploy time).
+const ORPHAN_IMAGE_REFUND_DEFAULT_CUTOVER_AT = '2026-10-09T02:30:00.000Z';
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT = '2026-04-15T00:00:00.000Z';
@@ -145,6 +149,15 @@ const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<
     '4K': 760,
   },
 };
+type StalePendingUsageRecord = {
+  id: string;
+  userId: string;
+  serviceType: string;
+  createdAt: Date;
+  requestParams: Prisma.JsonValue;
+  consumptionStatus: string | null;
+};
+
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -3323,6 +3336,20 @@ export class CreditsService {
     return fallback;
   }
 
+  private getOrphanImageRefundCutoverAt(): Date {
+    const raw = process.env.CREDITS_ORPHAN_IMAGE_REFUND_CUTOVER_AT?.trim();
+    if (raw) {
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+      this.logger.warn(
+        `Invalid CREDITS_ORPHAN_IMAGE_REFUND_CUTOVER_AT=${raw}, fallback to default ${ORPHAN_IMAGE_REFUND_DEFAULT_CUTOVER_AT}`,
+      );
+    }
+    return new Date(ORPHAN_IMAGE_REFUND_DEFAULT_CUTOVER_AT);
+  }
+
   private getStalePendingBatchSize(): number {
     return this.parsePositiveIntEnv(
       'CREDITS_PENDING_TIMEOUT_BATCH_SIZE',
@@ -6418,8 +6445,30 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
-    // Age alone says nothing about upstream acceptance or cost.
-    return { scanned: 0, refunded: 0, skippedSuccess: 0, errors: 0, timeoutMinutes, batchSize };
+    // Age alone says nothing about upstream acceptance or cost. Only usages whose
+    // ImageTask already reached `failed` without an image are orphans: the worker
+    // died or left them for reconciliation, and the stuck-task sweeper closed the
+    // task without settling the usage, so nothing else will ever refund them.
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    // createdAt is a UTC `timestamp` column; casting the ISO string drops the
+    // `Z` and compares UTC wall clocks regardless of the DB session timezone.
+    const orphanRecords = await this.prisma.$queryRaw<StalePendingUsageRecord[]>`
+      SELECT a.id, a."userId", a."serviceType", a."createdAt", a."requestParams", a."consumptionStatus"
+      FROM "ApiUsageRecord" a
+      JOIN "ImageTask" t ON t.id = a."requestParams"->>'taskId' AND t."userId" = a."userId"
+      WHERE a."responseStatus" = ${ApiResponseStatus.PENDING}
+        AND a."createdAt" < ${cutoff.toISOString()}::timestamp
+        AND a."createdAt" >= ${this.getOrphanImageRefundCutoverAt().toISOString()}::timestamp
+        AND t.status = 'failed'
+        AND t."imageUrl" IS NULL
+      ORDER BY a."createdAt" ASC
+      LIMIT ${batchSize}`;
+    return this.failAndRefundStaleRecords(
+      orphanRecords,
+      `孤儿任务退款：图片任务已失败且未出图（超过${timeoutMinutes}分钟）`,
+      timeoutMinutes,
+      batchSize,
+    );
   }
 
   /**
@@ -6483,6 +6532,27 @@ export class CreditsService {
       },
     });
 
+    return this.failAndRefundStaleRecords(
+      staleRecords,
+      `超时自动关闭：${timeoutMinutes}分钟未完成`,
+      timeoutMinutes,
+      batchSize,
+    );
+  }
+
+  private async failAndRefundStaleRecords(
+    staleRecords: StalePendingUsageRecord[],
+    timeoutMessage: string,
+    timeoutMinutes: number,
+    batchSize: number,
+  ): Promise<{
+    scanned: number;
+    refunded: number;
+    skippedSuccess: number;
+    errors: number;
+    timeoutMinutes: number;
+    batchSize: number;
+  }> {
     if (staleRecords.length === 0) {
       return {
         scanned: 0,
@@ -6503,8 +6573,7 @@ export class CreditsService {
       // Elapsed time must not turn accepted desktop/web work into a refund.
       if (record.consumptionStatus || (record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||
           record.id.startsWith('desktop-chat:') || record.id.startsWith('deepseek-chat:')) continue;
-      const processingTime = Math.max(0, Date.now() - record.createdAt.getTime());
-      const timeoutMessage = `超时自动关闭：${timeoutMinutes}分钟未完成`;
+      const processingTime = Math.max(0, Date.now() - new Date(record.createdAt).getTime());
 
       try {
         await this.markApiUsageFailedForUser(

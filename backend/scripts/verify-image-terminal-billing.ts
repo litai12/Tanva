@@ -90,8 +90,28 @@ async function main() {
     row = { ...row, status: 'processing', createdAt: new Date(0) };
     assert.equal((await worker.getTaskStatus('task', 'owner')).status, 'processing', 'polling cannot fail an old task');
   }
-  const credits: any = Object.assign(Object.create(CreditsService.prototype), { getStalePendingTimeoutMinutes: () => 15, getStalePendingBatchSize: () => 100 });
-  assert.equal((await credits.autoRefundStalePendingImageUsages()).refunded, 0);
+  // Pending usage is refunded only when its ImageTask already failed without an image.
+  let orphanSql = '';
+  let orphanValues: unknown[] = [];
+  const settled: string[] = [];
+  const orphanRows = [
+    { id: 'orphan', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task' }, consumptionStatus: null },
+    { id: 'team-orphan', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task2', teamId: 'team' }, consumptionStatus: null },
+    { id: 'gateway', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task3' }, consumptionStatus: 'pending' },
+  ];
+  const credits: any = Object.assign(Object.create(CreditsService.prototype), {
+    logger, getStalePendingTimeoutMinutes: () => 60, getStalePendingBatchSize: () => 100,
+    prisma: { $queryRaw: async (sql: TemplateStringsArray, ...values: unknown[]) => { orphanSql = sql.join('?'); orphanValues = values; return orphanRows; } },
+    markApiUsageFailedForUser: async (_: string, id: string) => { settled.push(`fail:${id}`); },
+    refundCredits: async (_: string, id: string) => { settled.push(`refund:${id}`); return {}; },
+  });
+  const orphanResult = await credits.autoRefundStalePendingImageUsages();
+  assert.match(orphanSql, /t\.status = 'failed'/); assert.match(orphanSql, /t\."imageUrl" IS NULL/);
+  assert.equal(orphanResult.refunded, 1);
+  // Old pending rows stay untouched: only usages after the cutover are settled.
+  assert(orphanValues.includes('2026-10-09T02:30:00.000Z'));
+  // Team usage is only marked failed (team ledger releases); gateway consumption is never touched.
+  assert.deepEqual(settled, ['fail:orphan', 'refund:orphan', 'fail:team-orphan']);
   let filter: any;
   const tx = { apiUsageRecord: { findFirst: async ({ where }: any) => { filter = where; return null; } } };
   await credits.findActiveNodeVideoUsage(tx, { userId: 'owner', clientProjectId: 'p', clientNodeId: 'n', image: true });
