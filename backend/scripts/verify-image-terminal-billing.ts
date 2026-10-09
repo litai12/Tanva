@@ -85,7 +85,9 @@ async function main() {
     assert.equal(submitted, scenario === 'duplicate' ? 0 : 1, scenario);
     assert.equal(refunded, scenario === 'rejected' ? 1 : 0, scenario);
     assert.equal(committed, scenario === 'success' ? 1 : 0, scenario);
-    assert.equal(row.status, scenario === 'success' ? 'succeeded' : ['rejected', 'duplicate'].includes(scenario) ? 'failed' : 'processing', scenario);
+    // Unknown outcomes end as failed immediately (no rollback here); the orphan job refunds later.
+    assert.equal(row.status, scenario === 'success' ? 'succeeded' : 'failed', scenario);
+    if (['unknown', 'upload-failed'].includes(scenario)) assert.match(row.error, /1小时内自动退还/);
     if (['unknown', 'upload-failed'].includes(scenario)) assert.equal(row.requestData.apiUsageId, 'usage');
     row = { ...row, status: 'processing', createdAt: new Date(0) };
     assert.equal((await worker.getTaskStatus('task', 'owner')).status, 'processing', 'polling cannot fail an old task');

@@ -1107,16 +1107,25 @@ export class ImageTaskService {
           const errorMessage = error instanceof Error ? error.message : String(error);
           this.logger.error(`任务执行失败: taskId=${taskId}, error=${errorMessage}`);
           if (needsImageReconciliation(execution)) {
-            const reason = '生成结果待核实，请勿重复提交；确认上游结果后结算';
+            // Unknown upstream outcome: end the task now with the real reason instead
+            // of leaving it in processing for the stuck-task sweeper. The pre-charge
+            // stays pending and the orphan refund job settles it once it is >1h old.
+            const reason = `${errorMessage || '图像生成失败'}（未确认出图，积分将在1小时内自动退还）`;
             this.logger.error(`IMAGE_RECONCILIATION_REQUIRED taskId=${taskId} apiUsageId=${effectiveApiUsageId} error=${errorMessage}`);
             await this.prisma.imageTask.update({ where: { id: taskId }, data: {
+              status: 'failed',
               error: reason,
+              completedAt: new Date(),
               requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
                 imageSubmissionState: 'reconciliation_required' },
             } });
             if (effectiveApiUsageId) await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, {
               taskId, imageSubmissionState: 'reconciliation_required',
             });
+            void this.publishTaskStatus(
+              taskRequestData?.projectId as string | undefined,
+              { taskId, nodeId: task.nodeId ?? null, taskType, status: 'failed', error: reason },
+            );
             return;
           }
 

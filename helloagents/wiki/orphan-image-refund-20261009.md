@@ -25,3 +25,10 @@
 - 使用生产 dist 的 `CreditsService.markApiUsageFailedForUser + refundCredits` 执行，225 笔全部成功，0 失败；结果清单 `/root/tanva-orphan-refund-2026-10-09T02-29-31-740Z.json`（0600）。
 - 因数据库 `now()` 时区问题，实际有 2 笔创建不足 1 小时（27、37 分钟），均已被清理任务判 failed 且无出图，属于应退范围。
 - 不再处理（用户确认旧账不参与）：5–9 月同类图片孤儿 730 笔 / 41,690 积分；近 30 天无本地任务关联的视频/MJ 等约 13 笔；2–3 月 requestParams 为空的历史视频 1,566 笔 / 约 79.8 万积分。视频孤儿（VideoTask 被判 failed）不在本次机制修复范围内，仍依赖供应商终态补偿查询。
+
+## 追加：待核实任务不再挂起（同日）
+
+- 线上日志显示当天的孤儿并非进程崩溃，而是 Worker 的 `reconciliation_required` 分支：new-api 502/500（如 `Reference image must not be larger than 20 MiB`、`Generation failed: task processing failed`）或 15 分钟请求超时后，任务保持 processing 直接返回，前端持续转圈；20 分钟后被清理任务改成英文 `task stuck/orphaned, auto-failed`，真实原因被覆盖。
+- 修复：该分支直接把 ImageTask 置为 failed，错误为「原始原因（未确认出图，积分将在1小时内自动退还）」并推送失败状态；预扣保持 pending，由孤儿退款任务在 1 小时后退款（不在 Worker 内立即回滚）。
+- 卡死清理的错误文案改为中文：processing 超时「生成超时未返回结果，任务已结束；未出图的积分将在1小时内自动退还」，queued 超时「任务排队超时未开始，已结束；积分将在1小时内自动退还」。清理任务此后只兜底进程崩溃/重启。
+- 同步 Images API（控制器 `withCredits`）的不确定结果没有 ImageTask，仍保持 pending，不在本次范围。

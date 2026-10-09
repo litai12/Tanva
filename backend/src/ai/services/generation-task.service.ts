@@ -39,6 +39,9 @@ const VIDEO_PROCESSING_STUCK_MS = Number(
 // 避免误杀「已出图、正在上传 OSS」尚未写完的任务（race 只包住生成，不包住上传/落库）。
 const IMAGE_PROCESSING_STUCK_MS =
   Number(process.env.IMAGE_TASK_MAX_DURATION_MS ?? 15 * 60 * 1000) + 5 * 60 * 1000;
+// Shown to users on the node; image pre-charges are refunded by the orphan refund job.
+const STUCK_TASK_ERROR = '生成超时未返回结果，任务已结束；未出图的积分将在1小时内自动退还';
+const ORPHANED_QUEUED_TASK_ERROR = '任务排队超时未开始，已结束；积分将在1小时内自动退还';
 const RECONCILE_INTERVAL_MS = 60 * 1000; // 每分钟扫一次，卡死/孤儿任务无需等下次重启即可被判失败
 
 @Injectable()
@@ -342,19 +345,19 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     try {
       const { count: vProcessing } = await this.prisma.videoTask.updateMany({
         where: { status: 'processing', updatedAt: { lt: videoProcessingCutoff } },
-        data: { status: 'failed', error: 'task stuck/orphaned, auto-failed' },
+        data: { status: 'failed', error: STUCK_TASK_ERROR },
       });
       const { count: iProcessing } = await this.prisma.imageTask.updateMany({
         where: { status: 'processing', updatedAt: { lt: imageProcessingCutoff } },
-        data: { status: 'failed', error: 'task stuck/orphaned, auto-failed' },
+        data: { status: 'failed', error: STUCK_TASK_ERROR },
       });
       const { count: vQueued } = await this.prisma.videoTask.updateMany({
         where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
-        data: { status: 'failed', error: 'task orphaned, auto-failed' },
+        data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
       });
       const { count: iQueued } = await this.prisma.imageTask.updateMany({
         where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
-        data: { status: 'failed', error: 'task orphaned, auto-failed' },
+        data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
       });
       const total = vProcessing + iProcessing + vQueued + iQueued;
       if (total > 0) {
