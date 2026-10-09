@@ -28,6 +28,10 @@ export class GatewayConsumptionOrdersService {
     private readonly publisher: TeamCreditsPublisher) {}
 
   isEnabled(): boolean { return !!this.config.get<string>('TANVA_CONSUMPTION_SECRET')?.trim(); }
+  // Restrict new admissions without disabling proof recovery for existing orders.
+  isWebEnabled(): boolean {
+    return this.isEnabled() && this.config.get<string>('TANVA_CONSUMPTION_SCOPE')?.trim() !== 'desktop';
+  }
   private secret(): string {
     const secret = this.config.get<string>('TANVA_CONSUMPTION_SECRET')?.trim();
     if (!secret) throw new ServiceUnavailableException('网关消费签名配置不可用');
@@ -43,6 +47,7 @@ export class GatewayConsumptionOrdersService {
     await this.lock(tx, apiUsageId);
     const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: apiUsageId } });
     if (row.consumptionStatus) return true;
+    if (!this.isWebEnabled() && !(row.requestParams as any)?.desktopChat) return false;
     if (row.responseStatus !== 'pending') throw new ConflictException('历史输出订单不能自动注册消费结算');
     const params = row.requestParams as any;
     const orderHash = params?.desktopChat?.bodyHash ?? params?.deepseekBilling?.bodyHash ?? params?.gatewayConsumption?.orderHash;

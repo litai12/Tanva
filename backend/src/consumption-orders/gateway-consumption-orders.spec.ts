@@ -72,13 +72,24 @@ async function run() {
   assert.equal(signGatewayRequest(secret, '1791172800', 'POST', '/v1/chat/completions', 'usage-1', hash, requestBody), '9c1b4b00acd9bd776ad17d363f8c0caf4602bf1c65207a481f7499c3cf1fa770');
   assert.equal(signGatewayRequest(secret, '1791172800', 'GET', '/v1/tanva/consumptions/usage-1', 'usage-1', hash, ''), '1d3e8f2ae1cd187318f5413f555b29f7a1575782b90c10f7186ea996413f8b21');
   const user = await owner(); const id = await admit(user.id);
+  assert.equal(orders.isWebEnabled(), true, 'an unset scope retains existing global behavior');
+  const desktopConfig = { get: (key: string) => key === 'TANVA_CONSUMPTION_SCOPE' ? 'desktop' : config.get(key) } as ConfigService;
+  const desktopOrders = new GatewayConsumptionOrdersService(db, desktopConfig, credits, ledger, publisher);
+  const webRow = await db.apiUsageRecord.create({ data: { userId: user.id, serviceType: 'gemini-text', serviceName: 'scope fixture',
+    provider: 'new-api', model: 'deepseek-v4.1-flash', creditsUsed: 0, responseStatus: 'pending',
+    requestParams: { deepseekBilling: { bodyHash: hash } } } });
+  await db.$transaction(async tx => {
+    assert.equal(await desktopOrders.register(webRow.id, tx), false, 'new website requests remain in their existing billing mode');
+    assert.equal(await desktopOrders.register(id, tx), true, 'existing website orders remain available for recovery');
+  });
+  assert.equal((await db.apiUsageRecord.findUniqueOrThrow({ where: { id: webRow.id } })).consumptionStatus, null);
   // Known model output may already be successful. Consumption settlement remains independent.
   await db.apiUsageRecord.update({ where: { id }, data: { responseStatus: 'success', requestParams: { gatewayConsumption: { orderHash: hash }, modelOutput: { status: 'ready', response: { text: 'original' } } } } });
   const bodyBefore = (await db.apiUsageRecord.findUniqueOrThrow({ where: { id } })).requestParams;
   const headers = await orders.gatewayHeaders(id, { method: 'POST', path: '/v1/chat/completions', rawBody: requestBody });
   assert.equal(headers['X-Tanva-Signature'], signGatewayRequest(secret, headers['X-Tanva-Timestamp'], 'POST', '/v1/chat/completions', id, hash, requestBody));
   const consumed = proof(id);
-  const results = await Promise.all(Array.from({ length: 8 }, () => orders.receiveEnvelope(envelope(consumed))));
+  const results = await Promise.all(Array.from({ length: 8 }, () => desktopOrders.receiveEnvelope(envelope(consumed))));
   assert(results.every(r => r.status === 'settled')); assert.equal(await balance(user.id), 997);
   const row = await db.apiUsageRecord.findUniqueOrThrow({ where: { id } });
   assert.equal(row.responseStatus, 'success'); assert.deepEqual(row.requestParams, bodyBefore); assert.equal(row.creditsUsed, 3);

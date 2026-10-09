@@ -26,7 +26,7 @@ Logger.overrideLogger(['error']);
 const db = new PrismaService({ datasources: { db: { url } } });
 const secret = 'dynamic-desktop-fixture-secret';
 const config = { get: (key: string) => ({ TANVA_CONSUMPTION_SECRET: secret, NEW_API_BASE_URL: 'https://fixture.invalid', NEW_API_KEY: 'fixture-only',
-  JWT_ACCESS_SECRET: 'dynamic-desktop-jwt', NODE_ENV: 'test', REDIS_URL: '' } as Record<string, string>)[key] } as ConfigService;
+  TANVA_CONSUMPTION_SCOPE: 'desktop', JWT_ACCESS_SECRET: 'dynamic-desktop-jwt', NODE_ENV: 'test', REDIS_URL: '' } as Record<string, string>)[key] } as ConfigService;
 const credits = new CreditsService(db, config, new BusinessPolicyService(db), {} as any);
 const ledger = new TeamCreditLedgerService(db);
 const orders = new GatewayConsumptionOrdersService(db, config, credits, ledger, { publish: async () => {} } as any);
@@ -79,6 +79,8 @@ function headers(key: string, teamId?: string) {
 const body = { model, messages: [{ role: 'user', content: 'dynamic request' }] };
 async function run() {
   await db.$connect();
+  assert.equal(orders.isEnabled(), true);
+  assert.equal(orders.isWebEnabled(), false, 'desktop signing must not enable website billing');
   const user = await owner(10);
   const users = { findById: (id: string) => db.user.findUnique({ where: { id } }), touchLastLoginAt: async () => {} };
   @Module({ imports: [PassportModule.register({ session: false })], controllers: [DesktopChatController], providers: [

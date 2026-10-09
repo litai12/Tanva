@@ -135,7 +135,7 @@ async function main() {
   assert.equal(recovery.settled.length, 1);
 
   let orderQueries = 0;
-  const orders = { isEnabled: () => true, register: async () => true,
+  const orders = { isWebEnabled: () => true, register: async () => true,
     getState: async () => ({ enabled: true, status: 'pending' }),
     reconcile: async () => { orderQueries++; return { enabled: true, status: 'pending' }; } };
   const gateway = harness(orders);
@@ -154,10 +154,10 @@ async function main() {
   assert.equal(orderQueries, 2);
   assert.equal(await gateway.service.hasGatewayOrder('user-test', 'gateway-body'), true);
   assert.equal(await gateway.service.hasGatewayOrder('other-user', 'gateway-body'), false);
-  orders.isEnabled = () => false;
+  orders.isWebEnabled = () => false;
   const retained = await gateway.service.begin(input('gateway-body'));
   assert.equal(retained.gatewayMode, true, 'registered orders retain gateway mode after signing config is removed');
-  orders.isEnabled = () => true;
+  orders.isWebEnabled = () => true;
   assert.equal(gateway.settled.length, 0, 'caller cannot settle or reprice gateway consumption using model tokens');
   assert.equal(gateway.refunds(), 0);
   await gateway.service.execute(input('gateway-body:reply'), gatewayOperation, () => undefined);

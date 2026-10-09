@@ -39,7 +39,7 @@ export class DeepSeekChatBillingService {
     @Optional() private readonly orders?: GatewayConsumptionOrdersService,
   ) {}
 
-  isGatewayEnabled(): boolean { return this.orders?.isEnabled() === true; }
+  isGatewayEnabled(): boolean { return this.orders?.isWebEnabled() === true; }
 
   async hasGatewayOrder(userId: string, identity: string): Promise<boolean> {
     const id = `deepseek-chat:${createHash('sha256').update(`${userId}:${identity}`).digest('hex')}`;
