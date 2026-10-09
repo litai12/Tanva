@@ -35,8 +35,8 @@ const QUEUED_STUCK_MS = 40 * 60 * 1000; // queued 兜底超时（Redis job 可�
 const VIDEO_PROCESSING_STUCK_MS = Number(
   process.env.VIDEO_TASK_MAX_DURATION_MS ?? 60 * 60 * 1000,
 );
-// 图像：worker 侧已有 15min 硬上限(race)+退款；这里取「硬上限 + 5min 上传缓冲」，只兜进程崩溃的孤儿，
-// 避免误杀「已出图、正在上传 OSS」尚未写完的任务（race 只包住生成，不包住上传/落库）。
+// 图像沿用供应商请求时限 + 上传缓冲的孤儿清理阈值。
+// 任务终态通知与用量耗时在此补齐；原计费记录仍交由既有结算流程处理。
 const IMAGE_PROCESSING_STUCK_MS =
   Number(process.env.IMAGE_TASK_MAX_DURATION_MS ?? 15 * 60 * 1000) + 5 * 60 * 1000;
 // Shown to users on the node; image pre-charges are refunded by the orphan refund job.
@@ -336,8 +336,8 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   private async reconcileStuckTasks(): Promise<void> {
     const now = Date.now();
     // 每种任务用各自的阈值，且都比「正常最长耗时」更宽，纯粹兜底卡死/孤儿：
-    //   图像 processing：worker 硬上限 + 上传缓冲（约 20min）
-    //   视频 processing：40min（视频本就慢）
+    //   图像 processing：供应商请求时限 + 上传缓冲（约 20min）
+    //   视频 processing：默认 1h（视频本就慢）
     //   queued：40min（Redis job 可能还在，重启后 worker 会重投）
     const queuedCutoff = new Date(now - QUEUED_STUCK_MS);
     const videoProcessingCutoff = new Date(now - VIDEO_PROCESSING_STUCK_MS);
@@ -347,18 +347,16 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
         where: { status: 'processing', updatedAt: { lt: videoProcessingCutoff } },
         data: { status: 'failed', error: STUCK_TASK_ERROR },
       });
-      const { count: iProcessing } = await this.prisma.imageTask.updateMany({
-        where: { status: 'processing', updatedAt: { lt: imageProcessingCutoff } },
-        data: { status: 'failed', error: STUCK_TASK_ERROR },
-      });
+      const iProcessing = await this.reconcileStuckImageTasks(
+        'processing', imageProcessingCutoff, STUCK_TASK_ERROR, new Date(now),
+      );
       const { count: vQueued } = await this.prisma.videoTask.updateMany({
         where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
         data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
       });
-      const { count: iQueued } = await this.prisma.imageTask.updateMany({
-        where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
-        data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
-      });
+      const iQueued = await this.reconcileStuckImageTasks(
+        'queued', queuedCutoff, ORPHANED_QUEUED_TASK_ERROR, new Date(now),
+      );
       const total = vProcessing + iProcessing + vQueued + iQueued;
       if (total > 0) {
         this.logger.warn(
@@ -370,5 +368,59 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error('Failed to reconcile stuck tasks', err);
     }
+  }
+
+  private async reconcileStuckImageTasks(
+    status: 'queued' | 'processing',
+    cutoff: Date,
+    error: string,
+    completedAt: Date,
+  ): Promise<number> {
+    const tasks = await this.prisma.imageTask.findMany({
+      where: { status, updatedAt: { lt: cutoff } },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true, userId: true, nodeId: true, type: true,
+        createdAt: true, updatedAt: true, requestData: true,
+      },
+    });
+    let reconciled = 0;
+    for (const task of tasks) {
+      try {
+        // Do not overwrite a completion or heartbeat that raced the scan.
+        const result = await this.prisma.imageTask.updateMany({
+          where: { id: task.id, status, updatedAt: task.updatedAt },
+          data: { status: 'failed', error, completedAt },
+        });
+        if (result.count !== 1) continue;
+        reconciled++;
+        const request = task.requestData && typeof task.requestData === 'object'
+          && !Array.isArray(task.requestData) ? task.requestData : null;
+        if (typeof request?.projectId === 'string' && request.projectId) {
+          await this.publishTaskStatus(request.projectId, {
+            taskId: task.id, nodeId: task.nodeId, taskType: task.type,
+            category: 'image', status: 'failed', error,
+          });
+        }
+        // Fill observation metadata only; this is not a refund or billing transition.
+        const recordedStart = typeof request?.imageExecutionStartedAt === 'string'
+          ? Date.parse(request.imageExecutionStartedAt) : NaN;
+        const startedAt = Number.isFinite(recordedStart) && recordedStart <= completedAt.getTime()
+          ? recordedStart : task.createdAt.getTime();
+        await this.prisma.apiUsageRecord.updateMany({
+          where: {
+            userId: task.userId, responseStatus: 'pending', processingTime: null,
+            requestParams: { path: ['taskId'], equals: task.id },
+          },
+          data: {
+            processingTime: Math.max(0, completedAt.getTime() - startedAt),
+            errorMessage: error,
+          },
+        });
+      } catch (err) {
+        this.logger.warn(`Image task reconciliation failed taskId=${task.id}: ${(err as Error).message}`);
+      }
+    }
+    return reconciled;
   }
 }

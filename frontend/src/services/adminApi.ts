@@ -492,6 +492,8 @@ export interface AdminUserCreditTransaction {
   billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
+  generationStatus?: 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | null;
+  generationError?: string | null;
 }
 
 export interface UserCreditTransaction extends AdminUserCreditTransaction {}

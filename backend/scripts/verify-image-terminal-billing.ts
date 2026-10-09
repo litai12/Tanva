@@ -55,10 +55,11 @@ async function main() {
   } finally { globalThis.fetch = originalFetch; }
 
   // Simultaneous workers both read queued, but only one can claim/charge/submit.
-  for (const scenario of ['success', 'unknown', 'rejected', 'duplicate', 'upload-failed']) {
+  for (const scenario of ['success', 'unknown', 'rejected', 'duplicate', 'upload-failed', 'precharge-error', 'metadata-error']) {
     let row: any = { id: 'task', userId: 'owner', type: 'generate', prompt: 'test', status: 'queued', nodeId: 'node', requestData: { projectId: 'p' } };
     const snapshot = { ...row };
     let charged = 0, submitted = 0, refunded = 0, committed = 0;
+    const events: any[] = [], durations: any[] = [];
     const worker: any = Object.assign(Object.create(ImageTaskService.prototype), {
       logger,
       prisma: { imageTask: {
@@ -67,14 +68,17 @@ async function main() {
         findFirst: async () => row,
       } },
       creditCharge: {
-        begin: async () => { charged++; return { apiUsageId: 'usage', duplicate: scenario === 'duplicate' }; },
+        begin: async () => { charged++; if (scenario === 'precharge-error') throw new Error('insufficient credits'); return { apiUsageId: 'usage', duplicate: scenario === 'duplicate' }; },
         rollback: async () => { refunded++; }, commit: async () => { committed++; },
       },
-      creditsService: { updateApiUsageRequestParams: async () => {} },
-      telemetryService: { ingestGenerationTask: async () => {} }, publishTaskStatus: async () => {},
+      creditsService: {
+        updateApiUsageRequestParams: async () => { if (scenario === 'metadata-error') throw new Error('metadata unavailable'); },
+        recordApiUsageProcessingTimeForUser: async (...args: any[]) => { durations.push(args); if (scenario === 'metadata-error') throw new Error('duration unavailable'); },
+      },
+      telemetryService: { ingestGenerationTask: async () => {} }, publishTaskStatus: async (_: any, event: any) => { events.push(event); },
       runGenerateTask: async () => {
         submitted++;
-        if (scenario === 'unknown') throw new Error('network timeout');
+        if (['unknown', 'metadata-error'].includes(scenario)) throw new Error('network timeout');
         if (scenario === 'rejected') { recordImageRejection(400); throw new Error('bad request'); }
         return { imageUrl: 'https://upstream.test/result.png' };
       },
@@ -82,13 +86,19 @@ async function main() {
     });
     await Promise.all([worker.executeTaskCore(snapshot), worker.executeTaskCore(snapshot)]);
     assert.equal(charged, 1, scenario);
-    assert.equal(submitted, scenario === 'duplicate' ? 0 : 1, scenario);
+    assert.equal(submitted, ['duplicate', 'precharge-error'].includes(scenario) ? 0 : 1, scenario);
     assert.equal(refunded, scenario === 'rejected' ? 1 : 0, scenario);
     assert.equal(committed, scenario === 'success' ? 1 : 0, scenario);
     // Unknown outcomes end as failed immediately (no rollback here); the orphan job refunds later.
     assert.equal(row.status, scenario === 'success' ? 'succeeded' : 'failed', scenario);
+    assert.equal(events.at(-1).status, row.status, `${scenario} broadcasts its terminal state`);
     if (['unknown', 'upload-failed'].includes(scenario)) assert.match(row.error, /1小时内自动退还/);
     if (['unknown', 'upload-failed'].includes(scenario)) assert.equal(row.requestData.apiUsageId, 'usage');
+    if (['unknown', 'upload-failed', 'metadata-error'].includes(scenario)) {
+      assert.equal(durations.length, 1); assert.equal(durations[0][0], 'owner'); assert.equal(durations[0][1], 'usage');
+      assert(Number.isFinite(durations[0][2])); assert(durations[0][2] >= 0);
+      assert.equal(typeof row.requestData.imageExecutionStartedAt, 'string');
+    } else assert.equal(durations.length, 0, 'duplicate cannot update the original receipt');
     row = { ...row, status: 'processing', createdAt: new Date(0) };
     assert.equal((await worker.getTaskStatus('task', 'owner')).status, 'processing', 'polling cannot fail an old task');
   }
@@ -97,25 +107,30 @@ async function main() {
   let orphanValues: unknown[] = [];
   const settled: string[] = [];
   const orphanRows = [
-    { id: 'orphan', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task' }, consumptionStatus: null },
+    { id: 'orphan', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task' }, consumptionStatus: null, processingTime: 12345 },
     { id: 'team-orphan', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task2', teamId: 'team' }, consumptionStatus: null },
     { id: 'gateway', userId: 'owner', serviceType: 'gpt-image-2', createdAt: new Date(0), requestParams: { taskId: 'task3' }, consumptionStatus: 'pending' },
   ];
   const credits: any = Object.assign(Object.create(CreditsService.prototype), {
     logger, getStalePendingTimeoutMinutes: () => 60, getStalePendingBatchSize: () => 100,
     prisma: { $queryRaw: async (sql: TemplateStringsArray, ...values: unknown[]) => { orphanSql = sql.join('?'); orphanValues = values; return orphanRows; } },
-    markApiUsageFailedForUser: async (_: string, id: string) => { settled.push(`fail:${id}`); },
+    markApiUsageFailedForUser: async (_: string, id: string, _error: string, duration: number) => { settled.push(`fail:${id}`); if (id === 'orphan') assert.equal(duration, 12345, 'refund wait must not overwrite execution duration'); },
     refundCredits: async (_: string, id: string) => { settled.push(`refund:${id}`); return {}; },
   });
   const orphanResult = await credits.autoRefundStalePendingImageUsages();
   assert.match(orphanSql, /t\.status = 'failed'/); assert.match(orphanSql, /t\."imageUrl" IS NULL/);
+  assert.match(orphanSql, /COALESCE\(a\."processingTime"/);
+  assert.match(orphanSql, /::double precision AS "processingTime"/, 'raw Prisma result must be a number, not a Decimal');
   assert.equal(orphanResult.refunded, 1);
   // Old pending rows stay untouched: only usages after the cutover are settled.
   assert(orphanValues.includes('2026-10-09T02:30:00.000Z'));
   // Team usage is only marked failed (team ledger releases); gateway consumption is never touched.
   assert.deepEqual(settled, ['fail:orphan', 'refund:orphan', 'fail:team-orphan']);
   let filter: any;
-  const tx = { apiUsageRecord: { findFirst: async ({ where }: any) => { filter = where; return null; } } };
+  const tx = { apiUsageRecord: {
+    findFirst: async ({ where }: any) => { filter = where; return null; },
+    findMany: async ({ where }: any) => { filter = where; return []; },
+  } };
   await credits.findActiveNodeVideoUsage(tx, { userId: 'owner', clientProjectId: 'p', clientNodeId: 'n', image: true });
   assert(filter.serviceType.in.includes('gpt-image-2')); assert.equal(filter.createdAt, undefined);
   await credits.findDuplicateApiUsageInWindow(tx, { userId: 'owner', serviceType: 'gpt-image-2', idempotencyKey: 'key', requestFingerprint: null, windowStartAt: new Date() });

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getAdminUserCreditTransactions, type AdminUserCreditTransaction } from "@/services/adminApi";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
+import { formatCreditGenerationStatus, formatCreditProcessingTime } from "@/utils/creditGenerationStatus";
 
 const emptyFilters = { startDate: "", endDate: "", model: "" };
 
@@ -85,15 +86,12 @@ export default function UserCreditTransactions({ userId }: { userId: string }) {
                 <th className='px-4 py-3 text-right'>积分</th>
                 <th className='px-4 py-3 text-right'>剩余积分</th>
                 <th className='px-4 py-3 text-left'>生成时间</th>
+                <th className='px-4 py-3 text-left'>生成状态</th>
                 <th className='px-4 py-3 text-left'>花费时间</th>
               </tr>
             </thead>
             <tbody>
               {creditDetailTransactions.map((tx) => {
-                const durationSeconds =
-                  typeof tx.processingTime === "number"
-                    ? Math.max(0, Math.round(tx.processingTime / 1000))
-                    : null;
                 const isPositive = tx.amount > 0;
                 const billingRemark = formatCreditBillingRemark(tx.billingRemark);
                 const quantityLabel =
@@ -145,7 +143,11 @@ export default function UserCreditTransactions({ userId }: { userId: string }) {
                       {new Date(tx.createdAt).toLocaleString()}
                     </td>
                     <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
-                      {durationSeconds !== null ? `${durationSeconds}秒` : "-"}
+                      {formatCreditGenerationStatus(tx)}
+                      {tx.generationError && <div className='max-w-64 truncate text-xs text-red-600' title={tx.generationError}>{tx.generationError}</div>}
+                    </td>
+                    <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
+                      {formatCreditProcessingTime(tx)}
                     </td>
                   </tr>
                 );

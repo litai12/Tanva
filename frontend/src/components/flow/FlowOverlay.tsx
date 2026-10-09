@@ -16513,13 +16513,15 @@ function FlowInner() {
       void (async () => {
         const once = await queryImageTaskStatusViaAPI(taskId);
         if (!once.success || !once.data) {
-          // 取不到状态（多为视频等非 /image-task 任务，或任务已不存在）——保持原状，不误判
-          return;
-        }
-        const s = once.data.status;
-        if (s === "succeeded" || s === "failed" || s === "cancelled") {
-          applyTerminal(nodeId, taskId, once.data);
-          return;
+          // 已知图片任务不能因首查断网/5xx 永久停在 running：交给只读轮询
+          // 重试查询；连续 404 也由轮询器确认。其他任务仍保持原来的接口隔离。
+          if (!SINGLE_IMAGE_TASK_NODE_TYPES.has(node.type || "")) return;
+        } else {
+          const s = once.data.status;
+          if (s === "succeeded" || s === "failed" || s === "cancelled") {
+            applyTerminal(nodeId, taskId, once.data);
+            return;
+          }
         }
         // queued / processing：继续轮询直到终态
         try {
@@ -23202,6 +23204,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             imageSize: nano2Resolution,
             nodeId: node.id,
+            projectId: clientProjectId,
             ...(node.type === "gptImage2"
               ? {
                   officialFallback: gptImage2OfficialFallback,

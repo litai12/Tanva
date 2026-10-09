@@ -156,6 +156,7 @@ type StalePendingUsageRecord = {
   createdAt: Date;
   requestParams: Prisma.JsonValue;
   consumptionStatus: string | null;
+  processingTime?: number | null;
 };
 
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
@@ -4503,43 +4504,52 @@ export class CreditsService {
       image?: boolean;
     },
   ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
-    const duplicate = await tx.apiUsageRecord.findFirst({
-      where: {
-        userId: params.userId,
-        serviceType: { in: params.image ? [...IMAGE_GENERATION_SERVICES] : FREE_USER_VIDEO_LIMITED_SERVICES },
-        responseStatus: ApiResponseStatus.PENDING,
-        AND: [
-          {
-            requestParams: {
-              path: ['clientNodeId'],
-              equals: params.clientNodeId,
-            },
+    const where: Prisma.ApiUsageRecordWhereInput = {
+      userId: params.userId,
+      serviceType: { in: params.image ? [...IMAGE_GENERATION_SERVICES] : FREE_USER_VIDEO_LIMITED_SERVICES },
+      responseStatus: ApiResponseStatus.PENDING,
+      AND: [
+        {
+          requestParams: {
+            path: ['clientNodeId'],
+            equals: params.clientNodeId,
           },
-          ...(params.clientProjectId === LEGACY_FLOW_VIDEO_PROJECT_SCOPE
-            ? []
-            : [
-                {
-                  OR: [
-                    {
-                      requestParams: {
-                        path: ['clientProjectId'],
-                        equals: params.clientProjectId,
-                      },
+        },
+        ...(params.clientProjectId === LEGACY_FLOW_VIDEO_PROJECT_SCOPE
+          ? []
+          : [
+              {
+                OR: [
+                  {
+                    requestParams: {
+                      path: ['clientProjectId'],
+                      equals: params.clientProjectId,
                     },
-                    {
-                      requestParams: {
-                        path: ['clientProjectId'],
-                        equals: LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
-                      },
+                  },
+                  {
+                    requestParams: {
+                      path: ['clientProjectId'],
+                      equals: LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
                     },
-                  ],
-                },
-              ]),
-        ],
-      },
-      select: { id: true },
-      orderBy: { createdAt: 'desc' },
-    });
+                  },
+                  ...(params.image ? [{
+                    requestParams: {
+                      path: ['clientProjectId'],
+                      equals: 'legacy-image',
+                    },
+                  }] : []),
+                ],
+              },
+            ]),
+      ],
+    };
+    const duplicate = params.image
+      ? await this.findActiveImageNodeUsage(tx, where, params.userId)
+      : await tx.apiUsageRecord.findFirst({
+          where,
+          select: { id: true },
+          orderBy: { createdAt: 'desc' },
+        });
     if (!duplicate) return null;
 
     const spendTransaction = await tx.creditTransaction.findFirst({
@@ -4554,6 +4564,51 @@ export class CreditsService {
       apiUsageId: duplicate.id,
       transactionId: spendTransaction?.id ?? null,
     };
+  }
+
+  private async findActiveImageNodeUsage(
+    tx: Prisma.TransactionClient,
+    where: Prisma.ApiUsageRecordWhereInput,
+    userId: string,
+  ): Promise<{ id: string } | null> {
+    // A failed image task can retain its PENDING receipt until reconciliation.
+    // Keep that receipt intact, but do not let its terminal task block a new Run.
+    // Scan all candidates so a newer terminal task cannot hide an older active one.
+    const batchSize = 50;
+    let cursor: string | undefined;
+    for (;;) {
+      const candidates = await tx.apiUsageRecord.findMany({
+        where,
+        select: { id: true, requestParams: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: batchSize,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (candidates.length === 0) return null;
+      const taskIdFor = (usage: (typeof candidates)[number]): string | null => {
+        const value = usage.requestParams;
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        return typeof value.taskId === 'string' && value.taskId.trim()
+          ? value.taskId.trim()
+          : null;
+      };
+      const taskIds = candidates.map(taskIdFor).filter((id): id is string => id !== null);
+      const terminalTasks = taskIds.length > 0
+        ? await tx.imageTask.findMany({
+            where: { userId, id: { in: taskIds }, status: { in: ['failed', 'cancelled', 'succeeded'] } },
+            select: { id: true },
+          })
+        : [];
+      const terminalTaskIds = new Set(terminalTasks.map((task) => task.id));
+      for (const candidate of candidates) {
+        const taskId = taskIdFor(candidate);
+        // Missing or unknown task identities still require reconciliation;
+        // neither record age nor a client claim is proof of a terminal task.
+        if (!taskId || !terminalTaskIds.has(taskId)) return { id: candidate.id };
+      }
+      if (candidates.length < batchSize) return null;
+      cursor = candidates[candidates.length - 1].id;
+    }
   }
 
   async preDeductCredits(params: ApiUsageParams): Promise<DeductCreditsResult> {
@@ -4633,7 +4688,7 @@ export class CreditsService {
         });
         if (activeUsage) {
           this.logger.warn(
-            `[Credits] Active video node blocked user=${userId} project=${activeNodeScope.clientProjectId} node=${activeNodeScope.clientNodeId} apiUsageId=${activeUsage.apiUsageId}`,
+            `[Credits] Active ${isImageGenerationService(serviceType) ? 'image' : 'video'} node blocked user=${userId} project=${activeNodeScope.clientProjectId} node=${activeNodeScope.clientNodeId} apiUsageId=${activeUsage.apiUsageId}`,
           );
           return {
             success: true,
@@ -5378,6 +5433,23 @@ export class CreditsService {
           ...existingParams,
           ...sanitizedPatch,
         },
+      },
+    });
+  }
+
+  /** Record a completed attempt while its billing receipt awaits reconciliation. */
+  async recordApiUsageProcessingTimeForUser(
+    userId: string,
+    apiUsageId: string,
+    processingTime: number,
+    errorMessage?: string,
+  ): Promise<void> {
+    if (!Number.isFinite(processingTime)) return;
+    await this.prisma.apiUsageRecord.updateMany({
+      where: { id: apiUsageId, userId, responseStatus: ApiResponseStatus.PENDING, processingTime: null },
+      data: {
+        processingTime: Math.max(0, Math.round(processingTime)),
+        ...(errorMessage ? { errorMessage } : {}),
       },
     });
   }
@@ -6453,7 +6525,9 @@ export class CreditsService {
     // createdAt is a UTC `timestamp` column; casting the ISO string drops the
     // `Z` and compares UTC wall clocks regardless of the DB session timezone.
     const orphanRecords = await this.prisma.$queryRaw<StalePendingUsageRecord[]>`
-      SELECT a.id, a."userId", a."serviceType", a."createdAt", a."requestParams", a."consumptionStatus"
+      SELECT a.id, a."userId", a."serviceType", a."createdAt", a."requestParams", a."consumptionStatus",
+        COALESCE(a."processingTime", GREATEST(0,
+          EXTRACT(EPOCH FROM (COALESCE(t."completedAt", t."updatedAt") - t."createdAt")) * 1000))::double precision AS "processingTime"
       FROM "ApiUsageRecord" a
       JOIN "ImageTask" t ON t.id = a."requestParams"->>'taskId' AND t."userId" = a."userId"
       WHERE a."responseStatus" = ${ApiResponseStatus.PENDING}
@@ -6573,7 +6647,9 @@ export class CreditsService {
       // Elapsed time must not turn accepted desktop/web work into a refund.
       if (record.consumptionStatus || (record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||
           record.id.startsWith('desktop-chat:') || record.id.startsWith('deepseek-chat:')) continue;
-      const processingTime = Math.max(0, Date.now() - new Date(record.createdAt).getTime());
+      const processingTime = typeof record.processingTime === 'number' && Number.isFinite(record.processingTime)
+        ? Math.max(0, Math.round(record.processingTime))
+        : Math.max(0, Date.now() - new Date(record.createdAt).getTime());
 
       try {
         await this.markApiUsageFailedForUser(
@@ -6837,12 +6913,13 @@ export class CreditsService {
         requestParams: Prisma.JsonValue | null;
         responseStatus: string;
         processingTime: number | null;
+        errorMessage: string | null;
       }
     >();
 
     if (apiUsageIds.length > 0) {
       const apiUsages = await this.prisma.apiUsageRecord.findMany({
-        where: { id: { in: apiUsageIds } },
+        where: { id: { in: apiUsageIds }, userId },
         select: {
           id: true,
           serviceType: true,
@@ -6851,6 +6928,7 @@ export class CreditsService {
           requestParams: true,
           responseStatus: true,
           processingTime: true,
+          errorMessage: true,
         },
       });
 
@@ -6859,11 +6937,32 @@ export class CreditsService {
       }
     }
 
+    const imageTaskIds = Array.from(new Set(Array.from(apiUsageMap.values())
+      .filter((usage) => isImageGenerationService(usage.serviceType))
+      .map((usage) => this.asNonEmptyString(this.asJsonObject(usage.requestParams)?.taskId))
+      .filter((id): id is string => id !== null)));
+    const imageTasks = imageTaskIds.length > 0
+      ? await this.prisma.imageTask.findMany({
+          where: { userId, id: { in: imageTaskIds } },
+          select: { id: true, status: true, error: true, createdAt: true, completedAt: true, requestData: true },
+        })
+      : [];
+    const imageTaskMap = new Map(imageTasks.map((task) => [task.id, task]));
+
     const enrichedTransactions = transactions.map((tx) => {
       const usage = tx.apiUsageId ? apiUsageMap.get(tx.apiUsageId) : null;
       const metadata = this.asJsonObject(tx.metadata);
       const metadataBillingRemark = this.asNonEmptyString(metadata?.billingRemark);
       const usageRequestParams = this.asJsonObject(usage?.requestParams);
+      const imageTaskId = this.asNonEmptyString(usageRequestParams?.taskId);
+      const imageTask = imageTaskId ? imageTaskMap.get(imageTaskId) : undefined;
+      let processingTime = usage?.processingTime ?? null;
+      if (processingTime === null && imageTask?.completedAt && ['succeeded', 'failed', 'cancelled'].includes(imageTask.status)) {
+        const startedAt = this.asNonEmptyString(this.asJsonObject(imageTask.requestData)?.imageExecutionStartedAt);
+        const startedAtMs = startedAt ? Date.parse(startedAt) : NaN;
+        const elapsed = imageTask.completedAt.getTime() - (Number.isFinite(startedAtMs) ? startedAtMs : imageTask.createdAt.getTime());
+        if (Number.isFinite(elapsed)) processingTime = Math.max(0, Math.round(elapsed));
+      }
       const rawParallelGroupIndex = usageRequestParams?.parallelGroupIndex;
       const rawParallelGroupTotal = usageRequestParams?.parallelGroupTotal;
       const parallelGroupIndex =
@@ -6895,7 +6994,9 @@ export class CreditsService {
         model: usage?.model ?? null,
         billingRemark: metadataBillingRemark ?? fallbackBillingRemark,
         apiResponseStatus: usage?.responseStatus ?? null,
-        processingTime: usage?.processingTime ?? null,
+        processingTime,
+        generationStatus: imageTask?.status ?? null,
+        generationError: imageTask?.error ?? usage?.errorMessage ?? null,
         parallelGroupId: this.asNonEmptyString(usageRequestParams?.parallelGroupId),
         parallelGroupIndex:
           typeof parallelGroupIndex === 'number' && Number.isFinite(parallelGroupIndex)

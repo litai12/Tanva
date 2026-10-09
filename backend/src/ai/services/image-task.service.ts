@@ -908,6 +908,10 @@ export class ImageTaskService {
                   status: 'failed', completedAt: new Date(),
                   error: `已有生成请求，请查看原任务（${originalUsageId}）；本次未重复扣费或生成`,
                 } });
+                void this.publishTaskStatus(taskRequestData?.projectId, {
+                  taskId, nodeId: task.nodeId ?? null, taskType, status: 'failed',
+                  error: `已有生成请求，请查看原任务（${originalUsageId}）；本次未重复扣费或生成`,
+                });
                 return;
               }
               this.logger.debug(
@@ -926,13 +930,18 @@ export class ImageTaskService {
                   completedAt: new Date(),
                 },
               });
+              void this.publishTaskStatus(taskRequestData?.projectId, {
+                taskId, nodeId: task.nodeId ?? null, taskType, status: 'failed',
+                error: `积分预扣失败: ${errorMsg}`,
+              });
               return;
             }
           }
 
           await this.prisma.imageTask.update({
             where: { id: taskId },
-            data: { status: 'processing', requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId } },
+            data: { status: 'processing', requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
+              imageExecutionStartedAt: new Date(startedAt).toISOString() } },
           });
           void this.publishTaskStatus(
             taskRequestData?.projectId as string | undefined,
@@ -1117,15 +1126,23 @@ export class ImageTaskService {
               error: reason,
               completedAt: new Date(),
               requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
+                imageExecutionStartedAt: new Date(startedAt).toISOString(),
                 imageSubmissionState: 'reconciliation_required' },
             } });
-            if (effectiveApiUsageId) await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, {
-              taskId, imageSubmissionState: 'reconciliation_required',
-            });
             void this.publishTaskStatus(
               taskRequestData?.projectId as string | undefined,
               { taskId, nodeId: task.nodeId ?? null, taskType, status: 'failed', error: reason },
             );
+            if (effectiveApiUsageId) {
+              // Bookkeeping failures cannot prevent delivery of the task's real
+              // terminal state. Keep the billing receipt pending for reconciliation.
+              await this.creditsService.recordApiUsageProcessingTimeForUser(
+                task.userId, effectiveApiUsageId, Date.now() - startedAt, reason,
+              ).catch((updateError) => this.logger.warn(`记录图片失败耗时失败: taskId=${taskId}, error=${updateError}`));
+              await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, {
+                taskId, imageSubmissionState: 'reconciliation_required',
+              }).catch((updateError) => this.logger.warn(`记录图片待核账状态失败: taskId=${taskId}, error=${updateError}`));
+            }
             return;
           }
 
