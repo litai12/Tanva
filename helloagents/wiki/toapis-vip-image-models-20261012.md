@@ -135,3 +135,4 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - 证据保存在本轮发布目录：`browser-before-refresh.json`、`browser-after-refresh.json`、`canvas-acceptance-ledger.json`、`project-persistence.json`、`register-before.json`、`register-after.json`、`deployment.json`。
 - 验收发现通用 canonical 逻辑会把 Nano21 official 从公共目录合并到普通型号；补充精确身份例外及定价/模型目录回归，避免 `/api/pricing` 和 `/v1/models` 丢失独立 SKU。
 - 公共目录修复后的最终网关二进制 SHA-256：`458d334d3af9a864fb4fcdc27d1b15f082267ecf41db8beca4b88636b032be4d`；发布目录 `/opt/tanva-releases/nano21-official-catalog-20261012/`，镜像 `backend-new-api:nano21-official-catalog-20261012`。
+- 最终目录补丁 `2047936b` 已推送并在 101 生效。等待当时两笔在途生图自然结束、active/pending 清零后只替换网关，队列已恢复。`/api/pricing` 同时返回两型号及完整六档价，`/v1/models` 共 97 项且两型号独立可见，`/api/models/params` 包含 official。最终 `acceptance-summary.json` 为 allPassed=true，公网健康正常。
