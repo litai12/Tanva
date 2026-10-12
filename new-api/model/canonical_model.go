@@ -86,6 +86,7 @@ var canonicalModelAliasMap = map[string]string{
 	// merging them into the base model's pricing entry.
 	"gpt-image-2-official":                "gpt-image-2-official",
 	"gemini-3-pro-image-preview-official": "gemini-3-pro-image-preview-official",
+	"gemini-nano-banana-2.1-official":     "gemini-nano-banana-2.1-official",
 	// ultra = beqlee 极速渠道对外名称，identity-mapped 以保留独立定价，不合并到普通渠道。
 	"gemini-3-pro-image-preview-ultra":     "gemini-3-pro-image-preview-ultra",
 	"gemini-3.1-flash-image-preview-ultra": "gemini-3.1-flash-image-preview-ultra",

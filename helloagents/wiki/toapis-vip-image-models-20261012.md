@@ -124,3 +124,14 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - 后端 108 组同步/异步报价、实际 Provider payload/key、旧价格与目录回归通过；新增旧 settings 矩阵升级和启停状态保留验证，启动采用原值 CAS 幂等更新。生产 build 通过，无 schema 变更。
 - new-api dto/apimart/model/relay/registrar 回归与 helper 36 组实际预扣验证通过；注册工具会纠正普通版旧 ModelPrice 0.3 → 0.2，并新增 official 0.3，二者完整分辨率价格由精确型号矩阵确定。
 - 新网关 Linux 二进制 SHA-256 `cc6258c3f7bff2e90144bda053a85ad762443011ed5bfb416c2c26d667b281ad`；注册工具 SHA-256 `3ef5862d960d30652e0571fbc95486beabe33d5983c170612b314de699a7d29c`。
+
+### 独立节点与尊享线路生产验收（101）
+
+- 主实现 `48d7bc5b` 已推送 main 并部署 101；48 个前端文件和 936 个后端文件本地、发布暂存与线上哈希一致。图片 active jobs 与近 30 分钟网关未结请求均为 0 后发布，图片队列已恢复，前后端与网关健康检查正常。
+- 注册工具仅追加 official、调整两个 Nano21 基价；default/vip 能力均启用，重跑 dry-run actions=[]，VIP 未改。网关环境变量完整保留。
+- 新建独立验收项目 `e447be70-22fb-4a83-a989-27ac76d3d256`，节点 `nano2_1791793628319` 无模型下拉。真实 UI 依次切换两条线路和三档分辨率，后端 preview 六档分别为普通 20/30/40、尊享 30/60/90，精确模型和 managedModelKey 与线路一致。
+- 尊享 1K 点击 Run 返回 `gemini-nano-banana-2.1-official` 的 1024×1024 TOS 远程图片，Usage `02f31594-2427-4eb9-bd50-659128a9efcf` 为 success；唯一 spend 为 -30，余额 6010 → 5980。网关日志渠道 31、request ID `202610120827392244277658268d9d66X8Nbd5W`，quota 150000（CNY 0.3），没有额外倍率或重投。
+- 切换线路和分辨率未改变已出图片；浏览器刷新后独立节点与相同远程图、1024 尺寸仍在。Project version 6 保存逻辑普通21型号与远程 imageUrl，执行身份留在原用量回执；恢复原尊享线路，关闭验收浏览器会话。
+- 证据保存在本轮发布目录：`browser-before-refresh.json`、`browser-after-refresh.json`、`canvas-acceptance-ledger.json`、`project-persistence.json`、`register-before.json`、`register-after.json`、`deployment.json`。
+- 验收发现通用 canonical 逻辑会把 Nano21 official 从公共目录合并到普通型号；补充精确身份例外及定价/模型目录回归，避免 `/api/pricing` 和 `/v1/models` 丢失独立 SKU。
+- 公共目录修复后的最终网关二进制 SHA-256：`458d334d3af9a864fb4fcdc27d1b15f082267ecf41db8beca4b88636b032be4d`；发布目录 `/opt/tanva-releases/nano21-official-catalog-20261012/`，镜像 `backend-new-api:nano21-official-catalog-20261012`。
