@@ -34,6 +34,9 @@ func applyChannelBoundImageModel(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err != nil {
 		return err
 	}
+	if mappedModel != info.OriginModelName && (constant.IsToAPISPricedImage(mappedModel) || constant.IsToAPISPricedImage(info.OriginModelName)) {
+		return fmt.Errorf("fixed-price ToAPIs image model must not be mapped to a different billing SKU")
+	}
 	info.UpstreamModelName = mappedModel
 	info.IsModelMapped = mapped || mappedModel != info.OriginModelName
 	request.SetModelName(mappedModel)

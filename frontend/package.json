@@ -46,7 +46,9 @@
     "verify:desktop-packaged": "node scripts/verifyPackagedDesktop.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs"
+    "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs",
+    "test:toapi-image-models": "tsx --test src/services/gptImage25.test.ts src/services/toapiImageModels.test.ts src/services/agentCanvasProtocolContext.test.ts",
+    "verify:toapi-image-controls": "node scripts/verifyToapiImageControls.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.1.0",

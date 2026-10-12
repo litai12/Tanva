@@ -51,7 +51,8 @@
     "verify:volc-task-assets": "ts-node --transpile-only scripts/verify-volc-task-assets.ts",
     "verify:wechat-login-rate-limit": "ts-node --transpile-only scripts/verify-wechat-login-rate-limit.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
-    "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
+    "upload:director-assets": "ts-node scripts/upload-director-assets.ts",
+    "verify:toapis-canvas-models": "ts-node --transpile-only scripts/verify-toapis-canvas-models.ts"
   },
   "dependencies": {
     "@alicloud/sms-sdk": "^1.1.6",

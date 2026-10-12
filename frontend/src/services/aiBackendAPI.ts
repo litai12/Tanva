@@ -4,6 +4,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import { isToapiImageModel } from "./toapiImageModels";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -354,13 +355,14 @@ const attachBananaRouteToProviderOptions = <T extends {
   aiProvider?: SupportedAIProvider;
   providerOptions?: Record<string, any>;
   imageSize?: string;
+  model?: string;
 }>(
   request: T
 ): { request: T; bananaImageRoute: BananaImageRoute | null } => {
   if (!isBananaRouteCapableProvider(request.aiProvider)) {
     return { request, bananaImageRoute: null };
   }
-  const resolvedRoute = resolveRequestBananaImageRoute(request);
+  const resolvedRoute = isToapiImageModel(request.model) ? "normal" : resolveRequestBananaImageRoute(request);
   if (!resolvedRoute) {
     return { request, bananaImageRoute: null };
   }

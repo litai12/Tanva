@@ -12,6 +12,7 @@ import test from 'node:test';
 import {
   buildCurl,
   buildFullDocumentation,
+  describeSpec,
   normalizeOpenApiDocument,
   normalizePricingPayload,
   resolveDefaultEndpointType,
@@ -118,6 +119,32 @@ test('builds image curl with quality from the public structured spec key', () =>
 
   assert.match(curl, /"resolution": "2k"/);
   assert.match(curl, /"quality": "high"/);
+});
+
+test('distinguishes image qualities at the same resolution and price', () => {
+  const catalog = normalizePricingPayload(payload);
+  const model = catalog.models.find(
+    (candidate) => candidate.modelName === 'image-model',
+  );
+  const labels = new Set();
+  for (const quality of ['low', 'medium', 'high', 'xhigh', 'max']) {
+    const spec = { ...model.specs[0], specKey: `image:2k:${quality}` };
+    assert.equal(describeSpec(spec), `2k · ${quality} · ¥4.600000`);
+    labels.add(describeSpec(spec));
+    const curl = buildCurl({
+      baseUrl: 'https://api.example.com',
+      model,
+      endpointType: 'image-generation',
+      endpoint: catalog.endpoints['image-generation'],
+      spec,
+    });
+    assert.ok(curl.includes(`"quality": "${quality}"`));
+  }
+  assert.equal(labels.size, 5);
+  assert.equal(
+    describeSpec({ ...model.specs[0], specKey: 'image:2k' }),
+    '2k · ¥4.600000',
+  );
 });
 
 test('does not guess an endpoint when kind is missing and choices are ambiguous', () => {

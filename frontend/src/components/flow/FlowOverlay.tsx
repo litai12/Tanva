@@ -1,7 +1,8 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
-import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
+import { GPT_IMAGE_25_STANDARD_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits, isToapiImageModel, isGptImage25Vip, normalizeToapiImageQuality } from "@/services/toapiImageModels";
+import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, expandNanoImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import FlowSelectionToolbar from "./FlowSelectionToolbar";
 import { useSelectionSafeArea, readSelectionSafeArea } from "./useSelectionSafeArea";
@@ -1525,7 +1526,9 @@ const resolveNano2LikeMaxReferenceImages = (
     metadata?.defaultData && typeof metadata.defaultData === "object"
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
-  if (GPT_IMAGE_25_MODELS.includes(normalizeCanvasGptImage25Model(String(nodeData?.model || ""), String(nodeData?.nodeConfigKey || ""), String(metadata?.model || defaultData?.model || "")))) return Number.POSITIVE_INFINITY;
+  const model = normalizeCanvasGptImage25Model(String(nodeData?.model || ""), String(nodeData?.nodeConfigKey || ""), String(metadata?.model || defaultData?.model || ""));
+  if (model === NANO_BANANA_21_MODEL) return 14;
+  if (GPT_IMAGE_25_MODELS.includes(model)) return Number.POSITIVE_INFINITY;
   const raw = Number(
     nodeData?.maxReferenceImages ??
       metadata?.maxReferenceImages ??
@@ -3491,6 +3494,8 @@ const resolveStableRouteCredits = (params: {
   } = params;
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
   let resolvedCredits = fallbackCredits;
+  const toapiCredits = getToapiImageFallbackCredits(String(nodeData?.model || ""), nodeData?.resolution || nodeData?.imageSize || globalImageSize, nodeData?.quality);
+  if (toapiCredits !== undefined) return toapiCredits;
   const providerForPricing =
     typeof nodeData?.modelProvider === "string" && nodeData.modelProvider.trim().length > 0
       ? nodeData.modelProvider.trim()
@@ -23077,8 +23082,8 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
           (node.type === "gptImage2"
             ? "gpt-image-2"
             : "gemini-3.1-flash-image-preview"));
-        if (GPT_IMAGE_25_MODELS.includes(requestedModel)) {
-          const supported = managedRuntimeByType.get("config:gptImage25")?.nodeConfigMetadata?.supportedModels;
+        if (GPT_IMAGE_25_MODELS.includes(requestedModel) || requestedModel === NANO_BANANA_21_MODEL) {
+          const supported = managedRuntimeByType.get(node.type === "gptImage2" ? "config:gptImage25" : "nano2")?.nodeConfigMetadata?.supportedModels;
           if (!Array.isArray(supported) || !supported.includes(requestedModel)) {
             setNodes((ns) => ns.map((n) => n.id === nodeId
               ? { ...n, data: { ...n.data, status: "failed", error: `模型 ${requestedModel} 暂不可用，请刷新模型目录或选择其他型号` } }
@@ -23125,7 +23130,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
 
         try {
           const latestBananaImageRoute =
-            ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(requestedModel)
+            isToapiImageModel(requestedModel)
               ? "normal"
               : useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
@@ -23157,10 +23162,8 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             const value = pickStringValue(
               nodeData?.quality ?? defaultData?.quality
             )?.toLowerCase();
-            if (requestedModel === "gpt-image-2.5") {
-              return value === "high" || value === "xhigh" || value === "max" ? value : "max";
-            }
-            if (["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(requestedModel)) return undefined;
+            if (isGptImage25Vip(requestedModel)) return normalizeToapiImageQuality(value);
+            if (GPT_IMAGE_25_STANDARD_MODELS.includes(requestedModel)) return undefined;
             return latestBananaImageRoute === "stable" ? normalizeGptImage2StableQuality(value) : undefined;
           })();
           const gptImage2Background = (() => {
@@ -23203,6 +23206,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             aspectRatio: nano2AspectRatio,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             imageSize: nano2Resolution,
+            ...(isToapiImageModel(requestedModel) ? getToapiImageSettings(requestedModel, nano2Resolution, gptImage2Quality, nano2AspectRatio) : {}),
             nodeId: node.id,
             projectId: clientProjectId,
             ...(node.type === "gptImage2"
@@ -23224,7 +23228,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
                   ...(gptImage2MaskUrl ? { maskUrl: gptImage2MaskUrl } : {}),
                 }
               : {}),
-            ...(node.type !== "gptImage2"
+            ...(node.type !== "gptImage2" && requestedModel !== NANO_BANANA_21_MODEL
               ? {
                   googleSearch:
                     typeof nodeData?.googleSearch === "boolean"
@@ -26660,7 +26664,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
   ]);
   const nodesWithHandlers = React.useMemo(
     () => {
-      const gptImageModelOptions: GptImageModelOption[] = expandGptImageModelConfigs(nodePaletteConfigs)
+      const imageModelOptions: GptImageModelOption[] = [...expandGptImageModelConfigs(nodePaletteConfigs), ...expandNanoImageModelConfigs(nodePaletteConfigs)]
         .map((config) => {
           const model = String(config.metadata?.model || "gpt-image-2");
           const route = getManagedRouteOption(config.metadata);
@@ -26686,7 +26690,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
         imageSize || "",
         imageModel || "",
         JSON.stringify(Array.from(managedRuntimeByType.entries())),
-        JSON.stringify(gptImageModelOptions),
+        JSON.stringify(imageModelOptions),
         isFlowBlackTheme ? "dark" : "light",
       ].join("|");
 
@@ -26706,7 +26710,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
         const isGpt25Runtime = resolvedType === "gptImage2" && (
           ["gptImage25", "gptImage25Flare", "gptImage25Sunburst"].includes(String(n.data?.nodeConfigKey || "")) ||
-          ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5"].includes(String(n.data?.model || ""))
+          GPT_IMAGE_25_MODELS.includes(String(n.data?.model || "")) || n.data?.model === "gpt-image-2.5"
         );
         const managedRuntime = resolvedType
           ? managedRuntimeByType.get(isGpt25Runtime ? "config:gptImage25" : resolvedType)
@@ -26717,7 +26721,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             : undefined;
         const runtimeNodeData = {
           ...(n.data || {}),
-          ...(resolvedType === "gptImage2" ? { gptImageModelOptions } : {}),
+          ...(["gptImage2", "nano2"].includes(resolvedType || "") ? { gptImageModelOptions: imageModelOptions.filter((option) => option.nodeConfigKey === "nano2" ? resolvedType === "nano2" : resolvedType === "gptImage2") } : {}),
           ...(managedRuntime?.nodeConfigKey &&
           (typeof n.data?.nodeConfigKey !== "string" || !n.data.nodeConfigKey.trim())
             ? { nodeConfigKey: managedRuntime.nodeConfigKey }
@@ -26740,14 +26744,14 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             ? { nodeConfigMetadata: managedRuntime.nodeConfigMetadata }
             : {}),
         } as Record<string, any>;
-        if (resolvedType === "gptImage2") {
-          const selectedModel = normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || "gpt-image-2"));
-          const option = gptImageModelOptions.find((item) => item.model === selectedModel);
+        if (resolvedType === "gptImage2" || resolvedType === "nano2") {
+          const selectedModel = normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || (resolvedType === "nano2" ? NANO_BANANA_2_MODEL : "gpt-image-2")));
+          const option = imageModelOptions.find((item) => item.model === selectedModel);
           if (option) {
             runtimeNodeData.model = selectedModel;
-            if (GPT_IMAGE_25_MODELS.includes(selectedModel)) runtimeNodeData.quality = undefined;
+            if (GPT_IMAGE_25_STANDARD_MODELS.includes(selectedModel)) runtimeNodeData.quality = undefined;
             runtimeNodeData.nodeConfigMetadata = option.nodeConfigMetadata;
-            runtimeNodeData.managedModelKey = selectedModel;
+            runtimeNodeData.managedModelKey = option.nodeConfigMetadata?.managedModelKey || selectedModel;
             runtimeNodeData.vendorKey = option.vendorKey;
             runtimeNodeData.platformKey = option.platformKey;
             runtimeNodeData.creditsPerCall = option.creditsPerCall;

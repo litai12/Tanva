@@ -279,6 +279,10 @@ export class EditImageDto {
   imageSize?: string;
 
   @IsOptional()
+  @IsEnum(GptImage2Quality)
+  quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+  @IsOptional()
   @IsString()
   resolution?: string;
 
@@ -392,6 +396,10 @@ export class BlendImagesDto {
   @IsOptional()
   @IsString()
   imageSize?: string;
+
+  @IsOptional()
+  @IsEnum(GptImage2Quality)
+  quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
   @IsOptional()
   @IsString()

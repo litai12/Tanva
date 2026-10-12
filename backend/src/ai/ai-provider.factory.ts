@@ -1,3 +1,4 @@
+import { isNewToapisImageModel } from './services/toapis-image-models';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
@@ -61,6 +62,7 @@ export class AIProviderFactory implements OnModuleInit {
 
   getProvider(model?: string, aiProvider?: string): IAIProvider {
     const newApi = this.providers.get('new-api');
+    if (newApi && isNewToapisImageModel(model)) return newApi;
     const useNewApiSingleTrack =
       this.config.get<string>('AI_MODEL_SINGLE_TRACK', 'new-api') !== 'legacy';
 

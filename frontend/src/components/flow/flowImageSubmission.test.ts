@@ -4,6 +4,7 @@ import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import ts from 'typescript';
 import { SINGLE_IMAGE_TASK_NODE_TYPES } from './flowProgressRuntime.ts';
+import { getToapiImageSettings, isToapiImageModel, isGptImage25Vip, NANO_BANANA_21_MODEL } from '../../services/toapiImageModels.ts';
 
 // Exercise the real callbacks without mounting the canvas or calling a paid provider.
 const source = readFileSync(new URL('./FlowOverlay.tsx', import.meta.url), 'utf8');
@@ -33,12 +34,14 @@ test('GPT Image 2 and 2.5 requests scope identical node IDs to the current proje
   const output = ts.transpileModule(source.slice(start, end) + '\nreturn requestPayload;', {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
-  for (const requestedModel of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
+  for (const requestedModel of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip', NANO_BANANA_21_MODEL]) {
     const dependencies = {
-      promptText: '一只猫', requestedModel, latestBananaImageRoute: 'normal',
-      nano2AspectRatio: '16:9', imageDatas: [], nano2Resolution: '1K',
-      node: { id: 'shared-node-id', type: 'gptImage2' }, clientProjectId: 'project-a',
-      gptImage2OfficialFallback: false, gptImage2Quality: undefined,
+      promptText: '一只猫', requestedModel, latestBananaImageRoute: 'stable',
+      isToapiImageModel, getToapiImageSettings, NANO_BANANA_21_MODEL,
+      nano2AspectRatio: '16:9', imageDatas: [], nano2Resolution: '2K',
+      node: { id: 'shared-node-id', type: requestedModel === NANO_BANANA_21_MODEL ? 'nano2' : 'gptImage2' }, clientProjectId: 'project-a',
+      nodeData: {}, defaultData: {},
+      gptImage2OfficialFallback: false, gptImage2Quality: isGptImage25Vip(requestedModel) ? "xhigh" : undefined,
       gptImage2Background: undefined, gptImage2Moderation: undefined,
       gptImage2OutputFormat: undefined, gptImage2OutputCompression: undefined,
       gptImage2MaskUrl: undefined,
@@ -48,6 +51,12 @@ test('GPT Image 2 and 2.5 requests scope identical node IDs to the current proje
     const second = build(...Object.values({ ...dependencies, clientProjectId: 'project-b' }));
     assert.equal(first.model, requestedModel);
     assert.equal(first.nodeId, second.nodeId);
+    if (isToapiImageModel(requestedModel)) {
+      assert.equal(first.providerOptions.banana.imageRoute, 'normal');
+      assert.equal(first.managedModelKey, requestedModel);
+    }
+    assert.equal(first.quality, isGptImage25Vip(requestedModel) ? 'xhigh' : undefined);
+    assert.equal(first.imageSize, '2K');
     assert.equal(first.projectId, 'project-a');
     assert.equal(second.projectId, 'project-b');
   }

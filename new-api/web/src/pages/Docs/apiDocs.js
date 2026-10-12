@@ -298,6 +298,7 @@ export const describeSpec = (spec) => {
   if (!spec) return '默认规格';
   const dimensions = [
     spec.resolution || '',
+    parseImageQuality(spec),
     spec.durationSeconds ? `${spec.durationSeconds}s` : '',
   ].filter(Boolean);
   const price =

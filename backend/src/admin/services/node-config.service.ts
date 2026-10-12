@@ -1,3 +1,4 @@
+import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_VIP_IMAGE_MODELS, NANO_BANANA_21_MODEL, isToapisVipImageModel } from '../../ai/services/toapis-image-models';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -131,7 +132,14 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
-const GPT_IMAGE_25_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'];
+const GPT_IMAGE_25_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', ...TOAPIS_VIP_IMAGE_MODELS];
+const NANO2_MODELS = ['gemini-3.1-flash-image-preview', NANO_BANANA_21_MODEL];
+const nanoManagedKey = (model: string) => model === NANO_BANANA_21_MODEL ? model : 'gemini-3.1-image';
+const buildNano2Metadata = () => ({
+  type: 'nano2', provider: 'nano2', supportedModels: [...NANO2_MODELS], resolutions: ['0.5K', '1K', '2K', '4K'],
+  aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21', '4:1', '1:4', '8:1', '1:8'], maxReferenceImages: 14,
+  ...buildManagedImageNodeMetadata({ modelKeys: ['gemini-3.1-image', NANO_BANANA_21_MODEL], managedModelKey: 'gemini-3.1-image', defaultData: { model: NANO2_MODELS[0], modelProvider: 'nano2', resolution: '1K', aspectRatio: '1:1', creditsPerCall: 40 } }),
+});
 
 // 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
 const AUDIO_STUDIO_MODEL_KEYS = [
@@ -263,7 +271,7 @@ export class NodeConfigService {
       );
       const missingDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
         (m) => m && (m.taskType === 'audio' ||
-          ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(m.modelKey)) &&
+          ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5', 'gemini-3.1-image', ...TOAPIS_NEW_IMAGE_MODELS].includes(m.modelKey)) &&
           !presentKeys.has(String(m.modelKey).trim()),
       );
       const models = [...savedModels, ...(missingDefaults as typeof savedModels)];
@@ -274,6 +282,7 @@ export class NodeConfigService {
             (model) =>
               model &&
               model.enabled !== false &&
+              (!TOAPIS_NEW_IMAGE_MODELS.includes(model.modelKey) || model.vendors?.some(vendor => vendor.enabled !== false)) &&
               typeof model.modelKey === 'string' &&
               model.modelKey.trim(),
           )
@@ -498,15 +507,28 @@ export class NodeConfigService {
       }));
       if (selectedModel) {
         nextMetadata.model = selectedModel;
-        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: selectedModel, quality: selectedModel === 'gpt-image-2.5' ? 'max' : undefined };
+        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: selectedModel, quality: isToapisVipImageModel(selectedModel) ? 'high' : undefined };
+      }
+    }
+
+    if (nodeKey === 'nano2') {
+      const supportedModels = NANO2_MODELS.filter(key => enabledModelKeys.has(nanoManagedKey(key)));
+      nextMetadata.supportedModels = supportedModels;
+      nextMetadata.managedRoutesByModel = Object.fromEntries(supportedModels.map(key => {
+        const model = managedModelMap.get(nanoManagedKey(key));
+        return [key, model ? this.buildManagedRouteView(model) : null];
+      }));
+      if (supportedModels.length) {
+        nextMetadata.model = supportedModels[0];
+        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: supportedModels[0], managedModelKey: nanoManagedKey(supportedModels[0]) };
       }
     }
 
     const explicitManagedModelKey =
       typeof metadata.managedModelKey === 'string' ? metadata.managedModelKey.trim() : '';
     const targetManagedModelKey =
-      nodeKey === 'gptImage25' && nextMetadata.supportedModels?.length
-        ? nextMetadata.model
+      (nodeKey === 'gptImage25' || nodeKey === 'nano2') && nextMetadata.supportedModels?.length
+        ? nodeKey === 'nano2' ? nanoManagedKey(nextMetadata.model) : nextMetadata.model
         : explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
         ? explicitManagedModelKey
         : currentModelKeys.find((key) => managedModelMap.has(key)) || '';
@@ -905,6 +927,10 @@ export class NodeConfigService {
           };
         }
 
+        if (normalizedConfig.nodeKey === 'nano2') {
+          normalizedConfig.metadata = { ...buildNano2Metadata(), ...(normalizedConfig.metadata as any), modelKeys: ['gemini-3.1-image', NANO_BANANA_21_MODEL] };
+        }
+
         // 必须在 normalizeManagedNodeMetadata 清理禁用 modelKeys 之前判定可见性。
         // 否则一个仅绑定已禁用模型的节点会被清成 modelKeys=[]，继而被误判为
         // “非模型节点”而继续返回给前端。
@@ -1198,6 +1224,7 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
+      { nodeKey: 'nano2', nameZh: 'Nano Banana 2', nameEn: 'Nano Banana 2', category: 'image' as const, sortOrder: 15, creditsPerCall: 40, priceYuan: 0.4, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2 / 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
         ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
@@ -2041,6 +2068,7 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
+      { nodeKey: 'nano2', nameZh: 'Nano Banana 2', nameEn: 'Nano Banana 2', category: 'image' as const, sortOrder: 15, creditsPerCall: 40, priceYuan: 0.4, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2 / 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
         ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],

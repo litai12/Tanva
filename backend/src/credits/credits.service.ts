@@ -1,3 +1,4 @@
+import { TOAPIS_NEW_IMAGE_MODELS, isNewToapisImageModel, isToapisImageModel, resolveToapisImageCredits } from '../ai/services/toapis-image-models';
 import { IMAGE_GENERATION_SERVICES, isImageGenerationService } from '../ai/services/image-execution-state';
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -43,6 +44,7 @@ import { BusinessPolicyService } from '../business-policy/business-policy.servic
 import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 import {
   MODEL_PROVIDER_MAPPING_SETTING_KEY,
+  DEFAULT_MODEL_PROVIDER_MAPPING_V2,
   type ManagedModelConfig,
   type ManagedModelVendorConfig,
 } from '../ai/services/model-routing.service';
@@ -745,7 +747,9 @@ export class CreditsService {
     outputImageCount?: number;
   }) {
     const normalizedRequestParamsBase = this.normalizeManagedPricingRequestParams(
-      params.requestParams,
+      isNewToapisImageModel(params.model)
+        ? { ...(params.requestParams || {}), model: params.model }
+        : params.requestParams,
     );
     const normalizedInputImageCount = this.normalizeNonNegativeInteger(
       params.inputImageCount,
@@ -1282,6 +1286,7 @@ export class CreditsService {
             : item,
         ),
         ...(!hasOmniFlashExt ? [geminiOmniFlashModel] : []),
+        ...(DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []).filter(item => TOAPIS_NEW_IMAGE_MODELS.includes(item.modelKey) && !models.some(saved => saved.modelKey === item.modelKey)),
       ],
     } as ManagedPricingMappingLike;
   }
@@ -1927,7 +1932,7 @@ export class CreditsService {
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute);
-    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(
+    const isToapiGpt25 = isToapisImageModel(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
     let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;
@@ -2260,12 +2265,16 @@ export class CreditsService {
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
+    if (isImageGenerationService(serviceType)) {
+      const toapisCredits = resolveToapisImageCredits(requestParams?.model, requestParams);
+      if (toapisCredits !== null) return toapisCredits;
+    }
     // normal=普通渠道, stable=尊享渠道, ultra=极速渠道(beqlee)
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-    const isToapiGpt25 = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].includes(
+    const isToapiGpt25 = isToapisImageModel(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
     let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;
@@ -4176,11 +4185,11 @@ export class CreditsService {
     const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
     if (!raw) return [];
 
-    const parsed = normalizeSeedance20DiscountPricing(
+    const parsed = this.withDefaultManagedPricingModels(normalizeSeedance20DiscountPricing(
       JSON.parse(raw) as ManagedPricingMappingLike & {
         models?: ManagedModelConfig[];
       },
-    );
+    ));
     const normalizedModelKey = typeof modelKey === 'string' ? modelKey.trim() : '';
     const models = Array.isArray(parsed.models) ? (parsed.models as ManagedModelConfig[]) : [];
 

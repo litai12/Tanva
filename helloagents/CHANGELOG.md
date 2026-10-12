@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-10-12：Tanva 画布补齐 GPT Image 2.5 Flare/Sunburst VIP 五档质量选择和 Nano Banana 2.1 型号；前后端统一 toApi 路由与规格，积分预览、预扣、终态按截图售价，保留原 Nano 2 价格及旧节点。发布与验收见 `wiki/toapis-vip-image-models-20261012.md`。
+
+- 2026-10-12：new-api 的 toApi 渠道新增 GPT Image 2.5 Flare/Sunburst VIP 与 Nano Banana 2.1。三款先经真实 curl 成功后注册；VIP 按用户截图五档质量×三档分辨率定价，Nano 沿用 30/40/50 积分。统一预扣与上游参数，文档页显示质量；幂等注册、相关 Go/Node 回归与构建通过，已发布 new-api；三款网关生图、真实输出分辨率和扣费均通过验收。详见 `wiki/toapis-vip-image-models-20261012.md`。
+
 - 2026-10-12：新增独立 Tanvas 企业资料库，支持个人云端/真实团队权限、企业分类与正文检索、版本 CAS、不可变引用与来源。实际 PostgreSQL SQL 迁移和 JWT HTTP 25 项、真实 Electron 云端资料闭环 2 项通过。桌面只读关键词 MCP 按主进程真实资料附件固定空间，暂停恢复保留原身份。生产迁移、部署与 Windows 仍未执行。见 `wiki/modules/backend-enterprise-library.md`。
 
 - 2026-10-09：修复图片节点已失败但用量仍 pending 时手动 Run 被旧请求误拦，并补齐刷新首查失败后的原任务轮询恢复、Worker/孤儿清理的终态广播和失败耗时。GPT 图片节点补传 projectId；管理员流水区分生成终态与待核账，不再仅显示空耗时；延迟结算保留真实生成耗时。保留原账本及在途/幂等保护；提交 `8ef3433f` 已在 101 拉取并部署前后端，健康/公网资源校验通过，未自动重跑用户任务。见 `wiki/image-node-rerun-20261009.md`。

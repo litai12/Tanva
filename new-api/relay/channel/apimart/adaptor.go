@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	mainconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -117,11 +118,21 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 // ConvertImageRequest wraps the OpenAI-style ImageRequest into APIMart's async
 // submit payload. The marshaled body is what DoRequest POSTs to submit.
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if mainconstant.IsToAPISPricedImage(info.UpstreamModelName) {
+		request.Model = info.UpstreamModelName
+		normalized, err := dto.NormalizeToAPISImageRequest(request)
+		if err != nil {
+			return nil, err
+		}
+		request = normalized
+	}
 	// Only reject models that are explicitly non-image (video, chat, audio, etc.).
 	// An empty kind means the model has no kind recorded in the DB — that is
 	// not a reason to block it on an /images/ endpoint; treat it as image.
-	if kind := model.GetModelKind(info.UpstreamModelName); kind != "" && kind != "image" && kind != "image_edit" {
-		return nil, fmt.Errorf("apimart: %q is not an image model (kind=%q) — use the task API for video/audio", info.UpstreamModelName, kind)
+	if !mainconstant.IsToAPISPricedImage(info.UpstreamModelName) {
+		if kind := model.GetModelKind(info.UpstreamModelName); kind != "" && kind != "image" && kind != "image_edit" {
+			return nil, fmt.Errorf("apimart: %q is not an image model (kind=%q) — use the task API for video/audio", info.UpstreamModelName, kind)
+		}
 	}
 	refs := imageutil.ExtractReferenceImages(&request)
 
@@ -204,7 +215,42 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Images:     refs,
 		Metadata:   meta,
 	}
-	return taskapimart.BuildSubmitPayload(taskReq)
+	payload, err := taskapimart.BuildSubmitPayload(taskReq)
+	if err != nil {
+		return nil, err
+	}
+	if mainconstant.IsToAPISImage25VIP(info.UpstreamModelName) {
+		// VIP uses pixel size and top-level quality, never ordinary ratio /
+		// resolution fields. Protect the normalized billable values from extras.
+		payload.Size = request.Size
+		payload.AspectRatio = ""
+		payload.Resolution = ""
+		for _, key := range []string{"size", "aspect_ratio", "resolution", "image_size", "imageSize", "reference_images"} {
+			delete(payload.Extras, key)
+		}
+		payload.Extras["quality"] = request.Quality
+		payload.Extras["n"] = 1
+	} else if info.UpstreamModelName == mainconstant.ToAPISNanoBanana21 {
+		payload.AspectRatio = ""
+		payload.Resolution = ""
+		delete(payload.Extras, "resolution")
+		delete(payload.Extras, "image_size")
+		delete(payload.Extras, "imageSize")
+		// Nano 2.1 requires the resolution inside metadata, unlike earlier
+		// APIMart-compatible image models which use top-level resolution.
+		metadata := map[string]any{}
+		if raw := request.Extra["metadata"]; len(raw) > 0 {
+			_ = common.Unmarshal(raw, &metadata)
+		}
+		for key := range metadata {
+			if _, explicit := request.Extra[key]; !explicit {
+				delete(payload.Extras, key)
+			}
+		}
+		metadata["resolution"] = resolution
+		payload.Extras["metadata"] = metadata
+	}
+	return payload, nil
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {

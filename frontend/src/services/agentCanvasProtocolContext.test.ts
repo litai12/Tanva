@@ -80,3 +80,12 @@ test("a presentation request includes the relevant htmlPpt node", () => {
   );
   assert.doesNotMatch(JSON.stringify(result), /not relevant/);
 });
+
+test("canvas model manifest exposes both VIP variants and Nano Banana 2.1", () => {
+  const gpt = TANVA_CAPABILITY_MANIFEST.nodeSpecs.find(node => node.type === 'gptImage2');
+  const nano = TANVA_CAPABILITY_MANIFEST.nodeSpecs.find(node => node.type === 'nano2');
+  assert.match(JSON.stringify(gpt), /gpt-image-2\.5-flare-vip/);
+  assert.match(JSON.stringify(gpt), /gpt-image-2\.5-sunburst-vip/);
+  assert.match(JSON.stringify(gpt), /xhigh/);
+  assert.match(JSON.stringify(nano), /gemini-nano-banana-2\.1/);
+});

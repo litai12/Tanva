@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -132,6 +133,19 @@ func isHighResImageModel(model string) bool {
 func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	var sizeRatio = 1.0
 	var qualityRatio = 1.0
+	if constant.IsToAPISPricedImage(i.Model) {
+		if request, err := NormalizeToAPISImageRequest(*i); err == nil {
+			var resolution string
+			_ = common.Unmarshal(request.Extra["resolution"], &resolution)
+			if price, ok := constant.ToAPISImagePriceCNY(i.Model, request.Quality, resolution); ok {
+				basePrice := 0.2
+				if i.Model == constant.ToAPISNanoBanana21 {
+					basePrice = 0.3
+				}
+				return &types.TokenCountMeta{CombineText: i.Prompt, MaxTokens: 1584, ImagePriceRatio: price / basePrice}
+			}
+		}
+	}
 
 	if strings.HasPrefix(i.Model, "dall-e") {
 		// Size

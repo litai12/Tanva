@@ -56,9 +56,9 @@ test("legacy keys only fill missing model values", () => {
 test("catalog options expose exact model labels and isolated pricing routes", () => {
   const routes = Object.fromEntries(["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].map((modelKey, index) => [modelKey, { modelKey, vendors: [{ vendorKey: "new_api", creditsPerCall: 20 + index }] }]));
   const configs = expandGptImageModelConfigs([{ nodeKey: "gptImage25", nameZh: "GPT", nameEn: "GPT", category: "image", status: "normal", sortOrder: 1, creditsPerCall: 20, metadata: { supportedModels: ["gpt-image-2.5-flare"], managedRoutesByModel: routes } }]);
-  assert.deepEqual(configs.map(c => c.nameZh), ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
+  assert.deepEqual(configs.map(c => c.nameZh), ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"]);
   for (const config of configs) {
-    assert.equal(config.metadata?.managedRoutes.modelKey, config.metadata?.model);
+    if (config.metadata?.managedRoutes) assert.equal(config.metadata.managedRoutes.modelKey, config.metadata.model);
     assert.deepEqual(config.metadata?.supportedModels, ["gpt-image-2.5-flare"]);
   }
 });

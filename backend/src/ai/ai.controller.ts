@@ -1,3 +1,4 @@
+import { NANO_BANANA_21_MODEL, isToapisImageModel, isNewToapisImageModel, normalizeToapisImageRequest } from './services/toapis-image-models';
 import { imageExecutionContext, isImageGenerationService, needsImageReconciliation, ImageExecutionState } from './services/image-execution-state';
 import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
 import { DeepSeekChatBillingService, isDeepSeekChatModel, DeepSeekChatCharge } from './services/deepseek-chat-billing.service';
@@ -1014,7 +1015,7 @@ export class AiController {
       return 'doubao-seedream-5-0-260128';
     }
 
-    if (normalizedModel?.includes('gemini-3.1')) {
+    if (normalizedModel?.includes('gemini-3.1') || normalizedModel === NANO_BANANA_21_MODEL) {
       return 'gemini-3.1-image';
     }
 
@@ -1105,7 +1106,7 @@ export class AiController {
         : undefined;
     const channelHint =
       requestModel === 'gpt-image-2.5' ? 'jichuan' :
-      ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(requestModel)
+      isToapisImageModel(requestModel)
         ? 'toapis'
         : isGatewayTextRequest
         ? 'new-api'
@@ -1125,7 +1126,7 @@ export class AiController {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
-      ...(!isGatewayTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
+      ...(!isGatewayTextRequest && bananaImageRoute ? { bananaImageRoute: isToapisImageModel(requestModel) ? 'normal' : bananaImageRoute } : {}),
     };
   }
 
@@ -2433,6 +2434,16 @@ export class AiController {
       return { ...resultObject, apiUsageId: deducted.apiUsageId } as T;
     }
     return result;
+  }
+
+  private async prepareToapisImageRequest(dto: any, model: string, referenceCount: number): Promise<void> {
+    if (!isNewToapisImageModel(model)) return;
+    normalizeToapisImageRequest(dto, referenceCount);
+    const config = await this.modelRoutingService.getParsedConfig();
+    const managed = (config.models || []).find(item => item.modelKey === model);
+    if (!managed || managed.enabled === false || !managed.vendors?.some(vendor => vendor.enabled !== false && vendor.vendorKey === 'new_api')) {
+      throw new BadRequestException('该图片型号已下线');
+    }
   }
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
@@ -3917,6 +3928,7 @@ export class AiController {
         ? 'gpt-image-2'
         : dto.model;
     const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    await this.prepareToapisImageRequest(dto, model, dto.imageUrls?.length || 0);
     const normalizedImageUrlsForProvider = (dto.imageUrls || []).map((value, index) =>
       this.requireRemoteImageForGenerationTask(value, `imageUrls[${index}]`),
     );
@@ -3988,6 +4000,7 @@ export class AiController {
       const imageCreditRequestParams = this.buildCreditRequestParams(providerName, {
         clientNodeId: dto.nodeId,
         clientProjectId: dto.projectId || 'legacy-image',
+        model,
         imageSize: dto.imageSize,
         quality: dto.quality,
         aspectRatio: dto.aspectRatio,
@@ -4165,6 +4178,7 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    await this.prepareToapisImageRequest(dto, model, 1);
     const remoteSourceImage = this.requireRemoteImageForGenerationTask(
       dto.sourceImageUrl || dto.sourceImage,
       'sourceImageUrl',
@@ -4175,9 +4189,9 @@ export class AiController {
     const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
-    const serviceType = model?.includes('2.5')
+    const serviceType = model?.includes('gpt-image-2') ? 'gpt-image-2' : model?.includes('2.5')
       ? 'gemini-2.5-image-edit'
-      : model?.includes('3.1')
+      : (model?.includes('3.1') || model === NANO_BANANA_21_MODEL)
       ? 'gemini-3.1-image-edit'
       : 'gemini-image-edit';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
@@ -4251,6 +4265,7 @@ export class AiController {
           imageOnly: dto.imageOnly,
           aspectRatio: dto.aspectRatio,
           imageSize: dto.imageSize,
+          quality: dto.quality,
           thinkingLevel: dto.thinkingLevel,
           outputFormat: dto.outputFormat,
           providerOptions: dto.providerOptions,
@@ -4295,6 +4310,8 @@ export class AiController {
       }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         clientNodeId: dto.nodeId,
         clientProjectId: dto.projectId || 'legacy-image',
+        model,
+        quality: dto.quality,
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
         parallelGroupId: dto.parallelGroupId,
@@ -4361,6 +4378,7 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    await this.prepareToapisImageRequest(dto, model, (dto.sourceImageUrls?.length ? dto.sourceImageUrls : dto.sourceImages || []).length);
     const requestedSourceImages = dto.sourceImageUrls?.length
       ? dto.sourceImageUrls
       : dto.sourceImages || [];
@@ -4376,9 +4394,9 @@ export class AiController {
     const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
-    const serviceType = model?.includes('2.5')
+    const serviceType = model?.includes('gpt-image-2') ? 'gpt-image-2' : model?.includes('2.5')
       ? 'gemini-2.5-image-blend'
-      : model?.includes('3.1')
+      : (model?.includes('3.1') || model === NANO_BANANA_21_MODEL)
       ? 'gemini-3.1-image-blend'
       : 'gemini-image-blend';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
@@ -4444,6 +4462,7 @@ export class AiController {
           imageOnly: dto.imageOnly,
           aspectRatio: dto.aspectRatio,
           imageSize: dto.imageSize,
+          quality: dto.quality,
           thinkingLevel: dto.thinkingLevel,
           outputFormat: dto.outputFormat,
           providerOptions: dto.providerOptions,
@@ -4488,6 +4507,8 @@ export class AiController {
       }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         clientNodeId: dto.nodeId,
         clientProjectId: dto.projectId || 'legacy-image',
+        model,
+        quality: dto.quality,
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
         parallelGroupId: dto.parallelGroupId,
@@ -8203,6 +8224,7 @@ export class AiController {
         ? 'gpt-image-2'
         : dto.model;
     const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    await this.prepareToapisImageRequest(dto, model, dto.imageUrls?.length || 0);
     const imageUrls = Array.isArray(dto.imageUrls)
       ? dto.imageUrls.map((value, index) =>
           this.requireRemoteImageForGenerationTask(value, `imageUrls[${index}]`),
@@ -8241,6 +8263,7 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    await this.prepareToapisImageRequest(dto, model, 1);
 
     const sourceImage = this.requireRemoteImageForGenerationTask(
       dto.sourceImageUrl || dto.sourceImage,
@@ -8278,6 +8301,7 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    await this.prepareToapisImageRequest(dto, model, (dto.sourceImageUrls?.length ? dto.sourceImageUrls : dto.sourceImages || []).length);
 
     const requestedImages = dto.sourceImageUrls?.length
       ? dto.sourceImageUrls

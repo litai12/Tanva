@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NewApiProvider } from './new-api.provider';
 
 type RequestOptions = { body?: string };
+const fakeConfig = (values: Record<string, string>) => ({ get: (key: string, fallback?: string) => values[key] ?? fallback }) as ConfigService;
 
 async function captureImagePayload(
   invoke: (provider: NewApiProvider) => Promise<unknown>,
@@ -87,7 +88,7 @@ async function main(): Promise<void> {
     assert.equal(payload.quality, model === 'gpt-image-2.5' ? 'max' : undefined);
     assert.equal(payload.resolution, '2K');
     assert.deepEqual(payload.image_urls, ['https://assets.example.test/reference.png']);
-    const provider = new NewApiProvider(new ConfigService({
+    const provider = new NewApiProvider(fakeConfig({
       NEW_API_KEY: 'normal-test', NEW_API_KEY_VIP: 'vip-test', NEW_API_KEY_SVIP: 'svip-test',
     }));
     await provider.initialize();
@@ -113,6 +114,37 @@ async function main(): Promise<void> {
   await assert.rejects(() => provider.generateImage({
     model: 'gpt-image-2.5', prompt: 'edit', imageUrls: ['data:image/png;base64,abc'],
   }), /HTTP|URL|远程/);
+
+  for (const model of ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip']) {
+    for (const quality of [undefined, 'auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const) {
+      for (const imageSize of ['1K', '2K', '4K']) {
+        const request = { model, prompt: 'VIP test', quality, imageSize, aspectRatio: '3:2', providerOptions: { banana: { imageRoute: 'stable' as const } } };
+        const payload = await captureImagePayload(provider => provider.generateImage(request));
+        assert.equal(payload.model, model);
+        assert.equal(payload.quality, quality === undefined || quality === 'auto' ? 'high' : quality);
+        assert.equal(payload.resolution, imageSize);
+        assert.equal(payload.response_format, 'url');
+        const edit = await captureImagePayload(provider => provider.editImage({ ...request, sourceImage: 'https://assets.example.test/a.png' }));
+        assert.equal(edit.quality, payload.quality);
+        const blend = await captureImagePayload(provider => provider.blendImages({ ...request, sourceImages: ['https://assets.example.test/a.png'] }));
+        assert.equal(blend.quality, payload.quality);
+      }
+    }
+  }
+  const nanoRefs = Array.from({ length: 14 }, (_, i) => `https://assets.example.test/${i}.png?original=1`);
+  const nano = await captureImagePayload(provider => provider.generateImage({ model: 'gemini-nano-banana-2.1', prompt: 'Nano test', imageUrls: nanoRefs, imageSize: '4K', aspectRatio: '8:1', providerOptions: { banana: { imageRoute: 'ultra' } } }));
+  assert.equal(nano.model, 'gemini-nano-banana-2.1');
+  assert.equal(nano.resolution, '4K');
+  assert.equal(nano.size, '8:1');
+  assert.equal(nano.response_format, 'url');
+  assert.deepEqual(nano.image_urls, nanoRefs);
+  for (const model of ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip', 'gemini-nano-banana-2.1']) {
+    const keys = new NewApiProvider(fakeConfig({ NEW_API_KEY: 'normal-test', NEW_API_KEY_VIP: 'vip-test', NEW_API_KEY_SVIP: 'svip-test' }));
+    await keys.initialize();
+    for (const route of ['normal', 'stable', 'ultra']) assert.equal((keys as any).resolveApiKey({ banana: { imageRoute: route }, vendorKey: 'new_api' }, model), 'normal-test');
+  }
+  await assert.rejects(() => provider.generateImage({ model: 'gemini-nano-banana-2.1', prompt: 'test', imageUrls: [...nanoRefs, nanoRefs[0]] }), /14/);
+  await assert.rejects(() => provider.generateImage({ model: 'gpt-image-2.5-flare-vip', prompt: 'test', imageSize: '0.5K' }), /1K/);
   console.log('new-api image response format, Jichuan payload and 2.5 routing contract: ok');
 }
 

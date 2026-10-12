@@ -471,9 +471,9 @@ export const TANVA_CAPABILITY_MANIFEST = {
     },
     {
       type: "nano2",
-      label: "Nano Banana 2",
-      purpose: "单图生成（banana-3.1 家族）；需连 text 边供提示词",
-      params: { presetPrompt: { type: "string", description: "前缀提示词（可选）" } },
+      label: "Nano Banana 2 / 2.1",
+      purpose: "单图生成；需连 text 边供提示词；保留普通 Nano2 默认，Nano2.1 走普通线路、最多14张远程参考图",
+      params: { model: { type: "string", enum: ["gemini-3.1-flash-image-preview", "gemini-nano-banana-2.1"] }, resolution: { type: "string", enum: ["1K", "2K", "4K"] }, presetPrompt: { type: "string", description: "前缀提示词（可选）" } },
       inputs: [{ handle: "text" }, { handle: "img", accepts: "image" }],
       outputs: [{ handle: "img", emits: "image" }],
     },
@@ -609,10 +609,10 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "gptImage2",
       label: "GPT Image 2 / 2.5",
-      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 可选 Flare、Sunburst，默认 Flare，保留用户指定的可用型号",
+      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 可选 Flare、Sunburst 及其 VIP 版，默认普通 Flare，保留用户指定的可用型号",
       params: {
-        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] },
-        quality: { type: "string", enum: ["low", "medium", "high"], description: "Only GPT Image 2 stable route accepts quality (default: low); omit for normal route and Flare/Sunburst" },
+        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"] },
+        quality: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], description: "VIP quality defaults to high and always uses normal route; GPT Image 2 stable route accepts low/medium/high (default low); omit quality for ordinary Flare/Sunburst and GPT Image 2 normal route" },
         aspectRatio: { type: "string" },
         resolution: { type: "string", enum: ["1K", "2K", "4K"] },
       },

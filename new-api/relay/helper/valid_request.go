@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -152,7 +153,9 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			formData := c.Request.Form // PostForm is empty for multipart; Form includes multipart values after ParseMultipartForm
 			imageRequest.Prompt = formData.Get("prompt")
 			imageRequest.Model = formData.Get("model")
-			imageRequest.N = common.GetPointer(uint(common.String2Int(formData.Get("n"))))
+			if formData.Has("n") {
+				imageRequest.N = common.GetPointer(uint(common.String2Int(formData.Get("n"))))
+			}
 			imageRequest.Quality = formData.Get("quality")
 			imageRequest.Size = formData.Get("size")
 			if imageValue := formData.Get("image"); imageValue != "" {
@@ -164,7 +167,7 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 					imageRequest.Quality = "standard"
 				}
 			}
-			if imageRequest.N == nil || *imageRequest.N == 0 {
+			if (imageRequest.N == nil || *imageRequest.N == 0) && !constant.IsToAPISPricedImage(imageRequest.Model) {
 				imageRequest.N = common.GetPointer(uint(1))
 			}
 
@@ -219,11 +222,18 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 		//	return nil, errors.New("prompt is required")
 		//}
 
-		if imageRequest.N == nil || *imageRequest.N == 0 {
+		if (imageRequest.N == nil || *imageRequest.N == 0) && !constant.IsToAPISPricedImage(imageRequest.Model) {
 			imageRequest.N = common.GetPointer(uint(1))
 		}
 	}
 
+	if constant.IsToAPISPricedImage(imageRequest.Model) {
+		normalized, err := dto.NormalizeToAPISImageRequest(*imageRequest)
+		if err != nil {
+			return nil, err
+		}
+		imageRequest = &normalized
+	}
 	return imageRequest, nil
 }
 

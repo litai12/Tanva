@@ -183,3 +183,7 @@
 ### 2026-10-08：鲁班对话单倍率
 
 new-api 的鲁班对话渠道只使用一个 `text_price_multiplier`（默认 0.4），以人民币官价基准一次相乘，不叠加采购/销售倍数。参考 TapCanvasPro 的内置已核验官价快照，显式同步保留管理员倍率，未知官价保持基准并说明跳过；模型目录始终来自启用能力。生产程序及 `001/003` 已部署，新增启用的 `lluban-chat`（ID 51、22 模型）；旧路由收敛 `002` 因涉及小T、图像/视频理解依赖尚未执行，保留原渠道与优先级。桌面签名消费模式的代码按网关最终 CNY × 100 积分结算，新订单预留 0、无额外 1.5 倍；历史回执与非桌面原合同不追溯改价，生产现已配置共享签名并限定 `TANVA_CONSUMPTION_SCOPE=desktop`，桌面接口实测返回 22 个模型，网页仍保留原计费。详见 `wiki/lluban-chat-channel-20261008.md` 与 `wiki/desktop-model-catalog-scope-20261008.md`；尚未进行真实付费推理验收。
+
+### 2026-10-12：new-api ToAPIs VIP 图片规格
+
+new-api 的 `gpt-image-2.5-flare-vip` / `gpt-image-2.5-sunburst-vip` 使用五档质量×三档分辨率固定零售价；网关先统一参数再计费，上游发送像素尺寸和明确质量。`gemini-nano-banana-2.1` 使用远程参考图与 `metadata.resolution`，售价沿用 Nano Banana 2。Tanva 画布在现有 GPT Image 2.5 / Nano Banana 2 节点内增加型号选择；VIP 支持 low/medium/high/xhigh/max（默认 high），三新型号固定走 new-api/toApi 普通线路，报价、预扣与终态结算使用同一规格，无额外线路倍率。旧型号默认与旧节点身份保留，目录只补缺失模型、保留管理员显式禁用。价格表、curl 证据和部署状态见 `wiki/toapis-vip-image-models-20261012.md`。

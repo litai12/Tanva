@@ -93,10 +93,11 @@ export interface ImageGenerationRequest {
 
 export interface ImageEditRequest {
   prompt: string;
-  sourceImage: string; // base64
+  sourceImage: string; // remote HTTP(S) URL
   model?: string;
   aspectRatio?: string;
   imageSize?: string;
+  quality?: ImageGenerationRequest['quality'];
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
@@ -105,10 +106,11 @@ export interface ImageEditRequest {
 
 export interface ImageBlendRequest {
   prompt: string;
-  sourceImages: string[]; // base64 array
+  sourceImages: string[]; // remote HTTP(S) URLs
   model?: string;
   aspectRatio?: string;
   imageSize?: string;
+  quality?: ImageGenerationRequest['quality'];
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
@@ -117,7 +119,7 @@ export interface ImageBlendRequest {
 
 export interface ImageAnalysisRequest {
   prompt?: string;
-  sourceImage: string; // base64
+  sourceImage: string; // remote HTTP(S) URL
   sourceImages?: string[]; // base64/url array (optional, multi-image analysis)
   model?: string;
   providerOptions?: ProviderOptionsPayload;

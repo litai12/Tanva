@@ -50,6 +50,7 @@ type ParamPricingResult struct {
 	SpecKey         string  `json:"spec_key"`
 	DurationSeconds int     `json:"duration_seconds"`
 	Resolution      string  `json:"resolution"`
+	Quality         string  `json:"quality,omitempty"`
 	PriceUSD        float64 `json:"price_usd"`
 	PriceCNY        float64 `json:"price_cny,omitempty"`
 	PriceDisplayUSD string  `json:"price_display_usd"`
@@ -407,6 +408,24 @@ func apimartUSDToPremiumCNY(value float64) float64 {
 }
 
 func fixedImagePricingRules(modelName string) []fixedImagePricingRule {
+	if constant.IsToAPISPricedImage(modelName) {
+		qualities := []string{""}
+		if constant.IsToAPISImage25VIP(modelName) {
+			qualities = []string{"low", "medium", "high", "xhigh", "max"}
+		}
+		var rules []fixedImagePricingRule
+		for _, quality := range qualities {
+			for _, resolution := range []string{"1k", "2k", "4k"} {
+				price, _ := constant.ToAPISImagePriceCNY(modelName, quality, resolution)
+				specKey := "image:" + resolution
+				if quality != "" {
+					specKey += ":" + quality
+				}
+				rules = append(rules, fixedImagePricingRule{specKey: specKey, resolution: resolution, quality: quality, cnyPrice: price})
+			}
+		}
+		return rules
+	}
 	switch CanonicalModelKey(modelName) {
 	case "gemini-2.5-flash-image-preview":
 		return []fixedImagePricingRule{
@@ -522,6 +541,7 @@ func buildParamPricing(modelName string, meta *Model) *ParamPricing {
 			results = append(results, ParamPricingResult{
 				SpecKey:         specKey,
 				Resolution:      strings.TrimSpace(strings.ToLower(rule.resolution)),
+				Quality:         rule.quality,
 				PriceCNY:        priceCNY,
 				PriceDisplayCNY: formatCNY(priceCNY),
 			})

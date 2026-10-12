@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -87,7 +88,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 	var requestBody io.Reader
 	var upstreamRequestBody string
 
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	if (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled) && !constant.IsToAPISPricedImage(request.Model) {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
@@ -124,9 +125,15 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 
 			// apply param override
 			if len(info.ParamOverride) > 0 {
+				beforeOverride := jsonData
 				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 				if err != nil {
 					return NewAPIErrorFromParamOverride(err)
+				}
+				if constant.IsToAPISPricedImage(request.Model) {
+					if err := validateToAPISImagePriceOverride(beforeOverride, jsonData); err != nil {
+						return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+					}
 				}
 			}
 
@@ -335,5 +342,23 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 		logger.LogWarn(c, fmt.Sprintf("insert midjourney record failed: %v", insertErr))
 	}
 
+	return nil
+}
+
+// Channel overrides may alter presentation fields but cannot make the actual
+// image request differ from the inputs used for pre-consumption and settlement.
+func validateToAPISImagePriceOverride(before, after []byte) error {
+	var original, overridden map[string]any
+	if err := common.Unmarshal(before, &original); err != nil {
+		return err
+	}
+	if err := common.Unmarshal(after, &overridden); err != nil {
+		return err
+	}
+	for _, key := range []string{"model", "size", "quality", "n", "resolution", "image_size", "imageSize", "aspect_ratio", "metadata"} {
+		if !reflect.DeepEqual(original[key], overridden[key]) {
+			return fmt.Errorf("channel parameter override cannot change %s for fixed-price ToAPIs images", key)
+		}
+	}
 	return nil
 }

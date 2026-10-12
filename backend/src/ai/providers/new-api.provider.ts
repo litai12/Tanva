@@ -1,3 +1,4 @@
+import { TOAPIS_NEW_IMAGE_MODELS, NANO_BANANA_21_MODEL, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
 import { recordImageRejection, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -63,6 +64,7 @@ const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
   '8:1',
 ] as const;
 const URL_ONLY_IMAGE_RESPONSE_MODELS = new Set([
+  ...TOAPIS_NEW_IMAGE_MODELS,
   'gemini-3-pro-image-preview',
   'gemini-3.1-flash-image-preview',
 ]);
@@ -143,6 +145,7 @@ export class NewApiProvider implements IAIProvider {
         'gpt-image-2.5',
         'gpt-image-2.5-flare',
         'gpt-image-2.5-sunburst',
+        ...TOAPIS_NEW_IMAGE_MODELS,
         'sora-2',
         'kling-v3',
         'wan2.7-videoedit',
@@ -156,6 +159,7 @@ export class NewApiProvider implements IAIProvider {
     request: ImageGenerationRequest,
   ): Promise<AIProviderResponse<ImageResult>> {
     setImageSubmissionStarted(false);
+    normalizeToapisImageRequest(request, request.imageUrls?.length || 0);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -173,7 +177,8 @@ export class NewApiProvider implements IAIProvider {
         this.requireRemoteImageReference(item, `image_urls[${index}]`),
       ),
       // Flare/Sunburst do not accept the base 2.5 model's quality controls.
-      quality: ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined
+      quality: isToapisVipImageModel(model) ? normalizeToapisVipQuality(request.quality)
+        : ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined
         : model === 'gpt-image-2'
           ? imageRoute === 'stable'
             ? request.quality === 'medium' || request.quality === 'high' ? request.quality : 'low'
@@ -192,6 +197,7 @@ export class NewApiProvider implements IAIProvider {
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
     setImageSubmissionStarted(false);
+    normalizeToapisImageRequest(request, 1);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -201,6 +207,7 @@ export class NewApiProvider implements IAIProvider {
       ...this.resolveImageResponseFields(model, request.outputFormat),
       prompt: request.prompt,
       n: 1,
+      quality: isToapisVipImageModel(model) ? normalizeToapisVipQuality(request.quality) : undefined,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: [this.requireRemoteImageReference(request.sourceImage, 'image_urls[0]')],
@@ -211,6 +218,7 @@ export class NewApiProvider implements IAIProvider {
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
     setImageSubmissionStarted(false);
+    normalizeToapisImageRequest(request, request.sourceImages.length);
     const model = this.resolveUltraModel(
       request.model || 'gemini-2.5-flash-image-preview',
       request.providerOptions,
@@ -220,6 +228,7 @@ export class NewApiProvider implements IAIProvider {
       ...this.resolveImageResponseFields(model, request.outputFormat),
       prompt: request.prompt,
       n: 1,
+      quality: isToapisVipImageModel(model) ? normalizeToapisVipQuality(request.quality) : undefined,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: request.sourceImages.map((item, index) =>
@@ -610,7 +619,7 @@ export class NewApiProvider implements IAIProvider {
   ]);
 
   private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
-    if (resolvedModel === 'gpt-image-2.5' || resolvedModel === 'gpt-image-2.5-flare' || resolvedModel === 'gpt-image-2.5-sunburst') {
+    if (isToapisImageModel(resolvedModel)) {
       return this.apiKey;
     }
     const imageRoute =
@@ -1352,12 +1361,12 @@ export class NewApiProvider implements IAIProvider {
 
   private isGeminiImageModel(model?: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
-    return normalized.includes('gemini') && normalized.includes('image');
+    return normalized === NANO_BANANA_21_MODEL || (normalized.includes('gemini') && normalized.includes('image'));
   }
 
   private resolveGeminiImageAspectRatios(model?: string): readonly string[] {
     const normalized = String(model || '').trim().toLowerCase();
-    if (normalized.includes('gemini-3.1') && normalized.includes('flash-image')) {
+    if (normalized === NANO_BANANA_21_MODEL || (normalized.includes('gemini-3.1') && normalized.includes('flash-image'))) {
       return GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS;
     }
     return GEMINI_BASE_IMAGE_ASPECT_RATIOS;

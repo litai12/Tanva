@@ -1,3 +1,4 @@
+import { TOAPIS_NEW_IMAGE_MODELS, createToapisImagePricing } from './toapis-image-models';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ManagedPricingBook } from './model-pricing-resolver';
@@ -1129,6 +1130,10 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
     },
     // ---------- 图像模型 ----------
     {
+      modelKey: 'gemini-3.1-image', modelName: 'Nano Banana 2', taskType: 'image', enabled: true, defaultVendor: 'new_api',
+      vendors: [{ vendorKey: 'new_api', platformKey: 'new_api', label: 'New API', enabled: true, route: 'legacy', provider: 'new-api', modelName: 'gemini-3.1-flash-image-preview', creditsPerCall: 40, priceYuan: 0.4 }],
+    },
+    {
       modelKey: 'gemini-2.5-image',
       modelName: 'Gemini 2.5 Flash Image',
       taskType: 'image',
@@ -1208,7 +1213,7 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
-    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5'].map((modelKey) => ({
+    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5', ...TOAPIS_NEW_IMAGE_MODELS].map((modelKey) => ({
       modelKey,
       modelName: modelKey === 'gpt-image-2' ? 'GPT-Image-2' : modelKey,
       taskType: 'image' as const,
@@ -1223,8 +1228,9 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           route: 'legacy' as const,
           provider: 'new-api',
           modelName: modelKey,
-          creditsPerCall: 20,
-          priceYuan: 0.2,
+          pricing: createToapisImagePricing(modelKey),
+          creditsPerCall: modelKey.endsWith('-vip') ? 40 : modelKey === 'gemini-nano-banana-2.1' ? 30 : 20,
+          priceYuan: modelKey.endsWith('-vip') ? 0.4 : modelKey === 'gemini-nano-banana-2.1' ? 0.3 : 0.2,
         },
       ],
     })),
@@ -1334,7 +1340,7 @@ export class ModelRoutingService {
       vendors: vendors.map((vendor) => ({
         ...vendor,
         enabled:
-          vendor.vendorKey === resolvedDefaultVendor ? true : vendor.enabled !== false,
+          TOAPIS_NEW_IMAGE_MODELS.includes(model.modelKey) ? vendor.enabled !== false : vendor.vendorKey === resolvedDefaultVendor ? true : vendor.enabled !== false,
       })),
     };
   }
@@ -1372,6 +1378,8 @@ export class ModelRoutingService {
         .filter(Boolean),
     );
     const fallbackAppendModelKeys = new Set([
+      ...TOAPIS_NEW_IMAGE_MODELS,
+      'gemini-3.1-image',
       'gpt-image-2.5',
       'gpt-image-2.5-flare',
       'gpt-image-2.5-sunburst',

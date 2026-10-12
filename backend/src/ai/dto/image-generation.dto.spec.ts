@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
-import { GenerateImageDto } from './image-generation.dto';
+import { GenerateImageDto, EditImageDto, BlendImagesDto } from './image-generation.dto';
 
 async function main() {
   const pipe = new ValidationPipe({
@@ -34,6 +34,14 @@ async function main() {
     const result = await validate({ ...request, model: 'gpt-image-2', quality });
     assert.equal(result.quality, quality, 'preserve GPT-Image-2 compatibility');
   }
+  for (const model of ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip']) {
+    for (const quality of ['low', 'medium', 'high', 'xhigh', 'max']) {
+      assert.equal((await validate({ ...request, model, quality })).quality, quality);
+      assert.equal((await pipe.transform({ prompt: 'edit', sourceImageUrl: request.imageUrls[0], model, quality }, { type: 'body', metatype: EditImageDto })).quality, quality);
+      assert.equal((await pipe.transform({ prompt: 'blend', sourceImageUrls: request.imageUrls, model, quality }, { type: 'body', metatype: BlendImagesDto })).quality, quality);
+    }
+  }
+  await validate({ ...request, model: 'gemini-nano-banana-2.1' });
   await validate(request);
   for (const quality of ['invalid', 'MAX', 1]) {
     await assert.rejects(validate({ ...request, quality }), BadRequestException);
