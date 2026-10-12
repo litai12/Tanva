@@ -76,8 +76,8 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - GPT Image 2.5 型号下拉追加 Flare VIP / Sunburst VIP，质量提供 low/medium/high/xhigh/max，默认 high；Nano Banana 2 下拉追加 2.1。保留原型号、节点结果和连线。
 - 三个新型号固定走 `new_api` 的 toApi 普通线路；全局 stable/ultra 不改变供应商和价格。前端报价、生成任务、Provider 请求保留同一模型、分辨率与质量。
 - Tanva 积分预览、预扣与最终计费使用上表零售价；新 Nano 2.1 为 30/40/50，旧 Nano 2 的原普通/尊享价格不追溯变更。
-- 公共节点目录与托管模型默认配置补齐缺失模型，已有管理员禁用状态继续生效。使用现有异步图片任务、幂等和结果持久化合同，参考图及保存结果使用远程 URL。
-- 发布前备份：`/opt/tanva-backups/toapis-canvas-20261012/`，包含前后端 dist 与相关 SystemSetting / NodeConfig。源码、构建验证和生产验收记录在发布完成后补充。
+- 公共节点目录与托管模型默认配置补齐缺失模型，已有管理员禁用状态继续生效。GPT VIP 使用现有异步图片任务，Nano2.1 保留原 Nano2 同步生图路径；沿用原幂等和结果持久化合同，参考图及保存结果使用远程 URL。
+- 发布前备份：`/opt/tanva-backups/toapis-canvas-20261012/`，包含前后端 dist 与相关 SystemSetting / NodeConfig。源码、构建验证和生产验收见下。
 
 ### 画布本地验证
 
@@ -85,3 +85,19 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - `verify:toapi-image-controls` 使用真实 Nano2Node React 控件：两个 VIP 选 xhigh/2K，捕获报价与异步提交参数；Nano 2.1 切换并刷新后保留型号和已有结果，再提交 4K。该浏览器测试拦截 API，无付费生成。
 - 后端 `verify:toapis-canvas-models` 验证 99 组最终有效报价（同步/异步参数形状均覆盖），以及目录升级、禁用保留、固定 toApi 路由、原始远程参考图与参数拒绝。
 - 前后端生产构建通过。后端目录、旧图片定价、new-api 请求、DTO 既有回归通过。前端全量 lint 仍有 2,563 errors / 199 warnings，原基线为 2,563 / 200；未新增错误，不能声明全量 lint 通过。
+
+### 画布生产发布与验收（101）
+
+- 代码 `a637aa540f0d36d8b425a9c6bcdcc6aeab5dc680` 已推送 main，101 已 fast-forward 拉取。生产上轮 new-api 源码修改先保存到 stash `6c037fa0020e06b5079cd64f1e45dc19433c9e89`，未丢弃。
+- `/opt/tanva-releases/toapis-canvas-20261012/` 保存发布脚本与构建哈希清单。48 个前端文件、936 个后端文件的本地/暂存/线上哈希一致；活动图片与网关未结请求均为 0 后 reload 后端，随后恢复图片队列。前端保留旧 hash 资源并最后替换 index。`tanvas-api` online，公网 health 与资源引用正常。
+- 真实浏览器在新建验收项目 `afa01ff2-f2a7-41d2-9d81-1998277c4e11` 中选择型号、质量、分辨率后点击 Run，三款均成功；未重跑用户旧节点。
+
+| 型号 | 前端规格 | 执行回执 | 输出 | 实扣积分 |
+| --- | --- | --- | --- | ---: |
+| Flare VIP | medium / 2K | ImageTask `263dcc71-a80f-4770-84b7-475bb11b130b` | 2048×2048，TOS 远程图 | 40 |
+| Sunburst VIP | low / 1K | ImageTask `48eef1e5-ecee-46c1-a242-9815f6119437` | 1024×1024，TOS 远程图 | 20 |
+| Nano Banana 2.1 | 2K | 同步 API，Usage `a444f01a-696f-460e-88d8-239367abb006` | 2048×2048，TOS 远程图 | 40 |
+
+- Sunburst 与 Nano 提交时全局为 stable，但请求和用量回执仍为 normal/toapis，没有线路倍率。三笔 usage 均 success，各只有一笔 spend，合计 100 积分，余额 6150 → 6050。验收结束恢复原普通线路。
+- DB contentJson 与 OSS 权威快照（version 9）均保存三节点的精确型号、质量/分辨率和 TOS 图片 URL；浏览器刷新后三个型号和图片尺寸再次核对通过。期间遇到另一标签页保存项目的版本提示，按提示刷新后验收结果完整保留，未覆盖其他标签页内容。
+- 发布目录证据：`canvas-acceptance-summary.json`（allPassed=true）、`canvas-acceptance-ledger.json`、`canvas-acceptance-project.json`、`canvas-acceptance-oss.json`、`browser-before-refresh.json`、`browser-after-refresh.json`。

@@ -1,6 +1,6 @@
 # Changelog
 
-- 2026-10-12：Tanva 画布补齐 GPT Image 2.5 Flare/Sunburst VIP 五档质量选择和 Nano Banana 2.1 型号；前后端统一 toApi 路由与规格，积分预览、预扣、终态按截图售价，保留原 Nano 2 价格及旧节点。发布与验收见 `wiki/toapis-vip-image-models-20261012.md`。
+- 2026-10-12：Tanva 画布补齐 GPT Image 2.5 Flare/Sunburst VIP 五档质量选择和 Nano Banana 2.1 型号；前后端统一 toApi 路由与规格，积分预览、预扣、终态按截图售价，保留原 Nano 2 价格及旧节点。`a637aa54` 已推送并部署 101，三款线上画布实际出图、40/20/40 积分扣款及刷新持久化通过。发布与验收见 `wiki/toapis-vip-image-models-20261012.md`。
 
 - 2026-10-12：new-api 的 toApi 渠道新增 GPT Image 2.5 Flare/Sunburst VIP 与 Nano Banana 2.1。三款先经真实 curl 成功后注册；VIP 按用户截图五档质量×三档分辨率定价，Nano 沿用 30/40/50 积分。统一预扣与上游参数，文档页显示质量；幂等注册、相关 Go/Node 回归与构建通过，已发布 new-api；三款网关生图、真实输出分辨率和扣费均通过验收。详见 `wiki/toapis-vip-image-models-20261012.md`。
 
