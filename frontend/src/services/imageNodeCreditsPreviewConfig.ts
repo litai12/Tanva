@@ -1,4 +1,4 @@
-import { getToapiImageSettings, isToapiImageModel } from "./toapiImageModels";
+import { getToapiImageSettings, isToapiImageModel, resolveNanoImageModelForRoute, getToapiImageRoute } from "./toapiImageModels";
 
 type ImageNodeType =
   | "generate"
@@ -169,12 +169,13 @@ export const buildImageNodeCreditsPreviewConfig = ({
     return undefined;
   })();
 
-  if (isToapiImageModel(model)) {
-    const settings = getToapiImageSettings(model!, imageSize, gptImage2Quality, safeAspectRatio);
+  const actualModel = nodeType === "nano2" ? resolveNanoImageModelForRoute(model, bananaImageRoute) : model;
+  if (isToapiImageModel(actualModel)) {
+    const settings = getToapiImageSettings(actualModel!, imageSize, gptImage2Quality, safeAspectRatio);
     return {
       serviceType: nodeType === "gptImage2" ? "gpt-image-2" : "gemini-3.1-image",
-      model: model!,
-      requestParams: { ...settings, aiProvider: provider, referenceImageCount: safeReferenceCount, bananaImageRoute: "normal" },
+      model: actualModel!,
+      requestParams: { ...settings, aiProvider: provider, referenceImageCount: safeReferenceCount, bananaImageRoute: getToapiImageRoute(actualModel) },
     };
   }
 

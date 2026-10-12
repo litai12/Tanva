@@ -186,4 +186,6 @@ new-api 的鲁班对话渠道只使用一个 `text_price_multiplier`（默认 0.
 
 ### 2026-10-12：new-api ToAPIs VIP 图片规格
 
-new-api 的 `gpt-image-2.5-flare-vip` / `gpt-image-2.5-sunburst-vip` 使用五档质量×三档分辨率固定零售价；网关先统一参数再计费，上游发送像素尺寸和明确质量。`gemini-nano-banana-2.1` 使用远程参考图与 `metadata.resolution`，售价沿用 Nano Banana 2。Tanva 画布在现有 GPT Image 2.5 / Nano Banana 2 节点内增加型号选择；VIP 支持 low/medium/high/xhigh/max（默认 high），三新型号固定走 new-api/toApi 普通线路，报价、预扣与终态结算使用同一规格，无额外线路倍率。旧型号默认与旧节点身份保留，目录只补缺失模型、保留管理员显式禁用。价格表、curl 证据和部署状态见 `wiki/toapis-vip-image-models-20261012.md`。
+new-api 的 `gpt-image-2.5-flare-vip` / `gpt-image-2.5-sunburst-vip` 使用五档质量×三档分辨率固定零售价；网关先统一参数再计费，上游发送像素尺寸和明确质量。Tanva 画布在 GPT Image 2.5 节点内选择 VIP 型号，支持 low/medium/high/xhigh/max（默认 high），VIP 固定 toApi 普通线路。
+
+Nano Banana 2.1 是独立节点，不显示型号下拉，原 Nano Banana 2 继续从 Generate 使用。新建显式保存 2.1；执行和报价随全局线路选择：普通使用 `gemini-nano-banana-2.1`，尊享使用 `gemini-nano-banana-2.1-official`，均经 new-api 的 toApi 渠道。按用户最新 TANVAS 截图，1K/2K/4K 普通为 20/30/40 积分，尊享为 30/60/90 积分，覆盖此前沿用旧 Nano2 和三倍价格的约定。前端预览、实际型号、预扣和结算保持一致。历史 Nano2 节点保留原型号、结果和运行能力，不批量迁移项目；目录保留管理员显式禁用，新建 2.1 不因禁用而回退旧型号。价格表、curl 证据和部署状态见 `wiki/toapis-vip-image-models-20261012.md`。

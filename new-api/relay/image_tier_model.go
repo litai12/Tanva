@@ -76,7 +76,7 @@ func validateOfficialImageSkuChannel(selectedModel string, channelModels []strin
 
 func isOfficialImageSku(modelName string) bool {
 	switch strings.TrimSpace(modelName) {
-	case gptImage2OfficialModel, "gemini-3-pro-image-preview-official":
+	case gptImage2OfficialModel, "gemini-3-pro-image-preview-official", constant.ToAPISNanoBanana21Official:
 		return true
 	default:
 		return false

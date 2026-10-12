@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, NANO_BANANA_21_MODEL, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, isNanoBanana21Model, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
 import { recordImageRejection, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -1361,12 +1361,12 @@ export class NewApiProvider implements IAIProvider {
 
   private isGeminiImageModel(model?: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
-    return normalized === NANO_BANANA_21_MODEL || (normalized.includes('gemini') && normalized.includes('image'));
+    return isNanoBanana21Model(normalized) || (normalized.includes('gemini') && normalized.includes('image'));
   }
 
   private resolveGeminiImageAspectRatios(model?: string): readonly string[] {
     const normalized = String(model || '').trim().toLowerCase();
-    if (normalized === NANO_BANANA_21_MODEL || (normalized.includes('gemini-3.1') && normalized.includes('flash-image'))) {
+    if (isNanoBanana21Model(normalized) || (normalized.includes('gemini-3.1') && normalized.includes('flash-image'))) {
       return GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS;
     }
     return GEMINI_BASE_IMAGE_ASPECT_RATIOS;

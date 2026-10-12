@@ -27,13 +27,18 @@ func TestToAPISVIPPublicPricingIncludesAllQualityResolutionSpecs(t *testing.T) {
 	}
 }
 
-func TestToAPISNano21PublicPricingUsesExistingNano2RetailPrices(t *testing.T) {
-	pricing := buildParamPricing("gemini-nano-banana-2.1", nil)
-	require.NotNil(t, pricing)
-	require.Len(t, pricing.Results, 3)
-	for index, result := range pricing.Results {
-		require.Equal(t, []float64{.3, .4, .5}[index], result.PriceCNY)
-		require.Equal(t, "", result.Quality)
-		require.Equal(t, "image:"+result.Resolution, result.SpecKey)
+func TestToAPISNano21PublicPricingUsesLatestTanvasRetailPrices(t *testing.T) {
+	for model, prices := range map[string][]float64{"gemini-nano-banana-2.1": {.2, .3, .4}, "gemini-nano-banana-2.1-official": {.3, .6, .9}} {
+		pricing := buildParamPricing(model, nil)
+		require.NotNil(t, pricing)
+		require.Len(t, pricing.Results, 3)
+		for index, result := range pricing.Results {
+			require.Equal(t, prices[index], result.PriceCNY)
+			require.Equal(t, "", result.Quality)
+			require.Equal(t, "image:"+result.Resolution, result.SpecKey)
+		}
+		base, ok := fixedImageBasePriceCNY(model)
+		require.True(t, ok)
+		require.Equal(t, prices[0], base)
 	}
 }

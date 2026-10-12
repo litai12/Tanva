@@ -3,6 +3,20 @@ export const GPT_IMAGE_25_STANDARD_MODELS = ["gpt-image-2.5-flare", "gpt-image-2
 export const GPT_IMAGE_25_VIP_MODELS = ["gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"];
 export const NANO_BANANA_2_MODEL = "gemini-3.1-flash-image-preview";
 export const NANO_BANANA_21_MODEL = "gemini-nano-banana-2.1";
+export const NANO_BANANA_21_OFFICIAL_MODEL = "gemini-nano-banana-2.1-official";
+// New nodes write an explicit 2.1 model; absent model belongs to the legacy Nano2 contract.
+export const resolveExistingNanoImageModel = (model?: unknown): string =>
+  typeof model === "string" && model.trim() ? model.trim() : NANO_BANANA_2_MODEL;
+export const isNanoBanana21Model = (model?: string | null): boolean =>
+  model === NANO_BANANA_21_MODEL || model === NANO_BANANA_21_OFFICIAL_MODEL;
+export function resolveNanoImageModelForRoute(model?: unknown, route?: string | null): string {
+  const selected = resolveExistingNanoImageModel(model);
+  return isNanoBanana21Model(selected)
+    ? route === "stable" ? NANO_BANANA_21_OFFICIAL_MODEL : NANO_BANANA_21_MODEL
+    : selected;
+}
+export const getToapiImageRoute = (model?: string | null): "normal" | "stable" =>
+  model === NANO_BANANA_21_OFFICIAL_MODEL ? "stable" : "normal";
 export const TOAPI_IMAGE_QUALITIES = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ToapiImageQuality = typeof TOAPI_IMAGE_QUALITIES[number];
 export const TOAPI_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
@@ -19,7 +33,7 @@ const VIP_CREDITS: Record<ToapiImageQuality, Record<ToapiImageResolution, number
 
 export const isGptImage25Vip = (model?: string | null): boolean => GPT_IMAGE_25_VIP_MODELS.includes(model || "");
 export const isToapiImageModel = (model?: string | null): boolean =>
-  GPT_IMAGE_25_STANDARD_MODELS.includes(model || "") || isGptImage25Vip(model) || model === NANO_BANANA_21_MODEL;
+  GPT_IMAGE_25_STANDARD_MODELS.includes(model || "") || isGptImage25Vip(model) || isNanoBanana21Model(model);
 
 export function normalizeToapiImageQuality(value?: unknown): ToapiImageQuality {
   const normalized = String(value || "").trim().toLowerCase();
@@ -33,7 +47,7 @@ export function normalizeToapiImageResolution(value?: unknown): ToapiImageResolu
 
 export function normalizeToapiImageAspectRatio(model: string, value?: unknown): string | undefined {
   const ratio = String(value || "").trim();
-  const allowed = isGptImage25Vip(model) ? GPT_IMAGE_25_VIP_ASPECT_RATIOS : model === NANO_BANANA_21_MODEL ? NANO_BANANA_21_ASPECT_RATIOS : undefined;
+  const allowed = isGptImage25Vip(model) ? GPT_IMAGE_25_VIP_ASPECT_RATIOS : isNanoBanana21Model(model) ? NANO_BANANA_21_ASPECT_RATIOS : undefined;
   if (!allowed) return ratio || undefined;
   if (!ratio) return isGptImage25Vip(model) ? "1:1" : undefined;
   return allowed.includes(ratio) ? ratio : "1:1";
@@ -46,14 +60,15 @@ export function getToapiImageSettings(model: string, imageSize?: unknown, qualit
     imageSize: normalizeToapiImageResolution(imageSize),
     aspectRatio: normalizeToapiImageAspectRatio(model, aspectRatio),
     ...(isGptImage25Vip(model) ? { quality: normalizeToapiImageQuality(quality) } : {}),
-    providerOptions: { banana: { imageRoute: "normal" as const } },
+    providerOptions: { banana: { imageRoute: getToapiImageRoute(model) } },
   };
 }
 
 export function getToapiImageFallbackCredits(model: string, imageSize?: unknown, quality?: unknown): number | undefined {
   const resolution = normalizeToapiImageResolution(imageSize);
   if (isGptImage25Vip(model)) return VIP_CREDITS[normalizeToapiImageQuality(quality)][resolution];
-  if (model === NANO_BANANA_21_MODEL) return { "1K": 30, "2K": 40, "4K": 50 }[resolution];
+  if (model === NANO_BANANA_21_MODEL) return { "1K": 20, "2K": 30, "4K": 40 }[resolution];
+  if (model === NANO_BANANA_21_OFFICIAL_MODEL) return { "1K": 30, "2K": 60, "4K": 90 }[resolution];
   if (GPT_IMAGE_25_STANDARD_MODELS.includes(model)) return { "1K": 20, "2K": 30, "4K": 40 }[resolution];
   return undefined;
 }

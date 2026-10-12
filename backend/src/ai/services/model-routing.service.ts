@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, createToapisImagePricing } from './toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, NANO_BANANA_21_OFFICIAL_MODEL, createToapisImagePricing, normalizeNano21ModelPricing } from './toapis-image-models';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ManagedPricingBook } from './model-pricing-resolver';
@@ -1229,8 +1229,8 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'new-api',
           modelName: modelKey,
           pricing: createToapisImagePricing(modelKey),
-          creditsPerCall: modelKey.endsWith('-vip') ? 40 : modelKey === 'gemini-nano-banana-2.1' ? 30 : 20,
-          priceYuan: modelKey.endsWith('-vip') ? 0.4 : modelKey === 'gemini-nano-banana-2.1' ? 0.3 : 0.2,
+          creditsPerCall: modelKey.endsWith('-vip') ? 40 : modelKey === NANO_BANANA_21_OFFICIAL_MODEL ? 30 : 20,
+          priceYuan: modelKey.endsWith('-vip') ? 0.4 : modelKey === NANO_BANANA_21_OFFICIAL_MODEL ? 0.3 : 0.2,
         },
       ],
     })),
@@ -1413,6 +1413,7 @@ export class ModelRoutingService {
 
   private normalizeSpecialCases(input: ModelProviderMappingV2): ModelProviderMappingV2 {
     const models = (Array.isArray(input.models) ? input.models : []).map((model) => {
+      if (model) model = normalizeNano21ModelPricing(model);
       if (!model) {
         return model;
       }

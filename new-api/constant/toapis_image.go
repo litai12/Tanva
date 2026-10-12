@@ -3,6 +3,15 @@ package constant
 import "strings"
 
 const ToAPISNanoBanana21 = "gemini-nano-banana-2.1"
+const ToAPISNanoBanana21Official = "gemini-nano-banana-2.1-official"
+
+func IsToAPISNanoBanana21(model string) bool {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case ToAPISNanoBanana21, ToAPISNanoBanana21Official:
+		return true
+	}
+	return false
+}
 
 func IsToAPISImage25VIP(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
@@ -13,7 +22,7 @@ func IsToAPISImage25VIP(model string) bool {
 }
 
 func IsToAPISPricedImage(model string) bool {
-	return IsToAPISImage25VIP(model) || model == ToAPISNanoBanana21
+	return IsToAPISImage25VIP(model) || IsToAPISNanoBanana21(model)
 }
 
 // ToAPISImagePriceCNY is Tanva's fixed retail price, independent of the
@@ -26,7 +35,10 @@ func ToAPISImagePriceCNY(model, quality, resolution string) (float64, bool) {
 		return 0, false
 	}
 	if model == ToAPISNanoBanana21 {
-		return [3]float64{0.3, 0.4, 0.5}[i], true
+		return [3]float64{0.2, 0.3, 0.4}[i], true
+	}
+	if model == ToAPISNanoBanana21Official {
+		return [3]float64{0.3, 0.6, 0.9}[i], true
 	}
 	if !IsToAPISImage25VIP(model) {
 		return 0, false

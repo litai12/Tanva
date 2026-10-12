@@ -32,18 +32,23 @@ func TestToAPISVIPImagePayloadMatchesBilledInputs(t *testing.T) {
 }
 
 func TestToAPISNano21UsesNestedResolution(t *testing.T) {
-	var request dto.ImageRequest
-	require.NoError(t, common.Unmarshal([]byte(`{"model":"gemini-nano-banana-2.1","prompt":"test","size":"4:3","metadata":{"resolution":"4K","custom":"preserved"},"image_urls":["https://example.test/ref.png"]}`), &request))
-	payload, err := (&Adaptor{}).ConvertImageRequest(nil, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: request.Model}}, request)
-	require.NoError(t, err)
-	encoded, err := common.Marshal(payload)
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, common.Unmarshal(encoded, &got))
-	require.Equal(t, "4:3", got["size"])
-	require.Equal(t, map[string]any{"resolution": "4K", "custom": "preserved"}, got["metadata"])
-	require.Equal(t, float64(1), got["n"])
-	require.NotContains(t, got, "resolution")
-	require.NotContains(t, got, "aspect_ratio")
-	require.NotContains(t, got, "custom")
+	for _, model := range []string{"gemini-nano-banana-2.1", "gemini-nano-banana-2.1-official"} {
+		var request dto.ImageRequest
+		require.NoError(t, common.Unmarshal([]byte(`{"model":"`+model+`","prompt":"test","size":"4:3","response_format":"url","metadata":{"resolution":"4K","custom":"preserved"},"image_urls":["https://example.test/ref.png"]}`), &request))
+		payload, err := (&Adaptor{}).ConvertImageRequest(nil, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: request.Model}}, request)
+		require.NoError(t, err)
+		encoded, err := common.Marshal(payload)
+		require.NoError(t, err)
+		var got map[string]any
+		require.NoError(t, common.Unmarshal(encoded, &got))
+		require.Equal(t, model, got["model"])
+		require.Equal(t, "4:3", got["size"])
+		require.Equal(t, "url", got["response_format"])
+		require.Equal(t, []any{"https://example.test/ref.png"}, got["image_urls"])
+		require.Equal(t, map[string]any{"resolution": "4K", "custom": "preserved"}, got["metadata"])
+		require.Equal(t, float64(1), got["n"])
+		require.NotContains(t, got, "resolution")
+		require.NotContains(t, got, "aspect_ratio")
+		require.NotContains(t, got, "custom")
+	}
 }

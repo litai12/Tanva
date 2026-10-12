@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, isNewToapisImageModel, isToapisImageModel, resolveToapisImageCredits } from '../ai/services/toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, isNewToapisImageModel, isToapisImageModel, resolveToapisImageRoute, resolveToapisImageCredits, normalizeNano21ModelPricing } from '../ai/services/toapis-image-models';
 import { IMAGE_GENERATION_SERVICES, isImageGenerationService } from '../ai/services/image-execution-state';
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -1283,7 +1283,7 @@ export class CreditsService {
           typeof item?.modelKey === 'string' &&
           item.modelKey.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY
             ? geminiOmniFlashModel
-            : item,
+            : normalizeNano21ModelPricing(item),
         ),
         ...(!hasOmniFlashExt ? [geminiOmniFlashModel] : []),
         ...(DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []).filter(item => TOAPIS_NEW_IMAGE_MODELS.includes(item.modelKey) && !models.some(saved => saved.modelKey === item.modelKey)),
@@ -1935,7 +1935,7 @@ export class CreditsService {
     const isToapiGpt25 = isToapisImageModel(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
-    let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;
+    let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? resolveToapisImageRoute(requestParams?.model, requestParams) : explicitRoute;
     if (!route) {
       const channelCandidates = [
         requestParams?.channel,
@@ -2277,7 +2277,7 @@ export class CreditsService {
     const isToapiGpt25 = isToapisImageModel(
       String(requestParams?.model || '').trim().toLowerCase(),
     );
-    let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? 'normal' : explicitRoute;
+    let route: 'normal' | 'stable' | 'ultra' | null = isToapiGpt25 ? resolveToapisImageRoute(requestParams?.model, requestParams) : explicitRoute;
     if (!route) {
       const channelCandidates = [
         requestParams?.channel,

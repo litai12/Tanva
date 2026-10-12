@@ -33,7 +33,16 @@ the selected channel and merges only their prices into the existing numeric
 | --- | --- | ---: |
 | `gpt-image-2.5-flare-vip` | `gpt-image-2.5-flare` | 0.2 |
 | `gpt-image-2.5-sunburst-vip` | `gpt-image-2.5-sunburst` | 0.2 |
-| `gemini-nano-banana-2.1` | `gemini-3.1-flash-image-preview` | 0.3 |
+| `gemini-nano-banana-2.1` | `gemini-3.1-flash-image-preview` | 0.2 |
+| `gemini-nano-banana-2.1-official` | `gemini-nano-banana-2.1` | 0.3 |
+
+Nano 2.1 ordinary resolution prices use CNY `0.2/0.3/0.4` (20/30/40 Tanva
+points); its independent official SKU uses CNY `0.3/0.6/0.9` for `1K/2K/4K`
+(30/60/90 Tanva points), according to the user's latest TANVAS screenshot.
+The official ID is passed upstream unchanged and cannot be mapped to ordinary.
+For an existing three-SKU installation, the ordinary Nano 2.1 catalog row is a
+prerequisite for registering official. Existing model and ability disable flags
+are preserved independently for both SKUs.
 
 Existing target prices are corrected to these values and reported in the plan.
 The runtime adapter supplies the model-specific resolution/quality multipliers;
@@ -51,8 +60,9 @@ quality levels (`low/medium/high/xhigh/max`), defaulting to `1:1`, `1K`, `high`.
 The adapter also accepts explicit pixel sizes such as `1536x1024` through the
 API; do not combine explicit pixel dimensions with a conflicting resolution.
 Nano exposes fourteen ratios, `resolution=1K/2K/4K`, default `1:1/1K` and at most
-fourteen remote image references. Its adapter maps resolution to the upstream
-`metadata.resolution`. Both models generate one image per request (`n=1`).
+fourteen remote image references. Both Nano SKUs map resolution to the upstream
+`metadata.resolution` and accept `response_format=url`. All SKUs generate one
+image per request (`n=1`).
 
 Only missing target abilities are inserted. They inherit the selected channel's
 groups, priority, weight and tag; enabled state requires an enabled channel and,

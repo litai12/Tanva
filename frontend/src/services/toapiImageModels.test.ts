@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits } from "./toapiImageModels.ts";
+import { GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, resolveExistingNanoImageModel, resolveNanoImageModelForRoute, getToapiImageRoute, getToapiImageSettings, getToapiImageFallbackCredits } from "./toapiImageModels.ts";
 import { buildImageNodeCreditsPreviewConfig } from "./imageNodeCreditsPreviewConfig.ts";
 import { expandNanoImageModelConfigs, buildGptImageModelSwitchPatch } from "./gptImage25.ts";
 
@@ -38,12 +38,13 @@ test("Nano2.1 quote keeps the precise model on all global routes and all resolut
   for (const route of ["normal", "stable", "ultra"]) {
     for (const [index, imageSize] of ["1K", "2K", "4K"].entries()) {
       const preview = buildImageNodeCreditsPreviewConfig({ nodeType: "nano2", model: NANO_BANANA_21_MODEL, imageSize, bananaImageRoute: route, managedModelKey: "gemini-3.1-image", referenceImageCount: 14 });
-      assert.equal(preview.model, NANO_BANANA_21_MODEL);
-      assert.equal(preview.requestParams.model, NANO_BANANA_21_MODEL);
-      assert.equal(preview.requestParams.managedModelKey, NANO_BANANA_21_MODEL);
-      assert.equal(preview.requestParams.providerOptions?.banana?.imageRoute, "normal");
+      const actualModel = route === "stable" ? NANO_BANANA_21_OFFICIAL_MODEL : NANO_BANANA_21_MODEL;
+      assert.equal(preview.model, actualModel);
+      assert.equal(preview.requestParams.model, actualModel);
+      assert.equal(preview.requestParams.managedModelKey, actualModel);
+      assert.equal(preview.requestParams.providerOptions?.banana?.imageRoute, route === "stable" ? "stable" : "normal");
       assert.equal(preview.requestParams.imageSize, imageSize);
-      assert.equal(getToapiImageFallbackCredits(NANO_BANANA_21_MODEL, imageSize), [30, 40, 50][index]);
+      assert.equal(getToapiImageFallbackCredits(actualModel, imageSize), (route === "stable" ? [30, 60, 90] : [20, 30, 40])[index]);
     }
   }
 });
@@ -81,4 +82,18 @@ test("new model aspect ratios normalize old unsupported values identically for q
     assert.equal(preview.requestParams.imageSize, settings.imageSize);
     assert.equal(preview.requestParams.aspectRatio, settings.aspectRatio);
   }
+});
+
+
+test("missing historical Nano2 model stays old while explicit 2.1 follows global route", () => {
+  const oldModel = "gemini-3.1-flash-image-preview";
+  for (const route of ["normal", "stable", "ultra"]) {
+    assert.equal(resolveNanoImageModelForRoute(undefined, route), oldModel);
+    assert.equal(resolveNanoImageModelForRoute("", route), oldModel);
+    assert.equal(resolveNanoImageModelForRoute(oldModel, route), oldModel);
+    const actual = resolveNanoImageModelForRoute(NANO_BANANA_21_MODEL, route);
+    assert.equal(actual, route === "stable" ? NANO_BANANA_21_OFFICIAL_MODEL : NANO_BANANA_21_MODEL);
+    assert.equal(getToapiImageSettings(actual, "2K").providerOptions.banana.imageRoute, getToapiImageRoute(actual));
+  }
+  assert.equal(resolveExistingNanoImageModel(undefined), oldModel);
 });

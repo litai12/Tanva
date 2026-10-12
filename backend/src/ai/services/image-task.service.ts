@@ -1,4 +1,4 @@
-import { NANO_BANANA_21_MODEL, isToapisImageModel, normalizeToapisImageRequest } from './toapis-image-models';
+import { isNanoBanana21Model, resolveToapisImageRoute, isToapisImageModel, normalizeToapisImageRequest } from './toapis-image-models';
 import { imageExecutionContext, needsImageReconciliation, ImageExecutionState } from './image-execution-state';
 import { BadGatewayException, BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ImageTaskQueueService, type ImageTaskJobPayload } from './image-task-queue.service';
@@ -57,17 +57,17 @@ function resolveTaskServiceType(
         }
         return 'doubao-seedream-5-0-260128';
       }
-      if ((normalizedModel?.includes('3.1') || normalizedModel === NANO_BANANA_21_MODEL)) return 'gemini-3.1-image';
+      if ((normalizedModel?.includes('3.1') || isNanoBanana21Model(normalizedModel))) return 'gemini-3.1-image';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image';
       return 'gemini-3-pro-image';
     case 'edit':
       if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
-      if ((normalizedModel?.includes('3.1') || normalizedModel === NANO_BANANA_21_MODEL)) return 'gemini-3.1-image-edit';
+      if ((normalizedModel?.includes('3.1') || isNanoBanana21Model(normalizedModel))) return 'gemini-3.1-image-edit';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-edit';
       return 'gemini-image-edit';
     case 'blend':
       if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
-      if ((normalizedModel?.includes('3.1') || normalizedModel === NANO_BANANA_21_MODEL)) return 'gemini-3.1-image-blend';
+      if ((normalizedModel?.includes('3.1') || isNanoBanana21Model(normalizedModel))) return 'gemini-3.1-image-blend';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-blend';
       return 'gemini-image-blend';
     default:
@@ -381,7 +381,7 @@ export class ImageTaskService {
     requestData: Record<string, any> | null,
   ): 'normal' | 'stable' | 'ultra' | null {
     if (!requestData) return null;
-    if (isToapisImageModel(requestData.model)) return 'normal';
+    if (isToapisImageModel(requestData.model)) return resolveToapisImageRoute(requestData.model, requestData);
     return (
       normalizeBananaRoute(requestData.bananaImageRoute) ||
       normalizeBananaRoute(requestData?.providerOptions?.banana?.imageRoute) ||
@@ -536,7 +536,7 @@ export class ImageTaskService {
               (item: unknown): item is string =>
                 typeof item === 'string' && item.trim().length > 0,
             )
-            .map((url) => model === NANO_BANANA_21_MODEL ? url : this.oss.withImageResize(url))
+            .map((url) => isNanoBanana21Model(model) ? url : this.oss.withImageResize(url))
         : undefined,
       googleSearch: taskRequestData.googleSearch,
       googleImageSearch: taskRequestData.googleImageSearch,

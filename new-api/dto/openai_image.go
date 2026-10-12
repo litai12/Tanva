@@ -139,8 +139,11 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			_ = common.Unmarshal(request.Extra["resolution"], &resolution)
 			if price, ok := constant.ToAPISImagePriceCNY(i.Model, request.Quality, resolution); ok {
 				basePrice := 0.2
-				if i.Model == constant.ToAPISNanoBanana21 {
-					basePrice = 0.3
+				if constant.IsToAPISNanoBanana21(i.Model) {
+					basePrice = 0.2
+					if i.Model == constant.ToAPISNanoBanana21Official {
+						basePrice = 0.3
+					}
 				}
 				return &types.TokenCountMeta{CombineText: i.Prompt, MaxTokens: 1584, ImagePriceRatio: price / basePrice}
 			}

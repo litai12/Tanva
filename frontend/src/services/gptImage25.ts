@@ -1,5 +1,5 @@
 import type { NodeConfig } from "./nodeConfigService";
-import { GPT_IMAGE_25_STANDARD_MODELS, GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, isGptImage25Vip } from "./toapiImageModels";
+import { GPT_IMAGE_25_STANDARD_MODELS, GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, isNanoBanana21Model, isGptImage25Vip } from "./toapiImageModels";
 
 export const GPT_IMAGE_25_MODELS = [...GPT_IMAGE_25_STANDARD_MODELS, ...GPT_IMAGE_25_VIP_MODELS];
 const LEGACY_MODELS: Record<string, string> = {
@@ -35,18 +35,18 @@ export function expandGptImageModelConfigs(configs: NodeConfig[]): NodeConfig[] 
 
 export function expandNanoImageModelConfigs(configs: NodeConfig[]): NodeConfig[] {
   return configs.filter((config) => config.nodeKey === "nano2").flatMap((config) =>
-    [NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL].map((model) => {
+    [NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL].map((model) => {
       const metadata = config.metadata || {};
       const managedModelKey = model === NANO_BANANA_2_MODEL ? "gemini-3.1-image" : model;
       const managedRoutes = metadata.managedRoutesByModel?.[model] ||
         (model === NANO_BANANA_2_MODEL ? metadata.managedRoutesByModel?.["gemini-3.1-image"] || metadata.managedRoutes : undefined);
       return {
         ...config,
-        nameZh: model === NANO_BANANA_21_MODEL ? "Nano Banana 2.1" : "Nano Banana 2",
-        nameEn: model === NANO_BANANA_21_MODEL ? "Nano Banana 2.1" : "Nano Banana 2",
+        nameZh: isNanoBanana21Model(model) ? "Nano Banana 2.1" : "Nano Banana 2",
+        nameEn: isNanoBanana21Model(model) ? "Nano Banana 2.1" : "Nano Banana 2",
         metadata: { ...metadata, model, managedModelKey, managedRoutes,
-          ...(model === NANO_BANANA_21_MODEL ? { resolutions: ["1K", "2K", "4K"], maxReferenceImages: 14, showGoogleSearch: false, showGoogleImageSearch: false } : {}),
-          defaultData: { ...metadata.defaultData, model, managedModelKey, ...(model === NANO_BANANA_21_MODEL ? { resolution: "1K", maxReferenceImages: 14 } : {}) } },
+          ...(isNanoBanana21Model(model) ? { resolutions: ["1K", "2K", "4K"], maxReferenceImages: 14, showGoogleSearch: false, showGoogleImageSearch: false } : { resolutions: ["0.5K", "1K", "2K", "4K"], showGoogleSearch: true, showGoogleImageSearch: true }),
+          defaultData: { ...metadata.defaultData, model, managedModelKey, ...(isNanoBanana21Model(model) ? { resolution: "1K", maxReferenceImages: 14 } : {}) } },
       };
     })
   );
@@ -80,7 +80,7 @@ export function buildGptImageModelSwitchPatch(option: GptImageModelOption) {
     platformKey: option.platformKey,
     maxReferenceImages: option.nodeConfigMetadata?.maxReferenceImages ?? null,
     quality: isGptImage25Vip(option.model) ? "high" : option.model === "gpt-image-2" ? "low" : undefined,
-    ...(option.model === NANO_BANANA_21_MODEL ? { resolution: "1K", maxReferenceImages: 14, googleSearch: false, googleImageSearch: false } : {}),
+    ...(isNanoBanana21Model(option.model) ? { resolution: "1K", maxReferenceImages: 14, googleSearch: false, googleImageSearch: false } : {}),
     error: undefined,
   };
 }

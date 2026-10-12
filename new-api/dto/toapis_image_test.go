@@ -43,30 +43,43 @@ func TestToAPISVIPDefaultsAndPixelBilling(t *testing.T) {
 }
 
 func TestToAPISNano21ResolutionAndReferences(t *testing.T) {
-	for index, resolution := range []string{"1K", "2K", "4K"} {
-		raw := fmt.Sprintf(`{"model":"gemini-nano-banana-2.1","prompt":"test","size":"16:9","metadata":{"resolution":%q},"image_urls":["https://example.test/ref.png"]}`, resolution)
-		var request ImageRequest
-		require.NoError(t, common.Unmarshal([]byte(raw), &request))
-		request, err := NormalizeToAPISImageRequest(request)
-		require.NoError(t, err)
-		require.Equal(t, "16:9", request.Size)
-		require.InDelta(t, []float64{.3, .4, .5}[index], request.GetTokenCountMeta().ImagePriceRatio*.3, 1e-12)
+	for _, model := range []string{constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
+		t.Run(model, func(t *testing.T) {
+			basePrice := .2
+			if model == constant.ToAPISNanoBanana21Official {
+				basePrice = .3
+			}
+			for index, resolution := range []string{"1K", "2K", "4K"} {
+				raw := fmt.Sprintf(`{"model":%q,"prompt":"test","size":"16:9","metadata":{"resolution":%q},"image_urls":["https://example.test/ref.png"]}`, model, resolution)
+				var request ImageRequest
+				require.NoError(t, common.Unmarshal([]byte(raw), &request))
+				request, err := NormalizeToAPISImageRequest(request)
+				require.NoError(t, err)
+				require.Equal(t, "16:9", request.Size)
+				require.Equal(t, model, request.Model)
+				prices := []float64{.2, .3, .4}
+				if model == constant.ToAPISNanoBanana21Official {
+					prices = []float64{.3, .6, .9}
+				}
+				require.InDelta(t, prices[index], request.GetTokenCountMeta().ImagePriceRatio*basePrice, 1e-12)
+			}
+			refs := make([]string, 14)
+			for index := range refs {
+				refs[index] = fmt.Sprintf("https://example.test/%d.png", index)
+			}
+			request := ImageRequest{Model: model, Extra: map[string]json.RawMessage{}}
+			request.Extra["reference_images"], _ = common.Marshal(refs)
+			normalized, err := NormalizeToAPISImageRequest(request)
+			require.NoError(t, err)
+			var got []string
+			require.NoError(t, common.Unmarshal(normalized.Extra["image_urls"], &got))
+			require.Equal(t, refs, got)
+			refs = append(refs, "https://example.test/15.png")
+			request.Extra["reference_images"], _ = common.Marshal(refs)
+			_, err = NormalizeToAPISImageRequest(request)
+			require.ErrorContains(t, err, "at most 14")
+		})
 	}
-	refs := make([]string, 14)
-	for index := range refs {
-		refs[index] = fmt.Sprintf("https://example.test/%d.png", index)
-	}
-	request := ImageRequest{Model: constant.ToAPISNanoBanana21, Extra: map[string]json.RawMessage{}}
-	request.Extra["reference_images"], _ = common.Marshal(refs)
-	normalized, err := NormalizeToAPISImageRequest(request)
-	require.NoError(t, err)
-	var got []string
-	require.NoError(t, common.Unmarshal(normalized.Extra["image_urls"], &got))
-	require.Equal(t, refs, got)
-	refs = append(refs, "https://example.test/15.png")
-	request.Extra["reference_images"], _ = common.Marshal(refs)
-	_, err = NormalizeToAPISImageRequest(request)
-	require.ErrorContains(t, err, "at most 14")
 }
 
 func TestToAPISImageRejectsInvalidOrConflictingInputs(t *testing.T) {

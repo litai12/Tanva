@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
@@ -42,7 +43,7 @@ func fixture(t *testing.T, disabled bool) *gorm.DB {
 			t.Fatal(err)
 		}
 	}
-	for _, o := range []model.Option{{Key: "ModelPrice", Value: `{"existing":7,"gpt-image-2.5-flare-vip":99}`}, {Key: "GroupRatio", Value: `{"default":1,"vip":0.8}`}} {
+	for _, o := range []model.Option{{Key: "ModelPrice", Value: `{"existing":7,"gpt-image-2.5-flare-vip":99,"gemini-nano-banana-2.1":0.3,"gemini-nano-banana-2.1-official":0.9}`}, {Key: "GroupRatio", Value: `{"default":1,"vip":0.8}`}} {
 		if err := db.Create(&o).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +70,7 @@ func TestDryRunApplyIdempotencyAndStatePreservation(t *testing.T) {
 			}
 			var count int64
 			db.Model(&model.Model{}).Count(&count)
-			if count != 3 {
+			if count != int64(len(skus)) {
 				t.Fatal("dry run wrote catalog")
 			}
 			var channel model.Channel
@@ -117,7 +118,7 @@ func TestDryRunApplyIdempotencyAndStatePreservation(t *testing.T) {
 			}
 			var abilities []model.Ability
 			db.Where("channel_id = ?", 31).Find(&abilities)
-			if len(abilities) != 8 {
+			if len(abilities) != 2*len(skus)+2 {
 				t.Fatalf("abilities count %d", len(abilities))
 			}
 			for _, a := range abilities {
@@ -169,7 +170,7 @@ func TestPrerequisiteAndBackupFailuresDoNotWrite(t *testing.T) {
 		t.Fatal("missing source accepted")
 	}
 	var count int64
-	db.Model(&model.Model{}).Where("model_name = ?", skus[2].name).Count(&count)
+	db.Model(&model.Model{}).Where("model_name = ?", constant.ToAPISNanoBanana21Official).Count(&count)
 	if count != 0 {
 		t.Fatal("partial registration")
 	}
@@ -195,7 +196,7 @@ func TestIndependentParameterContracts(t *testing.T) {
 		if *byKey["n"].Min != 1 || *byKey["n"].Max != 1 {
 			t.Fatal("batch not fixed")
 		}
-		if s.name == skus[2].name {
+		if constant.IsToAPISNanoBanana21(s.name) {
 			if len(byKey["size"].Options) != 14 || byKey["resolution"].Default != "1K" || byKey["urls"].Metadata["max_items"] != float64(14) {
 				t.Fatal("nano params wrong")
 			}
@@ -204,6 +205,51 @@ func TestIndependentParameterContracts(t *testing.T) {
 			}
 		} else if len(byKey["quality"].Options) != 5 || byKey["quality"].Default != "high" || byKey["size"].Default != "1:1" || byKey["size"].Type != "enum" || byKey["resolution"].Default != "1K" {
 			t.Fatal("VIP params wrong")
+		}
+	}
+}
+
+func TestNano21IdentitiesAndDisabledStatesRemainIndependent(t *testing.T) {
+	db := fixture(t, false)
+	backup := filepath.Join(t.TempDir(), "backup")
+	if _, err := register(db, 31, true, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Model{}).Where("model_name = ?", constant.ToAPISNanoBanana21Official).Updates(map[string]interface{}{"status": 2, "description": "disabled official"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Ability{}).Where("model = ? AND channel_id = ?", constant.ToAPISNanoBanana21Official, 31).Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := register(db, 31, true, backup); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
+		var row model.Model
+		if err := db.Where("model_name = ?", name).First(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if name == constant.ToAPISNanoBanana21Official {
+			want = 2
+		}
+		if row.Status != want || (name == constant.ToAPISNanoBanana21Official && row.NameRule != model.NameRuleExact) {
+			t.Fatal("independent model identity/state changed", name)
+		}
+		if name == constant.ToAPISNanoBanana21Official && row.Description != "disabled official" {
+			t.Fatal("official admin metadata changed")
+		}
+		var abilities []model.Ability
+		if err := db.Where("model = ? AND channel_id = ?", name, 31).Find(&abilities).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(abilities) != 2 {
+			t.Fatal("missing distinct model abilities", name)
+		}
+		for _, ability := range abilities {
+			if ability.Enabled != (name == constant.ToAPISNanoBanana21) {
+				t.Fatal("model ability state crossed identities", name)
+			}
 		}
 	}
 }

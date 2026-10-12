@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_VIP_IMAGE_MODELS, NANO_BANANA_21_MODEL, isToapisVipImageModel } from '../../ai/services/toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_VIP_IMAGE_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, NANO_BANANA_21_MODELS, isNanoBanana21Model, NANO_BANANA_21_ASPECT_RATIOS, isToapisVipImageModel, normalizeNano21ModelPricing } from '../../ai/services/toapis-image-models';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -133,12 +133,19 @@ const buildManagedImageNodeMetadata = (params: {
 });
 
 const GPT_IMAGE_25_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', ...TOAPIS_VIP_IMAGE_MODELS];
-const NANO2_MODELS = ['gemini-3.1-flash-image-preview', NANO_BANANA_21_MODEL];
-const nanoManagedKey = (model: string) => model === NANO_BANANA_21_MODEL ? model : 'gemini-3.1-image';
+const NANO2_MODELS = ['gemini-3.1-flash-image-preview', ...NANO_BANANA_21_MODELS];
+const nanoManagedKey = (model: string) => isNanoBanana21Model(model) ? model : 'gemini-3.1-image';
 const buildNano2Metadata = () => ({
-  type: 'nano2', provider: 'nano2', supportedModels: [...NANO2_MODELS], resolutions: ['0.5K', '1K', '2K', '4K'],
-  aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21', '4:1', '1:4', '8:1', '1:8'], maxReferenceImages: 14,
-  ...buildManagedImageNodeMetadata({ modelKeys: ['gemini-3.1-image', NANO_BANANA_21_MODEL], managedModelKey: 'gemini-3.1-image', defaultData: { model: NANO2_MODELS[0], modelProvider: 'nano2', resolution: '1K', aspectRatio: '1:1', creditsPerCall: 40 } }),
+  type: 'nano2', provider: 'nano2', model: NANO_BANANA_21_MODEL, showModelSelector: false,
+  modelsByRoute: { normal: NANO_BANANA_21_MODEL, stable: NANO_BANANA_21_OFFICIAL_MODEL },
+  supportedModels: [...NANO2_MODELS], resolutions: ['1K', '2K', '4K'],
+  aspectRatios: [...NANO_BANANA_21_ASPECT_RATIOS], maxReferenceImages: 14,
+  showGoogleSearch: false, showGoogleImageSearch: false,
+  compatibilityByModel: {
+    'gemini-3.1-flash-image-preview': { managedModelKey: 'gemini-3.1-image', resolutions: ['0.5K', '1K', '2K', '4K'], showGoogleSearch: true, showGoogleImageSearch: true },
+  },
+  // Visibility follows the two 2.1 routes only. supportedModels/routes retain old-node compatibility.
+  ...buildManagedImageNodeMetadata({ modelKeys: [...NANO_BANANA_21_MODELS], managedModelKey: NANO_BANANA_21_MODEL, defaultData: { model: NANO_BANANA_21_MODEL, modelProvider: 'nano2', resolution: '1K', aspectRatio: '1:1', creditsPerCall: 20 } }),
 });
 
 // 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
@@ -260,7 +267,7 @@ export class NodeConfigService {
       const parsed = normalizeSeedance20DiscountPricing(
         JSON.parse(raw) as ModelProviderMappingV2Like,
       );
-      const savedModels = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+      const savedModels = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean).map(normalizeNano21ModelPricing) : [];
 
       // 这里直读 SystemSetting，须同步模型路由的新增型号兼容逻辑。
       // 只补缺失型号，保留管理员显式禁用的记录。
@@ -518,10 +525,8 @@ export class NodeConfigService {
         const model = managedModelMap.get(nanoManagedKey(key));
         return [key, model ? this.buildManagedRouteView(model) : null];
       }));
-      if (supportedModels.length) {
-        nextMetadata.model = supportedModels[0];
-        nextMetadata.defaultData = { ...nextMetadata.defaultData, model: supportedModels[0], managedModelKey: nanoManagedKey(supportedModels[0]) };
-      }
+      nextMetadata.model = NANO_BANANA_21_MODEL;
+      nextMetadata.defaultData = { ...nextMetadata.defaultData, model: NANO_BANANA_21_MODEL, managedModelKey: NANO_BANANA_21_MODEL };
     }
 
     const explicitManagedModelKey =
@@ -928,7 +933,10 @@ export class NodeConfigService {
         }
 
         if (normalizedConfig.nodeKey === 'nano2') {
-          normalizedConfig.metadata = { ...buildNano2Metadata(), ...(normalizedConfig.metadata as any), modelKeys: ['gemini-3.1-image', NANO_BANANA_21_MODEL] };
+          normalizedConfig.nameZh = 'Nano Banana 2.1';
+          normalizedConfig.nameEn = 'Nano Banana 2.1';
+          normalizedConfig.description = 'Nano Banana 2.1，支持文生图及最多 14 张参考图';
+          normalizedConfig.metadata = { ...(normalizedConfig.metadata as any), ...buildNano2Metadata() };
         }
 
         // 必须在 normalizeManagedNodeMetadata 清理禁用 modelKeys 之前判定可见性。
@@ -1129,10 +1137,29 @@ export class NodeConfigService {
     return { success: true };
   }
 
+  private async syncNano21ModelPricing(): Promise<void> {
+    const setting = await this.prisma.systemSetting.findUnique({ where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY } });
+    if (!setting?.value?.trim()) return;
+    try {
+      const mapping = JSON.parse(setting.value);
+      if (!Array.isArray(mapping?.models)) return;
+      const upgraded = { ...mapping, models: mapping.models.map(normalizeNano21ModelPricing) };
+      if (JSON.stringify(mapping) === JSON.stringify(upgraded)) return;
+      // Preserve a concurrent admin edit rather than overwriting its flags.
+      await this.prisma.systemSetting.updateMany({
+        where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY, value: setting.value },
+        data: { value: JSON.stringify(upgraded) },
+      });
+    } catch (error) {
+      this.logger.warn(`Nano Banana 2.1 定价配置同步失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /**
    * 批量初始化节点配置（用于首次部署）
    */
   async initializeDefaultConfigs() {
+    await this.syncNano21ModelPricing();
     const defaultConfigs: NodeConfigDto[] = [
       // 输入节点 - 免费
       { nodeKey: 'textPrompt', nameZh: '提示词节点', nameEn: 'Prompt', category: 'input', sortOrder: 1, creditsPerCall: 0, description: '输入文本提示词' },
@@ -1224,7 +1251,7 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
-      { nodeKey: 'nano2', nameZh: 'Nano Banana 2', nameEn: 'Nano Banana 2', category: 'image' as const, sortOrder: 15, creditsPerCall: 40, priceYuan: 0.4, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2 / 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
+      { nodeKey: 'nano2', nameZh: 'Nano Banana 2.1', nameEn: 'Nano Banana 2.1', category: 'image' as const, sortOrder: 15, creditsPerCall: 20, priceYuan: 0.2, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
         ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],
@@ -1885,6 +1912,12 @@ export class NodeConfigService {
       });
     }
 
+    // Update catalog defaults only; project nodes keep their saved model identity.
+    await this.prisma.nodeConfig.updateMany({
+      where: { nodeKey: 'nano2' },
+      data: { nameZh: 'Nano Banana 2.1', nameEn: 'Nano Banana 2.1', creditsPerCall: 20, priceYuan: 0.2, description: 'Nano Banana 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() as Prisma.InputJsonValue },
+    });
+
     // GPT-Image-2.5 统一入口；保留旧画布节点数据，只隐藏旧的独立目录入口。
     await this.prisma.nodeConfig.updateMany({
       where: { nodeKey: { in: ['gptImage25Flare', 'gptImage25Sunburst'] }, isVisible: true },
@@ -2068,7 +2101,7 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 60 },
         }),
       },
-      { nodeKey: 'nano2', nameZh: 'Nano Banana 2', nameEn: 'Nano Banana 2', category: 'image' as const, sortOrder: 15, creditsPerCall: 40, priceYuan: 0.4, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2 / 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
+      { nodeKey: 'nano2', nameZh: 'Nano Banana 2.1', nameEn: 'Nano Banana 2.1', category: 'image' as const, sortOrder: 15, creditsPerCall: 20, priceYuan: 0.2, serviceType: 'gemini-3.1-image', description: 'Nano Banana 2.1，支持文生图及最多 14 张参考图', metadata: buildNano2Metadata() },
       ...[
         ['gptImage2', 'gpt-image-2', 'GPT-Image-2'],
         ['gptImage25', 'gpt-image-2.5-flare', 'GPT-Image-2.5'],

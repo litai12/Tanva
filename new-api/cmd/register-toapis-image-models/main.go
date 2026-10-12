@@ -1,4 +1,4 @@
-// Register the three ToAPIs image SKUs on an existing channel. Never reads keys.
+// Register ToAPIs image SKUs on an existing channel. Never reads keys.
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
@@ -30,7 +31,8 @@ type sku struct {
 var skus = []sku{
 	{"gpt-image-2.5-flare-vip", "gpt-image-2.5-flare", 0.2},
 	{"gpt-image-2.5-sunburst-vip", "gpt-image-2.5-sunburst", 0.2},
-	{"gemini-nano-banana-2.1", "gemini-3.1-flash-image-preview", 0.3},
+	{"gemini-nano-banana-2.1", "gemini-3.1-flash-image-preview", 0.2},
+	{constant.ToAPISNanoBanana21Official, constant.ToAPISNanoBanana21, 0.3},
 }
 
 // Only fields inspected/modified by this tool. Channel credentials/settings are
@@ -79,7 +81,7 @@ func params(name string) (string, error) {
 		{Key: "n", Type: "integer", Label: "图片数量", Default: 1, Min: &one, Max: &one},
 		{Key: "urls", Type: "array", Label: "参考图片 URL", Scope: "per_request", Metadata: map[string]interface{}{"item_type": "string", "remote_url_only": true}},
 	}
-	if name == "gemini-nano-banana-2.1" {
+	if constant.IsToAPISNanoBanana21(name) {
 		ratio = append(ratio, options("1:4", "4:1", "1:8", "8:1")...)
 		defs = []dto.ModelParamSpec{
 			{Key: "size", Type: "enum", Label: "宽高比", Default: "1:1", Options: ratio},
@@ -125,7 +127,7 @@ func capabilities(source model.Model) (string, error) {
 	if common.UnmarshalJsonStr(source.Capabilities, &caps) != nil {
 		return "", fmt.Errorf("required source capabilities invalid: %s", source.ModelName)
 	}
-	// Empty source capabilities are valid legacy catalog rows. All three new SKUs
+	// Empty source capabilities are valid legacy catalog rows. All registered SKUs
 	// support reference-image input; preserve any other source capability names.
 	found := false
 	for _, cap := range caps {
@@ -184,7 +186,7 @@ func buildPlan(before snapshot) (plan, map[string]model.Model, map[string]float6
 		return p, nil, nil, errors.New("existing ModelPrice must be a JSON numeric object")
 	}
 	if appendModels(before.Channel.Models) != before.Channel.Models {
-		p.Actions = append(p.Actions, "append three SKUs to selected channel.models")
+		p.Actions = append(p.Actions, "append missing SKUs to selected channel.models")
 	}
 	for _, s := range skus {
 		source, exists := byName[s.source]

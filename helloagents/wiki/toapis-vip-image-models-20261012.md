@@ -71,9 +71,9 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - 完整网关请求/响应在服务器发布目录的 `gateway-*.json`，图片文件头核对在 `output-dimensions.json`。本轮共 6 次授权实测生成（上游直连三次、网关三次），没有自动重投。
 - AI Metadata 同步脚本 `/Users/libiqiang/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs` 在本机缺失；知识库与 Changelog 已人工同步。
 
-## Tanva 画布接入
+## Tanva 画布接入（首次发布，Nano 现行合同见末节）
 
-- GPT Image 2.5 型号下拉追加 Flare VIP / Sunburst VIP，质量提供 low/medium/high/xhigh/max，默认 high；Nano Banana 2 下拉追加 2.1。保留原型号、节点结果和连线。
+- GPT Image 2.5 型号下拉追加 Flare VIP / Sunburst VIP，质量提供 low/medium/high/xhigh/max，默认 high；Nano Banana 2.1 按用户后续反馈改为独立节点（见末节）。保留旧节点原型号、结果和连线。
 - 三个新型号固定走 `new_api` 的 toApi 普通线路；全局 stable/ultra 不改变供应商和价格。前端报价、生成任务、Provider 请求保留同一模型、分辨率与质量。
 - Tanva 积分预览、预扣与最终计费使用上表零售价；新 Nano 2.1 为 30/40/50，旧 Nano 2 的原普通/尊享价格不追溯变更。
 - 公共节点目录与托管模型默认配置补齐缺失模型，已有管理员禁用状态继续生效。GPT VIP 使用现有异步图片任务，Nano2.1 保留原 Nano2 同步生图路径；沿用原幂等和结果持久化合同，参考图及保存结果使用远程 URL。
@@ -101,3 +101,26 @@ VIP 的 `ModelPrice` 基价为 CNY 0.2，Nano 为 CNY 0.3；实际规格倍率�
 - Sunburst 与 Nano 提交时全局为 stable，但请求和用量回执仍为 normal/toapis，没有线路倍率。三笔 usage 均 success，各只有一笔 spend，合计 100 积分，余额 6150 → 6050。验收结束恢复原普通线路。
 - DB contentJson 与 OSS 权威快照（version 9）均保存三节点的精确型号、质量/分辨率和 TOS 图片 URL；浏览器刷新后三个型号和图片尺寸再次核对通过。期间遇到另一标签页保存项目的版本提示，按提示刷新后验收结果完整保留，未覆盖其他标签页内容。
 - 发布目录证据：`canvas-acceptance-summary.json`（allPassed=true）、`canvas-acceptance-ledger.json`、`canvas-acceptance-project.json`、`canvas-acceptance-oss.json`、`browser-before-refresh.json`、`browser-after-refresh.json`。
+
+### Nano Banana 2.1 独立节点与尊享线路（现行合同）
+
+用户确认原 Nano Banana 2 已在 Generate 中提供，因此节点面板改为独立的 Nano Banana 2.1，不再展示 Nano2/2.1 型号下拉。新建显式保存逻辑 2.1，普通线路执行 `gemini-nano-banana-2.1`，尊享执行 `gemini-nano-banana-2.1-official`；两者均使用 new-api/toApi 默认网关凭据与渠道 31。保留 1K/2K/4K 和 14 张远程参考图。旧 Nano2 节点（包括缺少 model 的历史节点）保留原模型、结果和手动运行能力，不批量迁移项目；禁用 2.1 时不把新建默认回退旧型号。
+
+最新 TANVAS 截图覆盖此前“沿用 Nano2 售价”和“尊享三倍”的约定：
+
+| 线路 / 精确上游型号 | 1K | 2K | 4K |
+| --- | ---: | ---: | ---: |
+| 普通 / `gemini-nano-banana-2.1` | 20 | 30 | 40 |
+| 尊享 / `gemini-nano-banana-2.1-official` | 30 | 60 | 90 |
+
+单位为 Tanva 积分，对应网关 CNY 0.2/0.3/0.4 和 0.3/0.6/0.9；不再使用统一三倍公式。VIP 价格保持原截图矩阵。实际模型、托管模型键、线路与分辨率贯穿前端预览、请求、后端预扣和网关结算。
+
+- 官方型号真实 curl 已通过：HTTP 200，任务 `tsk_img_01M4QJT8259PA32Z9N8NAXNX6B`，1K，约 16 秒完成并返回远程图片；没有自动重投。
+- 本轮发布目录：`/opt/tanva-releases/nano21-official-20261012/`；备份目录：`/opt/tanva-backups/nano21-official-20261012/`，含前后端 dist、相关设置与 NodeConfig、new-api 配置库原生 dump；rollback 镜像 `backend-new-api:pre-nano21-official-20261012`。
+
+### 本轮本地验证
+
+- 前端模型测试 21/21、Flow 提交/恢复 10/10，真实 React 控件与模拟 API smoke 通过，覆盖独立节点无下拉、普通/尊享请求和 4K 报价 40/90、切换保留结果、禁用不回退、历史 Nano2 与 Generate。前端生产 build 通过，lint 仍为既有 2,563 errors / 199 warnings。
+- 后端 108 组同步/异步报价、实际 Provider payload/key、旧价格与目录回归通过；新增旧 settings 矩阵升级和启停状态保留验证，启动采用原值 CAS 幂等更新。生产 build 通过，无 schema 变更。
+- new-api dto/apimart/model/relay/registrar 回归与 helper 36 组实际预扣验证通过；注册工具会纠正普通版旧 ModelPrice 0.3 → 0.2，并新增 official 0.3，二者完整分辨率价格由精确型号矩阵确定。
+- 新网关 Linux 二进制 SHA-256 `cc6258c3f7bff2e90144bda053a85ad762443011ed5bfb416c2c26d667b281ad`；注册工具 SHA-256 `3ef5862d960d30652e0571fbc95486beabe33d5983c170612b314de699a7d29c`。

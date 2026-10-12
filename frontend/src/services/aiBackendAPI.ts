@@ -4,7 +4,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { isToapiImageModel } from "./toapiImageModels";
+import { isToapiImageModel, getToapiImageRoute } from "./toapiImageModels";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -362,7 +362,7 @@ const attachBananaRouteToProviderOptions = <T extends {
   if (!isBananaRouteCapableProvider(request.aiProvider)) {
     return { request, bananaImageRoute: null };
   }
-  const resolvedRoute = isToapiImageModel(request.model) ? "normal" : resolveRequestBananaImageRoute(request);
+  const resolvedRoute = isToapiImageModel(request.model) ? getToapiImageRoute(request.model) : resolveRequestBananaImageRoute(request);
   if (!resolvedRoute) {
     return { request, bananaImageRoute: null };
   }

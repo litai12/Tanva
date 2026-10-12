@@ -2,7 +2,7 @@
  * 节点配置服务
  * 从后端获取节点配置，用于动态控制节点面板显示
  */
-import { GPT_IMAGE_25_STANDARD_MODELS, GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL } from "./toapiImageModels";
+import { GPT_IMAGE_25_STANDARD_MODELS, GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL } from "./toapiImageModels";
 import { getApiBaseUrl } from "../utils/assetProxy";
 import { pickLocaleText } from "@/utils/localeText";
 
@@ -127,7 +127,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "generatePro4", nameZh: "高级四图", nameEn: "Generate Pro 4", category: "image", status: "normal", sortOrder: 13, creditsPerCall: 240 },
     { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 60 },
     { nodeKey: "viewAngle", nameZh: "视角变换", nameEn: "View Angle", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 30 },
-    { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 40, metadata: { type: "nano2", flowNodeType: "nano2", provider: "nano2", model: NANO_BANANA_2_MODEL, supportedModels: [NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL], maxReferenceImages: 14, defaultData: { model: NANO_BANANA_2_MODEL, modelProvider: "nano2", resolution: "1K", maxReferenceImages: 14 } } },
+    { nodeKey: "nano2", nameZh: "Nano Banana 2.1", nameEn: "Nano Banana 2.1", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 20, metadata: { type: "nano2", flowNodeType: "nano2", provider: "nano2", model: NANO_BANANA_21_MODEL, managedModelKey: NANO_BANANA_21_MODEL, modelKeys: [NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL], showModelSelector: false, resolutions: ["1K", "2K", "4K"], supportedModels: [NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL], maxReferenceImages: 14, defaultData: { model: NANO_BANANA_21_MODEL, managedModelKey: NANO_BANANA_21_MODEL, modelProvider: "nano2", resolution: "1K", maxReferenceImages: 14 } } },
     ...[
       ["gptImage2", "gpt-image-2", "GPT-Image-2"],
       ["gptImage25", "gpt-image-2.5-flare", "GPT-Image-2.5"],

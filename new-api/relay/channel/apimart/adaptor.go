@@ -230,7 +230,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 		payload.Extras["quality"] = request.Quality
 		payload.Extras["n"] = 1
-	} else if info.UpstreamModelName == mainconstant.ToAPISNanoBanana21 {
+	} else if mainconstant.IsToAPISNanoBanana21(info.UpstreamModelName) {
 		payload.AspectRatio = ""
 		payload.Resolution = ""
 		delete(payload.Extras, "resolution")

@@ -1,5 +1,5 @@
 import { GPT_IMAGE_25_MODELS, buildGptImageModelSwitchPatch, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
-import { GPT_IMAGE_25_VIP_ASPECT_RATIOS, NANO_BANANA_21_ASPECT_RATIOS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, TOAPI_IMAGE_QUALITIES, isGptImage25Vip, isToapiImageModel, normalizeToapiImageQuality, normalizeToapiImageResolution, normalizeToapiImageAspectRatio } from "@/services/toapiImageModels";
+import { GPT_IMAGE_25_VIP_ASPECT_RATIOS, NANO_BANANA_21_ASPECT_RATIOS, TOAPI_IMAGE_QUALITIES, isGptImage25Vip, isToapiImageModel, normalizeToapiImageQuality, normalizeToapiImageResolution, normalizeToapiImageAspectRatio, resolveNanoImageModelForRoute, isNanoBanana21Model, getToapiImageRoute } from "@/services/toapiImageModels";
 import React from "react";
 import { Handle, Position, useStore } from "@xyflow/react";
 import { Send as SendIcon, Square } from "lucide-react";
@@ -237,8 +237,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     (typeof defaultData?.modelProvider === "string" ? defaultData.modelProvider : undefined) ||
     "nano2";
 
-  const resolvedModel = normalizeCanvasGptImage25Model(data.model || "", data.nodeConfigKey, metadata?.model || defaultData?.model || (resolvedNodeType === "gptImage2" ? "gpt-image-2" : NANO_BANANA_2_MODEL));
-  const isNano21 = resolvedModel === NANO_BANANA_21_MODEL;
+  const resolvedModel = resolvedNodeType === "nano2" ? resolveNanoImageModelForRoute(data.model, bananaImageRoute) : normalizeCanvasGptImage25Model(data.model || "", data.nodeConfigKey, metadata?.model || defaultData?.model || "gpt-image-2");
+  const isNano21 = isNanoBanana21Model(resolvedModel);
   const isVip = isGptImage25Vip(resolvedModel);
   const aspectRatioOptions = React.useMemo(() => {
     if (isVip) return GPT_IMAGE_25_VIP_ASPECT_RATIOS;
@@ -285,7 +285,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const isGptImage2Node = resolvedNodeType === "gptImage2";
   const isToapiGpt25 = GPT_IMAGE_25_MODELS.includes(resolvedModel);
   const isGptImage25Node = isToapiGpt25 || data.nodeConfigKey === "gptImage25";
-  const isSelectedModelUnavailable = (isGptImage2Node || resolvedNodeType === "nano2") && (
+  const isSelectedModelUnavailable = (isGptImage2Node || (resolvedNodeType === "nano2" && isNano21)) && (
     data.gptImageModelOptions
       ? !data.gptImageModelOptions.some((option) => option.model === resolvedModel && option.enabled)
       : isGptImage25Node && Array.isArray(metadata?.supportedModels) && !metadata.supportedModels.includes(resolvedModel)
@@ -542,7 +542,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     nodeType: resolvedNodeType,
     aiProvider: resolvedProvider,
     model: resolvedModel,
-    bananaImageRoute: isToapiImageModel(resolvedModel) ? "normal" : bananaImageRoute,
+    bananaImageRoute: isToapiImageModel(resolvedModel) ? getToapiImageRoute(resolvedModel) : bananaImageRoute,
     imageSize: resolutionValue || undefined,
     gptImage2Quality: isGptImage2Node ? normalizedQualityValue : undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -653,7 +653,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{isGptImage25Node ? "GPT-Image-2.5" : lt(titleZh, titleEn)}</div>
+        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{isGptImage25Node ? "GPT-Image-2.5" : resolvedNodeType === "nano2" ? (isNano21 ? "Nano Banana 2.1" : "Nano Banana 2") : lt(titleZh, titleEn)}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {status === "running" ? (
             <button
@@ -717,7 +717,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {(isGptImage2Node || resolvedNodeType === "nano2") && (
+      {isGptImage2Node && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("模型", "Model")}

@@ -471,9 +471,9 @@ export const TANVA_CAPABILITY_MANIFEST = {
     },
     {
       type: "nano2",
-      label: "Nano Banana 2 / 2.1",
-      purpose: "单图生成；需连 text 边供提示词；保留普通 Nano2 默认，Nano2.1 走普通线路、最多14张远程参考图",
-      params: { model: { type: "string", enum: ["gemini-3.1-flash-image-preview", "gemini-nano-banana-2.1"] }, resolution: { type: "string", enum: ["1K", "2K", "4K"] }, presetPrompt: { type: "string", description: "前缀提示词（可选）" } },
+      label: "Nano Banana 2.1",
+      purpose: "独立 Nano Banana 2.1 单图生成节点，新建固定 gemini-nano-banana-2.1；需连 text 边供提示词，跟随全局线路：普通使用 gemini-nano-banana-2.1，尊享使用 gemini-nano-banana-2.1-official；最多14张远程参考图。普通 Nano Banana 2 使用 generate 节点的 banana-3.1 模式；历史 nano2 节点保留其原模型",
+      params: { model: { type: "string", enum: ["gemini-nano-banana-2.1"] }, resolution: { type: "string", enum: ["1K", "2K", "4K"] }, presetPrompt: { type: "string", description: "前缀提示词（可选）" } },
       inputs: [{ handle: "text" }, { handle: "img", accepts: "image" }],
       outputs: [{ handle: "img", emits: "image" }],
     },

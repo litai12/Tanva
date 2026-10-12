@@ -138,11 +138,27 @@ async function main(): Promise<void> {
   assert.equal(nano.size, '8:1');
   assert.equal(nano.response_format, 'url');
   assert.deepEqual(nano.image_urls, nanoRefs);
-  for (const model of ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip', 'gemini-nano-banana-2.1']) {
+  for (const model of ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip', 'gemini-nano-banana-2.1', 'gemini-nano-banana-2.1-official']) {
     const keys = new NewApiProvider(fakeConfig({ NEW_API_KEY: 'normal-test', NEW_API_KEY_VIP: 'vip-test', NEW_API_KEY_SVIP: 'svip-test' }));
     await keys.initialize();
     for (const route of ['normal', 'stable', 'ultra']) assert.equal((keys as any).resolveApiKey({ banana: { imageRoute: route }, vendorKey: 'new_api' }, model), 'normal-test');
   }
+  for (const model of ['gemini-nano-banana-2.1', 'gemini-nano-banana-2.1-official']) {
+    for (const route of ['normal', 'stable'] as const) {
+      const request = { model, prompt: 'Nano routes', imageUrls: nanoRefs, imageSize: '2K', aspectRatio: '4:3', providerOptions: { banana: { imageRoute: route } } };
+      const expectedModel = route === 'stable' || model.endsWith('-official') ? 'gemini-nano-banana-2.1-official' : 'gemini-nano-banana-2.1';
+      const generated = await captureImagePayload(provider => provider.generateImage(request));
+      assert.equal(generated.model, expectedModel);
+      assert.equal(generated.response_format, 'url');
+      assert.equal(generated.resolution, '2K');
+      assert.deepEqual(generated.image_urls, nanoRefs);
+      const edit = await captureImagePayload(provider => provider.editImage({ ...request, sourceImage: nanoRefs[0] }));
+      assert.equal(edit.model, expectedModel);
+      const blend = await captureImagePayload(provider => provider.blendImages({ ...request, sourceImages: nanoRefs }));
+      assert.equal(blend.model, expectedModel);
+    }
+  }
+  await assert.rejects(() => provider.generateImage({ model: 'gemini-nano-banana-2.1-official', prompt: 'test', imageUrls: [...nanoRefs, nanoRefs[0]] }), /14/);
   await assert.rejects(() => provider.generateImage({ model: 'gemini-nano-banana-2.1', prompt: 'test', imageUrls: [...nanoRefs, nanoRefs[0]] }), /14/);
   await assert.rejects(() => provider.generateImage({ model: 'gpt-image-2.5-flare-vip', prompt: 'test', imageSize: '0.5K' }), /1K/);
   console.log('new-api image response format, Jichuan payload and 2.5 routing contract: ok');

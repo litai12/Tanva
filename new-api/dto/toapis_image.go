@@ -199,7 +199,7 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 			delete(fields, key)
 		}
 	}
-	if request.Model == constant.ToAPISNanoBanana21 && len(refs) > 14 {
+	if constant.IsToAPISNanoBanana21(request.Model) && len(refs) > 14 {
 		return request, fmt.Errorf("%s supports at most 14 reference images", request.Model)
 	}
 	request.Image = nil

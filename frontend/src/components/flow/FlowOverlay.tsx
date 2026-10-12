@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
-import { GPT_IMAGE_25_STANDARD_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits, isToapiImageModel, isGptImage25Vip, normalizeToapiImageQuality } from "@/services/toapiImageModels";
+import { GPT_IMAGE_25_STANDARD_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits, isToapiImageModel, isGptImage25Vip, normalizeToapiImageQuality, resolveNanoImageModelForRoute, isNanoBanana21Model, getToapiImageRoute } from "@/services/toapiImageModels";
 import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, expandNanoImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
 import FlowSelectionToolbar from "./FlowSelectionToolbar";
@@ -1527,7 +1527,7 @@ const resolveNano2LikeMaxReferenceImages = (
       ? (metadata.defaultData as Record<string, unknown>)
       : undefined;
   const model = normalizeCanvasGptImage25Model(String(nodeData?.model || ""), String(nodeData?.nodeConfigKey || ""), String(metadata?.model || defaultData?.model || ""));
-  if (model === NANO_BANANA_21_MODEL) return 14;
+  if (isNanoBanana21Model(model)) return 14;
   if (GPT_IMAGE_25_MODELS.includes(model)) return Number.POSITIVE_INFINITY;
   const raw = Number(
     nodeData?.maxReferenceImages ??
@@ -11541,6 +11541,7 @@ function FlowInner() {
       const data = {
         ...baseData,
         ...(paletteDefaultData || {}),
+        ...(type === "nano2" ? { model: NANO_BANANA_21_MODEL, managedModelKey: NANO_BANANA_21_MODEL, modelProvider: "nano2" } : {}),
         ...(paletteConfig
           ? (() => {
               const metadata = sanitizeVideoManagedRoutes(
@@ -23075,14 +23076,14 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             ? (metadata.defaultData as Record<string, any>)
             : undefined;
         const maxReferenceImages = resolveNano2LikeMaxReferenceImages(nodeData);
-        const requestedModel = normalizeCanvasGptImage25Model(
+        const requestedModel = node.type === "nano2" ? resolveNanoImageModelForRoute(nodeData.model, useAIChatStore.getState().bananaImageRoute || bananaImageRoute) : normalizeCanvasGptImage25Model(
           (typeof nodeData.model === "string" && nodeData.model.trim()) || "", nodeData.nodeConfigKey,
           (typeof metadata?.model === "string" && metadata.model.trim()) ||
           (typeof defaultData?.model === "string" && defaultData.model.trim()) ||
           (node.type === "gptImage2"
             ? "gpt-image-2"
             : "gemini-3.1-flash-image-preview"));
-        if (GPT_IMAGE_25_MODELS.includes(requestedModel) || requestedModel === NANO_BANANA_21_MODEL) {
+        if (GPT_IMAGE_25_MODELS.includes(requestedModel) || isNanoBanana21Model(requestedModel)) {
           const supported = managedRuntimeByType.get(node.type === "gptImage2" ? "config:gptImage25" : "nano2")?.nodeConfigMetadata?.supportedModels;
           if (!Array.isArray(supported) || !supported.includes(requestedModel)) {
             setNodes((ns) => ns.map((n) => n.id === nodeId
@@ -23131,7 +23132,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
         try {
           const latestBananaImageRoute =
             isToapiImageModel(requestedModel)
-              ? "normal"
+              ? getToapiImageRoute(requestedModel)
               : useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
             const raw = nodeData?.aspectRatio ?? defaultData?.aspectRatio;
@@ -23228,7 +23229,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
                   ...(gptImage2MaskUrl ? { maskUrl: gptImage2MaskUrl } : {}),
                 }
               : {}),
-            ...(node.type !== "gptImage2" && requestedModel !== NANO_BANANA_21_MODEL
+            ...(node.type !== "gptImage2" && !isNanoBanana21Model(requestedModel)
               ? {
                   googleSearch:
                     typeof nodeData?.googleSearch === "boolean"
@@ -26745,7 +26746,11 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
             : {}),
         } as Record<string, any>;
         if (resolvedType === "gptImage2" || resolvedType === "nano2") {
-          const selectedModel = normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || (resolvedType === "nano2" ? NANO_BANANA_2_MODEL : "gpt-image-2")));
+          const selectedModel = resolvedType === "nano2" ? resolveNanoImageModelForRoute(n.data?.model, bananaImageRoute) : normalizeCanvasGptImage25Model(String(n.data?.model || ""), String(n.data?.nodeConfigKey || ""), String(managedRuntime?.nodeConfigMetadata?.model || "gpt-image-2"));
+          if (resolvedType === "nano2") {
+            runtimeNodeData.model = selectedModel;
+            runtimeNodeData.managedModelKey = selectedModel === NANO_BANANA_2_MODEL ? "gemini-3.1-image" : selectedModel;
+          }
           const option = imageModelOptions.find((item) => item.model === selectedModel);
           if (option) {
             runtimeNodeData.model = selectedModel;
