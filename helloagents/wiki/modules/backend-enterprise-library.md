@@ -55,3 +55,14 @@ pnpm --filter @tanvas/desktop exec playwright test --config tests/design-e2e/pla
 2/2 通过。日志 `/tmp/tanvas-enterprise-cloud-ui.log`；证据目录 `/var/folders/06/ds2pcqxs6pbd8yzqjbxsz3j00000gn/T/tanvas-enterprise-cloud-e2e-NRAymS`；截图 `/tmp/tanvas-enterprise-cloud-ui-results/enterprise-cloud-personal--e1d23-riginal-revision-references/enterprise-team-cloud.png` 已目视。服务器、数据库及 Electron 进程正常清理。
 
 这些本机证据不代表生产已部署、真实生产登录已验收、Windows 安装包已验证或企业内容已发布。
+
+## 101 生产部署（2026-10-12）
+
+用户明确授权推送与部署。实现提交 `4ec4d43eb808c387700054bda235e4cb35df45cf` 已推送 main，并在 101 `/www/wwwroot/tanvas.cn` 发布后端；本次没有 Tanva 网页前端改动。
+
+- 发布前 `npm run build` 及隔离 PostgreSQL/Nest/JWT HTTP 25 项测试通过。生产旧 dist 与 Prisma client 备份在 `/opt/tanva-backups/enterprise-4ec4d43e-20261012/`。
+- 生产存在两条数据库已应用、仓库缺失的历史迁移：`20260308001733_fix_token_bigint`、`20260315165422_add_service_node_table`。本次保留历史状态，只将新迁移 SQL 在单事务内执行（lock_timeout 5s、statement_timeout 30s），成功后用 `prisma migrate resolve --applied 202610120001_enterprise_knowledge` 登记。没有 db push、数据回填或历史迁移重放。
+- 两张新表、三个业务索引（另有两个主键索引）、三个外键及迁移已完成记录均只读核验通过，初始资料/版本均为 0，未创建生产验收数据。
+- 重新生成 Prisma client；后端独立目录编译后，等待 image-tasks active=0 再切换 dist，执行 PM2 reload/save。没有暂停队列。重载后 `tanvas-api` online，队列 paused=false 并正常接收新任务；三项关键 JS 文件 SHA 与新编译产物一致。
+- 2026-10-12 06:01 UTC，本机与公网 `/api/health` 均 200；`/api/enterprise-library/spaces` 未登录均 401，确认路由已上线且鉴权生效。生产登录后的 CRUD 尚未用真实账号验收；权限、版本和持久化由隔离环境 25 项真实 HTTP/SQL 测试覆盖。
+- 回滚可恢复上述旧 dist 并 reload；新增表与新客户端兼容旧后端，无需删除表或回滚数据。桌面客户端功能在 tanvas-desk，服务器部署不会替用户更新已安装客户端。

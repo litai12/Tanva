@@ -1510,3 +1510,5 @@ eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode 
 
 - 只读确认原Flash请求在新网关启动、SQL定价补丁完成与首次60秒缓存同步之间，被旧内存ModelRatio拒绝400；预扣160分已全退，净扣0。新启动事务在加载内存配置之前只修正三个Flash alias峰值1/4/.02并清其固定价，保留其他模型、渠道、分组与小T配置；坏JSON/写入失败回滚并阻止启动。
 - SQLite缺行/幂等/事务失败/首次内存价目、两连接12并发启动与独立写入保留其他键、临时真实PostgreSQL12并发/坏JSON回滚测试及Go主程序构建均通过；未部署或重启生产。消费签名两端未配置仍是独立上线限制，详见 `wiki/modules/backend-gateway-consumption-orders.md`。
+
+- 2026-10-12：企业库后端 `4ec4d43e` 已部署 101；定向事务迁移、PM2重载和公网鉴权/健康检查通过，详见 `wiki/modules/backend-enterprise-library.md`。
