@@ -1,3 +1,4 @@
+import { EnterpriseLibraryModule } from './enterprise-library/enterprise-library.module';
 import { DesktopChatModule } from './desktop-chat/desktop-chat.module';
 import { GatewayConsumptionOrdersModule } from './consumption-orders/gateway-consumption-orders.module';
 import { Module } from '@nestjs/common';
@@ -69,6 +70,7 @@ import { PromptLibraryModule } from './prompt-library/prompt-library.module';
     AgentModule,
     DirectorCaptureModule,
     MaterialLibraryModule,
+    EnterpriseLibraryModule,
     AsrModule,
     StoryboardSkillsModule,
     PromptLibraryModule,

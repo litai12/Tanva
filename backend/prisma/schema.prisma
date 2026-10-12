@@ -8,6 +8,7 @@ datasource db {
 }
 
 model User {
+  enterpriseKnowledgeDocuments EnterpriseKnowledgeDocument[]
   id                         String                 @id @default(uuid())
   email                      String?                @unique
   watchaUserId               String?                @unique
@@ -860,6 +861,7 @@ model postgres_log {
 // ─── 团队模块 ────────────────────────────────────────────────
 
 model Team {
+  enterpriseKnowledgeDocuments EnterpriseKnowledgeDocument[]
   id          String   @id @default(uuid())
   name        String
   ownerId     String
@@ -1071,4 +1073,41 @@ model MaterialFolder {
 
   @@index([ownerId])
   @@index([teamId])
+}
+
+
+// Desktop and website company knowledge: text only, immutable accepted revisions.
+model EnterpriseKnowledgeDocument {
+  id String @id @default(uuid())
+  ownerId String
+  teamId String?
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title String
+  summary String
+  tags Json
+  origin Json
+  enterpriseName String?
+  category String?
+  content String @db.Text
+  sha256 String
+  bytes Int
+  version Int @default(1)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revisions EnterpriseKnowledgeRevision[]
+  @@index([ownerId, teamId, deletedAt, updatedAt], map: "enterprise_knowledge_owner_space_idx")
+  @@index([teamId, deletedAt, enterpriseName, category], map: "enterprise_knowledge_team_category_idx")
+}
+
+model EnterpriseKnowledgeRevision {
+  id String @id @default(uuid())
+  documentId String
+  document EnterpriseKnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version Int
+  snapshot Json
+  actorId String
+  createdAt DateTime @default(now())
+  @@unique([documentId, version])
 }
