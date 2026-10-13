@@ -33,4 +33,8 @@
 - 浏览器回归：`cd frontend && node scripts/verifyAvatarBrowser.mjs`，通过：公网直连不请求代理、历史 OSS key、公网 403 后带 bearer 代理成功并显示 Blob、上传保存原 URL、octet-stream 可解码、403/损坏图片阻止资料更新并保留旧头像、最终首字兜底、更换 URL 后恢复与无 React 运行时异常。
 - 主 Agent 全量 lint 记录：既有 `2556 errors / 199 warnings`，未将仓库级 lint 标记为通过。元数据同步脚本不存在，主 Agent 已尝试并记录限制。
 - 主 Agent 最终 `npm run build`（TypeScript + Vite）通过，`git diff --check` 通过。
-- 未提交、未部署、未用真实用户凭据；已有头像资料与用户其他改动保持原样。
+- 已随 `a18b67b5` 发布到 101；未用真实用户凭据改动头像资料，用户其他工作区改动保持原样。
+
+## 2026-10-13 发布
+
+已随 `a18b67b5` 推送并部署 101。隔离源码单测、浏览器回归和生产构建通过，公网版本、主资源哈希和健康检查通过；发布范围与回退路径见 [发布记录](canvas-controls-release-20261013.md)。

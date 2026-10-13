@@ -20,3 +20,7 @@ Paper `GridRenderer` 使用所选底色覆盖旧的纯色矩形底色，并按�
 - `node --test src/utils/canvasBackground.test.ts`
 - `node scripts/verifyCanvasBackgroundBrowser.mjs`：独立临时 Vite cache，验证色盘/HEX/重置/主题隔离/刷新持久化/关闭与快捷键保护、Paper 真正绘制像素与 Flow 网格颜色。
 - 2026-10-13：4 个纯函数单测、独立浏览器回归通过；新运行时模块定向 ESLint 通过。浏览器包括网格关闭后改色再重开、三种 Flow 图案、事件总线隔离、打开期间 Tab/G/Delete 不作用画布及关闭后恢复。
+
+## 2026-10-13 发布
+
+已随 `a18b67b5` 推送并部署 101。隔离源码单测、浏览器回归和生产构建通过，公网版本、主资源哈希和健康检查通过；发布范围与回退路径见 [发布记录](canvas-controls-release-20261013.md)。

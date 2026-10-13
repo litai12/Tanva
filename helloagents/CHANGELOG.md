@@ -1,8 +1,8 @@
 # Changelog
 
-- 2026-10-13：同步 TapCanvasPro 画布背景色盘交互，支持明暗主题独立预设色、自定义颜色与 HEX、恢复默认及本机记忆；Paper/Flow 画布使用同一底色，网格随背景亮度调整，不修改项目设计内容。详见 `wiki/canvas-background-palette.md`；待验证部署。
+- 2026-10-13：同步 TapCanvasPro 画布背景色盘交互，支持明暗主题独立预设色、自定义颜色与 HEX、恢复默认及本机记忆；Paper/Flow 画布使用同一底色，网格随背景亮度调整，不修改项目设计内容。`a18b67b5` 已推送并部署 101，20 项单测、三组浏览器回归、隔离构建、48 文件哈希与公网资源/健康验证通过；见 `wiki/canvas-background-palette.md` 与 `wiki/canvas-controls-release-20261013.md`。
 
-- 2026-10-13：画布眼睛按钮接入自定义快捷键，默认 Tab 切换专注模式，保留已有 Tab 配置并隔离输入、弹窗和长按。修复账号头像上传验证走代理、展示却仅直连导致的破图：支持鉴权代理读取与首字兜底，保存前验证图片可解码，只持久化原远程引用。仅本地修改，未部署；见 `wiki/custom-keyboard-shortcuts.md` 与 `wiki/avatar-upload-display.md`。
+- 2026-10-13：画布眼睛按钮接入自定义快捷键，默认 Tab 切换专注模式，保留已有 Tab 配置并隔离输入、弹窗和长按。修复账号头像上传验证走代理、展示却仅直连导致的破图：支持鉴权代理读取与首字兜底，保存前验证图片可解码，只持久化原远程引用。代码 `d82e0436` 已推送，并随 `a18b67b5` 部署 101；验证与回退记录见 `wiki/canvas-controls-release-20261013.md`，功能见 `wiki/custom-keyboard-shortcuts.md` 与 `wiki/avatar-upload-display.md`。
 
 - 2026-10-13：多选节点对齐工具条适配项目明暗主题，外框/按钮统一为 12px/8px 圆角，配套主题色、悬停与键盘焦点样式。保留布局操作及窄窗滚动；`2cfc56af` 已推送并部署 101，隔离浏览器回归、构建、48 文件哈希及公网资源/健康校验通过，保留回退备份。详见 `wiki/modules/frontend-flow.md`。
 
