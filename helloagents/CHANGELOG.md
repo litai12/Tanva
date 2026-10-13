@@ -1,6 +1,6 @@
 # Changelog
 
-- 2026-10-12：设置新增自定义快捷键入口，统一通用、画布与节点快捷键配置，支持录入、冲突提示、清除、单项/全部恢复默认及浏览器本地保存；接入实际执行并隔离设置录入与文本编辑。详见 `wiki/custom-keyboard-shortcuts.md`；本地修改，未部署。
+- 2026-10-12：设置新增自定义快捷键入口，统一通用、画布与节点快捷键配置，支持录入、冲突提示、清除、单项/全部恢复默认及浏览器本地保存；接入实际执行并隔离设置录入与文本编辑。详见 `wiki/custom-keyboard-shortcuts.md`；`8d5bc19e` 已推送并部署 101，隔离构建、核心/浏览器回归、48 文件哈希和公网资源/健康校验通过；保留旧静态资源，后端未重启。
 
 - 2026-10-12：补齐图片预览底部候选的数据接入。Flow 预览直接读取当前画布同组图片，解决空本地历史/空集合入口缺少候选的问题；保留独立多图结果集合，切图不修改节点。新增真实节点双击入口回归，`8c763b7c` 已部署 101，真实节点/裁剪下载回归、构建与公网校验通过；发布记录见 `wiki/image-preview-20261012.md`。
 
@@ -1258,7 +1258,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## 2026-05-12 Seedance Update
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
 - Flow/Seedance Video: added mode inputs 
-eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
+eference_images / 
+irst_frame / start_end / smart_frames and aligned 
+ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
 
 ## [AI Chat Canvas Placeholder Timeout - 2026-06-08]

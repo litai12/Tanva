@@ -26,4 +26,12 @@
 - `node scripts/verifyShortcutFlowBrowser.mjs`：真实 Flow / DrawingController 场景通过分组、解组、节点/连线删除、输入与录入隔离、原生复制到自定义粘贴及旧键位失效检查。
 - `npm run build` 通过；新增配置、UI、剪贴板辅助模块与核心测试定向 ESLint 通过。全量 `npm run lint` 仍有原有仓库问题（修改前 2559 个 error，本轮检查 2556 个 error），没有以忽略规则掩盖。
 
-本次为本地实现，未部署。
+## 101 生产发布
+
+- 2026-10-12 23:55（America/Los_Angeles）发布，代码 `8d5bc19edbedb1debaad094a27506023fc9ba79b` 已推送 main。发布从 `c244b548` 隔离构建，仅包含快捷键功能，不包含工作区图片对比等并发改动。
+- 发布前隔离源码的 14 项核心测试、设置浏览器回归、完整 Flow / DrawingController 回归和带提交号的生产构建通过。两组 Vite 回归顺序运行，避免共享依赖优化缓存导致 `Outdated Optimize Dep`。
+- 发布目录：`/opt/tanva-releases/custom-shortcuts-20261012-8d5bc19e/`，含压缩包、48 文件 SHA-256 清单、部署脚本及部署/公网验收回执。
+- 回退备份：`/opt/tanva-backups/custom-shortcuts-20261012-8d5bc19e/frontend-dist/`。逐文件原子替换，最后切换入口和版本清单，保留旧 hash 静态资源；没有重启后端或执行数据库变更。
+- 本地、暂存和线上 48 个文件哈希一致。公网 `https://tanvas.cn/` HTML、`/assets/index-4FvpuMWx.js`、`/assets/index-DMB1RBao.css` 与发布包 SHA-256 一致，`version.json.commitSha=8d5bc19edbed`，`/api/health.status=ok`，上一版 JS 仍可访问。
+- 发布后完成公网静态资源和健康验证；交互验收来自发布前隔离源码真实组件回归，未创建或重跑生产生成任务。
+
