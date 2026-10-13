@@ -1,0 +1,46 @@
+.tanva-flow-selection-toolbar {
+  --selection-toolbar-bg: hsl(var(--card, 0 0% 100%) / 0.96);
+  --selection-toolbar-border: hsl(var(--border, 214.3 31.8% 91.4%));
+  --selection-toolbar-text: hsl(var(--card-foreground, 222.2 84% 4.9%));
+  --selection-toolbar-muted: hsl(var(--muted-foreground, 215.4 16.3% 46.9%));
+  --selection-toolbar-button: hsl(var(--muted, 210 40% 96%) / 0.7);
+  --selection-toolbar-hover: hsl(var(--muted, 210 40% 96%));
+  --selection-toolbar-focus: #2563eb;
+  width: max-content;
+  border: 1px solid var(--selection-toolbar-border);
+  border-radius: 12px;
+  background: var(--selection-toolbar-bg);
+  color: var(--selection-toolbar-text);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.tanva-flow-selection-toolbar__count {
+  color: var(--selection-toolbar-muted);
+}
+
+.tanva-flow-selection-toolbar__button {
+  border-radius: 8px;
+  background: var(--selection-toolbar-button);
+  color: var(--selection-toolbar-text);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tanva-flow-selection-toolbar__button:hover {
+  background: var(--selection-toolbar-hover);
+}
+
+.tanva-flow-selection-toolbar__button:focus-visible {
+  outline: 2px solid var(--selection-toolbar-focus);
+  outline-offset: -2px;
+}
+
+body.tanva-premium-black-theme .tanva-flow-selection-toolbar {
+  --selection-toolbar-bg: var(--tanva-mono-base, #1d1d1d);
+  --selection-toolbar-border: var(--tanva-mono-border, #1a1a1a);
+  --selection-toolbar-text: var(--tanva-mono-text, #ffffff);
+  --selection-toolbar-muted: var(--tanva-mono-text-secondary, #c0c7d4);
+  --selection-toolbar-button: var(--tanva-mono-base, #1d1d1d);
+  --selection-toolbar-hover: #3f3f3f;
+  --selection-toolbar-focus: var(--tanva-mono-text, #ffffff);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
