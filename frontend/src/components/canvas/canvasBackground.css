@@ -17,11 +17,10 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px;
-  border: 1px solid rgba(0,0,0,.08);
-  border-radius: 999px;
-  background: rgba(255,255,255,.92);
-  box-shadow: 0 3px 12px rgba(0,0,0,.1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   z-index: 1000;
   color: #6b7280;
   --palette-surface: rgba(255,255,255,.98);
@@ -31,12 +30,8 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
   --palette-outline: rgba(0,0,0,.14);
 }
 .tanva-canvas-view-controls[hidden] { display: none; }
-.tanva-canvas-view-controls[data-compact="true"] > .tanva-canvas-background-icon,
-.tanva-canvas-view-controls[data-compact="true"] .tanva-focus-mode-button > button,
-.tanva-canvas-view-controls[data-compact="true"] .tanva-canvas-background-trigger { width: 24px; height: 24px; }
+.tanva-canvas-view-controls[data-direction="left"] { flex-direction: row-reverse; }
 .tanva-canvas-view-controls[data-scheme="dark"] {
-  background: #1d1d1d;
-  border-color: rgba(255,255,255,.1);
   color: #a3a3a3;
   --palette-surface: #141519;
   --palette-field: #222327;
@@ -66,6 +61,8 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
 .tanva-canvas-background-trigger:hover,
 .tanva-canvas-background-trigger[aria-expanded="true"],
 .tanva-canvas-background-icon:hover { background: var(--palette-hover); color: var(--palette-text); }
+.tanva-canvas-view-toggle:hover { background: transparent; }
+.tanva-canvas-view-toggle:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
 .tanva-canvas-background-indicator {
   position: absolute;
   bottom: 6px;

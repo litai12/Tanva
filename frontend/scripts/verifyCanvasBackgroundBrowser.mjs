@@ -218,27 +218,45 @@ try {
   const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
   const assertGeometry = async label => {
     const box = await dock.boundingBox();
+    const arrow = await toggle.boundingBox();
     const toolbar = await page.locator('.tanva-toolbar-shell').boundingBox();
     const zoom = await page.locator('.tanva-zoom-shell').boundingBox();
     const surface = await page.locator('.tanva-canvas-surface').boundingBox();
     assert.ok(!overlaps(box, toolbar), label + ': dock avoids real toolbar');
     assert.ok(!overlaps(box, zoom), label + ': dock avoids zoom');
     assert.ok(box.x >= surface.x && box.x + box.width <= surface.x + surface.width && box.y >= surface.y && box.y + box.height <= surface.y + surface.height, label + ': dock stays in canvas');
+    assert.equal(arrow.width, 32, label + ': arrow retains eye-sized hit target');
+    assert.equal(arrow.height, 32);
+    const expectedLeft = Math.max(surface.x, Math.min(toolbar.x + toolbar.width / 2 - 16, surface.x + surface.width - 32));
+    assert.ok(Math.abs(arrow.x - expectedLeft) <= 1, label + ': arrow aligns with toolbar center, clamped only at the canvas edge');
+    if (Math.abs(toolbar.x + toolbar.width / 2 - zoom.x - zoom.width / 2) <= 1) {
+      assert.ok(Math.abs(arrow.x + arrow.width / 2 - zoom.x - zoom.width / 2) <= 1, label + ': arrow also aligns with zoom center');
+    }
+    for (const element of [dock, toggle]) {
+      const chrome = await element.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, padding: style.padding };
+      });
+      assert.deepEqual(chrome, { background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none', padding: '0px' }, label + ': controls have no shell chrome');
+    }
+    assert.deepEqual(await toggle.locator('svg').evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height })), { width: 16, height: 16 }, label + ': arrow matches the eye icon size');
     if (await toggle.getAttribute('aria-expanded') === 'true') {
       const children = await page.locator('.tanva-canvas-view-controls > *').evaluateAll(elements => elements.filter(element => element.getClientRects().length).map(element => element.getBoundingClientRect().y));
       assert.ok(Math.max(...children) - Math.min(...children) <= 1, label + ': controls expand horizontally');
     }
     console.log(label, { dock: box, toolbar, zoom });
   };
-  for (const height of [700, 600]) {
+  for (const height of [800, 730, 700, 600, 520]) {
     await page.setViewportSize({ width: 900, height });
     for (const layer of [false, true]) {
       await page.evaluate(layer => window.backgroundTest.layer(layer), layer);
       await page.waitForTimeout(100);
       await assertGeometry(height + 'px layer=' + layer + ' expanded');
+      const expandedArrow = await toggle.boundingBox();
       await toggle.click();
       assert.equal(await trigger.count(), 0);
       await assertGeometry(height + 'px layer=' + layer + ' collapsed');
+      assert.deepEqual(await toggle.boundingBox(), expandedArrow, 'collapse preserves arrow position');
       await expand();
     }
     await page.evaluate(() => window.backgroundTest.layer(false));
@@ -253,18 +271,31 @@ try {
   await page.evaluate(() => window.backgroundTest.layer(true));
   await page.waitForTimeout(100);
   await assertGeometry('450px narrow canvas with layers');
-  await page.setViewportSize({ width: 900, height: 600 });
+  await page.setViewportSize({ width: 420, height: 600 });
+  await page.waitForTimeout(100);
+  await assertGeometry('420px narrow canvas with layers expands left');
+  assert.equal(await dock.getAttribute('data-direction'), 'left');
+  const narrowArrow = await toggle.boundingBox();
+  await toggle.click();
+  await assertGeometry('420px narrow canvas collapsed');
+  assert.deepEqual(await toggle.boundingBox(), narrowArrow, 'narrow collapse preserves arrow alignment');
+  await expand();
+  await page.setViewportSize({ width: 900, height: 700 });
   await page.evaluate(() => window.backgroundTest.layer(false));
   await toggle.press('Escape');
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'Escape collapses the row');
   await page.evaluate(() => window.backgroundTest.embedded(true));
   await expand();
+  await page.waitForTimeout(100);
   assert.equal(await eye.count(), 0, 'embedded desktop retains its existing absence of standalone focus mode');
   await assertGeometry('embedded desktop');
   await page.evaluate(() => { window.backgroundTest.surfaceWidth(450); window.backgroundTest.layer(true); });
   await page.waitForTimeout(100);
   await assertGeometry('450px embedded with layers');
   await page.screenshot({ path: '/tmp/tanva-canvas-view-controls-embedded-layers.png' });
+  await page.evaluate(() => window.backgroundTest.surfaceWidth(360));
+  await page.waitForTimeout(100);
+  await assertGeometry('360px embedded with layers expands left');
   await page.evaluate(() => window.backgroundTest.layer(false));
   await page.waitForTimeout(100);
   await trigger.click();

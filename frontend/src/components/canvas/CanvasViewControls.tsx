@@ -14,7 +14,7 @@ export default function CanvasViewControls({ embeddedDesktop = false }: { embedd
   const theme = useAIChatStore((state) => state.chatTheme);
   const maximized = useAIChatStore((state) => state.isMaximized);
   const [expanded, setExpanded] = useState(false);
-  const [position, setPosition] = useState({ left: 16, top: 0, compact: false });
+  const [position, setPosition] = useState({ left: 17, top: 0, direction: 'right' });
   const shellRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
@@ -26,44 +26,43 @@ export default function CanvasViewControls({ embeddedDesktop = false }: { embedd
     const zoom = surface.querySelector<HTMLElement>('.tanva-zoom-shell');
     const place = () => {
       const bounds = surface.getBoundingClientRect();
-      const height = shell.offsetHeight;
-      let width = expanded ? (embeddedDesktop ? 78 : 114) : 42;
-      let compact = false;
-      let left = showLayerPanel ? 330 : 16;
-      let top = Math.max(8, bounds.height - 120 - height);
-      // A short screen can put the centered, variable-height toolbar at the eye's
-      // original position. Move the entire row right of its actual footprint.
-      for (const obstacle of [toolbar, zoom]) {
-        if (!obstacle) continue;
-        const rect = obstacle.getBoundingClientRect();
-        if (top + bounds.top < rect.bottom + 8 && top + height + bounds.top > rect.top - 8 &&
-            left + bounds.left < rect.right + 8 && left + width + bounds.left > rect.left - 8) {
-          left = rect.right - bounds.left + 8;
-        }
+      const height = 32;
+      // Reserve the expanded width in both states so opening the row cannot move
+      // the arrow away from the toolbar's actual centerline.
+      const width = embeddedDesktop ? 68 : 104;
+      const toolbarBounds = toolbar?.getBoundingClientRect();
+      const center = toolbarBounds ? toolbarBounds.left + toolbarBounds.width / 2 - bounds.left : 33;
+      const anchor = Math.max(0, Math.min(center - height / 2, bounds.width - height));
+      const direction = anchor + width > bounds.width && anchor + height >= width ? 'left' : 'right';
+      const rowLeft = direction === 'left' ? anchor + height - width : anchor;
+      const left = direction === 'left' && expanded ? rowLeft : anchor;
+      const obstacles = [toolbar, zoom].flatMap((element) => {
+        if (!element) return [];
+        const rect = element.getBoundingClientRect();
+        return rowLeft + bounds.left < rect.right && rowLeft + width + bounds.left > rect.left
+          ? [{ top: Math.max(0, rect.top - bounds.top), bottom: Math.min(bounds.height, rect.bottom - bounds.top) }]
+          : [];
+      }).sort((a, b) => a.top - b.top);
+      const spaces: { top: number; bottom: number }[] = [];
+      let edge = 0;
+      for (const obstacle of obstacles) {
+        if (obstacle.top - edge >= height) spaces.push({ top: edge, bottom: obstacle.top });
+        edge = Math.max(edge, obstacle.bottom);
       }
-      // A narrow desktop panel can still fit the two controls beside the toolbar
-      // with smaller hit targets; keep the row horizontal rather than clipping it.
-      const compactWidth = expanded ? (embeddedDesktop ? 62 : 90) : 34;
-      if (left + width + 8 > bounds.width && left + compactWidth + 8 <= bounds.width) {
-        compact = true;
-        width = compactWidth;
-      }
-      left = Math.max(8, Math.min(left, bounds.width - width - 8));
-      // If there is too little horizontal room beside the layer toolbar, prefer
-      // the free space below/above it while staying outside the layer panel.
-      for (const obstacle of [toolbar, zoom]) {
-        if (!obstacle) continue;
-        const rect = obstacle.getBoundingClientRect();
-        if (left + bounds.left < rect.right + 8 && left + width + bounds.left > rect.left - 8 &&
-            top + bounds.top < rect.bottom + 8 && top + height + bounds.top > rect.top - 8) {
-          const below = rect.bottom - bounds.top + 8;
-          const above = rect.top - bounds.top - height - 8;
-          if (below + height <= bounds.height - 8) top = below;
-          else if (above >= 8) top = above;
-        }
-      }
-      top = Math.min(top, Math.max(8, bounds.height - height - 8));
-      setPosition((previous) => previous.left === left && previous.top === top && previous.compact === compact ? previous : { left, top, compact });
+      if (bounds.height - edge >= height) spaces.push({ top: edge, bottom: bounds.height });
+      const toolbarBottom = toolbarBounds ? toolbarBounds.bottom - bounds.top : 0;
+      const toolbarTop = toolbarBounds ? toolbarBounds.top - bounds.top : bounds.height;
+      // Prefer the gap below the toolbar; on short screens stay on its centerline
+      // above it. Reduce the usual 8px clearance only when the available gap is tight.
+      const space = spaces.find((candidate) => candidate.top >= toolbarBottom)
+        ?? spaces.slice().reverse().find((candidate) => candidate.bottom <= toolbarTop)
+        ?? spaces[0];
+      const gap = space ? Math.min(8, (space.bottom - space.top - height) / 2) : 0;
+      const preferredTop = bounds.height - 120 - height;
+      const top = space
+        ? Math.max(space.top + gap, Math.min(preferredTop, space.bottom - height - gap))
+        : Math.max(0, Math.min(toolbarTop - height, bounds.height - height));
+      setPosition((previous) => previous.left === left && previous.top === top && previous.direction === direction ? previous : { left, top, direction });
     };
     const observer = new ResizeObserver(place);
     [surface, shell, toolbar, zoom].forEach((element) => { if (element) observer.observe(element); });
@@ -76,9 +75,10 @@ export default function CanvasViewControls({ embeddedDesktop = false }: { embedd
   const label = expanded
     ? (isZh ? '收起画布显示控件' : 'Collapse canvas view controls')
     : (isZh ? '展开画布显示控件' : 'Expand canvas view controls');
+  const ArrowIcon = expanded !== (position.direction === 'left') ? ChevronLeft : ChevronRight;
   return (
     <div ref={shellRef} className="tanva-canvas-view-controls nodrag nopan" data-canvas-control="true"
-      data-scheme={theme === 'black' ? 'dark' : 'light'} data-expanded={expanded} data-compact={position.compact} hidden={maximized}
+      data-scheme={theme === 'black' ? 'dark' : 'light'} data-expanded={expanded} data-direction={position.direction} hidden={maximized}
       style={{ left: position.left, top: position.top }} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !shellRef.current?.querySelector('[role="dialog"]')) {
@@ -89,7 +89,7 @@ export default function CanvasViewControls({ embeddedDesktop = false }: { embedd
       <button ref={toggleRef} type="button" className="tanva-canvas-background-icon tanva-canvas-view-toggle"
         aria-label={label} title={label} aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}>
-        {expanded ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+        <ArrowIcon size={16} />
       </button>
       {/* Keep the shortcut listener mounted while the controls are collapsed. */}
       {!embeddedDesktop && <FocusModeButton hidden={!expanded} />}
