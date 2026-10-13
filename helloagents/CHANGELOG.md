@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-12：公共图片放大预览复用 TapCanvas-pro 的浮动工具栏、缩放滑杆、拖拽、双击复位、旋转、下载及底部历史切图，适配 Tanva 明暗主题；预览事件与底层画布隔离。仅本地修改，未部署。详见 `wiki/image-preview-20261012.md`。
+
 - 2026-10-12：Nano Banana 2.1 改为独立节点、移除型号下拉；普通线路使用 `gemini-nano-banana-2.1`，尊享使用 `gemini-nano-banana-2.1-official`，均走 toApi。按用户最新 TANVAS 表，1K/2K/4K 为普通 20/30/40、尊享 30/60/90 积分，覆盖此前三倍约定。Generate 与历史 Nano2 保留原模型。已推送并部署 101，六档 UI 报价、尊享 1K 出图与实扣 30、刷新持久化通过；公共目录保留 official 精确型号。验证与发布见 `wiki/toapis-vip-image-models-20261012.md`。
 
 - 2026-10-12：Tanva 画布补齐 GPT Image 2.5 Flare/Sunburst VIP 五档质量选择和 Nano Banana 2.1 型号；前后端统一 toApi 路由与规格，积分预览、预扣、终态按截图售价，保留原 Nano 2 价格及旧节点。`a637aa54` 已推送并部署 101，三款线上画布实际出图、40/20/40 积分扣款及刷新持久化通过。发布与验收见 `wiki/toapis-vip-image-models-20261012.md`。

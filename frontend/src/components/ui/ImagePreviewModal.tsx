@@ -1,14 +1,12 @@
-/**
- * 图片全屏预览模态框组件
- */
-
-import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
+/** 图片全屏预览：复用 TapCanvasPro 的缩放舞台和浮动工具栏。 */
+import React, { useEffect, useCallback, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronUp, ChevronDown } from 'lucide-react';
-import { Button } from './button';
+import { TransformWrapper, TransformComponent, useControls, useTransformEffect } from 'react-zoom-pan-pinch';
+import { X, Download, ZoomIn, ZoomOut, RotateCcw, RotateCw, Info, RefreshCw, Loader2 } from 'lucide-react';
 import SmartImage from './SmartImage';
-import './ImagePreviewModal.css';
+import { downloadFile, getSuggestedFileName } from '@/utils/downloadHelper';
 import { useTranslation } from 'react-i18next';
+import './ImagePreviewModal.css';
 
 export interface ImageItem {
   id: string;
@@ -22,285 +20,267 @@ interface ImagePreviewModalProps {
   imageSrc: string;
   imageTitle?: string;
   onClose: () => void;
-  imageCollection?: ImageItem[]; // 图片集合
-  currentImageId?: string; // 当前图片ID
-  onImageChange?: (imageId: string) => void; // 切换图片回调
-  collectionTitle?: string; // 缩略图集合标题
-  onLoadMore?: () => void; // 滚动加载更多
+  imageCollection?: ImageItem[];
+  currentImageId?: string;
+  onImageChange?: (imageId: string) => void;
+  collectionTitle?: string;
+  onLoadMore?: () => void;
   hasMore?: boolean;
   isLoading?: boolean;
 }
 
-const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
-  isOpen,
-  imageSrc,
-  imageTitle,
-  onClose,
-  imageCollection = [],
-  currentImageId,
-  onImageChange,
-  collectionTitle,
-  onLoadMore,
-  hasMore = false,
-  isLoading = false,
-}) => {
-  const { i18n } = useTranslation();
-  const isZh = (i18n.resolvedLanguage || i18n.language || '')
-    .toLowerCase()
-    .startsWith('zh');
-  const lt = (zh: string, en: string) => (isZh ? zh : en);
-  const resolvedImageTitle = imageTitle || lt('图片预览', 'Image Preview');
-  const resolvedCollectionTitle = collectionTitle || lt('历史记录', 'History');
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 10;
+const BUTTON_ZOOM_STEP = 0.18;
+const CLICK_MOVE_TOLERANCE = 5;
+const stopEvent = (event: React.SyntheticEvent) => event.stopPropagation();
 
-  const sortedCollection = useMemo(() => {
-    return imageCollection
-      .filter((item): item is ImageItem => Boolean(item?.id && item?.src))
-      .map((item, index) => ({ ...item, _originalIndex: index }))
-      .sort((a, b) => {
-        const timeDiff = (b.timestamp ?? 0) - (a.timestamp ?? 0);
-        if (timeDiff !== 0) return timeDiff;
-        return a._originalIndex - b._originalIndex;
-      })
-      .map(({ _originalIndex, ...rest }) => rest as ImageItem);
-  }, [imageCollection]);
+function PreviewAction({ label, children, active, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; active?: boolean }) {
+  return (
+    <button type="button" className={`image-preview__action${active ? ' image-preview__action--active' : ''}`} title={label} aria-label={label} {...props}>
+      {children}
+    </button>
+  );
+}
 
-  const [thumbnailScrollPosition, setThumbnailScrollPosition] = useState(0);
-  const hasCollection = sortedCollection.length > 0;
-  const showOrderBadges = hasCollection && sortedCollection.some((item) => typeof item.timestamp === 'number');
-  const thumbnailListRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreGuardRef = useRef(false);
-  // 处理缩略图点击
-  const handleThumbnailClick = useCallback((imageId: string) => {
-    if (onImageChange) {
-      onImageChange(imageId);
-    }
-  }, [onImageChange]);
+function ImageStage({ src, title, isZh, onClose }: { src: string; title: string; isZh: boolean; onClose: () => void }) {
+  const { zoomIn, zoomOut, resetTransform, setTransform, centerView, instance } = useControls();
+  const imageRef = useRef<HTMLImageElement>(null);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  const [scale, setScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [fitRatio, setFitRatio] = useState(1);
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const lt = (zh: string, en: string) => isZh ? zh : en;
+  const quarterTurned = Math.abs(rotation / 90) % 2 === 1;
 
-  // 获取当前图片索引
-  const getCurrentImageIndex = useCallback(() => {
-    if (!currentImageId || !hasCollection) return -1;
-    return sortedCollection.findIndex(item => item?.id === currentImageId);
-  }, [currentImageId, sortedCollection, hasCollection]);
+  useTransformEffect(({ state }) => { setScale(state.scale); });
 
-  // 切换到下一张/上一张图片
-  const navigateImage = useCallback((direction: 'prev' | 'next') => {
-    if (!hasCollection || !onImageChange) return;
-    
-    const currentIndex = getCurrentImageIndex();
-    if (currentIndex === -1) return;
-
-    let newIndex;
-    if (direction === 'next') {
-      newIndex = (currentIndex + 1) % sortedCollection.length;
-    } else {
-      newIndex = currentIndex === 0 ? sortedCollection.length - 1 : currentIndex - 1;
-    }
-    
-    const nextImage = sortedCollection[newIndex];
-    if (!nextImage?.id) return;
-    onImageChange(nextImage.id);
-  }, [hasCollection, onImageChange, getCurrentImageIndex, sortedCollection]);
-
-  // 键盘事件处理
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      navigateImage('prev');
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      navigateImage('next');
-    }
-  }, [onClose, navigateImage]);
-
-  // 监听键盘事件
+  const measure = useCallback(() => {
+    const image = imageRef.current;
+    if (!image?.naturalWidth) return;
+    setFitRatio(image.clientWidth / image.naturalWidth);
+    setNaturalSize({ width: image.naturalWidth, height: image.naturalHeight });
+  }, []);
+  useLayoutEffect(() => { measure(); }, [measure, loadState, quarterTurned]);
   useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-      // 阻止背景滚动
-      document.body.style.overflow = 'hidden';
-    }
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [measure]);
 
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
+  const zoomTo = useCallback((nextScale: number) => {
+    const wrapper = instance.wrapperComponent;
+    const current = instance.state;
+    if (!wrapper || nextScale <= 1) {
+      centerView(nextScale, 0);
+      return;
+    }
+    const cx = wrapper.offsetWidth / 2;
+    const cy = wrapper.offsetHeight / 2;
+    const ratio = nextScale / current.scale;
+    setTransform(cx - (cx - current.positionX) * ratio, cy - (cy - current.positionY) * ratio, nextScale, 0);
+  }, [centerView, instance, setTransform]);
+
+  const resetView = useCallback(() => {
+    setRotation(0);
+    resetTransform();
+  }, [resetTransform]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
+      if (event.key === '+' || event.key === '=') zoomIn(BUTTON_ZOOM_STEP);
+      else if (event.key === '-' || event.key === '_') zoomOut(BUTTON_ZOOM_STEP);
+      else if (event.key === '0') resetView();
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
     };
-  }, [isOpen, handleKeyDown]);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [zoomIn, zoomOut, resetView]);
 
-  // 点击背景关闭
-  const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadFile(imageRef.current?.currentSrc || src, getSuggestedFileName(title, 'tanva-image'));
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : lt('下载失败', 'Download failed'));
+    } finally {
+      setDownloading(false);
     }
-  }, [onClose]);
+  };
 
-  const handleThumbnailScroll = useCallback(() => {
-    const container = thumbnailListRef.current;
-    if (!container || !onLoadMore || !hasMore || isLoading) return;
-    const threshold = 120;
-    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceToBottom <= threshold && !loadMoreGuardRef.current) {
-      loadMoreGuardRef.current = true;
-      onLoadMore();
-    }
-  }, [hasMore, isLoading, onLoadMore]);
-
-  useEffect(() => {
-    if (!isLoading) {
-      loadMoreGuardRef.current = false;
-    }
-  }, [isLoading]);
-
-  if (!isOpen) return null;
-
-  const modalContent = (
-    <div
-        className="fixed inset-0 flex cursor-pointer"
-        style={{
-          backgroundColor: 'rgba(0, 0, 0, 0.95)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 999999,
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0
+  return (
+    <>
+      <div
+        className="image-preview__stage"
+        onPointerDown={(event) => { pointerDownRef.current = { x: event.clientX, y: event.clientY }; }}
+        onClick={(event) => {
+          const down = pointerDownRef.current;
+          if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_MOVE_TOLERANCE) return;
+          if (event.target instanceof HTMLElement && event.target.closest('img')) return;
+          onClose();
         }}
-        onContextMenuCapture={(e) => {
-          // Keep native browser context menu in preview, but stop bubbling to node-level handlers.
-          e.stopPropagation();
-        }}
-        onClick={handleBackgroundClick}
+        onDoubleClick={() => setRotation(0)}
       >
-        {/* 关闭按钮 */}
-        <Button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('Preview close button clicked');
-            onClose();
-          }}
-          variant="ghost"
-          size="sm"
-          className="absolute top-1 right-4 h-8 w-8 p-0 text-white hover:bg-white/20 transition-all duration-200 z-[1000000]"
-          title={lt('关闭预览 (ESC)', 'Close preview (ESC)')}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-
-        {/* 主图片容器 */}
-        <div 
-          className="flex-1 flex items-center justify-center cursor-default"
-          style={{ paddingRight: hasCollection ? '240px' : '0' }}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
           <SmartImage
-            src={imageSrc}
-            alt={resolvedImageTitle}
-            className="shadow-2xl"
+            ref={imageRef}
+            src={src}
+            alt={title}
+            disableLowDetailFallback
+            loading="eager"
+            draggable={false}
+            className="image-preview__image"
             style={{
-              filter: 'drop-shadow(0 25px 50px rgba(0, 0, 0, 0.8))',
-              maxWidth: '100%',
-              maxHeight: '100vh',
-              width: 'auto',
-              height: 'auto',
-              objectFit: 'contain',
+              maxWidth: quarterTurned ? 'var(--image-preview-avail-h)' : 'var(--image-preview-avail-w)',
+              maxHeight: quarterTurned ? 'var(--image-preview-avail-w)' : 'var(--image-preview-avail-h)',
+              transform: `rotate(${rotation}deg)`,
+              opacity: loadState === 'loaded' ? 1 : 0,
             }}
-            placeholder={
-              <div className="text-white/70 text-sm">{lt('加载中...', 'Loading...')}</div>
-            }
-            onLoad={() => console.log('Preview image loaded')}
-            onError={(e) => {
-              console.error('Preview image load failed:', e);
-            }}
+            onLoad={() => setLoadState('loaded')}
+            onError={() => setLoadState('error')}
           />
-        </div>
-
-        {/* 右侧缩略图栏 */}
-        {hasCollection && (
-          <div 
-            className="absolute right-0 top-0 bottom-0 w-60 bg-black/80 border-l border-white/10 flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 缩略图标题 */}
-            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-white text-sm font-medium">{resolvedCollectionTitle}</h3>
-            </div>
-
-            {/* 缩略图滚动容器 */}
-            <div
-              className="flex-1 overflow-y-auto custom-scrollbar"
-              ref={thumbnailListRef}
-              onScroll={handleThumbnailScroll}
-            >
-              <div className="p-2 space-y-2">
-                {sortedCollection.map((item, index) => {
-                  const isActive = item.id === currentImageId;
-                  const chronologicalNumber = sortedCollection.length - index;
-                  const formattedTimestamp = item.timestamp
-                    ? new Date(item.timestamp).toLocaleString()
-                    : undefined;
-                  // 判断文件名是否以.png结尾
-                  const isPngFileName = item.title?.toLowerCase().endsWith('.png') ?? false;
-                  // .png命名的图片永远不显示数字序号
-                  const shouldShowBadge = showOrderBadges && !isPngFileName;
-                  return (
-                    <div
-                      key={item.id}
-                      className={`group relative cursor-pointer rounded-lg overflow-hidden transition-all duration-200 ${
-                        isActive 
-                          ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-black' 
-                          : 'hover:ring-1 hover:ring-white/30'
-                      }`}
-                      onClick={() => handleThumbnailClick(item.id)}
-                      title={
-                        formattedTimestamp
-                          ? lt(`生成时间：${formattedTimestamp}`, `Generated at: ${formattedTimestamp}`)
-                          : undefined
-                      }
-                    >
-                      {shouldShowBadge && (
-                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-semibold flex items-center justify-center shadow">
-                          {chronologicalNumber}
-                        </div>
-                      )}
-                      {/* .png命名的图片显示"Current"标记 */}
-                      {isPngFileName && isActive && (
-                        <div className="absolute top-1 left-1 px-2 py-0.5 rounded-md bg-blue-600 text-white text-[9px] font-semibold flex items-center justify-center shadow-lg whitespace-nowrap z-10">
-                          Current
-                        </div>
-                      )}
-                      <div className="aspect-video bg-gray-800">
-                        <SmartImage
-                          src={item.src}
-                          alt={item.title || lt(`图片 ${index + 1}`, `Image ${index + 1}`)}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                          placeholder={<div className="w-full h-full bg-gray-800" />}
-                        />
-                      </div>
-                      {/* 标题 - hover时显示 */}
-                      {item.title && (
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                          <p className="text-white text-xs truncate">{item.title}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 导航提示移除 */}
+        </TransformComponent>
+        {loadState !== 'loaded' && (
+          <div className="image-preview__loader" role="status">
+            {loadState === 'loading' ? <><Loader2 className="image-preview__spinner" size={20} /><span>{lt('加载中…', 'Loading…')}</span></> : lt('图片加载失败', 'Image failed to load')}
           </div>
         )}
-
-    </div>
+      </div>
+      <div className="image-preview__top-left image-preview__pill" onClick={stopEvent} onWheel={stopEvent}>
+        <PreviewAction label={lt('图片信息', 'Image info')} active={showInfo} aria-pressed={showInfo} onClick={() => setShowInfo((value) => !value)}><Info size={18} /></PreviewAction>
+        <span className="image-preview__divider" />
+        <PreviewAction label={lt('重置视图 (0)', 'Reset view (0)')} onClick={resetView}><RefreshCw size={18} /></PreviewAction>
+        <PreviewAction label={lt('下载', 'Download')} disabled={downloading} onClick={() => { void download(); }}>{downloading ? <Loader2 size={18} className="image-preview__spinner" /> : <Download size={18} />}</PreviewAction>
+      </div>
+      {showInfo && <div className="image-preview__info" onClick={stopEvent}><div className="image-preview__info-title">{title}</div>{naturalSize && <div>{naturalSize.width} × {naturalSize.height}</div>}</div>}
+      {downloadError && <div className="image-preview__error" role="alert">{downloadError}</div>}
+      <div className="image-preview__top-center image-preview__pill" onClick={stopEvent} onWheel={stopEvent}>
+        <PreviewAction label={lt('放大 (+)', 'Zoom in (+)')} onClick={() => zoomIn(BUTTON_ZOOM_STEP)}><ZoomIn size={18} /></PreviewAction>
+        <PreviewAction label={lt('缩小 (-)', 'Zoom out (-)')} onClick={() => zoomOut(BUTTON_ZOOM_STEP)}><ZoomOut size={18} /></PreviewAction>
+        <span className="image-preview__divider" />
+        <span className="image-preview__pct">{Math.round(scale * fitRatio * 100)}%</span>
+        <input type="range" className="image-preview__slider" min={Math.log(MIN_SCALE)} max={Math.log(MAX_SCALE)} step="any" value={Math.log(scale)} onChange={(event) => zoomTo(Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.exp(Number(event.target.value)))))} aria-label={lt('缩放', 'Zoom')} aria-valuetext={`${Math.round(scale * fitRatio * 100)}%`} />
+        <span className="image-preview__divider" />
+        <PreviewAction label={lt('顺时针旋转', 'Rotate clockwise')} onClick={() => setRotation((value) => value + 90)}><RotateCw size={18} /></PreviewAction>
+        <PreviewAction label={lt('逆时针旋转', 'Rotate counterclockwise')} onClick={() => setRotation((value) => value - 90)}><RotateCcw size={18} /></PreviewAction>
+      </div>
+    </>
   );
+}
 
-  // 使用Portal确保模态框在最顶层
-  return createPortal(modalContent, document.body);
+const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ isOpen, imageSrc, imageTitle, onClose, imageCollection = [], currentImageId, onImageChange, collectionTitle, onLoadMore, hasMore = false, isLoading = false }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zh: string, en: string) => isZh ? zh : en;
+  const resolvedImageTitle = imageTitle || lt('图片预览', 'Image Preview');
+  const sortedCollection = useMemo(() => imageCollection
+    .filter((item): item is ImageItem => Boolean(item?.id && item?.src))
+    .map((item, index) => ({ ...item, _originalIndex: index }))
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0) || a._originalIndex - b._originalIndex)
+    .map(({ _originalIndex, ...item }) => item), [imageCollection]);
+  const thumbnailListRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const activeThumbnailRef = useRef<HTMLButtonElement>(null);
+  const loadMoreGuardRef = useRef(false);
+  const hasCollection = sortedCollection.length > 0;
+  const showOrderBadges = sortedCollection.some((item) => typeof item.timestamp === 'number');
+  const currentIndex = sortedCollection.findIndex((item) => item.id === currentImageId);
+
+  const navigateImage = useCallback((direction: number) => {
+    if (!onImageChange || currentIndex < 0 || !sortedCollection.length) return;
+    onImageChange(sortedCollection[(currentIndex + direction + sortedCollection.length) % sortedCollection.length].id);
+  }, [onImageChange, currentIndex, sortedCollection]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); return; }
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      event.stopPropagation();
+      navigateImage(event.key === 'ArrowLeft' ? -1 : 1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen, onClose, navigateImage]);
+
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!isOpen || !modal) return;
+    // Retain propagation to the zoom engine, but prevent native scroll/page zoom.
+    const preventNativeWheel = (event: WheelEvent) => event.preventDefault();
+    modal.addEventListener('wheel', preventNativeWheel, { capture: true, passive: false });
+    return () => modal.removeEventListener('wheel', preventNativeWheel, true);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    activeThumbnailRef.current?.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [isOpen, currentImageId]);
+  useEffect(() => { if (!isLoading) loadMoreGuardRef.current = false; }, [isLoading]);
+  useEffect(() => { if (!isOpen) loadMoreGuardRef.current = false; }, [isOpen]);
+
+  const loadMore = () => {
+    if (!onLoadMore || !hasMore || isLoading || loadMoreGuardRef.current) return;
+    loadMoreGuardRef.current = true;
+    onLoadMore();
+  };
+  const handleThumbnailScroll = () => {
+    const list = thumbnailListRef.current;
+    if (list && list.scrollWidth - list.scrollLeft - list.clientWidth <= 120) loadMore();
+  };
+
+  if (!isOpen) return null;
+  return createPortal(
+    <div ref={modalRef} className={`image-preview-modal${hasCollection ? ' image-preview-modal--with-gallery' : ''}`} data-image-preview-modal="true" role="dialog" aria-modal="true" aria-label={resolvedImageTitle} onContextMenuCapture={stopEvent} onPointerDown={stopEvent} onPointerMove={stopEvent} onPointerUp={stopEvent} onClick={stopEvent} onDoubleClick={stopEvent} onWheel={stopEvent} onTouchStart={stopEvent} onTouchMove={stopEvent} onTouchEnd={stopEvent}>
+      <TransformWrapper key={`${currentImageId || ''}:${imageSrc}`} minScale={MIN_SCALE} maxScale={MAX_SCALE} initialScale={1} centerOnInit wheel={{ step: 0.006 }} doubleClick={{ mode: 'reset' }} panning={{ velocityDisabled: true }}>
+        <ImageStage src={imageSrc} title={resolvedImageTitle} isZh={isZh} onClose={onClose} />
+      </TransformWrapper>
+      <div className="image-preview__top-right" onClick={stopEvent}>
+        <div className="image-preview__pill"><PreviewAction label={lt('关闭 (Esc)', 'Close (Esc)')} onClick={onClose}><X size={18} /></PreviewAction></div>
+        <span className="image-preview__kbd">Esc</span>
+      </div>
+      {hasCollection && (
+        <div className="image-preview__bottom" onClick={stopEvent}>
+          <div className="image-preview__hints">
+            <span className="image-preview__pill image-preview__hint">{collectionTitle || lt('历史记录', 'History')}{currentIndex >= 0 ? ` ${currentIndex + 1} / ${sortedCollection.length}` : ` ${sortedCollection.length}`}</span>
+            {onImageChange && sortedCollection.length > 1 && <span className="image-preview__pill image-preview__hint"><span className="image-preview__kbd">←</span><span className="image-preview__kbd">→</span>{lt('切换', 'Switch')}</span>}
+          </div>
+          <div className="image-preview__strip" ref={thumbnailListRef} onScroll={handleThumbnailScroll} onWheel={(event) => { event.stopPropagation(); event.currentTarget.scrollLeft += event.deltaX + event.deltaY; }}>
+            {sortedCollection.map((item, index) => {
+              const active = item.id === currentImageId;
+              const isPngFileName = item.title?.toLowerCase().endsWith('.png') ?? false;
+              const generatedAt = item.timestamp ? new Date(item.timestamp).toLocaleString() : '';
+              return (
+                <button key={item.id} ref={active ? activeThumbnailRef : undefined} type="button" className={`image-preview__thumb${active ? ' image-preview__thumb--active' : ''}`} aria-current={active} aria-label={item.title || lt(`图片 ${index + 1}`, `Image ${index + 1}`)} title={[item.title, generatedAt].filter(Boolean).join(' · ')} onClick={() => onImageChange?.(item.id)}>
+                  {showOrderBadges && !isPngFileName && <span className="image-preview__badge">{sortedCollection.length - index}</span>}
+                  {isPngFileName && active && <span className="image-preview__badge image-preview__badge--current">Current</span>}
+                  <SmartImage src={item.src} alt={item.title || ''} className="image-preview__thumb-image" disableLowDetailFallback loading="lazy" />
+                </button>
+              );
+            })}
+            {onLoadMore && hasMore && <button type="button" className="image-preview__more" onClick={loadMore} disabled={isLoading}>{isLoading ? <Loader2 size={18} className="image-preview__spinner" /> : lt('加载更多', 'Load more')}</button>}
+          </div>
+        </div>
+      )}
+    </div>, document.body,
+  );
 };
 
 export default ImagePreviewModal;

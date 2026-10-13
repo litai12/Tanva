@@ -33,6 +33,7 @@
 ## 依赖
 - `paper`、`@types/paper`
 -（可选）3D：`three`、`@react-three/fiber`、`@react-three/drei`
+- 图片放大预览：公共 `ImagePreviewModal` 复用 TapCanvas-pro 图片预览布局及 `react-zoom-pan-pinch` 缩放、拖拽、复位、旋转和底部历史切图，适配现有明暗主题。详见 [图片预览复用](../image-preview-20261012.md)。
 
 ## 本地图片上传链路（上传完成 → 创建资产）
 - 入口：`frontend/src/components/canvas/ImageUploadComponent.tsx`。文件选择、粘贴与拖放必须先完成托管上传并拿到远程 URL，之后才能创建 Canvas 图元或 Flow Image 节点；上传失败只提示错误，不创建本地预览资产。
