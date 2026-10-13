@@ -94,8 +94,8 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
-import { getDefaultAvatarColor } from "@/utils/defaultAvatar";
-import { ossUploadService } from "@/services/ossUploadService";
+import UserAvatar from "@/components/ui/UserAvatar";
+import { uploadUserAvatar } from "@/services/avatarProfile";
 import {
   getBananaRouteSuccessRates,
   type BananaRouteSuccessRatesResponse,
@@ -588,16 +588,7 @@ const FloatingHeader: React.FC = () => {
       setAvatarSaving(true);
       setNameError(null);
       try {
-        const result = await ossUploadService.uploadToOSS(file, {
-          dir: "uploads/avatars/",
-          contentType: file.type,
-          fileName: file.name,
-        });
-        const avatarUrl = result.url?.trim();
-        if (!result.success || !avatarUrl) {
-          throw new Error(result.error || "头像上传失败");
-        }
-        const updated = await authApi.updateProfile({ avatarUrl });
+        const updated = await uploadUserAvatar(file);
         const current = useAuthStore.getState();
         useAuthStore
           .getState()
@@ -1355,29 +1346,16 @@ const FloatingHeader: React.FC = () => {
     user?.email ||
     user?.id?.slice(-4) ||
     t("common.user");
-  const avatarColor = getDefaultAvatarColor(user?.id || displayName);
   const renderAvatar = useCallback(
     (sizeClass: string, textClass: string) => (
-      <div
-        className={cn(
-          "overflow-hidden rounded-full flex items-center justify-center font-medium shrink-0",
-          sizeClass,
-          textClass
-        )}
-        style={{ backgroundColor: avatarColor.bg, color: avatarColor.text }}
-      >
-        {user?.avatarUrl ? (
-          <img
-            src={user.avatarUrl}
-            alt={displayName}
-            className='h-full w-full object-cover'
-          />
-        ) : (
-          displayName.charAt(0).toUpperCase()
-        )}
-      </div>
+      <UserAvatar
+        name={displayName}
+        userId={user?.id}
+        src={user?.avatarUrl}
+        className={cn(sizeClass, textClass)}
+      />
     ),
-    [avatarColor.bg, avatarColor.text, displayName, user?.avatarUrl]
+    [displayName, user?.avatarUrl, user?.id]
   );
   const secondaryId =
     user?.email ||

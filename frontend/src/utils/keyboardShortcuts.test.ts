@@ -72,3 +72,12 @@ test('formats readable platform-specific binding labels', () => {
   assert.equal(formatShortcut('Mod+Shift+Plus', false), 'Ctrl + Shift + +');
   assert.equal(formatShortcut('Space', false), 'Space');
 });
+
+test('focus mode defaults to Tab without overwriting existing Tab preferences on upgrade', () => {
+  assert.deepEqual(getEffectiveBindings('focusMode', {}), ['Tab']);
+  assert.equal(findShortcutConflict('save', 'Tab', {})?.id, 'focusMode');
+  assert.deepEqual(sanitizeShortcutOverrides({ undo: ['tab'] }), { undo: ['Tab'], focusMode: [] });
+  assert.deepEqual(sanitizeShortcutOverrides({ redo: ['Tab'], focusMode: ['Alt+F'] }), { redo: ['Tab'], focusMode: ['Alt+F'] });
+  assert.deepEqual(sanitizeShortcutOverrides({ undo: ['Shift+Tab'] }), { undo: ['Shift+Tab'] });
+  assert.deepEqual(sanitizeShortcutOverrides({ focusMode: [] }), { focusMode: [] });
+});

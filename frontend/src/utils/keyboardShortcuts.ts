@@ -11,6 +11,7 @@ export const SHORTCUT_ACTIONS = [
   { id: 'delete', labelZh: '删除选中内容', labelEn: 'Delete selection', category: 'canvas', defaultBindings: ['Delete', 'Backspace'] },
   { id: 'temporaryPan', labelZh: '按住平移画布', labelEn: 'Hold to pan canvas', category: 'canvas', defaultBindings: ['Space'] },
   { id: 'fitView', labelZh: '适合选区 / 屏幕', labelEn: 'Fit selection / screen', category: 'canvas', defaultBindings: ['Z'] },
+  { id: 'focusMode', labelZh: '显示 / 隐藏界面（眼睛按钮）', labelEn: 'Show / hide UI (eye button)', category: 'canvas', defaultBindings: ['Tab'] },
   { id: 'group', labelZh: '节点分组', labelEn: 'Group nodes', category: 'flow', defaultBindings: ['G'] },
   { id: 'ungroup', labelZh: '节点解组', labelEn: 'Ungroup nodes', category: 'flow', defaultBindings: ['Shift+G'] },
   { id: 'pasteKeepLinks', labelZh: '粘贴节点并保留连线', labelEn: 'Paste nodes with connections', category: 'flow', defaultBindings: ['Mod+Shift+V'] },
@@ -87,6 +88,12 @@ export const sanitizeShortcutOverrides = (value: unknown): ShortcutOverrides => 
     const normalized = bindings.filter((binding): binding is string => typeof binding === 'string').map(normalizeShortcutBinding).filter((binding): binding is string => !!binding);
     if (normalized.length) result[action.id] = [...new Set(normalized)];
   }
+  // Tab was available to existing custom actions before focus mode was registered.
+  // Preserve those preferences by leaving the new action unbound until reassigned.
+  if (!Object.prototype.hasOwnProperty.call(result, 'focusMode') &&
+      SHORTCUT_ACTIONS.some((action) => action.id !== 'focusMode' && result[action.id]?.includes('Tab'))) {
+    result.focusMode = [];
+  }
   // Drop conflicting persisted overrides rather than load ambiguous dispatches.
   let removed: boolean;
   do {
@@ -113,4 +120,16 @@ export const isEditableShortcutTarget = (event: Pick<KeyboardEvent, 'target'>): 
     return !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || (target as HTMLElement).isContentEditable;
   };
   return editable(event.target) || (typeof document !== 'undefined' && editable(document.activeElement));
+};
+
+/** Keep modal focus navigation intact, including legacy full-screen backdrops without dialog roles. */
+export const hasVisibleShortcutDialog = (): boolean => {
+  if (typeof document === 'undefined') return false;
+  return Array.from(document.querySelectorAll<HTMLElement>(
+    '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open], .fixed.inset-0',
+  )).some((element) => {
+    if (!element.getClientRects().length || element.closest('[hidden], [aria-hidden="true"]')) return false;
+    const style = window.getComputedStyle(element);
+    return style.visibility !== 'hidden' && style.visibility !== 'collapse' && style.pointerEvents !== 'none';
+  });
 };

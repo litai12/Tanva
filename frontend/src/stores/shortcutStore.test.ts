@@ -91,3 +91,24 @@ test('persistence saves only overrides and rehydrates cleared and custom binding
   assert.equal(store.matchesShortcut('redo', key('y', { ctrlKey: true })), false);
   reset();
 });
+
+test('focus mode supports Tab, rebinding, clearing, reset and recording protection', () => {
+  reset();
+  const store = useShortcutStore.getState();
+  assert.equal(store.matchesShortcut('focusMode', key('Tab')), true);
+  assert.equal(store.matchesShortcut('focusMode', key('Tab', { shiftKey: true })), false);
+  store.setSettingsOpen(true);
+  assert.equal(store.matchesShortcut('focusMode', key('Tab')), false);
+  store.setSettingsOpen(false);
+  store.setRecordingActionId('focusMode');
+  assert.equal(store.matchesShortcut('focusMode', key('Tab')), false);
+  store.setRecordingActionId(null);
+  assert.deepEqual(store.setBinding('focusMode', 'Alt+F'), { ok: true });
+  assert.equal(store.matchesShortcut('focusMode', key('Tab')), false);
+  assert.equal(store.matchesShortcut('focusMode', key('f', { altKey: true })), true);
+  store.clearBinding('focusMode');
+  assert.equal(store.matchesShortcut('focusMode', key('f', { altKey: true })), false);
+  assert.deepEqual(store.resetBinding('focusMode'), { ok: true });
+  assert.equal(store.matchesShortcut('focusMode', key('Tab')), true);
+  reset();
+});

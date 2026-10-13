@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useTranslation } from 'react-i18next';
+import { useShortcutStore } from '@/stores/shortcutStore';
+import { formatShortcut, getEffectiveBindings, hasVisibleShortcutDialog } from '@/utils/keyboardShortcuts';
 
 // 眼睛图标（专注模式关闭状态）
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -45,6 +47,23 @@ const FocusModeButton: React.FC = () => {
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const { focusMode, toggleFocusMode, showLayerPanel } = useUIStore();
   const isAIChatMaximized = useAIChatStore(state => state.isMaximized);
+  const overrides = useShortcutStore(state => state.overrides);
+  const shortcutLabel = getEffectiveBindings('focusMode', overrides).map(binding => formatShortcut(binding)).join(' / ');
+  const actionLabel = focusMode
+    ? lt('退出专注模式', 'Exit focus mode')
+    : lt('进入专注模式（隐藏顶部导航和AI对话框）', 'Enter focus mode (hide top navigation and AI chat dialog)');
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!useShortcutStore.getState().matchesShortcut('focusMode', event) ||
+          useAIChatStore.getState().isMaximized || hasVisibleShortcutDialog()) return;
+      event.preventDefault();
+      // Consume repeats without toggling or advancing keyboard focus into hidden UI.
+      if (!event.repeat) useUIStore.getState().toggleFocusMode();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // AI 对话框最大化时隐藏眼睛按钮
   if (isAIChatMaximized) {
@@ -59,16 +78,12 @@ const FocusModeButton: React.FC = () => {
       {/* 外层容器模拟工具栏的 px-2 padding，使眼睛图标中心对齐 */}
       <div className="px-2">
         <button
+          type="button"
           onClick={toggleFocusMode}
+          aria-label={actionLabel}
+          aria-pressed={focusMode}
           className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors duration-200"
-          title={
-            focusMode
-              ? lt('退出专注模式', 'Exit focus mode')
-              : lt(
-                  '进入专注模式（隐藏顶部导航和AI对话框）',
-                  'Enter focus mode (hide top navigation and AI chat dialog)'
-                )
-          }
+          title={shortcutLabel ? `${actionLabel} (${shortcutLabel})` : actionLabel}
         >
           {focusMode ? (
             <EyeOffIcon className="w-4 h-4" />
