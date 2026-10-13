@@ -2,7 +2,7 @@
 
 ## 行为
 
-- 左下角缩放/眼睛控件上方提供背景色盘；图层侧栏展开时跟随位移，桌面插件中约束在画布容器内。
+- 左下角眼睛区域改为默认折叠的显示控件入口；点击后向右横向展开专注模式与背景色盘，图层侧栏展开时整体跟随位移。短屏按真实工具栏边界避让，桌面插件中约束在画布容器内，详见 [横向显示控件](canvas-view-controls.md)。
 - 交互参考 TapCanvasPro：各主题 7 个预置色、实时饱和度/明度色盘与色相滑条、HEX 输入（失焦/Enter 提交，非法值退回当前颜色）、恢复当前主题默认。
 - `tanva-canvas-background` 本地偏好仅保存 `byScheme.light/dark`，明暗主题分别恢复选择，不写入项目设计 JSON，不参与云端保存/协作。
 - 未设置和重置使用 `null`，保留 Tanva 原白色/黑色底色及旧网格设置，不把上游默认渐变覆盖进 Tanva。
@@ -13,6 +13,8 @@
 
 `CanvasBackgroundPicker.tsx` 与 `canvasBackgroundStore.ts` 独立承载交互和偏好；`useCanvasBackgroundStyle` 在画布根容器输出背景/网格 CSS 变量。CSS 在显式选择时覆盖深色主题 `!important` 底色规则，React Flow 保持透明以透出 Paper 内容，只改变网格的点/线颜色，不改变节点和工具条主题。
 
+色盘作为 `CanvasViewControls` 内联子控件；弹层位置和最大尺寸按画布与浏览器可视区域的交集计算，不仅按 `100vw` 限宽。展开时随容器尺寸、显示控件位置和滚动重新定位，收起显示控件或最大化聊天会卸载色盘并关闭弹层。
+
 Paper `GridRenderer` 使用所选底色覆盖旧的纯色矩形底色，并按实际背景亮度选择黑/白网格。自定义底色时保留弱网格透明度；颜色变化触发一次重绘，不依赖下一次平移。网格显隐与样式沿用原设置。
 
 ## 验证
@@ -20,6 +22,7 @@ Paper `GridRenderer` 使用所选底色覆盖旧的纯色矩形底色，并按�
 - `node --test src/utils/canvasBackground.test.ts`
 - `node scripts/verifyCanvasBackgroundBrowser.mjs`：独立临时 Vite cache，验证色盘/HEX/重置/主题隔离/刷新持久化/关闭与快捷键保护、Paper 真正绘制像素与 Flow 网格颜色。
 - 2026-10-13：4 个纯函数单测、独立浏览器回归通过；新运行时模块定向 ESLint 通过。浏览器包括网格关闭后改色再重开、三种 Flow 图案、事件总线隔离、打开期间 Tab/G/Delete 不作用画布及关闭后恢复。
+- 2026-10-13 横向控件修复：浏览器挂载真实 ToolBar、ZoomIndicator 与 CanvasViewControls；启用 Flow 入口后工具栏实测高度网页 419px、桌面 459px。700px / 600px 高度、图层展开/收起、默认折叠/横向展开、折叠时 Tab 专注切换、眼睛点击、Escape 收起、450px 窄画布与图层、360px 桌面色盘边界、明暗主题和聊天最大化关闭状态全部通过；既有偏好、像素与快捷键隔离检查继续通过。
 
 ## 2026-10-13 发布
 
