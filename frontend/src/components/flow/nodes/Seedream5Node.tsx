@@ -562,6 +562,7 @@ function Seedream5Node({ id, data, selected }: Props) {
 
       {/* 鍥剧墖棰勮寮圭獥 */}
       <ImagePreviewModal
+        collectionScope="explicit"
         isOpen={preview}
         imageSrc={previewCollection[previewIndex]?.src || ""}
         imageTitle={lt("Seedream 图片预览", "Seedream Image Preview")}

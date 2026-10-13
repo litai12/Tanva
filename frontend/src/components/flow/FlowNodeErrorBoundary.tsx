@@ -1,6 +1,7 @@
 import React from "react";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import { reportReactRenderError } from "@/bootstrap/runtimeStability";
+import { FlowImagePreviewProvider } from "./FlowImagePreviewProvider";
 
 type BoundaryProps = {
   children: React.ReactNode;
@@ -80,7 +81,9 @@ export function guardFlowNodeTypes<
             nodeId={typeof props.id === "string" ? props.id : undefined}
             nodeType={nodeType}
           >
-            <RenderNode {...props} />
+            <FlowImagePreviewProvider nodeId={typeof props.id === "string" ? props.id : ""}>
+              <RenderNode {...props} />
+            </FlowImagePreviewProvider>
           </FlowNodeErrorBoundary>
         );
       };

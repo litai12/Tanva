@@ -1449,6 +1449,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
       )}
 
       <ImagePreviewModal
+        collectionScope="explicit"
         isOpen={preview}
         imageSrc={previewCollection[previewIndex]?.src || ""}
         imageTitle={lt('四图预览', '4-image preview')}

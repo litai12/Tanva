@@ -2510,14 +2510,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
       )}
 
       <ImagePreviewModal
+        imageCrop={cropInfo ? { ...cropInfo.rect, sourceWidth: cropInfo.sourceWidth, sourceHeight: cropInfo.sourceHeight } : undefined}
         isOpen={preview}
-        imageSrc={
-          allImages.length > 0 && currentImageId
-            ? allImages.find((item) => item.id === currentImageId)?.src ||
-              fullSrc ||
-              ""
-            : fullSrc || ""
-        }
+        imageSrc={cropBaseRef || fullSrc || displaySrc || ""}
         imageTitle={lt('全局图片预览', 'Global image preview')}
         onClose={() => setPreview(false)}
         imageCollection={allImages}

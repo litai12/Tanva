@@ -29,3 +29,13 @@
 - 回退备份：`/opt/tanva-backups/image-preview-20261012-7fcf3464/frontend-dist/`。发布保留旧 hash 资源，逐文件原子替换，最后切换 `index.html` 与版本清单；本地、暂存和线上 48 个文件哈希一致。
 - 公网 `https://tanvas.cn/` 的 HTML、`/assets/index-8t-sE4l2.js`、`/assets/index-CGW4hb0-.css` 与发布构建 SHA-256 一致；`/version.json` 返回 `commitSha=7fcf34642cfe`，`/api/health` 返回 `status=ok`。
 - 浏览器交互验收为发布前的真实组件回归；发布后完成公网静态资源与健康验证，未创建或重跑生产生成任务。
+
+## 底部候选数据接入补修
+
+用户线上反馈底部候选栏为空。首次迁移只复用了候选栏 UI，仍由各入口传入旧 `imageCollection`：Nano/GPT 等依赖本机 `imageHistoryStore`，重新打开项目且历史为空时缺少候选；Analyze 与部分参考图预览显式传空数组。此前直接给公共组件填入图片集合的回归未覆盖真实节点入口。
+
+补修按 TapCanvas-pro `previewGallery.ts` 从当前 React Flow 画布读取同层级/同组的真实图片节点，按画布阅读顺序提供候选；预览内切换不回写节点结果或执行生成。明确的四图/多图结果集合继续使用调用方的集合，画布外预览保留原合同。新增回归必须从真实节点双击入口出发，覆盖空本地历史、重新加载项目和组隔离。
+
+- 补修验证：`node --test src/components/flow/flowPreviewGallery.test.ts` 的 7 项测试、公共源码 scoped ESLint、TypeScript 检查及构建通过。
+- `node scripts/verifyImagePreviewGalleryBrowser.mjs` 从真实 GPT/Nano 双击和 Analyze 输入预览入口覆盖：空本地历史、同层/同组候选、不同组隔离、非图片排除、点击/左右键/回绕、关闭重开、刷新恢复、Generate4 显式四图集合；切换不修改节点、不发起生成。裁剪候选实际呈现 100×120 Blob，下载 PNG 尺寸同为 100×120。
+- 原通用预览回归 `node scripts/verifyImagePreviewBrowser.mjs` 再次通过；已人工查看真实节点候选截图。补修待发布。

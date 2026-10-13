@@ -1289,6 +1289,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       )}
 
       <ImagePreviewModal
+        collectionScope={previewOverrideSrc ? 'canvas' : 'explicit'}
         isOpen={preview}
         imageSrc={previewOverrideSrc || previewCollection[previewIndex]?.src || ""}
         imageTitle={lt('四图预览', '4-image preview')}

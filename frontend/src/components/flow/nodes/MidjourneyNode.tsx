@@ -1022,6 +1022,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 
       {/* 图片预览模态框 */}
       <ImagePreviewModal
+        collectionScope={data.imageUrls?.length ? 'explicit' : 'canvas'}
         isOpen={preview}
         imageSrc={
           allImages.length > 0 && currentImageId
