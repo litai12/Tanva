@@ -4,7 +4,7 @@ import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
 import ToolBar from '@/components/toolbar/ToolBar';
-import FocusModeButton from '@/components/canvas/FocusModeButton';
+import CanvasViewControls from '@/components/canvas/CanvasViewControls';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import LibraryPanel from '@/components/panels/LibraryPanel';
@@ -29,7 +29,6 @@ import { CollabProvider } from '@/collab/CollabContext';
 import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
 import CommentDrawer from '@/components/comments/CommentDrawer';
 import { cn } from '@/lib/utils';
-import CanvasBackgroundPicker from '@/components/canvas/CanvasBackgroundPicker';
 import { useCanvasBackgroundStyle } from '@/hooks/useCanvasBackgroundStyle';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
@@ -155,12 +154,11 @@ const Canvas: React.FC<CanvasProps> = ({ showAIChat = true, embeddedDesktop = fa
             {/* Toolbar */}
             <ToolBar />
 
-            {/* Focus mode button between zoom and toolbar */}
-            {!embeddedDesktop && <FocusModeButton />}
+            {/* Collapsible horizontal view controls, with short-screen toolbar avoidance. */}
+            <CanvasViewControls embeddedDesktop={embeddedDesktop} />
 
             {/* Zoom indicator */}
             <ZoomIndicator />
-            <CanvasBackgroundPicker />
 
             {/* Image size mode indicator - hidden */}
             {/* <ImageSizeIndicator /> */}

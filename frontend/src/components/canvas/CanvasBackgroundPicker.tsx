@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { Palette, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { useUIStore } from '@/stores/uiStore';
 import { useCanvasBackgroundStore } from '@/stores/canvasBackgroundStore';
 import {
   CANVAS_BACKGROUND_SWATCHES, CANVAS_DEFAULT_BACKGROUND,
@@ -19,7 +18,6 @@ export default function CanvasBackgroundPicker() {
   const scheme = theme === 'black' ? 'dark' : 'light';
   const custom = useCanvasBackgroundStore((state) => state.byScheme[scheme]);
   const setBackground = useCanvasBackgroundStore((state) => state.setBackground);
-  const showLayerPanel = useUIStore((state) => state.showLayerPanel);
   const current = custom ?? CANVAS_DEFAULT_BACKGROUND[scheme];
   const [open, setOpen] = useState(false);
   const [hexDraft, setHexDraft] = useState(current.slice(1));
@@ -27,6 +25,40 @@ export default function CanvasBackgroundPicker() {
   const shellRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const shell = shellRef.current;
+    const popover = popoverRef.current;
+    const surface = shell?.closest<HTMLElement>('.tanva-canvas-surface');
+    if (!shell || !popover || !surface) return;
+    const place = () => {
+      const root = surface.getBoundingClientRect();
+      const anchor = shell.getBoundingClientRect();
+      const left = Math.max(0, root.left) + 8;
+      const top = Math.max(0, root.top) + 8;
+      const right = Math.min(window.innerWidth, root.right) - 8;
+      const bottom = Math.min(window.innerHeight, root.bottom) - 8;
+      const width = Math.min(236, Math.max(0, right - left));
+      const maxHeight = Math.max(0, bottom - top);
+      const height = Math.min(popover.scrollHeight, maxHeight);
+      setPopoverStyle({ width, maxHeight,
+        left: Math.max(left, Math.min(anchor.left, right - width)) - anchor.left,
+        top: Math.max(top, Math.min(anchor.top - height - 10, bottom - height)) - anchor.top });
+    };
+    const observer = new ResizeObserver(place);
+    observer.observe(surface);
+    // The dock can move horizontally when a sidebar or short-screen toolbar changes.
+    observer.observe(surface.querySelector('.tanva-canvas-view-controls') ?? shell);
+    const mutations = new MutationObserver(place);
+    mutations.observe(surface.querySelector('.tanva-canvas-view-controls') ?? shell, { attributes: true, attributeFilter: ['style'] });
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { observer.disconnect(); mutations.disconnect(); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open]);
 
   useEffect(() => {
     setHexDraft(current.slice(1));
@@ -78,8 +110,7 @@ export default function CanvasBackgroundPicker() {
   };
   const title = text('画布背景色', 'Canvas background');
   return (
-    <div ref={shellRef} className="tanva-canvas-background-shell" data-canvas-control="true" data-scheme={scheme}
-      style={{ left: showLayerPanel ? 330 : 16 }}>
+    <div ref={shellRef} className="tanva-canvas-background-shell" data-canvas-control="true" data-scheme={scheme}>
       <button ref={triggerRef} type="button" className="tanva-canvas-background-trigger"
         aria-label={title} title={title} aria-expanded={open} aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}>
@@ -87,7 +118,7 @@ export default function CanvasBackgroundPicker() {
         <span className="tanva-canvas-background-indicator" style={{ background: current }} aria-hidden="true" />
       </button>
       {open && (
-        <div className="tanva-canvas-background-popover nodrag nopan" role="dialog" aria-label={title}
+        <div ref={popoverRef} style={popoverStyle} className="tanva-canvas-background-popover nodrag nopan" role="dialog" aria-label={title}
           data-canvas-background-popover="true"
           onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}
           onKeyDown={(event) => {

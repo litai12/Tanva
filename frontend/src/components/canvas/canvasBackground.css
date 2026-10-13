@@ -12,9 +12,16 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
 .tanva-canvas-surface[data-background-custom="true"] .react-flow__background path {
   stroke: var(--tanva-canvas-grid-ink) !important;
 }
-.tanva-canvas-background-shell {
-  position: fixed;
-  bottom: 160px;
+.tanva-canvas-view-controls {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 3px 12px rgba(0,0,0,.1);
   z-index: 1000;
   color: #6b7280;
   --palette-surface: rgba(255,255,255,.98);
@@ -23,8 +30,13 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
   --palette-hover: #e5e7eb;
   --palette-outline: rgba(0,0,0,.14);
 }
-.tanva-canvas-embedded .tanva-canvas-background-shell { position: absolute; }
-.tanva-canvas-background-shell[data-scheme="dark"] {
+.tanva-canvas-view-controls[hidden] { display: none; }
+.tanva-canvas-view-controls[data-compact="true"] > .tanva-canvas-background-icon,
+.tanva-canvas-view-controls[data-compact="true"] .tanva-focus-mode-button > button,
+.tanva-canvas-view-controls[data-compact="true"] .tanva-canvas-background-trigger { width: 24px; height: 24px; }
+.tanva-canvas-view-controls[data-scheme="dark"] {
+  background: #1d1d1d;
+  border-color: rgba(255,255,255,.1);
   color: #a3a3a3;
   --palette-surface: #141519;
   --palette-field: #222327;
@@ -32,6 +44,9 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
   --palette-hover: #303136;
   --palette-outline: rgba(255,255,255,.2);
 }
+.tanva-canvas-background-shell { position: relative; }
+/* This icon is inline even inside the embedded canvas's legacy overlay rules. */
+.tanva-canvas-view-controls .tanva-focus-mode-button { position: static !important; }
 .tanva-canvas-background-trigger,
 .tanva-canvas-background-icon {
   display: flex;
@@ -62,9 +77,11 @@ body.tanva-premium-black-theme .tanva-canvas-surface[data-background-custom="tru
 }
 .tanva-canvas-background-popover {
   position: absolute;
-  bottom: 42px;
+  top: -294px;
   left: 0;
   width: min(236px, calc(100vw - 32px));
+  box-sizing: border-box;
+  overflow-y: auto;
   padding: 12px;
   border-radius: 12px;
   background: var(--palette-surface);

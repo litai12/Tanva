@@ -41,11 +41,11 @@ const EyeOffIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const FocusModeButton: React.FC = () => {
+const FocusModeButton: React.FC<{ hidden?: boolean }> = ({ hidden = false }) => {
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
-  const { focusMode, toggleFocusMode, showLayerPanel } = useUIStore();
+  const { focusMode, toggleFocusMode } = useUIStore();
   const isAIChatMaximized = useAIChatStore(state => state.isMaximized);
   const overrides = useShortcutStore(state => state.overrides);
   const shortcutLabel = getEffectiveBindings('focusMode', overrides).map(binding => formatShortcut(binding)).join(' / ');
@@ -66,23 +66,18 @@ const FocusModeButton: React.FC = () => {
   }, []);
 
   // AI 对话框最大化时隐藏眼睛按钮
-  if (isAIChatMaximized) {
+  if (isAIChatMaximized || hidden) {
     return null;
   }
 
   return (
-    <div
-      className="tanva-focus-mode-button fixed bottom-[120px] z-[1000] transition-all duration-[50ms] ease-out"
-      style={{ left: showLayerPanel ? '322px' : '8px' }}
-    >
-      {/* 外层容器模拟工具栏的 px-2 padding，使眼睛图标中心对齐 */}
-      <div className="px-2">
+    <div className="tanva-focus-mode-button">
         <button
           type="button"
           onClick={toggleFocusMode}
           aria-label={actionLabel}
           aria-pressed={focusMode}
-          className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors duration-200"
+          className="tanva-canvas-background-icon"
           title={shortcutLabel ? `${actionLabel} (${shortcutLabel})` : actionLabel}
         >
           {focusMode ? (
@@ -91,7 +86,6 @@ const FocusModeButton: React.FC = () => {
             <EyeIcon className="w-4 h-4" />
           )}
         </button>
-      </div>
     </div>
   );
 };
