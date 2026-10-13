@@ -38,4 +38,10 @@
 
 - 补修验证：`node --test src/components/flow/flowPreviewGallery.test.ts` 的 7 项测试、公共源码 scoped ESLint、TypeScript 检查及构建通过。
 - `node scripts/verifyImagePreviewGalleryBrowser.mjs` 从真实 GPT/Nano 双击和 Analyze 输入预览入口覆盖：空本地历史、同层/同组候选、不同组隔离、非图片排除、点击/左右键/回绕、关闭重开、刷新恢复、Generate4 显式四图集合；切换不修改节点、不发起生成。裁剪候选实际呈现 100×120 Blob，下载 PNG 尺寸同为 100×120。
-- 原通用预览回归 `node scripts/verifyImagePreviewBrowser.mjs` 再次通过；已人工查看真实节点候选截图。补修待发布。
+- 原通用预览回归 `node scripts/verifyImagePreviewBrowser.mjs` 再次通过；已人工查看真实节点候选截图。补修已发布。
+
+### 补修生产发布
+
+- 代码 `8c763b7c35d78bd073fb0c94015ed488a9644b06` 已推送 `main`，2026-10-12 19:16（America/Los_Angeles）完成前端部署。最终带提交号构建通过。
+- 发布目录 `/opt/tanva-releases/image-preview-gallery-20261012-8c763b7c/`，备份 `/opt/tanva-backups/image-preview-gallery-20261012-8c763b7c/frontend-dist/`；48 文件 SHA-256 校验通过，保留旧 hash 资源，后端未重启。
+- 公网 HTML、`/assets/index-UImwunp5.js`、`/assets/index-CGW4hb0-.css` 与构建哈希一致；`version.json.commitSha=8c763b7c35d7`，`/api/health.status=ok`。验收记录已保存发布目录。
