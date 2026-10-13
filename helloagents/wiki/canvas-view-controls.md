@@ -34,3 +34,9 @@
 - TypeScript/Vite 生产构建、已提交版本的背景/横向布局浏览器回归与自定义快捷键浏览器回归通过。原仓库全量 lint 存在既有错误；此次新控件定向 ESLint 通过。
 - 2026-10-13 14:14:36 UTC 发布至 `101.96.227.228`，48 个文件哈希校验通过。14:14:47 UTC 公网 HTML、主 JS/CSS 哈希、版本 `46557338b7fc` 和 `/api/health` 均通过，旧主 JS 仍可访问。
 - 发布记录：`/opt/tanva-releases/canvas-dock-20261013-46557338/`；回退备份：`/opt/tanva-backups/canvas-dock-20261013-46557338/frontend-dist/`。后端未重启，无数据库变更。
+
+## 2026-10-13 对齐与透明外观修正发布
+
+- `85c6a019d06396367acd83056556b3693586dc4e` 已推送 main，并于 2026-10-13 07:28 PDT 部署到 101。
+- 实际工具栏浏览器回归、定向 ESLint、独立提交归档的 TypeScript/Vite 构建通过；48 文件哈希、公网 HTML/JS/CSS、版本 `85c6a019d063`、健康接口和旧 JS 可访问性核验通过。
+- 发布记录 `/opt/tanva-releases/canvas-align-20261013-85c6a019/`，回退备份 `/opt/tanva-backups/canvas-align-20261013-85c6a019/frontend-dist/`。未包含工作区其他未提交功能，后端未重启。
