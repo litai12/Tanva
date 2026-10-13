@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { canvasEventBus } from '@/canvas/CanvasEventBus';
+import { isShortcutSuppressed, useShortcutStore } from '@/stores/shortcutStore';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { clientToProject, getDpr } from '@/utils/paperCoords';
@@ -257,6 +258,7 @@ export const useInteractionController = ({
   // 拖拽检测相关常量
   const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
   const isSpacePressedRef = useRef(false);
+  const panShortcutKeyRef = useRef<{ key: string; modifiers: string[] } | null>(null);
   const isAltPressedRef = useRef(false); // Alt/Option 键状态
   const altDragClonedRef = useRef(false); // 标记是否已经在当前拖拽中创建了克隆
   const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
@@ -2382,6 +2384,8 @@ export const useInteractionController = ({
 
     // 键盘事件处理
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isShortcutSuppressed(event)) return;
+      const matchesShortcut = useShortcutStore.getState().matchesShortcut;
       isAltPressedRef.current = event.altKey;
       const latestSelectionTool = selectionToolRef.current;
       const latestImageTool = imageToolRef.current;
@@ -2393,7 +2397,11 @@ export const useInteractionController = ({
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
 
-      if (!isEditable && isSelectionLikeMode() && (event.code === 'Space' || event.key === ' ')) {
+      if (!isEditable && isSelectionLikeMode() && matchesShortcut('temporaryPan', event)) {
+        panShortcutKeyRef.current = {
+          key: event.code || event.key,
+          modifiers: [event.metaKey ? 'Meta' : '', event.ctrlKey ? 'Control' : '', event.altKey ? 'Alt' : '', event.shiftKey ? 'Shift' : ''].filter(Boolean),
+        };
         isSpacePressedRef.current = true;
         document.body.classList.add('tanva-space-pressed');
         const canvasEl = canvasRef.current;
@@ -2406,8 +2414,7 @@ export const useInteractionController = ({
 
       // Ctrl+A / Cmd+A 全选（仅复合选择模式）
       if (!isEditable && currentDrawMode === 'select') {
-        const key = event.key?.toLowerCase?.() || '';
-        if (key === 'a' && (event.ctrlKey || event.metaKey)) {
+        if (matchesShortcut('selectAll', event)) {
           if (typeof latestSelectionTool?.selectAll === 'function') {
             latestSelectionTool.selectAll();
             event.preventDefault();
@@ -2434,7 +2441,7 @@ export const useInteractionController = ({
       }
 
       // Delete/Backspace 删除已选元素
-      if (!isEditable && (event.key === 'Delete' || event.key === 'Backspace')) {
+      if (!isEditable && matchesShortcut('delete', event)) {
         let didDelete = false;
         // 记录通过删除组块而删除的图片ID，避免重复删除
         const deletedImageIdsFromGroup = new Set<string>();
@@ -2602,7 +2609,11 @@ export const useInteractionController = ({
 
     const handleKeyUp = (event: KeyboardEvent) => {
       isAltPressedRef.current = event.altKey;
-      if (event.code === 'Space' || event.key === ' ') {
+      if (panShortcutKeyRef.current && (
+        panShortcutKeyRef.current.key === (event.code || event.key) ||
+        panShortcutKeyRef.current.modifiers.includes(event.key)
+      )) {
+        panShortcutKeyRef.current = null;
         isSpacePressedRef.current = false;
         document.body.classList.remove('tanva-space-pressed');
         stopSpacePan();
@@ -2973,6 +2984,7 @@ export const useInteractionController = ({
     const unsubKeyUp = canvasEventBus.on('keyupCapture', handleKeyUp, 5);
     const resetModifierKeys = () => {
       isAltPressedRef.current = false;
+      panShortcutKeyRef.current = null;
       isSpacePressedRef.current = false;
       document.body.classList.remove('tanva-space-pressed');
       stopSpacePan();

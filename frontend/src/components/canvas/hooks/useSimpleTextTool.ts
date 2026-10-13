@@ -3,6 +3,7 @@
  * 提供基础的文本创建和编辑功能
  */
 
+import { isShortcutSuppressed, useShortcutStore } from '@/stores/shortcutStore';
 import { useCallback, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
@@ -601,8 +602,10 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
   // 处理键盘事件
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (isShortcutSuppressed(event)) return false;
+    const matchesShortcut = useShortcutStore.getState().matchesShortcut;
     // 删除键 - 仅在非编辑模式下删除选中的文本
-    if ((event.key === 'Delete' || event.key === 'Backspace') && selectedTextId && !editingTextId) {
+    if (matchesShortcut('delete', event) && selectedTextId && !editingTextId) {
       event.preventDefault();
       deleteText(selectedTextId);
       return true;
@@ -623,7 +626,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     }
 
     // Ctrl+A / Cmd+A 全选所有文本（仅在非编辑模式下）
-    if (event.key === 'a' && (event.ctrlKey || event.metaKey) && !editingTextId) {
+    if (matchesShortcut('selectAll', event) && !editingTextId) {
       // 如果有选中的文本，全选其内容（进入编辑模式）
       if (selectedTextId) {
         event.preventDefault();

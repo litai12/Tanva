@@ -4,6 +4,8 @@ import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
 import { GPT_IMAGE_25_STANDARD_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits, isToapiImageModel, isGptImage25Vip, normalizeToapiImageQuality, resolveNanoImageModelForRoute, isNanoBanana21Model, getToapiImageRoute } from "@/services/toapiImageModels";
 import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, expandNanoImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
 import React from "react";
+import { isShortcutSuppressed, useShortcutStore } from "@/stores/shortcutStore";
+import { isNativeClipboardShortcut, pasteShortcutClipboard, writeShortcutClipboard } from "@/utils/shortcutClipboard";
 import FlowSelectionToolbar from "./FlowSelectionToolbar";
 import { useSelectionSafeArea, readSelectionSafeArea } from "./useSelectionSafeArea";
 import { fitSelectionInArea } from "@/utils/flowSelectionViewport";
@@ -7941,7 +7943,7 @@ function FlowInner() {
           (tagName === "input" ||
             tagName === "textarea" ||
             (active as any).isContentEditable);
-        if (isEditable) return;
+        if (isEditable || isShortcutSuppressed()) return;
 
         const selection = window.getSelection();
         const selectedText = selection?.toString()?.trim();
@@ -7985,7 +7987,7 @@ function FlowInner() {
           event.clipboardData.setData("application/json", serialized);
           event.clipboardData.setData(
             "text/plain",
-            FLOW_CLIPBOARD_FALLBACK_TEXT
+            serialized
           );
           event.preventDefault();
         } else if (
@@ -8007,12 +8009,11 @@ function FlowInner() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
-      const isCopy =
-        (event.key === "c" || event.key === "C") &&
-        (event.metaKey || event.ctrlKey);
-      const isPaste =
-        (event.key === "v" || event.key === "V") &&
-        (event.metaKey || event.ctrlKey);
+      if (isShortcutSuppressed(event)) return;
+      const matchesShortcut = useShortcutStore.getState().matchesShortcut;
+      const isCopy = matchesShortcut('copy', event);
+      const keepLinks = matchesShortcut('pasteKeepLinks', event);
+      const isPaste = keepLinks || matchesShortcut('paste', event);
       if (!isCopy && !isPaste) return;
 
       const active = document.activeElement as Element | null;
@@ -8038,8 +8039,12 @@ function FlowInner() {
         if (!anySelected) return;
         if (currentZone === "canvas" && !fromFlowOverlay) return;
         clipboardService.setActiveZone("flow");
-        // 让浏览器触发原生 copy 事件（由上面的 copy 监听器写入系统剪贴板）
-        handleCopyFlow();
+        const handled = handleCopyFlow();
+        if (handled && !isNativeClipboardShortcut(event, 'copy')) {
+          event.preventDefault();
+          event.stopPropagation();
+          writeShortcutClipboard(FLOW_CLIPBOARD_TYPE, clipboardService.getFlowData());
+        }
         return;
       }
 
@@ -8056,10 +8061,12 @@ function FlowInner() {
           flowPasteKeepLinksRef.current = false;
           return;
         }
-        flowPasteKeepLinksRef.current = !!event.shiftKey;
+        flowPasteKeepLinksRef.current = keepLinks;
         // 某些浏览器下 Ctrl/Cmd+Shift+V 可能不会稳定触发 paste 事件。
         // 当 Flow 内部剪贴板已有数据时，直接走一次保留连线粘贴，避免“按键无响应”。
-        if (event.shiftKey && canPasteFlow) {
+        const nativeKeepLinks = keepLinks && event.shiftKey &&
+          (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v';
+        if (nativeKeepLinks && canPasteFlow) {
           const handled = handlePasteFlow({ preserveLinkedEdges: true });
           if (handled) {
             flowPasteKeepLinksRef.current = false;
@@ -8068,7 +8075,15 @@ function FlowInner() {
             return;
           }
         }
-        // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
+        if (!nativeKeepLinks && !isNativeClipboardShortcut(event, 'paste')) {
+          event.preventDefault();
+          event.stopPropagation();
+          flowPasteKeepLinksRef.current = false;
+          void pasteShortcutClipboard(() => {
+            flowPasteKeepLinksRef.current = keepLinks;
+          });
+        }
+        // Native paste still reads the browser clipboard, including external images.
         return;
       }
     };
@@ -8081,27 +8096,15 @@ function FlowInner() {
 
   React.useEffect(() => {
     const handleGroupHotkey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if ((event as any).isComposing) return;
-      const key = String(event.key || "");
-      const isGroupKey = key.toLowerCase() === "g" || event.code === "KeyG";
-      if (!isGroupKey) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.repeat) return;
-
-      const active = document.activeElement as Element | null;
-      const tagName = active?.tagName?.toLowerCase();
-      const isEditable =
-        !!active &&
-        (tagName === "input" ||
-          tagName === "textarea" ||
-          (active as any).isContentEditable);
-      if (isEditable) return;
+      if (event.defaultPrevented || event.repeat || isShortcutSuppressed(event)) return;
+      const matchesShortcut = useShortcutStore.getState().matchesShortcut;
+      const ungroup = matchesShortcut('ungroup', event);
+      if (!ungroup && !matchesShortcut('group', event)) return;
 
       event.preventDefault();
       event.stopPropagation();
 
-      if (event.shiftKey) {
+      if (ungroup) {
         const allNodes = (rf.getNodes?.() || []) as RFNode[];
         const groupIds = getSelectedGroupIds(allNodes);
         if (!groupIds.length) {
@@ -8155,7 +8158,7 @@ function FlowInner() {
         (tagName === "input" ||
           tagName === "textarea" ||
           (active as any).isContentEditable);
-      if (isEditable) return;
+      if (isEditable || isShortcutSuppressed()) return;
 
       const path =
         typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -8180,7 +8183,8 @@ function FlowInner() {
       // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
       const rawFlowData =
         clipboardData?.getData(FLOW_CLIPBOARD_MIME) ||
-        clipboardData?.getData("application/json");
+        clipboardData?.getData("application/json") ||
+        clipboardData?.getData("text/plain");
       if (rawFlowData) {
         try {
           const parsed = JSON.parse(rawFlowData);
@@ -8202,6 +8206,9 @@ function FlowInner() {
         } catch {}
       }
 
+      // External text must never paste stale nodes from the in-memory clipboard.
+      const plainText = clipboardData?.getData("text/plain")?.trim();
+      if (plainText && plainText !== FLOW_CLIPBOARD_FALLBACK_TEXT) return;
       const payload = clipboardService.getFlowData();
       if (
         !payload ||
@@ -28064,48 +28071,20 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
     [deleteFlowEdgesByIds, openEdgeLabelEditor, setEdges, setNodes]
   );
 
-  const deleteSelectedEdges = React.useCallback(() => {
-    const selectedEdgeIds = new Set(
-      (rf.getEdges?.() || [])
-        .filter((edge: any) => edge?.selected)
-        .map((edge: any) => edge.id)
-        .filter(Boolean)
-    );
-    if (!selectedEdgeIds.size) return false;
-
-    const removed = deleteFlowEdgesByIds(selectedEdgeIds);
-    if (removed <= 0) return false;
-
-    try {
-      historyService.commit("flow-delete-edge").catch(() => {});
-    } catch {}
-    return true;
-  }, [deleteFlowEdgesByIds, rf]);
-
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
-
-      const active = document.activeElement as HTMLElement | null;
-      const tagName = active?.tagName?.toLowerCase();
-      const isEditable =
-        !!active &&
-        (tagName === "input" ||
-          tagName === "textarea" ||
-          (active as any).isContentEditable);
-      if (isEditable) return;
-
-      if (deleteSelectedEdges()) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      if (!useShortcutStore.getState().matchesShortcut('delete', event)) return;
+      const selectedNodes = (rf.getNodes?.() || []).filter((node: any) => node.selected && node.deletable !== false);
+      const selectedEdges = (rf.getEdges?.() || []).filter((edge: any) => edge.selected && edge.deletable !== false);
+      if (!selectedNodes.length && !selectedEdges.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // React Flow routes removal through the existing group expansion, history and collab handlers.
+      void rf.deleteElements({ nodes: selectedNodes, edges: selectedEdges });
     };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [deleteSelectedEdges]);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [rf]);
 
   // -------- 模板：实例化与保存 --------
   const instantiateTemplateAt = React.useCallback(
@@ -28746,7 +28725,8 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
         nodesConnectable={!isPointerMode && !effectiveFlowLowDetailMode}
         multiSelectionKeyCode={isPointerMode ? null : ["Meta", "Control"]}
         selectionKeyCode={isPointerMode ? null : null}
-        deleteKeyCode={["Backspace", "Delete"]}
+        panActivationKeyCode={null}
+        deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
         onlyRenderVisibleElements={effectiveOnlyRenderVisibleElements}
       >

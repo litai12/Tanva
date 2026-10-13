@@ -58,6 +58,7 @@ import {
   Pencil,
   X,
   LayoutGrid,
+  Keyboard,
 } from "lucide-react";
 import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import {
@@ -106,6 +107,8 @@ import MembershipPanel from "@/components/payment/MembershipPanel";
 import { TeamSwitcher } from "@/components/team/TeamSwitcher";
 import { TeamManagementModal } from "@/components/team/TeamManagementModal";
 import PricingCatalogModal from "@/components/layout/PricingCatalogModal";
+import ShortcutSettings from "@/components/layout/ShortcutSettings";
+import { useShortcutStore } from "@/stores/shortcutStore";
 import { useTranslation } from "react-i18next";
 import {
   claimDailyReward,
@@ -190,6 +193,7 @@ const SETTINGS_SECTIONS = [
   { id: "referral", labelKey: "workspace.settings.sections.referral", icon: Gift },
   { id: "appearance", labelKey: "workspace.settings.sections.appearance", icon: Eye },
   { id: "ai", labelKey: "workspace.settings.sections.ai", icon: Sparkles },
+  { id: "shortcuts", labelKey: "workspace.settings.sections.shortcuts", icon: Keyboard },
   { id: "advanced", labelKey: "workspace.settings.sections.advanced", icon: Zap },
 ] as const;
 
@@ -833,10 +837,16 @@ const FloatingHeader: React.FC = () => {
   }, [gridSize]);
 
   useEffect(() => {
+    useShortcutStore.getState().setSettingsOpen(isSettingsOpen);
+    return () => useShortcutStore.getState().setSettingsOpen(false);
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
     if (!isSettingsOpen) return;
     if (typeof document === "undefined") return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || useShortcutStore.getState().recordingActionId) return;
       if (event.key === "Escape") {
         setIsSettingsOpen(false);
       }
@@ -2452,6 +2462,8 @@ const FloatingHeader: React.FC = () => {
             )}
           </div>
         );
+      case "shortcuts":
+        return <ShortcutSettings />;
       case "advanced":
         return (
           <div className='pb-6 space-y-6'>
@@ -3241,7 +3253,18 @@ const FloatingHeader: React.FC = () => {
             >
               <div
                 className='tanva-settings-modal relative flex h-[90vh] max-h-[700px] w-full max-w-[1000px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl'
+                data-shortcut-settings
+                role='dialog'
+                aria-modal='true'
+                aria-label={t("workspace.settings.title")}
                 onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Escape" && !useShortcutStore.getState().recordingActionId) {
+                    setIsSettingsOpen(false);
+                  }
+                }}
+                onKeyUp={(event) => event.stopPropagation()}
               >
                 <div className='tanva-settings-layout flex flex-1 h-full pt-4 overflow-hidden sm:pt-0'>
                   <aside className='tanva-settings-sidebar hidden w-[230px] h-full py-5 border-r shrink-0 border-slate-100 bg-white sm:flex sm:flex-col'>

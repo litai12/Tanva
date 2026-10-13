@@ -3,6 +3,7 @@
  * 处理文本创建、编辑、选择、移动等功能
  */
 
+import { isShortcutSuppressed, useShortcutStore } from '@/stores/shortcutStore';
 import { useCallback, useRef, useEffect } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
@@ -343,8 +344,10 @@ export const useTextTool = ({
 
   // 键盘事件处理
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (isShortcutSuppressed(event)) return false;
+    const matchesShortcut = useShortcutStore.getState().matchesShortcut;
     // 删除键
-    if ((event.key === 'Delete' || event.key === 'Backspace') && !toolState.isEditing) {
+    if (matchesShortcut('delete', event) && !toolState.isEditing) {
       event.preventDefault();
       deleteSelectedTexts();
       return true;
@@ -365,7 +368,7 @@ export const useTextTool = ({
     }
 
     // Ctrl+A 全选文本
-    if (event.key === 'a' && (event.ctrlKey || event.metaKey) && !toolState.isEditing) {
+    if (matchesShortcut('selectAll', event) && !toolState.isEditing) {
       event.preventDefault();
       const allTexts = useTextStore.getState().getAllTexts();
       allTexts.forEach(text => {

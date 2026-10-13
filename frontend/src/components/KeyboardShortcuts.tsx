@@ -7,6 +7,8 @@ import { performManualSave } from '@/services/manualSaveService';
 import { clipboardJsonService } from '@/services/clipboardJsonService';
 import { clipboardService } from '@/services/clipboardService';
 import { useTranslation } from 'react-i18next';
+import { isShortcutSuppressed, useShortcutStore } from '@/stores/shortcutStore';
+import type { ShortcutActionId } from '@/utils/keyboardShortcuts';
 
 export default function KeyboardShortcuts() {
   const { i18n } = useTranslation();
@@ -29,8 +31,8 @@ export default function KeyboardShortcuts() {
     };
 
     const onKeyDown = async (e: KeyboardEvent) => {
-      const active = document.activeElement as Element | null;
-      const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as HTMLElement).isContentEditable);
+      if (e.defaultPrevented || isShortcutSuppressed(e)) return;
+      const matches = (id: ShortcutActionId) => useShortcutStore.getState().matchesShortcut(id, e);
       const target = e.target as HTMLElement | null;
       const inChat = !!target?.closest?.("[data-chat-content]");
       const path = typeof e.composedPath === "function" ? e.composedPath() : [];
@@ -40,15 +42,15 @@ export default function KeyboardShortcuts() {
           el.classList?.contains("tanva-flow-overlay")
       );
 
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+      if (matches('copyJson') || matches('pasteJson')) {
         const hasFlowPayload = !!clipboardService.getFlowData()?.nodes?.length;
         const shouldDelegateFlowShiftPaste =
-          (e.key === "v" || e.key === "V") &&
+          matches('pasteKeepLinks') &&
           (inFlow ||
             (clipboardService.getZone() === "flow" && hasFlowPayload));
         if (shouldDelegateFlowShiftPaste) return;
 
-        if (e.key === 'c' || e.key === 'C') {
+        if (matches('copyJson')) {
           e.preventDefault();
           try {
             if (inChat) {
@@ -64,7 +66,7 @@ export default function KeyboardShortcuts() {
           }
           return;
         }
-        if (e.key === 'v' || e.key === 'V') {
+        if (matches('pasteJson')) {
           e.preventDefault();
           try {
             if (inChat) {
@@ -83,15 +85,13 @@ export default function KeyboardShortcuts() {
       }
 
       // Undo / Redo
-      if (!isEditable && (e.ctrlKey || e.metaKey)) {
-        // Redo: Ctrl+Y or Shift+Ctrl+Z
-        if ((e.shiftKey && (e.key === 'z' || e.key === 'Z')) || e.key === 'y' || e.key === 'Y') {
+      {
+        if (matches('redo')) {
           e.preventDefault();
           await historyService.redo();
           return;
         }
-        // Undo: Ctrl+Z
-        if (e.key === 'z' || e.key === 'Z') {
+        if (matches('undo')) {
           e.preventDefault();
           await historyService.undo();
           return;
@@ -100,7 +100,7 @@ export default function KeyboardShortcuts() {
       // Ctrl/Cmd + S 保存：与「保存」按钮共用 manualSaveService，
       // 不要在这里复制保存逻辑（历史上复制过一份，分叉后漏掉写缓存与 stale 判定，
       // 导致 Ctrl+S 后刷新必弹「内容已过期」、且服务端拒收时谎报保存成功）。
-      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      if (matches('save')) {
         e.preventDefault();
         await performManualSave({ origin: 'keyboard', lt });
       }

@@ -11,6 +11,9 @@
 ## AI 对话框右键菜单
 - 对话框内容区使用浏览器默认右键菜单。
 
+## 自定义快捷键
+- 设置弹窗的「快捷键」入口统一配置通用、画布和节点操作，支持录入、冲突提示、清除及恢复默认；当前浏览器本地持久化、立即生效。执行处理共用动作注册表，设置录入与输入框和画布操作隔离。详见 `../custom-keyboard-shortcuts.md`。
+
 ## Flow Prompt 提示词库
 - 普通 `textPrompt` 节点标题右侧提供书本入口，通过 `document.body` Portal 打开居中模态提示词库，避免受 React Flow 缩放与节点裁剪影响。面板保持 Tanva 明暗主题与卡片视觉。
 - 官方案例由 `promptLibraryApi` 请求 Tanva `/api/prompt-library/official`，后端再代理 TapCanvas Prompt Library；前端消费其图片/视频媒体、模型 facets、搜索、排序和分页，不再维护静态样例副本。卡片优先选择与案例类型相同的第一个媒体；视频平时仅展示缩略图，鼠标移入时按需静音循环播放，移出立即暂停、复位并回到封面；媒体 lazy load 并使用 `content-visibility` 降低长列表成本。

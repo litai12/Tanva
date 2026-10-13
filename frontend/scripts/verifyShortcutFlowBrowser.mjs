@@ -1,0 +1,178 @@
+import assert from 'node:assert/strict';
+import { writeFile, unlink } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const name = `.shortcut-flow-smoke-${process.pid}`;
+const files = [path.join(root, `${name}.html`), path.join(root, `${name}.tsx`)];
+let server, browser;
+try {
+  await writeFile(files[0], `<div id="root"></div><script type="module" src="/${name}.tsx"></script>`);
+  await writeFile(files[1], `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import FlowOverlay from './src/components/flow/FlowOverlay';
+import { CanvasCommentsProvider } from './src/contexts/CanvasCommentsContext';
+import DrawingController from './src/components/canvas/DrawingController';
+import GlobalEventCapture from './src/components/canvas/GlobalEventCapture';
+import paper from 'paper';
+import { useShortcutStore } from './src/stores/shortcutStore';
+import { useUIStore } from './src/stores/uiStore';
+import { useToolStore } from './src/stores/toolStore';
+import { useAIChatStore } from './src/stores/aiChatStore';
+import { imageUploadService } from './src/services/imageUploadService';
+import { clipboardService } from './src/services/clipboardService';
+import './src/i18n';
+useUIStore.setState({flowUIEnabled:true});
+window.shortcuts=useShortcutStore;
+window.tools=useToolStore;
+window.chat=useAIChatStore;
+window.uploadedSources=[];
+imageUploadService.uploadImageSource=async(url)=>{window.uploadedSources.push(url);return {success:true,asset:{url,fileName:'clipboard.png'}}};
+window.clipboardService=clipboardService;
+const canvas=document.createElement('canvas');canvas.width=1100;canvas.height=700;canvas.tabIndex=-1;canvas.id='canvas';document.body.append(canvas);paper.setup(canvas);
+createRoot(document.getElementById('root')).render(<div style={{width:1100,height:700,position:'relative'}}><CanvasCommentsProvider><GlobalEventCapture/><DrawingController canvasRef={{current:canvas}}/><FlowOverlay/></CanvasCommentsProvider></div>);
+`);
+  server = await createServer({ root, server: { host: '127.0.0.1', port: 5189, strictPort: true } });
+  await server.listen();
+  browser = await chromium.launch({ headless: true, channel: 'chrome' });
+  const page = await browser.newPage({ viewport: { width: 1200, height: 750 } });
+  const errors = [];
+  page.on('console', message => {if(message.type()==='error') console.error('Console:',message.text())});
+  page.on('pageerror', error => {errors.push(error.message);console.error('Browser error:',error.message)});
+  await page.route('https://example.com/custom.png', route => route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="red"/></svg>'}));
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+  await page.goto(`http://127.0.0.1:5189/${name}.html`);
+  await page.waitForFunction(() => !!window.tanvaFlow?.rf, null, {timeout:60000}).catch(async error => {console.error('Fixture body:',await page.locator('body').innerText());throw error});
+  const seed = async () => {
+    await page.evaluate(() => {
+      window.tanvaFlow.rf.setNodes([
+        { id:'one', type:'textNote', position:{x:40,y:60}, data:{text:'One'}, selected:true },
+        { id:'two', type:'textNote', position:{x:400,y:60}, data:{text:'Two'}, selected:true },
+      ]);
+      window.tanvaFlow.rf.setEdges([{id:'edge',source:'one',target:'two',selected:true}]);
+      document.activeElement?.blur();
+    });
+    await page.waitForFunction(() => {
+      const nodes = window.tanvaFlow.rf.getNodes();
+      const edges = window.tanvaFlow.rf.getEdges();
+      return nodes.length === 2 && nodes.every(node => node.selected) && edges.length === 1 && edges[0].selected;
+    });
+  };
+  await seed();
+  assert.deepEqual(await page.evaluate(() => window.shortcuts.getState().setBinding('group','K')), {ok:true});
+  await page.keyboard.press('g');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.keyboard.press('k');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().some(n=>n.type==='nodeGroup'));
+  await page.evaluate(() => window.tanvaFlow.rf.setNodes(window.tanvaFlow.rf.getNodes().map(n=>({...n,selected:n.type==='nodeGroup'}))));
+  assert.deepEqual(await page.evaluate(() => window.shortcuts.getState().setBinding('ungroup','Shift+K')), {ok:true});
+  await page.keyboard.press('Shift+g');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 3);
+  await page.keyboard.press('Shift+k');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().length === 2);
+
+  await seed();
+  assert.deepEqual(await page.evaluate(() => window.shortcuts.getState().setBinding('delete','D')), {ok:true});
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Backspace');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => window.shortcuts.getState().setSettingsOpen(true));
+  await page.keyboard.press('d');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => window.shortcuts.getState().setSettingsOpen(false));
+  await page.evaluate(() => window.shortcuts.getState().setRecordingActionId('group'));
+  await page.keyboard.press('d');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => window.shortcuts.getState().setRecordingActionId(null));
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',isComposing:true,bubbles:true})));
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => {const input=document.createElement('input');input.id='editing';document.body.append(input);input.focus()});
+  await page.keyboard.press('d');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => {document.getElementById('editing').remove();document.body.focus()});
+  await page.keyboard.press('d');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().length === 0 && window.tanvaFlow.rf.getEdges().length === 0);
+  await seed();
+  await page.evaluate(() => window.shortcuts.getState().clearBinding('delete'));
+  await page.keyboard.press('d');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 2);
+  await page.evaluate(() => window.shortcuts.getState().resetBinding('delete'));
+  await page.keyboard.press('Delete');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().length === 0);
+  await seed();
+  await page.evaluate(() => window.clipboardService.setActiveZone('flow'));
+  await page.keyboard.press('Meta+c');
+  const systemCopied = await page.evaluate(() => navigator.clipboard.readText());
+  assert.equal(JSON.parse(systemCopied).type, 'tanva-flow');
+  assert.equal(JSON.parse(systemCopied).data.nodes.length, 2);
+  assert.deepEqual(await page.evaluate(() => window.shortcuts.getState().setBinding('paste','Mod+P')), {ok:true});
+  await page.keyboard.press('Meta+p');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().length === 4);
+  await page.keyboard.press('Meta+v');
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 4);
+  await page.evaluate(() => navigator.clipboard.writeText('External plain text'));
+  await page.keyboard.press('Meta+p');
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => window.tanvaFlow.rf.getNodes().length), 4);
+  await page.evaluate(() => {
+    window.clipboardService.clear(); window.clipboardService.setActiveZone('flow');
+    window.shortcuts.getState().clearBinding('copy');
+    window.shortcuts.getState().setBinding('selectAll','Mod+C');
+    window.tools.setState({drawMode:'pointer'});
+  });
+  await page.keyboard.press('Meta+c');
+  assert.equal(await page.evaluate(() => window.clipboardService.getFlowData()), null);
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'External plain text');
+  await page.evaluate(() => {
+    const data=new DataTransfer();
+    const event=new ClipboardEvent('copy',{clipboardData:data,bubbles:true,cancelable:true});
+    document.body.dispatchEvent(event);
+    window.menuCopy=data.getData('application/json');
+  });
+  assert.equal(JSON.parse(await page.evaluate(() => window.menuCopy)).type, 'tanva-flow');
+  await page.evaluate(() => {
+    window.shortcuts.getState().resetAll();
+    window.shortcuts.getState().clearBinding('paste');
+    window.shortcuts.getState().setBinding('pasteKeepLinks','Mod+V');
+    window.tools.setState({drawMode:'select'});
+  });
+  await seed();
+  await page.evaluate(() => window.clipboardService.setActiveZone('flow'));
+  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+v');
+  await page.waitForFunction(() => window.tanvaFlow.rf.getNodes().length === 4);
+  await page.evaluate(() => {
+    window.shortcuts.getState().resetAll();
+    window.shortcuts.getState().setBinding('paste','Mod+P');
+    window.clipboardService.setActiveZone('canvas');
+    window.chat.setState({imageInputTarget:'node'});
+    document.getElementById('canvas').focus();
+  });
+  await page.evaluate(() => navigator.clipboard.writeText('https://example.com/custom.png'));
+  await page.keyboard.press('Meta+p');
+  await page.waitForFunction(() => window.uploadedSources.includes('https://example.com/custom.png'));
+  await page.evaluate(() => {document.activeElement.blur();window.tools.setState({drawMode:'select'})});
+  await page.keyboard.down('Space');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('tanva-space-pressed')), true);
+  await page.keyboard.down('Shift'); await page.keyboard.up('Shift');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('tanva-space-pressed')), true);
+  await page.keyboard.up('Space');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('tanva-space-pressed')), false);
+  await page.evaluate(() => window.shortcuts.getState().setBinding('temporaryPan','Mod+Space'));
+  await page.keyboard.down('Meta'); await page.keyboard.down('Space');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('tanva-space-pressed')), true);
+  await page.keyboard.up('Meta');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('tanva-space-pressed')), false);
+  await page.keyboard.up('Space');
+  assert.deepEqual(errors, []);
+  console.log('Shortcut Flow browser checks passed: group/ungroup rebinds, node/edge deletion, old aliases, settings, recording, IME, text input, clear/reset, native copy → custom paste, disabled native keys, external text/URL, menu copy, linked paste on native V and held-pan modifier release.');
+} finally {
+  await browser?.close();
+  await server?.close();
+  await Promise.all(files.map(file => unlink(file).catch(() => {})));
+}

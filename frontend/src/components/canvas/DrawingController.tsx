@@ -3,6 +3,8 @@
  */
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { canvasEventBus } from '@/canvas/CanvasEventBus';
+import { isShortcutSuppressed, useShortcutStore } from '@/stores/shortcutStore';
+import { isNativeClipboardShortcut, pasteShortcutClipboard, writeShortcutClipboard } from '@/utils/shortcutClipboard';
 import paper from 'paper';
 import {
   ArrowDown,
@@ -1326,7 +1328,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         try {
           // 若焦点在可编辑元素中，放行默认粘贴行为
           const active = document.activeElement as Element | null;
-          if (isEditableElement(active)) return;
+          if (isEditableElement(active) || isShortcutSuppressed()) return;
 
           // Flow 区域优先处理粘贴，避免画布层拦截导致 Flow 节点无法粘贴
           const zone = clipboardService.getZone();
@@ -1371,7 +1373,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 先尝试处理画布内的结构化剪贴板数据
           const rawCanvasData =
             clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
-            clipboardData.getData("application/json");
+            clipboardData.getData("application/json") ||
+            clipboardData.getData("text/plain");
           let hasStructuredCanvasPayload = false;
           if (rawCanvasData) {
             try {
@@ -6572,10 +6575,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 在按下复制/粘贴快捷键前标记画布为激活区域，防止 Flow 层截获
   useEffect(() => {
+    let blockedNativeClipboard: 'copy' | 'paste' | null = null;
+    const clearNativeClipboardIntent = () => { blockedNativeClipboard = null; };
+    const blockDisabledClipboardEvent = (event: ClipboardEvent) => {
+      if (event.type !== blockedNativeClipboard) return;
+      blockedNativeClipboard = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
     const handleKeyPreCapture = (event: KeyboardEvent) => {
-      const key = event.key?.toLowerCase?.() || "";
-      if ((key !== "c" && key !== "v") || !(event.metaKey || event.ctrlKey))
-        return;
+      clearNativeClipboardIntent();
+      if (isShortcutSuppressed(event) || isEditableElement(document.activeElement)) return;
+      const matchesShortcut = useShortcutStore.getState().matchesShortcut;
+      const isCopy = matchesShortcut('copy', event);
+      const isPaste = matchesShortcut('paste', event);
+      const isNativeCopy = isNativeClipboardShortcut(event, 'copy');
+      const isNativePaste = isNativeClipboardShortcut(event, 'paste');
+      if (!isCopy && !isPaste && !isNativeCopy && !isNativePaste) return;
 
       const path =
         typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -6588,8 +6604,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       });
 
       // 粘贴：无需已有画布选区；只要事件路径经过画布且不在 Flow 节点上，就把剪贴板域切到 canvas，避免仍停留在 flow 时粘贴图片被误判
-      if (key === "v" && fromCanvas && !fromFlowOverlay) {
+      if (isPaste && fromCanvas && !fromFlowOverlay) {
         clipboardService.setActiveZone("canvas");
+      }
+
+      // Filter only the browser's ensuing clipboard event. Other configured actions
+      // assigned to C/V can still see an unprevented keyboard event and run normally.
+      if (fromCanvas || fromFlowOverlay || clipboardService.getZone()) {
+        if (isNativeCopy && !isCopy) blockedNativeClipboard = 'copy';
+        const flowKeepLinks = !fromCanvas && matchesShortcut('pasteKeepLinks', event) &&
+          (fromFlowOverlay || clipboardService.getZone() !== 'canvas');
+        if (isNativePaste && !isPaste && !flowKeepLinks) blockedNativeClipboard = 'paste';
       }
 
       if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
@@ -6600,11 +6625,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       clipboardService.setActiveZone("canvas");
     };
-    window.addEventListener("keydown", handleKeyPreCapture, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", handleKeyPreCapture, {
-        capture: true,
-      });
+    window.addEventListener("keydown", handleKeyPreCapture, true);
+    window.addEventListener("copy", blockDisabledClipboardEvent, true);
+    window.addEventListener("paste", blockDisabledClipboardEvent, true);
+    window.addEventListener("keyup", clearNativeClipboardIntent, true);
+    window.addEventListener("pointerdown", clearNativeClipboardIntent, true);
+    window.addEventListener("blur", clearNativeClipboardIntent);
+    return () => {
+      window.removeEventListener("keydown", handleKeyPreCapture, true);
+      window.removeEventListener("copy", blockDisabledClipboardEvent, true);
+      window.removeEventListener("paste", blockDisabledClipboardEvent, true);
+      window.removeEventListener("keyup", clearNativeClipboardIntent, true);
+      window.removeEventListener("pointerdown", clearNativeClipboardIntent, true);
+      window.removeEventListener("blur", clearNativeClipboardIntent);
+    };
   }, []);
 
   // 复制事件：同步画布选择到系统剪贴板，避免默认粘贴落入外部内容
@@ -6612,7 +6646,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleCopyEvent = (event: ClipboardEvent) => {
       try {
         const active = document.activeElement as Element | null;
-        if (isEditableElement(active) || editingTextId) return;
+        if (isEditableElement(active) || editingTextId || isShortcutSuppressed()) return;
 
         const selection = window.getSelection();
         const selectedText = selection?.toString()?.trim();
@@ -6651,7 +6685,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           event.clipboardData.setData("application/json", serialized);
           event.clipboardData.setData(
             "text/plain",
-            CANVAS_CLIPBOARD_FALLBACK_TEXT
+            serialized
           );
           event.preventDefault();
         } else if (
@@ -6680,12 +6714,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // });
       if (event.defaultPrevented) return;
 
-      const isCopy =
-        (event.key === "c" || event.key === "C") &&
-        (event.metaKey || event.ctrlKey);
-      const isPaste =
-        (event.key === "v" || event.key === "V") &&
-        (event.metaKey || event.ctrlKey);
+      if (isShortcutSuppressed(event)) return;
+      const matchesShortcut = useShortcutStore.getState().matchesShortcut;
+      const isCopy = matchesShortcut('copy', event);
+      const isPaste = matchesShortcut('paste', event);
       if (!isCopy && !isPaste) return;
 
       const active = document.activeElement as Element | null;
@@ -6707,15 +6739,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (isCopy) {
         if (zone !== "canvas" && !fromCanvas) return;
         const handled = handleCanvasCopy();
-        if (handled) {
-          // 继续让浏览器触发原生 copy 事件以写入系统剪贴板
+        if (handled && !isNativeClipboardShortcut(event, 'copy')) {
+          event.preventDefault();
+          event.stopPropagation();
+          writeShortcutClipboard(CANVAS_CLIPBOARD_TYPE, clipboardService.getCanvasData());
         }
         return;
       }
 
       if (isPaste) {
         if (zone !== "canvas" && !fromCanvas) return;
-        // 交由原生 paste 事件处理（可读取系统剪贴板内容），避免内存剪贴板抢占外部粘贴
+        if (!isNativeClipboardShortcut(event, 'paste')) {
+          event.preventDefault();
+          event.stopPropagation();
+          void pasteShortcutClipboard();
+        }
+        // Native paste continues through the browser event so external images stay available.
         return;
       }
     };

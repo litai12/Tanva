@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
+import { useShortcutStore } from '@/stores/shortcutStore';
 import { Button } from '@/components/ui/button';
 import { BoundsCalculator, type Bounds } from '@/utils/BoundsCalculator';
 import { useTranslation } from 'react-i18next';
@@ -334,23 +335,9 @@ const ZoomIndicator: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        const isEditableTarget = (target: EventTarget | null): boolean => {
-            if (!(target instanceof HTMLElement)) return false;
-            const tag = target.tagName;
-            return (
-                target.isContentEditable ||
-                tag === 'INPUT' ||
-                tag === 'TEXTAREA' ||
-                tag === 'SELECT'
-            );
-        };
-
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.defaultPrevented) return;
-            if (event.repeat) return;
-            if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-            if (isEditableTarget(event.target)) return;
-            if (event.key !== 'z' && event.key !== 'Z') return;
+            if (event.defaultPrevented || event.repeat) return;
+            if (!useShortcutStore.getState().matchesShortcut('fitView', event)) return;
 
             event.preventDefault();
             const selectedBounds = getSelectedContentBounds();
