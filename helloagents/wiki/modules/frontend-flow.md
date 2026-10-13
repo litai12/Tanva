@@ -2,7 +2,10 @@
 
 - 节点对齐与打组入口统一采用 12px 外框、8px 按钮圆角，浅色使用项目 card/border/muted 变量，深色跟随 `body.tanva-premium-black-theme` 的 mono 配色。
 - 样式集中于 `FlowSelectionToolbar.css`，保留原安全区域定位、六向对齐与按钮事件；工具条按内容宽度展示，窄窗口受安全区域宽度约束并横向滚动。
-- 浏览器检查覆盖明暗配色、圆角、六向对齐/打组回调与窄窗显示，定向 ESLint 与前端生产构建通过。全库 lint 仍有原有 2556 errors / 199 warnings；约定的 ai-metadata-sync 脚本在本机缺失，未运行元数据同步。本地修改，未部署。
+- 浏览器检查覆盖明暗配色、圆角、六向对齐/打组回调与窄窗显示，定向 ESLint 与前端生产构建通过。全库 lint 仍有原有 2556 errors / 199 warnings；约定的 ai-metadata-sync 脚本在本机缺失，未运行元数据同步。已提交推送并部署 101。
+- 2026-10-13 01:31（America/Los_Angeles）：代码 `2cfc56af887e3cb459ebcf2f0c9bdaaeeb9e5c37` 从干净隔离副本构建，仅发布本工具条主题改动；未包含工作区图片对比功能。隔离副本主题/圆角、全部七个按钮、窄窗及聊天安全区域浏览器回归与带提交号构建通过。
+- 发布目录 `/opt/tanva-releases/toolbar-theme-20261013-2cfc56af/`，回退备份 `/opt/tanva-backups/toolbar-theme-20261013-2cfc56af/frontend-dist/`；48 文件 SHA-256 对账通过，保留旧 hash 资源，后端未重启。
+- 公网 HTML、`/assets/index-BMMCP-O3.js`、`/assets/index-DJcgoXCk.css` 与构建哈希一致；`version.json.commitSha=2cfc56af887e`、`/api/health.status=ok`，上一版主 JS 仍可访问。发布目录保存部署及公网验收回执；交互验收来自发布前隔离源码。
 
 ## 2026-09-19 框选节点布局对齐
 
