@@ -34,4 +34,3 @@
 - 回退备份：`/opt/tanva-backups/custom-shortcuts-20261012-8d5bc19e/frontend-dist/`。逐文件原子替换，最后切换入口和版本清单，保留旧 hash 静态资源；没有重启后端或执行数据库变更。
 - 本地、暂存和线上 48 个文件哈希一致。公网 `https://tanvas.cn/` HTML、`/assets/index-4FvpuMWx.js`、`/assets/index-DMB1RBao.css` 与发布包 SHA-256 一致，`version.json.commitSha=8d5bc19edbed`，`/api/health.status=ok`，上一版 JS 仍可访问。
 - 发布后完成公网静态资源和健康验证；交互验收来自发布前隔离源码真实组件回归，未创建或重跑生产生成任务。
-

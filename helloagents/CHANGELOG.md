@@ -1258,9 +1258,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## 2026-05-12 Seedance Update
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
 - Flow/Seedance Video: added mode inputs 
-eference_images / 
-irst_frame / start_end / smart_frames and aligned 
-ideo_mode passthrough + validation.
+eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
 
 ## [AI Chat Canvas Placeholder Timeout - 2026-06-08]
