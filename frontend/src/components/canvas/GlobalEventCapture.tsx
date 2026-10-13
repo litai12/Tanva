@@ -9,14 +9,16 @@ import { useEffect } from 'react';
 import { canvasEventBus, type CanvasEventMap, type CanvasEventType } from '@/canvas/CanvasEventBus';
 
 const IMAGE_PREVIEW_SELECTOR = '[data-image-preview-modal="true"]';
+const CANVAS_CONTROL_SELECTOR = '[data-canvas-control="true"]';
 
 function emitCanvasEvent<T extends CanvasEventType>(type: T, event: CanvasEventMap[T]) {
   // Window capture runs before the preview's zoom/pan handlers. Leave those
   // events available to the preview without also moving the underlying canvas.
   if (event.composedPath().some((target) =>
-    target instanceof Element && target.matches(IMAGE_PREVIEW_SELECTOR)
+    target instanceof Element && (target.matches(IMAGE_PREVIEW_SELECTOR) || target.matches(CANVAS_CONTROL_SELECTOR))
   )) return;
   if (event instanceof KeyboardEvent && document.querySelector(IMAGE_PREVIEW_SELECTOR)) return;
+  if (event instanceof KeyboardEvent && document.querySelector('[data-canvas-background-popover="true"]')) return;
   canvasEventBus.emit(type, event);
 }
 

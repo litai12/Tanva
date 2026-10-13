@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore, GridStyle } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useCanvasBackgroundStore } from '@/stores/canvasBackgroundStore';
+import { canvasGridInk } from '@/utils/canvasBackground';
 import { memoryMonitor } from '@/utils/memoryMonitor';
 import { logger } from '@/utils/logger';
 import {
@@ -67,9 +69,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const gridBgColor = useCanvasStore(state => state.gridBgColor);
   const gridBgEnabled = useCanvasStore(state => state.gridBgEnabled);
   const chatTheme = useAIChatStore(state => state.chatTheme);
+  const customBackground = useCanvasBackgroundStore(state => state.byScheme[chatTheme === 'black' ? 'dark' : 'light']);
   const { showGrid, showAxis } = useUIStore();
-  const effectiveGridColor = resolveThemeAwareGridColor(gridColor, chatTheme);
-  const effectiveGridBgColor = resolveThemeAwareGridBgColor(gridBgColor, chatTheme, gridStyle);
+  const effectiveGridColor = customBackground ? canvasGridInk(customBackground) : resolveThemeAwareGridColor(gridColor, chatTheme);
+  const effectiveGridBgColor = customBackground ?? resolveThemeAwareGridBgColor(gridBgColor, chatTheme, gridStyle);
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const backgroundRectRef = useRef<paper.Path.Rectangle | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
@@ -423,8 +426,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
     const shouldShowMinorGrid = options?.showMinorGrid ?? (zoom >= 0.3);
-    const minorAlpha = chatTheme === 'black' ? 0.72 : 0.10;
-    const majorAlpha = chatTheme === 'black' ? 0.88 : 0.13;
+    const minorAlpha = customBackground ? 0.10 : chatTheme === 'black' ? 0.72 : 0.10;
+    const majorAlpha = customBackground ? 0.13 : chatTheme === 'black' ? 0.88 : 0.13;
     const minorStrokeWidth = chatTheme === 'black' ? 0.65 : 0.3;
     const majorStrokeWidth = chatTheme === 'black' ? 1.0 : 0.8;
     const minorColor = getColorWithAlpha(effectiveGridColor, minorAlpha);
@@ -603,6 +606,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
   const createGridRef = useRef(createGrid);
   createGridRef.current = createGrid;
+
+  // A color choice changes pixels even when the viewport hasn't moved.
+  useEffect(() => {
+    if (isPaperInitialized && (showGrid || showAxis)) createGridRef.current(gridSizeRef.current);
+  }, [customBackground, chatTheme, isPaperInitialized, showGrid, showAxis]);
 
   // 统一网格渲染控制 - 合并所有触发条件到单一useEffect
   useEffect(() => {

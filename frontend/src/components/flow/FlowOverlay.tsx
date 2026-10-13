@@ -14881,6 +14881,7 @@ function FlowInner() {
       setPendingOutputConnect(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isShortcutSuppressed(event)) return;
       if (event.key === "Escape") {
         cancelPendingConnect(event);
       }

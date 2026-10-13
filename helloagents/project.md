@@ -42,6 +42,7 @@
 - 后端构建：`cd backend && npm run build`
 
 ### 资源访问
+- 画布背景色通过左下角色盘控制，明暗主题分别保存本机颜色偏好，重置只恢复当前主题。Paper 与 Flow 共用底色，网格随自定义底色亮度调整；默认未指定颜色时保留 Tanva 原视觉，不写入项目设计 JSON。交互参考 TapCanvasPro，详见 `wiki/canvas-background-palette.md`。
 - 账号头像持久化稳定远程引用，展示先归一化资源地址，直连失败后通过现有鉴权图片代理读取为临时 Blob URL；所有读取失败显示默认首字头像。上传成功还需验证图片能被浏览器解码，再更新用户资料，失败保留旧头像。画布眼睛按钮的专注模式使用统一快捷键配置（默认 Tab），兼容旧用户已绑定 Tab 的操作，并保留输入框、弹窗及输入法的原键盘行为。
 - 生产火山方舟素材统一使用 `beq` 项目，与 new-api 的 Ark 视频生成 API Key 所属项目保持一致；后端 `VOLC_ARK_PROJECT_NAME` 未设置时默认 `beq`。审核组与一次性视频素材组按所属项目记录，旧 `default` 组按原项目清理；旧项目的真人认证组不再用于新请求，需重新认证。
 - 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL

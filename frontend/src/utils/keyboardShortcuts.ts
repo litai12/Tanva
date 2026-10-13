@@ -117,7 +117,7 @@ export const formatShortcut = (binding: string, isMac = typeof navigator !== 'un
 export const isEditableShortcutTarget = (event: Pick<KeyboardEvent, 'target'>): boolean => {
   const editable = (target: EventTarget | null): boolean => {
     if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
-    return !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || (target as HTMLElement).isContentEditable;
+    return !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-canvas-control="true"]') || (target as HTMLElement).isContentEditable;
   };
   return editable(event.target) || (typeof document !== 'undefined' && editable(document.activeElement));
 };

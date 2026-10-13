@@ -64,5 +64,7 @@ export const useShortcutStore = create<ShortcutState>()(persist((set, get) => ({
 /** Runtime listeners read current state, avoiding stale closures after rebinding. */
 export const isShortcutSuppressed = (event?: Pick<KeyboardEvent, 'isComposing' | 'keyCode'>): boolean => {
   const state = useShortcutStore.getState();
-  return state.settingsOpen || state.recordingActionId !== null || !!event?.isComposing || event?.keyCode === 229;
+  const backgroundPickerOpen = typeof document !== 'undefined'
+    && !!document.querySelector('[data-canvas-background-popover="true"]');
+  return state.settingsOpen || state.recordingActionId !== null || backgroundPickerOpen || !!event?.isComposing || event?.keyCode === 229;
 };

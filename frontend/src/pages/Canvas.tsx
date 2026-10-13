@@ -29,6 +29,8 @@ import { CollabProvider } from '@/collab/CollabContext';
 import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
 import CommentDrawer from '@/components/comments/CommentDrawer';
 import { cn } from '@/lib/utils';
+import CanvasBackgroundPicker from '@/components/canvas/CanvasBackgroundPicker';
+import { useCanvasBackgroundStyle } from '@/hooks/useCanvasBackgroundStyle';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -39,6 +41,7 @@ interface CanvasProps {
 
 const Canvas: React.FC<CanvasProps> = ({ showAIChat = true, embeddedDesktop = false }) => {
     const chatTheme = useAIChatStore((state) => state.chatTheme);
+    const canvasBackgroundStyle = useCanvasBackgroundStyle();
     const projectId = useProjectContentStore((state) => state.projectId);
     const contentVersion = useProjectContentStore((state) => state.version);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -93,10 +96,12 @@ const Canvas: React.FC<CanvasProps> = ({ showAIChat = true, embeddedDesktop = fa
         <CanvasCommentsProvider>
         <div
             className={cn(
-                'relative h-full w-full overflow-hidden',
+                'tanva-canvas-surface relative h-full w-full overflow-hidden',
                 embeddedDesktop && 'tanva-canvas-embedded'
             )}
             data-canvas-mode={embeddedDesktop ? 'desktop-plugin' : 'standalone'}
+            data-background-custom={Boolean(canvasBackgroundStyle)}
+            style={canvasBackgroundStyle}
         >
             <GlobalEventCapture />
             <GlobalZoomCapture />
@@ -155,6 +160,7 @@ const Canvas: React.FC<CanvasProps> = ({ showAIChat = true, embeddedDesktop = fa
 
             {/* Zoom indicator */}
             <ZoomIndicator />
+            <CanvasBackgroundPicker />
 
             {/* Image size mode indicator - hidden */}
             {/* <ImageSizeIndicator /> */}
