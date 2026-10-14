@@ -52,7 +52,7 @@ Seedance、Wan 与 HappyHorse 不属于本规则，继续使用各自现有线�
 - 官方依据：[CreateAigcVideoTask](https://cloud.tencent.com/document/api/266/126239) 的 `FileInfos` 约定与[输入素材数据结构](https://cloud.tencent.com/document/product/266/31773) 的 `ReferenceType` / `Usage` 定义。
 - 验证：本地 `npm run verify:vod-video-routing` 与 `npm run build` 通过；101 隔离构建通过。同一新增回归在旧源码上失败、修复后通过，覆盖 `feature/base` × 0/1/2/3 张图、普通首帧/首尾帧及最终腾讯请求序列化。网络边界使用 stub，未提交真实付费生成。
 - 101 已于 `2026-10-14T08:32:51Z` 发布：仅同步该模块源码、回归脚本与 JS/d.ts，未发布其他本地改动。发布前等待图片 active jobs 与近期网关未结请求均归零，再 reload `tanvas-api`；线上编译产物回归、公网 `/api/health` 与四文件哈希检查通过，图片队列已恢复。没有重提用户原任务。
-- 发布证据 `/opt/tanva-releases/vod-usage-20261014/`（`manifest.json`、`deployment.json`、`deploy.log`、`regression-before.log`），回退文件 `/opt/tanva-backups/vod-usage-20261014/backend/`。线上 JS SHA-256 为 `0eea60b546c27813fb04b95a9ac4b74e40aeb173ee0595fd27ddaf64f47d1b45`。本次源码尚未 Git 提交/推送。
+- 发布证据 `/opt/tanva-releases/vod-usage-20261014/`（`manifest.json`、`deployment.json`、`deploy.log`、`regression-before.log`），回退文件 `/opt/tanva-backups/vod-usage-20261014/backend/`。线上 JS SHA-256 为 `0eea60b546c27813fb04b95a9ac4b74e40aeb173ee0595fd27ddaf64f47d1b45`。初次采用直接热修部署；随后用户已将源码随 `eec7d31d075faf917124080d397a16dca9543ac5` 提交并推送。101 已备份热修 diff、校验其与提交内容一致后 fast-forward 同步，工作树干净。再次从该 Git 提交导出源码隔离构建，回归通过，四个目标文件与线上 SHA-256 完全一致，无需再次替换或重启。`git-alignment.json`、`git-build-verification.json` 保存对齐证据；该混合提交中的其他功能仅同步源码，未随本次 VOD 修复发布运行产物。
 
 - `cd backend && npm run verify:vod-video-routing`
 - `cd frontend && npm run test:video-provider-params && npm run build`
