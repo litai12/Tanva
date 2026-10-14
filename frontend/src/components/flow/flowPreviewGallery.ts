@@ -1,6 +1,6 @@
 import type { ImagePreviewCrop, PreviewGalleryImage } from '../ui/ImagePreviewGalleryContext';
 
-type GalleryNode = {
+export type GalleryNode = {
   id: string;
   type?: string;
   data: Record<string, unknown>;
@@ -10,7 +10,7 @@ type GalleryNode = {
   measured?: { height?: number };
   height?: number;
 };
-type GalleryEdge = { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null };
+export type GalleryEdge = { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null };
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 const IMAGE_NODE_TYPES = new Set(['image', 'imagePro', 'generate', 'generatePro', 'generateRef', 'generate4', 'generatePro4', 'nano2', 'gptImage2', 'seedream5', 'midjourneyV7', 'niji7', 'three', 'threePathTracer', 'camera', 'viewAngle', 'analysis', 'imageGrid', 'imageSplit', 'imageCompress']);
 
@@ -25,10 +25,15 @@ function readCrop(value: unknown, dimensions?: Record<string, unknown>): ImagePr
   return { x, y, width, height, sourceWidth: sourceWidth > 0 ? sourceWidth : undefined, sourceHeight: sourceHeight > 0 ? sourceHeight : undefined };
 }
 
-function primaryImage(node: GalleryNode, nodes: Map<string, GalleryNode>, edges: GalleryEdge[], visited = new Set<string>(), sourceHandle?: string | null): { src: string; crop?: ImagePreviewCrop } | null {
+export function primaryImage(node: GalleryNode, nodes: Map<string, GalleryNode>, edges: GalleryEdge[], visited = new Set<string>(), sourceHandle?: string | null): { src: string; crop?: ImagePreviewCrop } | null {
   if (visited.has(node.id) || node.type === 'nodeGroup') return null;
   visited.add(node.id);
   const data = node.data;
+  // ImageProNode displays its own asset; its input is not a rendered passthrough.
+  if (node.type === 'imagePro') {
+    const src = text(data.imageUrl) || text(data.imageData);
+    return src ? { src } : null;
+  }
   if (node.type === 'videoFrameExtract' && sourceHandle === 'image') {
     const frames = Array.isArray(data.frames) ? data.frames : [];
     const frame = frames[Number(data.selectedFrameIndex ?? 1) - 1] as Record<string, unknown> | undefined;
@@ -44,6 +49,9 @@ function primaryImage(node: GalleryNode, nodes: Map<string, GalleryNode>, edges:
     const slices = Array.isArray(data.splitImages) ? data.splitImages : [];
     const slice = slices[index] as Record<string, unknown> | undefined;
     if (src && crop) return { src, crop };
+    // Historical split nodes may store each slice directly on its output key.
+    const direct = text(data[`image${index + 1}`]) || text(data[`img${index + 1}`]);
+    if (direct) return { src: direct };
     return slice && text(slice.imageData) ? { src: text(slice.imageData), crop: readCrop(slice.crop) } : null;
   }
   const values = Array.isArray(data.imageUrls) && data.imageUrls.length ? data.imageUrls : Array.isArray(data.images) ? data.images : [];
@@ -58,7 +66,7 @@ function primaryImage(node: GalleryNode, nodes: Map<string, GalleryNode>, edges:
   const src = text(data.outputImage) || text(data.imageUrl) || text(data.imageData) || text(values[0]);
   // Image nodes can display a connected source, including a split crop, before
   // they have any independent stored image. Match that rendered resource.
-  if (node.type === 'image' || node.type === 'imagePro') {
+  if (node.type === 'image') {
     const input = edges.find((edge) => edge.target === node.id && (!edge.targetHandle || edge.targetHandle === 'img' || edge.targetHandle === 'image'));
     const upstream = input && nodes.get(input.source);
     const resource = upstream && primaryImage(upstream, nodes, edges, visited, input?.sourceHandle);

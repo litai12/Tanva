@@ -210,6 +210,7 @@ export const DEFAULT_NODE_HANDLES: Record<
   imageCompress: { imageIn: "img", imageOut: "img" },
   imageGrid: { imageIn: "images", imageOut: "img" },
   imageSplit: { imageIn: "img" },
+  imageCompare: { imageIn: "images" },
   audioStudio: { textIn: "text" },
   storyboardSplit: { textIn: "text" },
   videoCompose: { videoOut: "video" },
@@ -578,6 +579,18 @@ export const TANVA_CAPABILITY_MANIFEST = {
       purpose: "承载图片(可调宽度,等价image)",
       inputs: [{ handle: "img", accepts: "image" }],
       outputs: [{ handle: "img", emits: "image" }],
+    },
+    {
+      type: "imageCompare",
+      label: "图片对比",
+      purpose: "免费实时对比上游图片；images 端口可连多图，并排显示全部，滑动/叠加/点按使用前两图；无需运行，无图片输出",
+      params: {
+        compareMode: { type: "string", enum: ["side", "slider", "overlay", "toggle"] },
+        splitPercent: { type: "number" },
+        overlayOpacity: { type: "number" },
+      },
+      inputs: [{ handle: "images", accepts: "image" }],
+      outputs: [],
     },
     {
       type: "imageCompress",

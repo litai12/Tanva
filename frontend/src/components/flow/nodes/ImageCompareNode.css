@@ -1,0 +1,322 @@
+/* 图片对比节点：节点框 = 卡片本身，标题浮在卡片上方（与媒体节点一致，不占节点尺寸）。 */
+
+.tanva-image-compare-node {
+  position: relative;
+  box-sizing: border-box;
+  color: var(--compare-text);
+}
+
+.tanva-image-compare-node__title {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--compare-muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tanva-image-compare-node__title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tanva-image-compare-node__card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--compare-border);
+  border-radius: 16px;
+  background: var(--compare-bg);
+  box-shadow: 0 6px 18px rgba(0,0,0,.08);
+  transition: border-color 120ms ease;
+}
+
+.tanva-image-compare-node--selected .tanva-image-compare-node__card {
+  border-color: #2563eb;
+}
+
+.tanva-image-compare-node__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 6px;
+  border-bottom: 1px solid var(--compare-border);
+  background: var(--compare-toolbar);
+}
+
+.tanva-image-compare-node__mode,
+.tanva-image-compare-node__focus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--compare-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tanva-image-compare-node__mode {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.tanva-image-compare-node__focus {
+  flex: 0 0 auto;
+  width: 32px;
+}
+
+.tanva-image-compare-node__mode:hover,
+.tanva-image-compare-node__focus:hover {
+  background: var(--compare-active);
+  color: var(--compare-text);
+}
+
+.tanva-image-compare-node__mode--active,
+.tanva-image-compare-node__mode--active:hover {
+  background: var(--compare-active);
+  color: var(--compare-text);
+}
+
+.tanva-image-compare-node__mode:focus-visible,
+.tanva-image-compare-node__focus:focus-visible,
+.tanva-image-compare-node__pin:focus-visible,
+.tanva-image-compare-node__divider:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.tanva-image-compare-node__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tanva-image-compare-node__empty {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--compare-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ── 并排 ── */
+.tanva-image-compare-node__side {
+  display: grid;
+  height: 100%;
+  gap: 6px;
+  padding: 6px;
+  box-sizing: border-box;
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.tanva-image-compare-node__cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--compare-well);
+}
+
+.tanva-image-compare-node__cell--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--compare-border);
+  color: var(--compare-muted);
+  font-size: 12px;
+}
+
+.tanva-image-compare-node__image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── 滑动 / 叠加 / 点按共用的层叠舞台 ── */
+.tanva-image-compare-node__stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+
+.tanva-image-compare-node__image--layer {
+  position: absolute;
+  inset: 0;
+}
+
+.tanva-image-compare-node__stage--slider {
+  cursor: ew-resize;
+}
+
+.tanva-image-compare-node__stage--toggle {
+  cursor: pointer;
+}
+
+.tanva-image-compare-node__clip {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 0 0 var(--tanva-image-compare-node-split));
+  pointer-events: none;
+}
+
+.tanva-image-compare-node__divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--tanva-image-compare-node-split);
+  z-index: 3;
+  display: flex;
+  width: 28px;
+  margin-left: -14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.tanva-image-compare-node__divider-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.tanva-image-compare-node__divider-handle {
+  position: relative;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #151517;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: transform 120ms ease;
+}
+
+.tanva-image-compare-node__divider:hover .tanva-image-compare-node__divider-handle,
+.tanva-image-compare-node__stage--dragging .tanva-image-compare-node__divider-handle {
+  transform: scale(1.08);
+}
+
+/* 叠加：底部透明度滑条 */
+.tanva-image-compare-node__opacity {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 3;
+  width: min(70%, 360px);
+  transform: translateX(-50%);
+}
+
+.tanva-image-compare-node__opacity-input {
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #fff 0 var(--tanva-image-compare-node-opacity),
+    rgba(255, 255, 255, 0.35) var(--tanva-image-compare-node-opacity) 100%
+  );
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  appearance: none;
+}
+
+.tanva-image-compare-node__opacity-input::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  appearance: none;
+}
+
+.tanva-image-compare-node__opacity-input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* 序号角标 */
+.tanva-image-compare-node__badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.tanva-image-compare-node__badge--end {
+  left: auto;
+  right: 8px;
+}
+
+/* 点按：右下角固定切换 */
+.tanva-image-compare-node__pin {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 3;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  cursor: pointer;
+}
+
+.tanva-image-compare-node__pin[aria-pressed='true'] {
+  background: #fff;
+  color: #151517;
+}
+
+.tanva-image-compare-node__loading { display:flex; align-items:center; justify-content:center; width:100%; height:100%; color:var(--compare-muted); font-size:12px; }
+.tanva-image-compare-node__image { display:block; }
+.tanva-image-compare-node__handles { position:absolute; inset:0; pointer-events:none; }
+.tanva-image-compare-node__handle { width:10px; height:10px; background:#3b82f6; border:2px solid var(--compare-bg); }
+.tanva-image-compare-node__resize { background:transparent!important; border:0!important; }
+.tanva-image-compare-node__resize-handle { width:12px; height:12px; border-right:2px solid var(--compare-muted); border-bottom:2px solid var(--compare-muted); margin:4px; }

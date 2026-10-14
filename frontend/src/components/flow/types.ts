@@ -1,7 +1,7 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { PromptOptimizationModel } from '@/services/promptOptimizationModels';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech' | 'minimaxMusic' | 'audioStudio';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'imageCompare' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech' | 'minimaxMusic' | 'audioStudio';
 
 export type TextPromptData = {
   text?: string;
@@ -282,6 +282,17 @@ export type ImageCompressData = {
   boxH?: number;
 };
 
+export type ImageCompareMode = 'side' | 'slider' | 'overlay' | 'toggle';
+
+/** Images stay on upstream nodes; comparison persists only its presentation settings. */
+export type ImageCompareData = {
+  compareMode?: ImageCompareMode;
+  splitPercent?: number;
+  overlayOpacity?: number;
+  boxW?: number;
+  boxH?: number;
+};
+
 export type MinimaxSpeechData = {
   status?: 'idle' | 'running' | 'succeeded' | 'failed';
   audioUrl?: string;
@@ -447,7 +458,7 @@ export type AudioStudioData = {
   duration?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | TencentSpeechData | AudioStudioData;
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | ImageCompareData | AudioUploadData | MinimaxSpeechData | TencentSpeechData | AudioStudioData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

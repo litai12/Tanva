@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { VideoProviderService } from '../src/ai/services/video-provider.service';
+import { TencentVodAigcService } from '../src/ai/services/tencent-vod-aigc.service';
 
 async function main(): Promise<void> {
 const service = Object.create(VideoProviderService.prototype) as any;
@@ -167,6 +168,7 @@ await service.generateKlingViaTencent(
   true,
 );
 assert.equal(klingVodRequests[0].duration, 6);
+assert.equal(klingVodRequests[0].fileInfos[0].usage, 'Reference');
 assert.equal(klingVodRequests[0].fileInfos[0].referenceType, 'feature');
 
 await service.generateKlingViaTencent(
@@ -254,6 +256,55 @@ assert.equal(klingOmniElementRequest.fileInfos.length, 1);
 assert.equal(klingOmniElementRequest.fileInfos[0].url, 'https://example.com/character.png');
 assert.equal(klingOmniElementRequest.fileInfos[0].usage, 'Reference');
 
+// Video reference/edit mode keeps every accompanying image as a reference,
+// including two images that would otherwise be inferred as first/last frames.
+for (const referenceVideoType of ['feature', 'base']) {
+  for (const imageCount of [0, 1, 2, 3]) {
+    const images = Array.from(
+      { length: imageCount },
+      (_, index) => `https://example.com/reference-${index + 1}.png`,
+    );
+    await service.createViaTencentVod({
+      model: 'kling-v3-omni',
+      prompt: '保留视频节奏，结合随附图片生成',
+      images,
+      reference_videos: ['https://example.com/reference.mp4'],
+      duration: 6,
+      resolution: '1080P',
+      provider_options: {
+        videoMode: 'video',
+        referenceVideoType,
+        keepOriginalSound: 'yes',
+      },
+    });
+    const request = klingVodRequests.at(-1);
+    assert.deepEqual(request.fileInfos, [
+      ...images.map((url) => ({
+        type: 'Url', category: 'Image', url, usage: 'Reference',
+      })),
+      {
+        type: 'Url', category: 'Video',
+        url: 'https://example.com/reference.mp4', usage: 'Reference',
+        referenceType: referenceVideoType, keepOriginalSound: 'Enabled',
+      },
+    ]);
+    assert.equal(request.lastFrameUrl, undefined);
+  }
+}
+
+await service.generateKlingViaTencent(
+  {
+    provider: 'kling', prompt: 'camera push', videoMode: 'image',
+    referenceImages: ['https://example.com/first.png'],
+    duration: 5, resolution: '1080P',
+  },
+  { modelName: 'Kling', modelVersion: '3.0' },
+  '3.0',
+  true,
+);
+assert.equal(klingVodRequests.at(-1).fileInfos[0].usage, 'FirstFrame');
+assert.equal(klingVodRequests.at(-1).lastFrameUrl, undefined);
+
 service.prepareRemoteImageUrls = async (urls: string[]) => urls;
 service.uploadBase64ImageToOSS = async (url: string) => url;
 await service.createViaTencentVod({
@@ -283,6 +334,34 @@ await assert.rejects(
   }),
   /不能单独使用/,
 );
+
+// Check the final Tencent payload, not only the intermediate request DTO.
+// Stub the network boundary so this verification never submits a paid task.
+const tencentService = Object.create(TencentVodAigcService.prototype) as any;
+tencentService.ensureCredentialReady = () => {};
+tencentService.subAppId = 1;
+tencentService.logger = { debug() {} };
+const tencentPayloads: any[] = [];
+tencentService.callTencentApi = async (action: string, payload: any) => {
+  assert.equal(action, 'CreateAigcVideoTask');
+  tencentPayloads.push(payload);
+  return { TaskId: 'mock-vod-task' };
+};
+for (const request of [...klingVodRequests, viduVodRequest]) {
+  await tencentService.createVideoTask(request);
+  const payload = tencentPayloads.at(-1);
+  assert.deepEqual(payload.FileInfos.map((item: any) => item.Usage),
+    request.fileInfos.map((item: any) => item.usage));
+  assert.ok(payload.FileInfos.every((item: any) => item.Usage));
+  assert.deepEqual(payload.FileInfos.map((item: any) => item.Url),
+    request.fileInfos.map((item: any) => item.url));
+  assert.equal(payload.LastFrameUrl, request.lastFrameUrl);
+  for (const file of payload.FileInfos.filter((item: any) => item.Category === 'Video')) {
+    assert.equal(file.Usage, 'Reference');
+    assert.ok(['feature', 'base'].includes(file.ReferenceType));
+    assert.ok(['Enabled', 'Disabled'].includes(file.KeepOriginalSound));
+  }
+}
 
 const forceVod: boolean[] = [];
 service.createNewApiVideoTask = async (_options: unknown, forced: boolean) => {

@@ -4144,14 +4144,17 @@ export class VideoProviderService {
     const hasReferenceVideo =
       typeof normalizedReferenceVideo === "string" && normalizedReferenceVideo.trim().length > 0;
     const explicitVideoMode = String(options.videoMode || "").trim().toLowerCase();
-    const isReferenceImageMode = [
+    // In video reference/edit mode, accompanying images are references too;
+    // two images must not be inferred as first/last frames and discard one.
+    const isReferenceImageMode = hasReferenceVideo || [
       "reference",
       "reference2video",
       "reference_images",
     ].includes(explicitVideoMode);
-    const isStartEndMode =
+    const isStartEndMode = !hasReferenceVideo && (
       ["frame", "start_end", "start-end", "start-end2video"].includes(explicitVideoMode) ||
-      (normalizedImages.length === 2 && !isReferenceImageMode);
+      (normalizedImages.length === 2 && !isReferenceImageMode)
+    );
 
     if (hasReferenceVideo && !isKling30Omni) {
       throw new BadRequestException(`腾讯 VOD Kling ${fallbackModelVersion} 暂不支持视频参考模式`);
@@ -4202,6 +4205,7 @@ export class VideoProviderService {
             type: "Url" as const,
             category: "Video" as const,
             url: normalizedReferenceVideo,
+            usage: "Reference" as const,
             referenceType: normalizedReferenceVideoType,
             keepOriginalSound: normalizedKeepOriginalSound,
           },

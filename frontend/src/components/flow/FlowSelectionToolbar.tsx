@@ -1,5 +1,5 @@
 import { AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
-  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Group } from 'lucide-react';
+  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Group, Columns2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SelectionRect } from '@/utils/flowSelectionViewport';
 import type { SelectionAlignment } from '@/utils/flowSelectionAlignment';
@@ -14,11 +14,12 @@ const actions = [
   ['bottom', '底部对齐', 'Align bottom', AlignVerticalJustifyEnd],
 ] as const;
 
-export default function FlowSelectionToolbar({ count, onAlign, onGroup, area }: {
+export default function FlowSelectionToolbar({ count, onAlign, onGroup, onImageCompare, area }: {
   count: number;
   area: SelectionRect | null;
   onAlign: (alignment: SelectionAlignment) => void;
   onGroup?: () => void;
+  onImageCompare?: () => void;
 }) {
   const { i18n } = useTranslation();
   const zh = (i18n.resolvedLanguage || i18n.language).startsWith('zh');
@@ -35,6 +36,9 @@ export default function FlowSelectionToolbar({ count, onAlign, onGroup, area }: 
       ))}
       {onGroup && <button type="button" onClick={onGroup} className="tanva-flow-selection-toolbar__button ml-1 flex shrink-0 items-center gap-1 px-3 py-2 text-xs">
         <Group size={16} />{zh ? '打组' : 'Group'}
+      </button>}
+      {onImageCompare && <button type="button" onClick={onImageCompare} className="tanva-flow-selection-toolbar__button ml-1 flex shrink-0 items-center gap-1 px-3 py-2 text-xs">
+        <Columns2 size={16} />{zh ? '图片对比' : 'Compare images'}
       </button>}
     </div>
   );

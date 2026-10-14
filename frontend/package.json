@@ -48,6 +48,8 @@
     "preview": "vite preview",
     "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs",
     "test:toapi-image-models": "tsx --test src/services/gptImage25.test.ts src/services/toapiImageModels.test.ts src/services/agentCanvasProtocolContext.test.ts",
+    "test:image-compare": "node --test src/components/flow/nodes/imageCompareSources.test.ts src/components/flow/flowPreviewGallery.test.ts",
+    "verify:image-compare": "node scripts/verifyImageCompareBrowser.mjs",
     "verify:toapi-image-controls": "node scripts/verifyToapiImageControls.mjs"
   },
   "dependencies": {

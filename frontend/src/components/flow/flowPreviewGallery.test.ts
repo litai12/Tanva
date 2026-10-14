@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Node } from '@xyflow/react';
-import { buildFlowPreviewGallery } from './flowPreviewGallery.ts';
+import { buildFlowPreviewGallery, primaryImage } from './flowPreviewGallery.ts';
 
 const node = (id: string, x = 0, y = 0, data: Record<string, unknown> = {}, type = 'image'): Node => ({ id, type, position: { x, y }, measured: { height: 200 }, data: { imageUrl: `https://assets.test/${id}.png`, label: id, ...data } });
 
@@ -60,4 +60,35 @@ test('cyclic linked image inputs remain bounded and fall back to their real stor
   const gallery = buildFlowPreviewGallery(nodes, 'a', [{ source: 'a', target: 'b', targetHandle: 'img' }, { source: 'b', target: 'a', targetHandle: 'img' }]);
   assert.equal(gallery.length, 2);
   assert.ok(gallery.every((item) => item.src.startsWith('https://assets.test/')));
+});
+
+
+test('ImagePro reads its own full asset without inheriting input or stored crop metadata', () => {
+  const crop = { x: 50, y: 0, width: 50, height: 100 };
+  const nodes = [node('upstream', 0, 0, { crop }), node('pro', 300, 0, { imageUrl: 'https://assets.test/pro.png', imageData: 'https://assets.test/backup.png', outputImage: 'https://assets.test/unrendered.png', crop }, 'imagePro'), node('empty-pro', 600, 0, { imageUrl: undefined, imageData: undefined, crop }, 'imagePro')];
+  const edges = [{ source: 'upstream', target: 'pro', targetHandle: 'img' }, { source: 'upstream', target: 'empty-pro', targetHandle: 'img' }];
+  const byId = new Map(nodes.map((item) => [item.id, item]));
+  assert.deepEqual(primaryImage(nodes[1], byId, edges), { src: 'https://assets.test/pro.png' });
+  assert.equal(primaryImage(nodes[2], byId, edges), null);
+  nodes[1].data.imageUrl = undefined;
+  assert.deepEqual(primaryImage(nodes[1], byId, edges), { src: 'https://assets.test/backup.png' });
+});
+
+test('historical split output keys match requested ports and keep runtime crop priority', () => {
+  const split = node('split', 0, 0, { imageUrl: undefined, image2: 'https://assets.test/primary-slice.png', img2: 'https://assets.test/compat-slice.png', splitImages: [{}, { imageData: 'https://assets.test/legacy-slice.png' }] }, 'imageSplit');
+  const byId = new Map([[split.id, split]]);
+  const before = JSON.stringify(split);
+  assert.deepEqual(primaryImage(split, byId, [], new Set(), 'img2'), { src: 'https://assets.test/primary-slice.png' });
+  assert.equal(JSON.stringify(split), before);
+  split.data.image2 = undefined;
+  assert.deepEqual(primaryImage(split, byId, [], new Set(), 'image2'), { src: 'https://assets.test/compat-slice.png' });
+  split.data.img2 = undefined;
+  assert.equal(primaryImage(split, byId, [], new Set(), 'image2')?.src, 'https://assets.test/legacy-slice.png');
+  assert.equal(primaryImage(split, byId, [], new Set(), 'image3'), null);
+  const crop = { x: 50, y: 0, width: 50, height: 100 };
+  split.data.inputImageUrl = 'https://assets.test/base.png';
+  split.data.splitRects = [{ ...crop, x: 0 }, crop];
+  split.data.image2 = 'https://assets.test/primary-slice.png';
+  assert.equal(primaryImage(split, byId, [], new Set(), 'image2')?.src, 'https://assets.test/base.png');
+  assert.equal(primaryImage(split, byId, [], new Set(), 'image2')?.crop?.x, 50);
 });

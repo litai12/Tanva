@@ -13,4 +13,6 @@ Backend 使用 `NEW_API_KEY_VIP` 调 new-api `/v1/videos`，任务 ID 使用 `ne
 
 所有 VOD 画布模型统一按正常价，不展示错峰入口；历史节点的 `offPeak` 值在试算和提交时固定归一为 `false`。Vidu 输入模式使用文生、首帧、首尾帧、参考四档：Q3 的前三档实际提交 `q3-pro`，参考档提交 `q3`，参考图最多 7 张。Kling 首尾帧角色必须保留；普通 3.0 不接受参考视频，Omni 参考视频为 3–10 秒且不支持 4K。Hailuo H3 默认生成原生音频，可在节点关闭，媒体数量限制由前端和后端共同校验。
 
+Kling Omni 视频参考/编辑模式下，视频及随附图片都必须显式发送 `Usage=Reference`；视频的 `ReferenceType=feature|base` 和保留原声设置继续独立传递。两张随附图片仍是参考图，不能因数量为二误判为首尾帧并丢弃第二张。无参考视频时，首帧/首尾帧沿用原角色规则。
+
 Seedance、Wan、HappyHorse 不应用该前端收敛规则。完整链路与部署补丁说明见 `helloagents/wiki/tencent-vod-canvas-video-routing.md`。

@@ -44,6 +44,16 @@ Seedance、Wan 与 HappyHorse 不属于本规则，继续使用各自现有线�
 
 ## 回归验证
 
+### 2026-10-14：Kling Omni 混合参考素材 Usage 修复
+
+- 现象：图片与视频一起提交时，腾讯返回 `When Usage is specified for any FileInfo, it must be specified for all FileInfos`。
+- 根因：`generateKlingViaTencent` 为图片填写了 `Usage`，但视频项漏填；`video` 模式的图片还可能被标为首帧，两张图片会误走首尾帧分支而丢弃第二张。
+- 修复合同：存在参考视频时，随附图片与视频统一使用 `Usage=Reference`，保留全部参考图以及视频的 `ReferenceType=feature|base`、`KeepOriginalSound`；没有参考视频时保留原首尾帧逻辑。无需更改 new-api、数据库或用户原节点。
+- 官方依据：[CreateAigcVideoTask](https://cloud.tencent.com/document/api/266/126239) 的 `FileInfos` 约定与[输入素材数据结构](https://cloud.tencent.com/document/product/266/31773) 的 `ReferenceType` / `Usage` 定义。
+- 验证：本地 `npm run verify:vod-video-routing` 与 `npm run build` 通过；101 隔离构建通过。同一新增回归在旧源码上失败、修复后通过，覆盖 `feature/base` × 0/1/2/3 张图、普通首帧/首尾帧及最终腾讯请求序列化。网络边界使用 stub，未提交真实付费生成。
+- 101 已于 `2026-10-14T08:32:51Z` 发布：仅同步该模块源码、回归脚本与 JS/d.ts，未发布其他本地改动。发布前等待图片 active jobs 与近期网关未结请求均归零，再 reload `tanvas-api`；线上编译产物回归、公网 `/api/health` 与四文件哈希检查通过，图片队列已恢复。没有重提用户原任务。
+- 发布证据 `/opt/tanva-releases/vod-usage-20261014/`（`manifest.json`、`deployment.json`、`deploy.log`、`regression-before.log`），回退文件 `/opt/tanva-backups/vod-usage-20261014/backend/`。线上 JS SHA-256 为 `0eea60b546c27813fb04b95a9ac4b74e40aeb173ee0595fd27ddaf64f47d1b45`。本次源码尚未 Git 提交/推送。
+
 - `cd backend && npm run verify:vod-video-routing`
 - `cd frontend && npm run test:video-provider-params && npm run build`
 - 使用 VIP token 查询 new-api `/v1/models`，六个业务模型必须全部可见；数据库中它们只能存在 type 67 的启用 ability。

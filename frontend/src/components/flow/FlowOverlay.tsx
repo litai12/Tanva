@@ -135,6 +135,7 @@ import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
+import ImageCompareNode from "./nodes/ImageCompareNode";
 import AudioStudioNode from "./nodes/AudioStudioNode";
 import * as audioService from "@/services/audioService";
 import { getAudioStudioModeConfig, type AudioStudioMode } from "./nodes/audioStudioModes";
@@ -327,6 +328,12 @@ const FLOW_VIDEO_GENERATION_NODE_TYPES = new Set([
   "seedance20Video",
   "seedVideo",
   "omniFlashExtVideo",
+]);
+
+const FLOW_IMAGE_SOURCE_NODE_TYPES = new Set([
+  "image", "imagePro", "generate", "generate4", "generatePro", "generatePro4",
+  "generateRef", "viewAngle", "three", "threePathTracer", "camera", "imageGrid",
+  "imageSplit", "imageCompress", "midjourneyV7", "niji7", "nano2", "gptImage2", "seedream5",
 ]);
 
 const normalizeFlowTargetHandle = (
@@ -1141,6 +1148,7 @@ const rawNodeTypes = guardFlowNodeTypes({
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
+  imageCompare: ImageCompareNode,
   audioStudio: AudioStudioNode,
 });
 
@@ -1697,6 +1705,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "imageGrid", targetHandle: "images" },
     { nodeType: "imageSplit", targetHandle: "img" },
     { nodeType: "imageCompress", targetHandle: "img" },
+    { nodeType: "imageCompare", targetHandle: "images" },
     { nodeType: "happyhorseR2V", targetHandle: "image-1" },
   ],
   video: [
@@ -1920,6 +1929,7 @@ const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
+  { key: "imageCompare", zh: "图片对比节点", en: "Image Compare", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
   { key: "seed3d", zh: "Seed 3D", en: "Seed 3D", category: "other" },
   { key: "viewAngle", zh: "视角变换节点", en: "View Angle", category: "image" },
@@ -2039,6 +2049,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   imageGrid: "image",
   imageSplit: "image",
   imageCompress: "image",
+  imageCompare: "image",
 
   three: "three",
   seed3d: "three",
@@ -2141,6 +2152,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   imageGrid: { w: 300, h: 380 },
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
+  imageCompare: { w: 480, h: 320 },
   minimaxSpeech: { w: 280, h: 240 },
   tencentSpeech: { w: 300, h: 400 },
   minimaxMusic: { w: 300, h: 460 },
@@ -2504,6 +2516,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   seed3d: ["img", "text"],
   analysis: ["img", "text"],
   imageGrid: ["images"],
+  imageCompare: ["images"],
   imageSplit: ["img"],
   imageCompress: ["img"],
   midjourneyV7: ["img", "omniImage", "text"],
@@ -10910,7 +10923,8 @@ function FlowInner() {
       rawType: string,
       world: { x: number; y: number },
       paletteDefaultData?: Record<string, any>,
-      paletteConfig?: Partial<NodeConfig>
+      paletteConfig?: Partial<NodeConfig>,
+      options?: { skipHistory?: boolean }
     ) => {
       // 以默认尺寸中心对齐放置
       const type = normalizeFlowNodeType(rawType);
@@ -11301,6 +11315,14 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "imageCompare"
+          ? {
+              compareMode: "side" as const,
+              splitPercent: 50,
+              overlayOpacity: 50,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "minimaxSpeech"
           ? {
               status: "idle" as const,
@@ -11602,9 +11624,11 @@ function FlowInner() {
         initialHeight: nodeSize.h,
       };
       setNodes((ns) => ns.concat([node]));
-      try {
-        historyService.commit("flow-add-node").catch(() => {});
-      } catch {}
+      if (!options?.skipHistory) {
+        try {
+          historyService.commit("flow-add-node").catch(() => {});
+        } catch {}
+      }
       setAddPanel((v) => ({ ...v, visible: false }));
       return id;
     },
@@ -12295,28 +12319,7 @@ function FlowInner() {
         handle?: string | null
       ) => {
         if (!isImageSourceHandle(handle)) return false;
-        const imageNodeTypes = [
-          "image",
-          "imagePro",
-          "generate",
-          "generate4",
-          "generatePro",
-          "generatePro4",
-          "generateRef",
-          "viewAngle",
-          "three",
-          "threePathTracer",
-          "camera",
-          "imageGrid",
-          "imageSplit",
-          "imageCompress",
-          "midjourneyV7",
-          "niji7",
-          "nano2",
-          "gptImage2",
-          "seedream5",
-        ];
-        if (imageNodeTypes.includes(node.type || "")) return true;
+        if (FLOW_IMAGE_SOURCE_NODE_TYPES.has(node.type || "")) return true;
         // videoFrameExtract 的 image 句柄输出单张图片
         if (node.type === "videoFrameExtract" && handle === "image")
           return true;
@@ -12925,10 +12928,11 @@ function FlowInner() {
         }
         return false;
       }
-      if (targetNode.type === "imageGrid") {
+      if (targetNode.type === "imageGrid" || targetNode.type === "imageCompare") {
         if (targetHandle === "images") {
           // videoFrameExtract 支持单帧/多帧输出
           if (sourceNode.type === "videoFrameExtract") {
+            if (targetNode.type === "imageCompare") return sourceHandle === "image";
             return (
               sourceHandle === "image" ||
               sourceHandle === "images" ||
@@ -13295,7 +13299,7 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle === "img") return true; // 单图输入，新线会替换旧线
       }
-      if (targetNode?.type === "imageGrid") {
+      if (targetNode?.type === "imageGrid" || targetNode?.type === "imageCompare") {
         if (params.targetHandle === "images") return true; // 允许多条图片连接
       }
       if (targetNode?.type === "imageSplit") {
@@ -14501,7 +14505,7 @@ function FlowInner() {
       if (nodeType === "analysis" && targetHandle === "img") {
         return Number.POSITIVE_INFINITY;
       }
-      if (nodeType === "imageGrid" && targetHandle === "images") {
+      if ((nodeType === "imageGrid" || nodeType === "imageCompare") && targetHandle === "images") {
         return Number.POSITIVE_INFINITY;
       }
       if (nodeType === "seedream5" && targetHandle === "img") {
@@ -14998,12 +15002,19 @@ function FlowInner() {
 
   // 监听来自节点的本地数据写入（TextPrompt）
   React.useEffect(() => {
+    const historyTimers = new Map<string, number>();
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
         id: string;
         patch: Record<string, any>;
+        historyLabel?: string;
       };
       if (!detail?.id) return;
+
+      const currentNode = rfRef.current.getNode(detail.id);
+      const shouldRecordCompareHistory = currentNode?.type === "imageCompare" &&
+        typeof detail.historyLabel === "string" && Boolean(detail.historyLabel.trim()) &&
+        Object.entries(detail.patch || {}).some(([key, value]) => currentNode.data[key] !== value);
 
       // 处理位置偏移（用于中心点缩放）
       const positionOffset = detail.patch?._positionOffset;
@@ -15144,14 +15155,32 @@ function FlowInner() {
           )
         );
       }
+
+      if (shouldRecordCompareHistory) {
+        const previousTimer = historyTimers.get(detail.id);
+        if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+        // End-of-gesture patches can repeat (pointerup + blur); coalesce them,
+        // then publish the graph before history reads the project snapshot.
+        historyTimers.set(detail.id, window.setTimeout(() => {
+          historyTimers.delete(detail.id);
+          if (!rfRef.current.getNode(detail.id)) return;
+          updateProjectPartial({ flow: {
+            nodes: rfNodesToTplNodes(rfRef.current.getNodes(), { preserveRunningState: true }),
+            edges: rfEdgesToTplEdges(rfRef.current.getEdges()),
+          } }, { markDirty: true });
+          historyService.commit(detail.historyLabel).catch(() => {});
+        }, 150));
+      }
     };
     window.addEventListener("flow:updateNodeData", handler as EventListener);
-    return () =>
+    return () => {
       window.removeEventListener(
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [setEdges, setNodes]);
+      historyTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [setEdges, setNodes, updateProjectPartial, rfNodesToTplNodes, rfEdgesToTplEdges]);
 
   // happyhorse 节点切换 model 时，丢弃在新模式下不再合法的目标连线。
   React.useEffect(() => {
@@ -27447,6 +27476,66 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
   const canCreateGroup = selectedNonGroupNodeCount >= 2;
   const canDissolveGroup = selectedGroupIds.length > 0;
 
+  const selectedImageCompareSources = React.useMemo(() => {
+    return nodes
+      .filter((node) => node.selected && !isGroupNode(node as RFNode) && !collapsedChildNodeIds.has(node.id))
+      .filter((node) => FLOW_IMAGE_SOURCE_NODE_TYPES.has(node.type || "") || node.type === "videoFrameExtract")
+      .sort((first, second) => {
+        const firstPosition = (first as RFNode & { positionAbsolute?: { x: number; y: number } }).positionAbsolute || first.position;
+        const secondPosition = (second as RFNode & { positionAbsolute?: { x: number; y: number } }).positionAbsolute || second.position;
+        const horizontal = firstPosition.x - secondPosition.x;
+        return Math.abs(horizontal) > 1 ? horizontal : firstPosition.y - secondPosition.y;
+      })
+      .map((node) => ({
+        node,
+        // Multi-output nodes use their first image; frame extraction uses the selected frame.
+        sourceHandle: node.type === "videoFrameExtract"
+          ? "image"
+          : getFallbackSourceHandlesForFlowNode(node as RFNode).find((handle) => isImageSourceHandle(handle)),
+      }))
+      .filter((source) => Boolean(source.sourceHandle));
+  }, [nodes, collapsedChildNodeIds, isImageSourceHandle]);
+
+  const createImageCompareFromSelection = React.useCallback(() => {
+    if (selectedImageCompareSources.length < 2) return;
+    const size = FLOW_NODE_DEFAULT_SIZE.imageCompare;
+    const bounds = rf.getNodesBounds(selectedImageCompareSources.map((source) => source.node));
+    const id = createNodeAtWorldCenter("imageCompare", {
+      x: bounds.x + bounds.width + 80 + size.w / 2,
+      y: bounds.y + bounds.height / 2,
+    }, undefined, undefined, { skipHistory: true });
+    if (!id) return;
+
+    // React Flow must publish the newly created node before capturing a single undo snapshot.
+    requestAnimationFrame(() => {
+      if (!rf.getNode(id)) return;
+      const currentEdges = rf.getEdges();
+      let nextEdges = currentEdges;
+      for (const source of selectedImageCompareSources) {
+        if (!rf.getNode(source.node.id)) continue;
+        nextEdges = addEdge({
+          source: source.node.id,
+          sourceHandle: source.sourceHandle,
+          target: id,
+          targetHandle: "images",
+          type: "default",
+        }, nextEdges);
+      }
+      setEdges(nextEdges);
+      updateProjectPartial({ flow: {
+        nodes: rfNodesToTplNodes(rf.getNodes(), { preserveRunningState: true }),
+        edges: rfEdgesToTplEdges(nextEdges),
+      } }, { markDirty: true });
+      const collab = collabRef.current;
+      if (collab?.connected && !applyingRemoteRef.current) {
+        const previousIds = new Set(currentEdges.map((edge) => edge.id));
+        collab.sendPatch({ upsertEdges: nextEdges.filter((edge) => !previousIds.has(edge.id)) });
+      }
+      window.dispatchEvent(new CustomEvent("flow:edgesChange"));
+      historyService.commit("flow-image-compare-selection").catch(() => {});
+    });
+  }, [selectedImageCompareSources, rf, createNodeAtWorldCenter, setEdges, updateProjectPartial, rfNodesToTplNodes, rfEdgesToTplEdges]);
+
   const selectionSafeArea = useSelectionSafeArea(containerRef, selectedNonGroupNodeCount + selectedGroupIds.length >= 2);
 
   const alignSelectedNodes = (alignment: SelectionAlignment) => {
@@ -28462,6 +28551,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
           area={selectionSafeArea}
           onAlign={alignSelectedNodes}
           onGroup={canCreateGroup ? createGroupFromSelection : undefined}
+          onImageCompare={selectedImageCompareSources.length >= 2 ? createImageCompareFromSelection : undefined}
         />
         <ReactFlow
         nodes={nodesForRender}
