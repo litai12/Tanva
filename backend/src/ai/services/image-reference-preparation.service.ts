@@ -18,13 +18,16 @@ const MAX_REDIRECTS = 3;
 const MAX_INPUT_PIXELS = 40_000_000;
 
 /** Only apply verified contracts. Do not transfer one model's cap to other routes.
- * Gemini 3.1: deployed ToAPIs download rejection says 20 MiB.
+ * Gemini 3.1 normal/default: deployed ToAPIs download rejection says 20 MiB.
+ * Stable/ultra use different gateway keys and do not inherit that cap.
  * GPT Image 2: https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2/edits
  * documents PNG/JPG inputs up to 50 MB; Tencent stable has a separate contract.
  */
 export function imageReferenceByteLimit(model: unknown, options?: any): number | undefined {
   const identity = String(model || '').trim().toLowerCase();
-  if (/^gemini-3\.1-(?:image(?:-edit|-blend)?|flash-image-preview)$/.test(identity)) {
+  const imageRoute = options?.banana?.imageRoute || options?.bananaImageRoute;
+  if (/^gemini-3\.1-(?:image(?:-edit|-blend)?|flash-image-preview)$/.test(identity) &&
+      (!imageRoute || imageRoute === 'normal')) {
     return TOAPIS_REFERENCE_MAX_BYTES;
   }
   if (identity === 'gpt-image-2' &&

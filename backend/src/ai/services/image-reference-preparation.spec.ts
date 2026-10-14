@@ -24,7 +24,16 @@ async function main(): Promise<void> {
   assert.equal(isPublicImageAddress('2606:4700:4700::1111'), true);
   assert.equal(needsToapisReferencePreparation('gpt-image-2', { banana: { imageRoute: 'stable' } }), false);
   assert.equal(needsToapisReferencePreparation('gpt-image-2'), true);
-  assert.equal(needsToapisReferencePreparation('gemini-3.1-image-edit', { bananaImageRoute: 'stable' }), true);
+  assert.equal(needsToapisReferencePreparation('gemini-3.1-image-edit', { bananaImageRoute: 'stable' }), false);
+  for (const model of ['gemini-3.1-image', 'gemini-3.1-image-edit', 'gemini-3.1-image-blend',
+    'gemini-3.1-flash-image-preview']) {
+    for (const imageRoute of ['normal', 'stable', 'ultra']) {
+      for (const options of [{ bananaImageRoute: imageRoute }, { banana: { imageRoute } }]) {
+        assert.equal(imageReferenceByteLimit(model, options), imageRoute === 'normal'
+          ? TOAPIS_REFERENCE_MAX_BYTES : undefined);
+      }
+    }
+  }
   assert.equal(needsToapisReferencePreparation('gemini-nano-banana-2.1-official'), false);
   assert.equal(imageReferenceByteLimit('gpt-image-2'), 50_000_000);
   assert.equal(imageReferenceByteLimit('gemini-3.1-flash-image-preview'), 20 * 1024 * 1024);
@@ -54,6 +63,8 @@ async function main(): Promise<void> {
   assert.equal(uploads.length, 0, 'compliant reference is neither reencoded nor uploaded');
   await service.prepare([SOURCE_URL], 'gpt-image-2', { bananaImageRoute: 'stable' });
   assert.equal(downloads.length, 1, 'Tencent GPT stable retains its separate contract');
+  await service.prepare([SOURCE_URL], 'gemini-3.1-image-edit', { banana: { imageRoute: 'stable' } });
+  assert.equal(downloads.length, 1, 'Tencent Gemini stable skips ToAPIs preparation');
 
   // A poorly compressed PNG larger than the production rejection shrinks losslessly.
   source = await sharp({ create: { width: 3200, height: 3000, channels: 3,
@@ -150,6 +161,11 @@ async function main(): Promise<void> {
   await taskService.runGenerateTask({ prompt: 'unchanged', aiProvider: 'new-api' },
     { imageUrls: [SOURCE_URL] }, 'gemini-nano-banana-2.1');
   assert.equal(legacyResizeCount, 1, 'Nano2.1 retains its established skip-resize contract');
+  await taskService.runGenerateTask({ prompt: 'unchanged', aiProvider: 'new-api' },
+    { imageUrls: [SOURCE_URL], providerOptions: { banana: { imageRoute: 'stable' } } },
+    'gemini-3.1-flash-image-preview');
+  assert.equal(legacyResizeCount, 2, 'Tencent Gemini stable retains existing async OSS resize');
+  assert.deepEqual(received.imageUrls, [`${SOURCE_URL}&legacy=1`]);
 
   // Exercise download safeguards without any network access or image generation.
   const downloader = new ImageReferencePreparationService({} as any) as any;
