@@ -49,6 +49,7 @@ import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 import { GlobalImageHistoryModule } from '../global-image-history/global-image-history.module';
+import { ImageReferencePreparationService } from './services/image-reference-preparation.service';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { GlobalImageHistoryModule } from '../global-image-history/global-image-h
     MidjourneyProvider,
     Seedream5Provider,
     NewApiProvider,
+    ImageReferencePreparationService,
     AIProviderFactory,
     CostCalculatorService,
     Convert2Dto3DService,

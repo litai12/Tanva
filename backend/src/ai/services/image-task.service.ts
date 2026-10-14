@@ -22,6 +22,7 @@ import { CreditChargeService, type ChargeHandle } from '../../team-credits/credi
 import { Seedream5Service } from './seedream5.service';
 import { bufferResponseWithLimit } from '../../common/http-buffer.util';
 import { resolveImageTaskRuntimeConfig } from './image-task-runtime.config';
+import { needsToapisReferencePreparation } from './image-reference-preparation.service';
 
 const IMAGE_TASK_RUNTIME_CONFIG = resolveImageTaskRuntimeConfig();
 
@@ -536,7 +537,8 @@ export class ImageTaskService {
               (item: unknown): item is string =>
                 typeof item === 'string' && item.trim().length > 0,
             )
-            .map((url) => isNanoBanana21Model(model) ? url : this.oss.withImageResize(url))
+            .map((url) => isNanoBanana21Model(model) || needsToapisReferencePreparation(model, taskRequestData.providerOptions)
+              ? url : this.oss.withImageResize(url))
         : undefined,
       googleSearch: taskRequestData.googleSearch,
       googleImageSearch: taskRequestData.googleImageSearch,
@@ -1119,17 +1121,29 @@ export class ImageTaskService {
         } catch (error: any) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           this.logger.error(`任务执行失败: taskId=${taskId}, error=${errorMessage}`);
+          if (execution.upstreamImageTask && effectiveApiUsageId) {
+            await this.creditsService.updateApiUsageRequestParams(effectiveApiUsageId, {
+              upstreamImageTask: execution.upstreamImageTask,
+            }).catch((receiptError) => {
+              execution.rejected = false;
+              this.logger.warn(`保存图片上游回执失败，保留核账: taskId=${taskId}, error=${receiptError}`);
+            });
+          }
           if (needsImageReconciliation(execution)) {
             // Unknown upstream outcome: end the task now with the real reason instead
             // of leaving it in processing for the stuck-task sweeper. The pre-charge
-            // stays pending and the orphan refund job settles it once it is >1h old.
-            const reason = `${errorMessage || '图像生成失败'}（未确认出图，积分将在1小时内自动退还）`;
+            // stays pending. A known upstream task requires receipt reconciliation;
+            // only legacy failures without a receipt use the age-based orphan job.
+            const reason = `${errorMessage || '图像生成失败'}${execution.upstreamImageTask
+              ? '（上游任务已受理，结果或费用待核实，按原任务回执结算）'
+              : '（未确认出图，积分将在1小时内自动退还）'}`;
             this.logger.error(`IMAGE_RECONCILIATION_REQUIRED taskId=${taskId} apiUsageId=${effectiveApiUsageId} error=${errorMessage}`);
             await this.prisma.imageTask.update({ where: { id: taskId }, data: {
               status: 'failed',
               error: reason,
               completedAt: new Date(),
               requestData: { ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
+                ...(execution.upstreamImageTask ? { upstreamImageTask: { ...execution.upstreamImageTask } } : {}),
                 imageExecutionStartedAt: new Date(startedAt).toISOString(),
                 imageSubmissionState: 'reconciliation_required' },
             } });
@@ -1157,6 +1171,10 @@ export class ImageTaskService {
               status: 'failed',
               error: errorMessage || '图像生成失败',
               completedAt: new Date(),
+              ...(execution.upstreamImageTask ? { requestData: {
+                ...(taskRequestData || {}), apiUsageId: effectiveApiUsageId,
+                upstreamImageTask: { ...execution.upstreamImageTask }, imageSubmissionState: 'confirmed_failed',
+              } } : {}),
             },
           });
 

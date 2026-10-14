@@ -138,10 +138,14 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 			}
 			w /= divisor
 			h /= divisor
-			edge := map[string]int{"1K": 1024, "2K": 2048, "4K": 4096}[tier]
-			step := edge / (max(w, h) * 16)
-			w *= step * 16
-			h *= step * 16
+			if dimensions, verified := verifiedToAPISVIP4KSize(request.Model, ratio); tier == "4K" && verified {
+				w, h = dimensions[0], dimensions[1]
+			} else {
+				edge := map[string]int{"1K": 1024, "2K": 2048, "4K": 4096}[tier]
+				step := edge / (max(w, h) * 16)
+				w *= step * 16
+				h *= step * 16
+			}
 		}
 		resolved := "1K"
 		// Standard 1K landscape/portrait requests include 1536x1024.
@@ -150,6 +154,12 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 			resolved = "4K"
 		} else if max(w, h) > 1536 {
 			resolved = "2K"
+		}
+		// The verified square 4K output has a 2880px edge. Preserve the
+		// explicit retail tier when this request is normalized again for
+		// estimation or relay; do not reclassify it as 2K by its long edge.
+		if dimensions, verified := verifiedToAPISVIP4KSize(request.Model, ratio); tier == "4K" && verified && w == dimensions[0] && h == dimensions[1] {
+			resolved = "4K"
 		}
 		if tier != "" && tier != resolved {
 			return request, fmt.Errorf("%s pixel size conflicts with resolution", request.Model)
@@ -220,4 +230,22 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 	}
 	request.Extra = extra
 	return request, nil
+}
+
+// These two model/ratio combinations were verified against ToAPIs channel 31
+// on 2026-10-14, including the resulting PNG dimensions. The ordinary model's
+// published 4K table is not a VIP contract: Flare VIP rejected 2880x2880 in
+// the same probe. Do not extrapolate these dimensions to other model/ratios.
+func verifiedToAPISVIP4KSize(model, ratio string) ([2]int, bool) {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "gpt-image-2.5-sunburst-vip":
+		if ratio == "1:1" {
+			return [2]int{2880, 2880}, true
+		}
+	case "gpt-image-2.5-flare-vip":
+		if ratio == "16:9" {
+			return [2]int{3840, 2160}, true
+		}
+	}
+	return [2]int{}, false
 }

@@ -230,25 +230,8 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 		payload.Extras["quality"] = request.Quality
 		payload.Extras["n"] = 1
-	} else if mainconstant.IsToAPISNanoBanana21(info.UpstreamModelName) {
-		payload.AspectRatio = ""
-		payload.Resolution = ""
-		delete(payload.Extras, "resolution")
-		delete(payload.Extras, "image_size")
-		delete(payload.Extras, "imageSize")
-		// Nano 2.1 requires the resolution inside metadata, unlike earlier
-		// APIMart-compatible image models which use top-level resolution.
-		metadata := map[string]any{}
-		if raw := request.Extra["metadata"]; len(raw) > 0 {
-			_ = common.Unmarshal(raw, &metadata)
-		}
-		for key := range metadata {
-			if _, explicit := request.Extra[key]; !explicit {
-				delete(payload.Extras, key)
-			}
-		}
-		metadata["resolution"] = resolution
-		payload.Extras["metadata"] = metadata
+	} else if usesToAPISNestedImageMetadata(info.UpstreamModelName, info.ChannelBaseUrl) {
+		nestToAPISImageMetadata(payload, request, resolution)
 	}
 	return payload, nil
 }
@@ -299,7 +282,8 @@ func (a *Adaptor) doAsyncImage(c *gin.Context, info *relaycommon.RelayInfo, requ
 
 	resp, err := channel.DoRequest(c, httpReq, info)
 	if err != nil {
-		return nil, fmt.Errorf("apimart: submit failed: %w", err)
+		return nil, imageTaskError("Upstream image submission outcome is unknown", "upstream_image_submission_unknown", http.StatusBadGateway,
+			types.UpstreamImageTaskEvidence{Provider: "apimart", Status: "unknown"})
 	}
 	if resp.StatusCode != http.StatusOK {
 		return resp, nil
@@ -308,30 +292,61 @@ func (a *Adaptor) doAsyncImage(c *gin.Context, info *relaycommon.RelayInfo, requ
 	defer resp.Body.Close()
 	submitBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("apimart: read submit body failed: %w", err)
+		return nil, imageTaskError("Unable to read upstream image submission receipt", "upstream_image_submission_unknown", http.StatusBadGateway,
+			types.UpstreamImageTaskEvidence{Provider: "apimart", RequestID: upstreamRequestID(resp.Header), Status: "unknown"})
 	}
 	var sResp taskapimart.SubmitResponse
 	if err := common.Unmarshal(submitBody, &sResp); err != nil {
-		return nil, fmt.Errorf("apimart: unmarshal submit body failed: %w, body=%s", err, string(submitBody))
+		// HTTP 200 can still contain a flat provider error instead of a task.
+		// Keep its original code without treating it as an accepted task.
+		var providerErr dto.GeneralErrorResponse
+		if common.Unmarshal(submitBody, &providerErr) == nil {
+			if oaiErr := providerErr.TryToOpenAIError(); oaiErr != nil {
+				if code, ok := oaiErr.Code.(string); ok && code != "" {
+					return nil, imageTaskError(oaiErr.Message, code, http.StatusBadGateway,
+						types.UpstreamImageTaskEvidence{Provider: "apimart", RequestID: upstreamRequestID(resp.Header), Status: "unknown", ErrorCode: code})
+				}
+			}
+		}
+		return nil, imageTaskError("Invalid upstream image submission receipt", "upstream_image_submission_unknown", http.StatusBadGateway,
+			types.UpstreamImageTaskEvidence{Provider: "apimart", RequestID: upstreamRequestID(resp.Header), Status: "unknown"})
 	}
 	// Accepted() covers both the APIMart ({code:200,data:[…]}) and the toapis
 	// flat ({id,object:"generation.task",status}) submit envelopes.
 	if !sResp.Accepted() {
-		return synthesizeJSONResponse(http.StatusBadGateway, submitBody), nil
+		// Preserve the provider error through DoResponse without inventing a
+		// terminal failure from an envelope that contains no accepted task.
+		return synthesizeJSONResponse(http.StatusOK, submitBody), nil
 	}
 	taskID := sResp.TaskID()
+	requestID := upstreamRequestID(resp.Header)
+	var receipt struct {
+		RequestID string `json:"request_id"`
+	}
+	if common.Unmarshal(submitBody, &receipt) == nil && receipt.RequestID != "" {
+		requestID = receipt.RequestID
+	}
 
-	detailBody, err := a.pollUntilTerminal(c.Request.Context(), info, taskID, sResp.IsFlat())
+	detailBody, err := a.pollUntilTerminal(c.Request.Context(), info, taskID, sResp.IsFlat(), requestID)
 	if err != nil {
 		return nil, err
 	}
-	return synthesizeJSONResponse(http.StatusOK, detailBody), nil
+	detailResp := synthesizeJSONResponse(http.StatusOK, detailBody)
+	detailResp.Header.Set(imageTaskIDHeader, taskID)
+	detailResp.Header.Set(imageRequestIDHeader, requestID)
+	detailResp.Header.Set(imageProviderHeader, imageTaskProvider(sResp.IsFlat()))
+	return detailResp, nil
 }
 
-func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.RelayInfo, taskID string, flat bool) ([]byte, error) {
+func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.RelayInfo, taskID string, flat bool, requestID string) ([]byte, error) {
+	evidence := types.UpstreamImageTaskEvidence{Provider: imageTaskProvider(flat), TaskID: taskID, RequestID: requestID, Accepted: taskID != "", Status: "unknown"}
+	unknown := func(message, code string, statusCode int) error {
+		evidence.Terminal = false
+		return imageTaskError(message, code, statusCode, evidence)
+	}
 	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
 	if err != nil {
-		return nil, fmt.Errorf("apimart: build poll client failed: %w", err)
+		return nil, unknown("Unable to query accepted upstream image task", "upstream_image_poll_failed", http.StatusBadGateway)
 	}
 	// APIMart polls /v1/tasks/{id}; toapis polls /v1/images/generations/{id}.
 	detailURL := info.ChannelBaseUrl + taskapimart.PollPath(taskID)
@@ -353,37 +368,45 @@ func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.Relay
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, unknown("Upstream image task polling was interrupted; task outcome is unconfirmed", "upstream_image_poll_interrupted", http.StatusGatewayTimeout)
 		case <-time.After(interval):
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("apimart: poll timeout after %s, taskID=%s", pollTimeout, taskID)
+			return nil, unknown("Upstream image task is still unconfirmed after the polling deadline", "upstream_image_poll_timeout", http.StatusGatewayTimeout)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
 		if err != nil {
-			return nil, err
+			return nil, unknown("Unable to query accepted upstream image task", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("apimart: poll detail failed: %w", err)
+			return nil, unknown("Unable to query accepted upstream image task", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
-			return nil, fmt.Errorf("apimart: read poll body failed: %w", readErr)
+			return nil, unknown("Unable to read upstream image task status", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("apimart: poll non-200: status=%d body=%s", resp.StatusCode, string(body))
+			return nil, unknown("Upstream image task status query was unsuccessful", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
 
 		var dResp taskapimart.DetailResponse
 		if err := common.Unmarshal(body, &dResp); err != nil {
-			return nil, fmt.Errorf("apimart: unmarshal detail failed: %w, body=%s", err, string(body))
+			return nil, unknown("Invalid upstream image task status receipt", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
+		detailID := dResp.ID
+		if dResp.Data != nil {
+			detailID = dResp.Data.ID
+		}
+		if detailID != "" && detailID != taskID {
+			return nil, unknown("Upstream image task receipt does not match the accepted task", "upstream_image_task_mismatch", http.StatusBadGateway)
+		}
+		evidence = imageTaskDetailEvidence(body, &dResp, taskID, evidence.RequestID, evidence.Provider)
 		// Ready() / EffectiveStatus() handle both the APIMart {code,data} and the
 		// toapis flat envelopes. Not-ready (error envelope) ends the poll and lets
 		// finishAsyncImage surface the error.
@@ -417,21 +440,37 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 func (a *Adaptor) finishAsyncImage(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
 	defer resp.Body.Close()
+	provider := resp.Header.Get(imageProviderHeader)
+	if provider == "" {
+		provider = "apimart"
+	}
+	evidence := imageTaskDetailEvidence(nil, nil, resp.Header.Get(imageTaskIDHeader), resp.Header.Get(imageRequestIDHeader), provider)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, types.NewError(fmt.Errorf("read upstream body failed: %w", err), types.ErrorCodeReadResponseBodyFailed)
+		return nil, imageTaskError("Unable to read upstream image task receipt", "upstream_image_poll_failed", http.StatusBadGateway, evidence)
 	}
 
 	var dResp taskapimart.DetailResponse
 	if err := common.Unmarshal(body, &dResp); err != nil {
-		return nil, types.NewError(fmt.Errorf("unmarshal detail failed: %w, body=%s", err, string(body)), types.ErrorCodeBadResponseBody)
+		return nil, imageTaskError("Invalid upstream image task receipt", "upstream_image_poll_failed", http.StatusBadGateway, evidence)
 	}
+	if dResp.Object == "generation.task" {
+		provider = "toapis"
+	}
+	detailID := dResp.ID
+	if dResp.Data != nil {
+		detailID = dResp.Data.ID
+	}
+	if evidence.TaskID != "" && detailID != "" && evidence.TaskID != detailID {
+		return nil, imageTaskError("Upstream image task receipt does not match the accepted task", "upstream_image_task_mismatch", http.StatusBadGateway, evidence)
+	}
+	evidence = imageTaskDetailEvidence(body, &dResp, evidence.TaskID, evidence.RequestID, provider)
 	if !dResp.Ready() {
 		msg := dResp.FailureReason()
 		if msg == "" {
 			msg = fmt.Sprintf("apimart upstream code=%d", dResp.Code)
 		}
-		return nil, types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeBadResponse, http.StatusBadGateway)
+		return nil, imageTaskError(msg, evidence.ErrorCode, http.StatusBadGateway, evidence)
 	}
 	status := dResp.EffectiveStatus()
 	switch status {
@@ -442,18 +481,14 @@ func (a *Adaptor) finishAsyncImage(c *gin.Context, resp *http.Response, info *re
 		if msg == "" {
 			msg = "apimart task " + status
 		}
-		return nil, types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeBadResponse, http.StatusBadGateway)
+		return nil, imageTaskError(msg, evidence.ErrorCode, imageTaskFailureHTTPStatus(evidence), evidence)
 	default:
-		return nil, types.NewErrorWithStatusCode(
-			fmt.Errorf("apimart non-terminal status %q leaked to DoResponse", status),
-			types.ErrorCodeBadResponse, http.StatusBadGateway)
+		return nil, imageTaskError("Upstream image task has not reached a confirmed terminal state", evidence.ErrorCode, http.StatusBadGateway, evidence)
 	}
 
 	urls := dResp.AllURLs()
 	if len(urls) == 0 {
-		return nil, types.NewErrorWithStatusCode(
-			fmt.Errorf("apimart task succeeded with no result urls, body=%s", string(body)),
-			types.ErrorCodeBadResponse, http.StatusBadGateway)
+		return nil, imageTaskError("Upstream image task completed without a usable result", "upstream_image_result_missing", http.StatusBadGateway, evidence)
 	}
 
 	payload := dto.ImageResponse{Created: time.Now().Unix()}

@@ -110,16 +110,13 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		return
 	}
 
-	if common.GetJsonType(errResponse.Error) == "object" {
-		// General format error (OpenAI, Anthropic, Gemini, etc.)
-		oaiError := errResponse.TryToOpenAIError()
-		if oaiError != nil {
-			tanvasMartErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
-			if showBodyWhenFail {
-				tanvasMartErr.Err = buildErrWithBody(tanvasMartErr.Error())
-			}
-			return
+	// Handle both nested OpenAI errors and flat provider code/message envelopes.
+	if oaiError := errResponse.TryToOpenAIError(); oaiError != nil {
+		tanvasMartErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
+		if showBodyWhenFail {
+			tanvasMartErr.Err = buildErrWithBody(tanvasMartErr.Error())
 		}
+		return
 	}
 	tanvasMartErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 	if showBodyWhenFail {

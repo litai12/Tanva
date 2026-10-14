@@ -2165,6 +2165,14 @@ export class AiController {
 
       return result;
     } catch (error) {
+      if (imageExecution.upstreamImageTask && apiUsageId) {
+        await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+          upstreamImageTask: imageExecution.upstreamImageTask,
+        }).catch((receiptError) => {
+          imageExecution.rejected = false;
+          this.logger.warn(`保存图片上游回执失败，保留核账: apiUsageId=${apiUsageId}, error=${receiptError}`);
+        });
+      }
       if (chargeHandle && apiUsageId && needsImageReconciliation(imageExecution)) {
         this.logger.error(`IMAGE_RECONCILIATION_REQUIRED apiUsageId=${apiUsageId} error=${this.summarizeError(error)}`);
         await this.creditsService.updateApiUsageRequestParams(apiUsageId, {

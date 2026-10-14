@@ -21,14 +21,16 @@ type OpenAIErrorWithStatusCode struct {
 }
 
 type GeneralErrorResponse struct {
-	Error    json.RawMessage `json:"error"`
-	Message  string          `json:"message"`
-	Msg      string          `json:"msg"`
-	Err      string          `json:"err"`
-	ErrorMsg string          `json:"error_msg"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
-	Detail   string          `json:"detail,omitempty"`
-	Header   struct {
+	Error     json.RawMessage `json:"error"`
+	Code      json.RawMessage `json:"code,omitempty"`
+	ErrorCode string          `json:"error_code,omitempty"`
+	Message   string          `json:"message"`
+	Msg       string          `json:"msg"`
+	Err       string          `json:"err"`
+	ErrorMsg  string          `json:"error_msg"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	Detail    string          `json:"detail,omitempty"`
+	Header    struct {
 		Message string `json:"message"`
 	} `json:"header"`
 	Response struct {
@@ -44,6 +46,17 @@ func (e GeneralErrorResponse) TryToOpenAIError() *types.OpenAIError {
 		err := common.Unmarshal(e.Error, &openAIError)
 		if err == nil && openAIError.Message != "" {
 			return &openAIError
+		}
+	}
+	// Some providers send a flat {code:"invalid_request",message:"..."}
+	// envelope. Numeric HTTP-style codes are not provider error identifiers.
+	code := e.ErrorCode
+	if code == "" && common.GetJsonType(e.Code) == "string" {
+		_ = common.Unmarshal(e.Code, &code)
+	}
+	if code != "" {
+		if message := e.ToMessage(); message != "" {
+			return &types.OpenAIError{Message: message, Code: code, Type: "upstream_error"}
 		}
 	}
 	return nil

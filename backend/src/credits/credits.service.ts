@@ -157,6 +157,7 @@ type StalePendingUsageRecord = {
   serviceType: string;
   createdAt: Date;
   requestParams: Prisma.JsonValue;
+  imageTaskRequestData?: Prisma.JsonValue;
   consumptionStatus: string | null;
   processingTime?: number | null;
 };
@@ -6526,15 +6527,15 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
-    // Age alone says nothing about upstream acceptance or cost. Only usages whose
-    // ImageTask already reached `failed` without an image are orphans: the worker
-    // died or left them for reconciliation, and the stuck-task sweeper closed the
-    // task without settling the usage, so nothing else will ever refund them.
+    // Only legacy failed tasks without an image or provider receipt are eligible.
+    // A receipt (even incomplete) requires evidence-based reconciliation; age
+    // must not refund charged, pending, completed, or already refunded work.
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
     // createdAt is a UTC `timestamp` column; casting the ISO string drops the
     // `Z` and compares UTC wall clocks regardless of the DB session timezone.
     const orphanRecords = await this.prisma.$queryRaw<StalePendingUsageRecord[]>`
       SELECT a.id, a."userId", a."serviceType", a."createdAt", a."requestParams", a."consumptionStatus",
+        t."requestData" AS "imageTaskRequestData",
         COALESCE(a."processingTime", GREATEST(0,
           EXTRACT(EPOCH FROM (COALESCE(t."completedAt", t."updatedAt") - t."createdAt")) * 1000))::double precision AS "processingTime"
       FROM "ApiUsageRecord" a
@@ -6544,6 +6545,8 @@ export class CreditsService {
         AND a."createdAt" >= ${this.getOrphanImageRefundCutoverAt().toISOString()}::timestamp
         AND t.status = 'failed'
         AND t."imageUrl" IS NULL
+        AND (a."requestParams"->'upstreamImageTask') IS NULL
+        AND (t."requestData"->'upstreamImageTask') IS NULL
       ORDER BY a."createdAt" ASC
       LIMIT ${batchSize}`;
     return this.failAndRefundStaleRecords(
@@ -6652,6 +6655,9 @@ export class CreditsService {
     let errors = 0;
 
     for (const record of staleRecords) {
+      const containsImageReceipt = (value: unknown) => value !== null && typeof value === 'object' &&
+        Object.prototype.hasOwnProperty.call(value, 'upstreamImageTask');
+      if (containsImageReceipt(record.requestParams) || containsImageReceipt(record.imageTaskRequestData)) continue;
       // Paid language requests lack a trustworthy upstream cancellation query.
       // Elapsed time must not turn accepted desktop/web work into a refund.
       if (record.consumptionStatus || (record.requestParams as any)?.desktopChat || (record.requestParams as any)?.deepseekBilling ||

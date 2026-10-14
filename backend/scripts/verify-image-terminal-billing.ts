@@ -5,12 +5,16 @@ import { ImageTaskService } from '../src/ai/services/image-task.service';
 import { NewApiProvider } from '../src/ai/providers/new-api.provider';
 import { CreditsService } from '../src/credits/credits.service';
 import { ConfigService } from '@nestjs/config';
-import { imageExecutionContext, recordImageRejection, recordRemoteImages } from '../src/ai/services/image-execution-state';
+import { imageExecutionContext, recordImageGatewayFailure, recordImageRejection, recordRemoteImages } from '../src/ai/services/image-execution-state';
 
 const logger = { log() {}, debug() {}, warn() {}, error() {} };
+const failedReceipt = (billing = 'refunded') => ({ error: { message: 'upstream failed', upstream_image_task: {
+  provider: 'toapis', task_id: 'tsk_img_failed', request_id: 'upstream-request',
+  status: 'failed', accepted: true, terminal: true, billing_status: billing, error_code: 'generation_failed',
+} } });
 async function main() {
   // Same billing usage must never fund a second sync generation, including error paths.
-  for (const scenario of ['duplicate', 'disconnect', 'upload-failed', 'rejected', 'success']) {
+  for (const scenario of ['duplicate', 'disconnect', 'upload-failed', 'rejected', 'terminal-refunded', 'terminal-unconfirmed', 'success']) {
     let calls = 0, refunded = 0, committed = 0;
     const marks: any[] = [];
     const controller: any = Object.assign(Object.create(AiController.prototype), {
@@ -25,6 +29,10 @@ async function main() {
     const operation = async () => {
       calls++;
       if (scenario === 'rejected') { recordImageRejection(400); throw new Error('rejected'); }
+      if (scenario.startsWith('terminal-')) {
+        recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-refunded' ? 'refunded' : 'pending'));
+        throw new Error('upstream failed');
+      }
       if (scenario === 'disconnect') throw new Error('socket disconnected');
       await recordRemoteImages(['data:image/png;base64,xx', 'https://upstream.test/result.png']);
       if (scenario === 'upload-failed') throw new Error('OSS unavailable after successful generation');
@@ -33,9 +41,10 @@ async function main() {
     const run = () => controller.withCredits({ headers: {} }, 'gpt-image-2', 'gpt-image-2', operation);
     if (scenario === 'success') await run(); else await assert.rejects(run());
     assert.equal(calls, scenario === 'duplicate' ? 0 : 1, scenario);
-    assert.equal(refunded, scenario === 'rejected' ? 1 : 0, scenario);
+    assert.equal(refunded, ['rejected', 'terminal-refunded'].includes(scenario) ? 1 : 0, scenario);
     assert.equal(committed, scenario === 'success' ? 1 : 0, scenario);
     if (scenario === 'upload-failed') assert.deepEqual(marks[0].upstreamImageUrls, ['https://upstream.test/result.png']);
+    if (scenario.startsWith('terminal-')) assert.equal(marks[0].upstreamImageTask.task_id, 'tsk_img_failed');
   }
 
   // Real provider transport: disconnect/504/empty success issue exactly one POST.
@@ -55,7 +64,7 @@ async function main() {
   } finally { globalThis.fetch = originalFetch; }
 
   // Simultaneous workers both read queued, but only one can claim/charge/submit.
-  for (const scenario of ['success', 'unknown', 'rejected', 'duplicate', 'upload-failed', 'precharge-error', 'metadata-error']) {
+  for (const scenario of ['success', 'unknown', 'rejected', 'terminal-refunded', 'terminal-unconfirmed', 'terminal-receipt-error', 'duplicate', 'upload-failed', 'precharge-error', 'metadata-error']) {
     let row: any = { id: 'task', userId: 'owner', type: 'generate', prompt: 'test', status: 'queued', nodeId: 'node', requestData: { projectId: 'p' } };
     const snapshot = { ...row };
     let charged = 0, submitted = 0, refunded = 0, committed = 0;
@@ -72,7 +81,7 @@ async function main() {
         rollback: async () => { refunded++; }, commit: async () => { committed++; },
       },
       creditsService: {
-        updateApiUsageRequestParams: async () => { if (scenario === 'metadata-error') throw new Error('metadata unavailable'); },
+        updateApiUsageRequestParams: async () => { if (['metadata-error', 'terminal-receipt-error'].includes(scenario)) throw new Error('metadata unavailable'); },
         recordApiUsageProcessingTimeForUser: async (...args: any[]) => { durations.push(args); if (scenario === 'metadata-error') throw new Error('duration unavailable'); },
       },
       telemetryService: { ingestGenerationTask: async () => {} }, publishTaskStatus: async (_: any, event: any) => { events.push(event); },
@@ -80,6 +89,10 @@ async function main() {
         submitted++;
         if (['unknown', 'metadata-error'].includes(scenario)) throw new Error('network timeout');
         if (scenario === 'rejected') { recordImageRejection(400); throw new Error('bad request'); }
+        if (scenario.startsWith('terminal-')) {
+          recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-unconfirmed' ? 'pending' : 'refunded'));
+          throw new Error('upstream failed');
+        }
         return { imageUrl: 'https://upstream.test/result.png' };
       },
       uploadRemoteImageToOss: async () => { if (scenario === 'upload-failed') throw new Error('OSS failed'); return { url: 'https://assets.test/result.png' }; },
@@ -87,18 +100,24 @@ async function main() {
     await Promise.all([worker.executeTaskCore(snapshot), worker.executeTaskCore(snapshot)]);
     assert.equal(charged, 1, scenario);
     assert.equal(submitted, ['duplicate', 'precharge-error'].includes(scenario) ? 0 : 1, scenario);
-    assert.equal(refunded, scenario === 'rejected' ? 1 : 0, scenario);
+    assert.equal(refunded, ['rejected', 'terminal-refunded'].includes(scenario) ? 1 : 0, scenario);
     assert.equal(committed, scenario === 'success' ? 1 : 0, scenario);
     // Unknown outcomes end as failed immediately (no rollback here); the orphan job refunds later.
     assert.equal(row.status, scenario === 'success' ? 'succeeded' : 'failed', scenario);
     assert.equal(events.at(-1).status, row.status, `${scenario} broadcasts its terminal state`);
     if (['unknown', 'upload-failed'].includes(scenario)) assert.match(row.error, /1小时内自动退还/);
+    if (['terminal-unconfirmed', 'terminal-receipt-error'].includes(scenario)) {
+      assert.match(row.error, /按原任务回执结算/);
+      assert.doesNotMatch(row.error, /1小时内自动退还/);
+    }
     if (['unknown', 'upload-failed'].includes(scenario)) assert.equal(row.requestData.apiUsageId, 'usage');
-    if (['unknown', 'upload-failed', 'metadata-error'].includes(scenario)) {
+    if (['unknown', 'upload-failed', 'metadata-error', 'terminal-unconfirmed', 'terminal-receipt-error'].includes(scenario)) {
       assert.equal(durations.length, 1); assert.equal(durations[0][0], 'owner'); assert.equal(durations[0][1], 'usage');
       assert(Number.isFinite(durations[0][2])); assert(durations[0][2] >= 0);
       assert.equal(typeof row.requestData.imageExecutionStartedAt, 'string');
     } else assert.equal(durations.length, 0, 'duplicate cannot update the original receipt');
+    if (scenario.startsWith('terminal-')) assert.equal(row.requestData.upstreamImageTask.task_id, 'tsk_img_failed');
+    if (scenario === 'terminal-refunded') assert.equal(row.requestData.imageSubmissionState, 'confirmed_failed');
     row = { ...row, status: 'processing', createdAt: new Date(0) };
     assert.equal((await worker.getTaskStatus('task', 'owner')).status, 'processing', 'polling cannot fail an old task');
   }

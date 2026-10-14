@@ -18,12 +18,59 @@ func TestToAPISVIPImageRetailMatrix(t *testing.T) {
 				t.Run(model+"/"+quality+"/"+resolution, func(t *testing.T) {
 					request, err := NormalizeToAPISImageRequest(ImageRequest{Model: model, Prompt: "test", Size: "1:1", Quality: quality, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(fmt.Sprintf("%q", resolution))}})
 					require.NoError(t, err)
-					require.Equal(t, map[string]string{"1K": "1024x1024", "2K": "2048x2048", "4K": "4096x4096"}[resolution], request.Size)
+					wantSize := map[string]string{"1K": "1024x1024", "2K": "2048x2048", "4K": "4096x4096"}[resolution]
+					if model == "gpt-image-2.5-sunburst-vip" && resolution == "4K" {
+						wantSize = "2880x2880"
+					}
+					require.Equal(t, wantSize, request.Size)
 					require.InDelta(t, row[index], request.GetTokenCountMeta().ImagePriceRatio*.2, 1e-12)
 				})
 			}
 		}
 	}
+}
+
+func TestToAPISVerifiedVIP4KSizeAndBillingStayIdempotent(t *testing.T) {
+	for _, test := range []struct{ model, ratio, pixels string }{
+		{"gpt-image-2.5-sunburst-vip", "1:1", "2880x2880"},
+		{"gpt-image-2.5-flare-vip", "16:9", "3840x2160"},
+	} {
+		for _, quality := range []string{"low", "medium", "high", "xhigh", "max"} {
+			for _, size := range []string{test.ratio, test.pixels} {
+				request := ImageRequest{Model: test.model, Size: size, Quality: quality, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(`"4K"`)}}
+				for pass := 0; pass < 3; pass++ {
+					var err error
+					request, err = NormalizeToAPISImageRequest(request)
+					require.NoError(t, err, "%s/%s/pass%d", test.model, quality, pass)
+					require.Equal(t, test.pixels, request.Size)
+					require.JSONEq(t, `"4K"`, string(request.Extra["resolution"]))
+					price, ok := constant.ToAPISImagePriceCNY(test.model, quality, "4K")
+					require.True(t, ok)
+					require.InDelta(t, price, request.GetTokenCountMeta().ImagePriceRatio*.2, 1e-12)
+				}
+			}
+		}
+	}
+}
+
+func TestToAPISVerifiedVIP4KDoesNotExtrapolateOrRewritePixelInput(t *testing.T) {
+	for _, test := range []struct{ model, size, resolution, want string }{
+		{"gpt-image-2.5-flare-vip", "1:1", "4K", "4096x4096"},
+		{"gpt-image-2.5-sunburst-vip", "16:9", "4K", "4096x2304"},
+		{"gpt-image-2.5-flare-vip", "9:16", "4K", "2304x4096"},
+		{"gpt-image-2.5-sunburst-vip", "1:1", "2K", "2048x2048"},
+		{"gpt-image-2.5-flare-vip", "16:9", "2K", "2048x1152"},
+		{"gpt-image-2.5-sunburst-vip", "4096x4096", "4K", "4096x4096"},
+		{"gpt-image-2.5-flare-vip", "4096x2304", "4K", "4096x2304"},
+	} {
+		request, err := NormalizeToAPISImageRequest(ImageRequest{Model: test.model, Size: test.size, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(fmt.Sprintf("%q", test.resolution))}})
+		require.NoError(t, err)
+		require.Equal(t, test.want, request.Size)
+	}
+	request, err := NormalizeToAPISImageRequest(ImageRequest{Model: "gpt-image-2.5-sunburst-vip", Size: "2880x2880"})
+	require.NoError(t, err)
+	require.Equal(t, "2880x2880", request.Size)
+	require.JSONEq(t, `"2K"`, string(request.Extra["resolution"]))
 }
 
 func TestToAPISVIPDefaultsAndPixelBilling(t *testing.T) {

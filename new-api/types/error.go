@@ -11,11 +11,27 @@ import (
 )
 
 type OpenAIError struct {
-	Message  string          `json:"message"`
-	Type     string          `json:"type"`
-	Param    string          `json:"param"`
-	Code     any             `json:"code"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Message           string                     `json:"message"`
+	Type              string                     `json:"type"`
+	Param             string                     `json:"param"`
+	Code              any                        `json:"code"`
+	Metadata          json.RawMessage            `json:"metadata,omitempty"`
+	UpstreamImageTask *UpstreamImageTaskEvidence `json:"upstream_image_task,omitempty"`
+}
+
+// UpstreamImageTaskEvidence records what the provider actually confirmed. A
+// transport failure alone is not evidence that an accepted task was refunded.
+type UpstreamImageTaskEvidence struct {
+	Provider      string `json:"provider"`
+	TaskID        string `json:"task_id,omitempty"`
+	RequestID     string `json:"request_id,omitempty"`
+	Status        string `json:"status"`
+	Accepted      bool   `json:"accepted"`
+	Terminal      bool   `json:"terminal"`
+	BillingStatus string `json:"billing_status,omitempty"`
+	ErrorCode     string `json:"error_code,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	UpstreamCode  string `json:"upstream_code,omitempty"`
 }
 
 type ClaudeError struct {

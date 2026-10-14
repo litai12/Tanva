@@ -1,5 +1,5 @@
 import { TOAPIS_NEW_IMAGE_MODELS, isNanoBanana21Model, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
-import { recordImageRejection, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
+import { recordImageGatewayFailure, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { GatewayConsumptionOrdersService } from '../../consumption-orders/gateway-consumption-orders.service';
@@ -28,6 +28,7 @@ import {
 import { normalizeGeminiImageSize } from '../image-size.util';
 import { extractNewApiTokenUsage } from '../services/doubao-seed-video-analysis-pricing';
 import { collectAgentTextStream } from './new-api-agent-text-stream';
+import { ImageReferencePreparationService } from '../services/image-reference-preparation.service';
 
 // 图片生成/编辑链路上游可能跑很久（大图 + 4K），把 undici 默认 5 分钟
 // 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
@@ -95,7 +96,8 @@ export class NewApiProvider implements IAIProvider {
   private svipApiKey = '';
 
   constructor(private readonly config: ConfigService,
-    @Optional() private readonly consumptionOrders?: GatewayConsumptionOrdersService) {}
+    @Optional() private readonly consumptionOrders?: GatewayConsumptionOrdersService,
+    @Optional() private readonly imageReferences?: ImageReferencePreparationService) {}
 
   async initialize(): Promise<void> {
     this.baseUrl = this.normalizeBaseUrl(
@@ -192,7 +194,7 @@ export class NewApiProvider implements IAIProvider {
       official_fallback: request.officialFallback,
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_GENERATION_FAILED', request.providerOptions);
+    return this.callPreparedImageEndpoint(payload, 'IMAGE_GENERATION_FAILED', request.providerOptions);
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
@@ -213,7 +215,7 @@ export class NewApiProvider implements IAIProvider {
       image_urls: [this.requireRemoteImageReference(request.sourceImage, 'image_urls[0]')],
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_EDIT_FAILED', request.providerOptions);
+    return this.callPreparedImageEndpoint(payload, 'IMAGE_EDIT_FAILED', request.providerOptions);
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
@@ -236,7 +238,7 @@ export class NewApiProvider implements IAIProvider {
       ),
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_BLEND_FAILED', request.providerOptions);
+    return this.callPreparedImageEndpoint(payload, 'IMAGE_BLEND_FAILED', request.providerOptions);
   }
 
   async analyzeImage(
@@ -693,6 +695,28 @@ export class NewApiProvider implements IAIProvider {
     return { output_format: outputFormat };
   }
 
+  private async callPreparedImageEndpoint(
+    payload: Record<string, unknown>,
+    errorCode: string,
+    providerOptions?: ProviderOptionsPayload,
+  ): Promise<AIProviderResponse<ImageResult>> {
+    const references = Array.isArray(payload.image_urls) ? payload.image_urls as string[] : [];
+    // AiModule supplies this service in production. Optional permits standalone
+    // provider contract tests that do not have storage/network dependencies.
+    const prepared = this.imageReferences
+      ? await this.imageReferences.prepare(references, payload.model, providerOptions)
+      : { urls: references, adjustments: [] };
+    const result = await this.callImageEndpoint({ ...payload,
+      image_urls: prepared.urls.length ? prepared.urls : payload.image_urls,
+    }, errorCode, providerOptions);
+    if (result.data && prepared.adjustments.length) {
+      result.data.metadata = { ...result.data.metadata,
+        imageReferencePreparation: prepared.adjustments,
+      };
+    }
+    return result;
+  }
+
   private async callImageEndpoint(
     payload: Record<string, unknown>,
     errorCode: string,
@@ -1044,7 +1068,7 @@ export class NewApiProvider implements IAIProvider {
       !responsePolicy?.acceptedStatuses ||
       responsePolicy.acceptedStatuses.includes(response.status);
     if (!response.ok || !statusAccepted) {
-      if (path === "/v1/images/generations") recordImageRejection(response.status);
+      if (path === "/v1/images/generations") recordImageGatewayFailure(response.status, data);
       const message =
         this.extractNewApiFailureMessage(data) ||
         (!statusAccepted
