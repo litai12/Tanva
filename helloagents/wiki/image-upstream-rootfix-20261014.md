@@ -26,4 +26,10 @@
 
 定向 Go DTO、APIMart、relay、types、service 与 ToAPIS helper 回归通过；完整 helper 套件另有既存 StreamScanner ticker interval<=0 失败，不属于本次改动。后端验证覆盖参考图实文件、三入口、参数与回执透传、即时/延期退款边界及 VOD 回归。
 
-发布遵循先提交推送、101 fast-forward、按提交隔离构建、等待在途图片任务结束、定向替换后端模块与网关镜像、校验健康与哈希。无数据库迁移，无前端发布，不连带发布已在源码但未上线的图片对比功能。发布实绩待部署后补录。
+发布遵循先提交推送、101 fast-forward、按提交隔离构建、等待在途图片任务结束、定向替换后端模块与网关镜像、校验健康与哈希。无数据库迁移，无前端发布，不连带发布已在源码但未上线的图片对比功能。代码提交 `adacee573c8f3510e185bff31502dee5a8a6ccdc`，线路隔离补充 `3300b5b4cea4ba5200f38ea02a850de1a8269fd1`，均已推送并在 101 fast-forward。按最终提交隔离构建后只替换 7 个后端模块（14 个 JS/声明文件）与 new-api 镜像；基线 6 个已有模块与线上旧产物逐文件完全一致，未连带发布无关源码。
+
+部署前暂停图片队列，等 3 个在途任务结束，确认 active=0 且网关未结请求=0 后切换；成功后恢复队列。新镜像 `backend-new-api:image-rootfix-20261014`，二进制 SHA256 `c8deee7283cb3826ec05f85e762f43962951dc081b9e71ea6170f9b530611441`，所有网关环境变量保持不变。网关源码树在两个代码提交间完全相同，构建来源已记录。后端 14 文件与隔离构建哈希一致，PM2 reload、内网/公网后端与网关健康均通过。
+
+真实失败参考图只做无生成预检：28,472,274 字节 PNG → 2,892,176 字节 JPEG，5056×3392 尺寸保持；原 Alpha 全不透明，无透明内容损失，未改写原图。回执延期退款查询用实际 PostgreSQL 临时表、9 类 fixture 验证后 ROLLBACK，未修改业务账本。定向测试在本地及生产隔离目录通过，无用户任务自动重跑。
+
+完整证据 `/opt/tanva-releases/image-rootfix-20261014/`（deployment.json / gateway-build-provenance.json / postcheck.json / precheck / probes）；模块回退 `/opt/tanva-backups/image-rootfix-20261014/backend/dist`，旧镜像 `backend-new-api:nano21-official-catalog-20261012`。
