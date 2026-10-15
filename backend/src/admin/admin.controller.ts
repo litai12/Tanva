@@ -34,6 +34,7 @@ import { VolcAssetService } from '../volc-asset/volc-asset.service';
 import { MembershipService } from '../membership/membership.service';
 import {
   UsersQueryDto,
+  UserPaidOrdersQueryDto,
   CreateAdminUserDto,
   ApiUsageStatsQueryDto,
   ApiUsageModelStatsQueryDto,
@@ -176,6 +177,17 @@ export class AdminController {
       throw new NotFoundException('用户不存在');
     }
     return user;
+  }
+
+  @Get('users/:userId/paid-orders')
+  @ApiOperation({ summary: '分页查看指定用户全部成功支付订单（固定每页20笔）' })
+  async getUserPaidOrders(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Query() query: UserPaidOrdersQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getUserPaidOrders(userId, query.page);
   }
 
   @Patch('users/:userId/status')

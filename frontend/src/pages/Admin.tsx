@@ -1,5 +1,6 @@
 import UserCreditTransactions from "@/components/admin/UserCreditTransactions";
-import { useState, useEffect, useCallback } from "react";
+import UserPaidOrdersModal from "@/components/admin/UserPaidOrdersModal";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
@@ -22,6 +23,13 @@ import {
   sanitizeLoginNoticeHtml,
 } from "@/utils/loginNoticeRichText";
 import { WECHAT_QR_ACTION_URL } from "@/utils/wechatQrPanel";
+import {
+  ADMIN_ORDER_TYPE_LABELS,
+  ADMIN_PAYMENT_METHOD_LABELS,
+  ADMIN_BILLING_CYCLE_LABELS,
+  getAdminOrderTypeLabel,
+  getAdminPaymentMethodLabel,
+} from "@/utils/adminOrderLabels";
 import {
   getDashboardStats,
   getUsers,
@@ -166,6 +174,7 @@ const applySeedance25Price = (seedance20BaseUnitPriceYuan: number): number =>
 const EMPTY_RECHARGE_ORDERS: AdminUserRechargeOrders = {
   membership: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
   wechatRecharge: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
+  alipayRecharge: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
   recentOrders: [],
 };
 
@@ -5514,7 +5523,12 @@ function UsersTab({
   const [creditDetailModal, setCreditDetailModal] = useState<{
     userId: string;
     userName: string;
+    phone: string;
+    email: string | null;
   } | null>(null);
+  const [paidOrdersOpen, setPaidOrdersOpen] = useState(false);
+  const closePaidOrders = useCallback(() => setPaidOrdersOpen(false), []);
+  const creditDetailRequestRef = useRef(0);
   const [creditDetailLoading, setCreditDetailLoading] = useState(false);
   const [creditDetailRecords, setCreditDetailRecords] = useState<{
     recharge: CreditChangeRecord[];
@@ -5529,7 +5543,8 @@ function UsersTab({
     useState<AdminUserRechargeOrders>(EMPTY_RECHARGE_ORDERS);
   const creditDetailRechargeOrderCount =
     creditDetailRechargeOrders.membership.count +
-    creditDetailRechargeOrders.wechatRecharge.count;
+    creditDetailRechargeOrders.wechatRecharge.count +
+    creditDetailRechargeOrders.alipayRecharge.count;
   const [membershipDrawer, setMembershipDrawer] = useState<{
     userId: string;
     userName: string;
@@ -5839,11 +5854,16 @@ function UsersTab({
   };
 
   const loadCreditDetails = async (user: UserWithCredits) => {
+    const requestId = ++creditDetailRequestRef.current;
+    setPaidOrdersOpen(false);
     setCreditDetailModal({
       userId: user.id,
       userName: user.name || user.phone,
+      phone: user.phone,
+      email: user.email,
     });
     setCreditDetailLoading(true);
+    setCreditDetailRecords({ recharge: [], manualAdd: [], inviteReward: [] });
     setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     try {
       const [rechargeResult, manualAddResult, inviteResult, userDetail] =
@@ -5869,13 +5889,15 @@ function UsersTab({
           getUserDetail(user.id),
         ]);
 
+      if (creditDetailRequestRef.current !== requestId) return;
       setCreditDetailRecords({
         recharge: rechargeResult.records,
         manualAdd: manualAddResult.records,
         inviteReward: inviteResult.records,
       });
-      setCreditDetailRechargeOrders(userDetail.rechargeOrders || EMPTY_RECHARGE_ORDERS);
+      setCreditDetailRechargeOrders({ ...EMPTY_RECHARGE_ORDERS, ...userDetail.rechargeOrders });
     } catch (error) {
+      if (creditDetailRequestRef.current !== requestId) return;
       console.error("加载积分详情失败:", error);
       setCreditDetailRecords({
         recharge: [],
@@ -5884,7 +5906,7 @@ function UsersTab({
       });
       setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     } finally {
-      setCreditDetailLoading(false);
+      if (creditDetailRequestRef.current === requestId) setCreditDetailLoading(false);
     }
   };
 
@@ -6816,13 +6838,18 @@ function UsersTab({
               <h3 className='text-lg font-semibold'>
                 积分详情 - {creditDetailModal.userName}
               </h3>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => setCreditDetailModal(null)}
-              >
-                关闭
-              </Button>
+              <div className='flex items-center gap-2'>
+                <Button variant='outline' size='sm' onClick={() => setPaidOrdersOpen(true)}>
+                  开发票
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setCreditDetailModal(null)}
+                >
+                  关闭
+                </Button>
+              </div>
             </div>
 
             {creditDetailLoading ? (
@@ -6838,14 +6865,16 @@ function UsersTab({
                       </span>
                     </div>
                     <div className='mb-3 space-y-2 rounded-md bg-gray-50 p-3 text-xs'>
-                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                      <div className='grid grid-cols-1 gap-2'>
                         <div className='rounded border border-gray-200 bg-white p-2'>
                           <div className='text-gray-500'>开会员</div>
                           <div className='mt-1 font-semibold text-gray-800'>
                             {creditDetailRechargeOrders.membership.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.membership.totalAmount)}
                           </div>
                           <div className='mt-1 text-green-600'>
-                            会员到账 +{creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分
+                            {creditDetailRechargeOrders.membership.totalCredits > 0
+                              ? `会员累计发放 +${creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分`
+                              : "积分按会员方案发放"}
                           </div>
                           <div className='mt-1 text-gray-400'>
                             最近: {creditDetailRechargeOrders.membership.latestPaidAt ? new Date(creditDetailRechargeOrders.membership.latestPaidAt).toLocaleString() : "-"}
@@ -6863,6 +6892,18 @@ function UsersTab({
                             最近: {creditDetailRechargeOrders.wechatRecharge.latestPaidAt ? new Date(creditDetailRechargeOrders.wechatRecharge.latestPaidAt).toLocaleString() : "-"}
                           </div>
                         </div>
+                        <div className='rounded border border-gray-200 bg-white p-2'>
+                          <div className='text-gray-500'>支付宝购买积分</div>
+                          <div className='mt-1 font-semibold text-gray-800'>
+                            {creditDetailRechargeOrders.alipayRecharge.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.alipayRecharge.totalAmount)}
+                          </div>
+                          <div className='mt-1 text-green-600'>
+                            充值到账 +{creditDetailRechargeOrders.alipayRecharge.totalCredits.toLocaleString()} 积分
+                          </div>
+                          <div className='mt-1 text-gray-400'>
+                            最近: {creditDetailRechargeOrders.alipayRecharge.latestPaidAt ? new Date(creditDetailRechargeOrders.alipayRecharge.latestPaidAt).toLocaleString() : "-"}
+                          </div>
+                        </div>
                       </div>
                       {creditDetailRechargeOrders.recentOrders.length > 0 && (
                         <div className='space-y-1 border-t border-gray-200 pt-2'>
@@ -6870,7 +6911,7 @@ function UsersTab({
                             <div key={order.id} className='flex items-center justify-between gap-2'>
                               <div className='min-w-0'>
                                 <div className='truncate text-gray-700'>
-                                  {order.orderType === "membership" ? order.planName || "会员订单" : "微信购买积分"}
+                                  {order.orderType === "membership" ? order.planName || "会员订单" : getAdminOrderTypeLabel(order.orderType)} · {getAdminPaymentMethodLabel(order.paymentMethod)}
                                 </div>
                                 <div className='truncate text-gray-400'>{order.orderNo}</div>
                               </div>
@@ -6878,9 +6919,11 @@ function UsersTab({
                                 <div className='font-medium text-gray-700'>
                                   {formatYuanAmount(order.amount)}
                                 </div>
-                                <div className='text-green-600'>
-                                  {order.orderType === "membership" ? "会员" : "积分"} +{order.credits.toLocaleString()}
-                                </div>
+                                {order.credits > 0 && (
+                                  <div className='text-green-600'>
+                                    {order.orderType === "membership" ? "会员" : "积分"} +{order.credits.toLocaleString()}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -6890,7 +6933,7 @@ function UsersTab({
                     <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
                       {creditDetailRecords.recharge.length === 0 ? (
                         <div className='text-xs text-gray-400 py-6 text-center'>
-                          暂无微信积分充值流水
+                          暂无积分充值流水
                         </div>
                       ) : (
                         creditDetailRecords.recharge.map((record) => (
@@ -6981,6 +7024,9 @@ function UsersTab({
               </div>
             )}
           </div>
+          {paidOrdersOpen && (
+            <UserPaidOrdersModal key={creditDetailModal.userId} user={creditDetailModal} onClose={closePaidOrders} />
+          )}
         </div>
       )}
     </div>
@@ -8994,21 +9040,9 @@ function OrdersTab() {
     cancelled: "text-gray-400 bg-gray-50",
   };
 
-  const orderTypeLabel: Record<string, string> = {
-    recharge: "积分充值",
-    membership: "会员订阅",
-    team_seat: "团队座位",
-  };
-
-  const methodLabel: Record<string, string> = {
-    alipay: "支付宝",
-    wechat: "微信",
-  };
-
-  const billingCycleLabel: Record<string, string> = {
-    monthly: " · 月卡",
-    yearly: " · 年卡",
-  };
+  const orderTypeLabel = ADMIN_ORDER_TYPE_LABELS;
+  const methodLabel = ADMIN_PAYMENT_METHOD_LABELS;
+  const billingCycleLabel = ADMIN_BILLING_CYCLE_LABELS;
 
   return (
     <div className="space-y-4">

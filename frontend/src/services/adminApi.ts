@@ -237,6 +237,7 @@ export interface AdminUserRechargeOrderItem {
 export interface AdminUserRechargeOrders {
   membership: AdminUserRechargeOrderSummary;
   wechatRecharge: AdminUserRechargeOrderSummary;
+  alipayRecharge: AdminUserRechargeOrderSummary;
   recentOrders: AdminUserRechargeOrderItem[];
 }
 
@@ -1938,6 +1939,23 @@ export interface AdminOrder {
   paidAt: string | null;
   expiredAt: string | null;
   createdAt: string;
+}
+
+export interface AdminUserPaidOrders {
+  orders: AdminOrder[];
+  pagination: Pagination;
+  totalAmount: number;
+}
+
+/** 当前用户所有支付成功交易；服务端固定每页 20 条。 */
+export async function getAdminUserPaidOrders(
+  userId: string,
+  page = 1,
+  signal?: AbortSignal,
+): Promise<AdminUserPaidOrders> {
+  const searchParams = new URLSearchParams({ page: String(page) });
+  const response = await request(`/api/admin/users/${encodeURIComponent(userId)}/paid-orders?${searchParams}`, { signal });
+  return response.json();
 }
 
 export async function syncAdminOrder(orderNo: string): Promise<{ synced: boolean; status: string }> {

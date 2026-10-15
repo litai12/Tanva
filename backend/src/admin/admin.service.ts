@@ -67,6 +67,7 @@ export interface AdminUserRechargeOrderItem {
 export interface AdminUserRechargeOrders {
   membership: AdminUserRechargeOrderSummary;
   wechatRecharge: AdminUserRechargeOrderSummary;
+  alipayRecharge: AdminUserRechargeOrderSummary;
   recentOrders: AdminUserRechargeOrderItem[];
 }
 
@@ -1085,11 +1086,24 @@ export class AdminService {
         status: 'paid',
         OR: [
           { orderType: 'membership' },
-          { orderType: 'recharge', paymentMethod: 'wechat' },
+          { orderType: 'recharge', paymentMethod: { in: ['wechat', 'alipay'] } },
         ],
       },
-      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
-      take: 100,
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      // 汇总覆盖全部历史订单；只有下方 recentOrders 截取最近 20 笔。
+      select: {
+        id: true,
+        orderNo: true,
+        orderType: true,
+        amount: true,
+        credits: true,
+        paymentMethod: true,
+        paidAt: true,
+        createdAt: true,
+        membershipPlanId: true,
+        planSnapshot: true,
+        metadata: true,
+      },
     });
 
     const planIds = [
@@ -1121,6 +1135,7 @@ export class AdminService {
     });
     const membership = createEmptySummary();
     const wechatRecharge = createEmptySummary();
+    const alipayRecharge = createEmptySummary();
 
     for (const order of orders) {
       const target =
@@ -1128,7 +1143,9 @@ export class AdminService {
           ? membership
           : order.orderType === 'recharge' && order.paymentMethod === 'wechat'
             ? wechatRecharge
-            : null;
+            : order.orderType === 'recharge' && order.paymentMethod === 'alipay'
+              ? alipayRecharge
+              : null;
       if (!target) continue;
       const displayCredits =
         order.orderType === 'membership'
@@ -1149,6 +1166,7 @@ export class AdminService {
     return {
       membership,
       wechatRecharge,
+      alipayRecharge,
       recentOrders: orders.slice(0, 20).map((order) => ({
         id: order.id,
         orderNo: order.orderNo,
@@ -2557,9 +2575,34 @@ export class AdminService {
     };
   }
 
+  async getUserPaidOrders(userId: string, page = 1) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('用户不存在');
+
+    const [result, totals] = await Promise.all([
+      this.getOrders({
+        userId,
+        status: 'paid',
+        page,
+        pageSize: 20,
+        orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      this.prisma.paymentOrder.aggregate({
+        where: { userId, status: 'paid' },
+        _sum: { amount: true },
+      }),
+    ]);
+    return { ...result, totalAmount: Number(totals._sum.amount ?? 0) };
+  }
+
   async getOrders(options: {
     page?: number;
     pageSize?: number;
+    userId?: string;
+    orderBy?: Prisma.PaymentOrderOrderByWithRelationInput[];
     search?: string;
     status?: string;
     paymentMethod?: string;
@@ -2569,10 +2612,11 @@ export class AdminService {
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, billingCycle, startDate, endDate } = options;
+    const { page = 1, pageSize = 20, userId, orderBy, search, status, paymentMethod, orderType, billingCycle, startDate, endDate } = options;
 
     const where: any = {};
 
+    if (userId) where.userId = userId;
     if (status && status !== 'all') where.status = status;
     if (paymentMethod && paymentMethod !== 'all') where.paymentMethod = paymentMethod;
     if (orderType && orderType !== 'all') where.orderType = orderType;
@@ -2613,7 +2657,7 @@ export class AdminService {
       this.prisma.paymentOrder.count({ where }),
       this.prisma.paymentOrder.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: orderBy ?? { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

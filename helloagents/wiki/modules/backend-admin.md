@@ -12,6 +12,7 @@
 ## API（前缀 `/api/admin`，节选）
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
+- `GET users/:userId/paid-orders?page=1`：当前用户全部支付成功交易，固定每页 20 条；返回订单、分页和全部成功订单的累计支付金额，供积分详情内“开发票”弹窗核对。
 - `POST users`: full-admin user creation using phone, password, name, and optional email; creates the personal team and credit account just like registration.
 - `DELETE users/:userId`
 - `POST users/:userId/unbind-wechat`
@@ -40,6 +41,9 @@
 - User deletion probes production table/column presence before optional cleanup, so databases missing newer tables can still delete the account. It also clears `TeamProjectShare` rows for the user's projects and owned-team child rows before deleting owned `Team` records.
 
 ## 注意事项
+- 积分详情的充值订单摘要分别展示会员购买、微信积分充值、支付宝积分充值，按全历史成功订单累计，不受最近订单列表长度限制；最近订单保留真实支付渠道。
+- “开发票”弹窗按用户 ID 精确查询 `PaymentOrder.status=paid`，包含全部支付渠道及会员、个人充值、团队席位、团队积分等交易类型；按支付时间、创建时间、ID 倒序稳定分页。金额来自订单 `amount`（人民币元），不使用赠送积分、余额或管理员加积分换算。
+- 当前“开发票”入口提供成功交易核对记录，不创建税务发票、不修改开票状态、不触发支付同步或补单。访问沿用管理后台用户查询权限；普通用户不能调用。
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
 - 删除用户时，后端会在事务内先清理用户积分账户下的 `CreditTransaction`、`CreditLot`、`CreditAnomalyRecord`，再删除 `CreditAccount`；同时清理会员订阅相关表（`UserMembershipSubscription`、`MembershipSubscriptionChange`、`MembershipEntitlementSnapshot`），避免外键冲突或孤儿数据。
 - 系统设置中与供应商切换相关的 key：

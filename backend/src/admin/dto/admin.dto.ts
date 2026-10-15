@@ -1,5 +1,14 @@
-import { IsEmail, IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn, Length, Matches } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsNumber, IsInt, IsDateString, Min, Max, IsIn, Length, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export class UserPaidOrdersQueryDto {
+  @ApiPropertyOptional({ description: '页码（固定每页20笔）', default: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  page?: number = 1;
+}
 
 export class UsersQueryDto {
   @ApiPropertyOptional({ description: '页码', default: 1 })
