@@ -19,7 +19,7 @@ UTC 2026-10-14 15:36:30 起的 48 小时快照，渠道 31 共 1409 个唯一图
 
 ## 官方来源（本轮实际读取 Markdown）
 
-- [GPT Image 2.5 普通](https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2.5/generation.md)、[VIP](https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2.5-vip/generation.md)。
+- [GPT 标准尺寸表](https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2/generation.md)、[GPT Image 2.5 普通](https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2.5/generation.md)、[VIP](https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2.5-vip/generation.md)。
 - [Gemini 3.1](https://docs.toapis.com/docs/cn/api-reference/images/gemini-3.1-flash/generation.md)、[3 Pro](https://docs.toapis.com/docs/cn/api-reference/images/gemini-3-pro-image/generation.md)、[2.5](https://docs.toapis.com/docs/cn/api-reference/images/gemini-2.5-flash/generation.md)。
 - [Nano 2.1](https://docs.toapis.com/docs/cn/api-reference/images/gemini-nano-banana-2.1/generation.md)、[Nano 2.1 official](https://docs.toapis.com/docs/cn/api-reference/images/gemini-nano-banana-2.1-official/generation.md)、[任务状态](https://docs.toapis.com/docs/cn/api-reference/tasks/image-status.md)。
 
@@ -33,4 +33,21 @@ UTC 2026-10-14 15:36:30 起的 48 小时快照，渠道 31 共 1409 个唯一图
 
 证据目录：101 `/opt/tanva-releases/image-protocol-20261016/`，审计安全摘要在 `audit/safe-final-audit.json`，样例实图验收在 `probes/acceptance.json`，真实参考图预检在 `precheck/real-reference-evidence.json`。原始材料受保护，不复制到代码仓库。
 
-部署与最终回归回执在完成后追加。
+## 101 发布
+
+代码提交 `2266da29da5475423fa938735ccf8dc00bca07ea` 已推送并同步 101。按该提交隔离编译后端与 Linux amd64 网关，网关内嵌管理页面的 141 个文件与上一版哈希一致；没有发布前端或运行数据库迁移。
+
+UTC 2026-10-16 15:50:15 完成发布：暂停图片队列时 active=0、近期网关未结请求=0，备份并只替换后端参考图准备服务的 JS/声明两个文件及网关镜像。镜像为 `backend-new-api:image-protocol-20261016`，二进制 SHA256 `8b525b5d6bbf4a345a338517423075f923e6ce8c7d54fedcb028c301c8b03c86`；环境变量与旧容器完全一致。后端 PM2 reload、内网网关/后端及公网后端健康检查通过，产物哈希一致，图片队列已恢复。
+
+回退模块：`/opt/tanva-backups/image-protocol-20261016/backend/dist`；旧镜像 `backend-new-api:image-rootfix-20261014`。发布前校验原产物哈希和干净源码，持有部署锁，脚本含健康失败回退。发布回执 `deployment.json`。
+
+## 上线后的真实链路验收
+
+通过生产已部署的 NewApiProvider 和参考图准备服务发起两笔独立中性样例，不走用户钱包、不重跑历史节点：
+
+| 用例 | 实际结果 | 网关 request ID |
+| --- | --- | --- |
+| Gemini 3 Pro 1K + 单帧 GIF | GIF 392 字节 → 687 字节托管 PNG，参考图仍 256×256；生成 1024×1024 PNG，约 92 秒 | `202610161550237425959858268d9d6j1aWEw9H` |
+| Sunburst VIP high / 4K / 9:16 | 转为 2160×3840 像素请求，实际输出 2160×3840 PNG，约 46 秒 | `20261016155023182502118268d9d687tkqWOO` |
+
+两笔均 channel 31、唯一 type=2 消费日志；网关记账分别 CNY 0.4 / 0.8，未修改用户业务钱包。真实 trace 确认 Gemini 只有 `metadata.resolution=1K`，VIP 使用像素 size、无 resolution/aspect_ratio，保留 `official_fallback=false`。`gateway-acceptance/acceptance.json` 的 allPassed=true，`gateway-receipts.json` 的 allSettled=true。上线后容器 healthy、重启次数 0，内外网健康及后端产物哈希再次通过。
