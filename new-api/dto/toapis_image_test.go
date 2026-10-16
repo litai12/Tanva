@@ -18,10 +18,7 @@ func TestToAPISVIPImageRetailMatrix(t *testing.T) {
 				t.Run(model+"/"+quality+"/"+resolution, func(t *testing.T) {
 					request, err := NormalizeToAPISImageRequest(ImageRequest{Model: model, Prompt: "test", Size: "1:1", Quality: quality, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(fmt.Sprintf("%q", resolution))}})
 					require.NoError(t, err)
-					wantSize := map[string]string{"1K": "1024x1024", "2K": "2048x2048", "4K": "4096x4096"}[resolution]
-					if model == "gpt-image-2.5-sunburst-vip" && resolution == "4K" {
-						wantSize = "2880x2880"
-					}
+					wantSize := map[string]string{"1K": "1024x1024", "2K": "2048x2048", "4K": "2880x2880"}[resolution]
 					require.Equal(t, wantSize, request.Size)
 					require.InDelta(t, row[index], request.GetTokenCountMeta().ImagePriceRatio*.2, 1e-12)
 				})
@@ -53,15 +50,20 @@ func TestToAPISVerifiedVIP4KSizeAndBillingStayIdempotent(t *testing.T) {
 	}
 }
 
-func TestToAPISVerifiedVIP4KDoesNotExtrapolateOrRewritePixelInput(t *testing.T) {
+func TestToAPISVIPStandardSizesAndExplicitPixels(t *testing.T) {
 	for _, test := range []struct{ model, size, resolution, want string }{
-		{"gpt-image-2.5-flare-vip", "1:1", "4K", "4096x4096"},
-		{"gpt-image-2.5-sunburst-vip", "16:9", "4K", "4096x2304"},
-		{"gpt-image-2.5-flare-vip", "9:16", "4K", "2304x4096"},
+		{"gpt-image-2.5-flare-vip", "1:1", "4K", "2880x2880"},
+		{"gpt-image-2.5-sunburst-vip", "16:9", "4K", "3840x2160"},
+		{"gpt-image-2.5-flare-vip", "9:16", "4K", "2160x3840"},
 		{"gpt-image-2.5-sunburst-vip", "1:1", "2K", "2048x2048"},
 		{"gpt-image-2.5-flare-vip", "16:9", "2K", "2048x1152"},
 		{"gpt-image-2.5-sunburst-vip", "4096x4096", "4K", "4096x4096"},
 		{"gpt-image-2.5-flare-vip", "4096x2304", "4K", "4096x2304"},
+		{"gpt-image-2.5-flare-vip", "9:16", "1K", "864x1536"},
+		{"gpt-image-2.5-sunburst-vip", "3:2", "2K", "2048x1360"},
+		{"gpt-image-2.5-flare-vip", "2:3", "4K", "2336x3520"},
+		{"gpt-image-2.5-sunburst-vip", "21:9", "1K", "2016x864"},
+		{"gpt-image-2.5-flare-vip", "21:9", "4K", "3840x1648"},
 	} {
 		request, err := NormalizeToAPISImageRequest(ImageRequest{Model: test.model, Size: test.size, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(fmt.Sprintf("%q", test.resolution))}})
 		require.NoError(t, err)
@@ -70,7 +72,41 @@ func TestToAPISVerifiedVIP4KDoesNotExtrapolateOrRewritePixelInput(t *testing.T) 
 	request, err := NormalizeToAPISImageRequest(ImageRequest{Model: "gpt-image-2.5-sunburst-vip", Size: "2880x2880"})
 	require.NoError(t, err)
 	require.Equal(t, "2880x2880", request.Size)
-	require.JSONEq(t, `"2K"`, string(request.Extra["resolution"]))
+	require.JSONEq(t, `"4K"`, string(request.Extra["resolution"]))
+}
+
+func TestToAPISVIPAllRatioTiersStayValidAndBillableAcrossNormalization(t *testing.T) {
+	for _, model := range []string{"gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"} {
+		for _, ratio := range []string{"1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "21:9"} {
+			for _, tier := range []string{"1K", "2K", "4K"} {
+				for _, quality := range []string{"low", "medium", "high", "xhigh", "max"} {
+					request := ImageRequest{Model: model, Size: ratio, Quality: quality, Extra: map[string]json.RawMessage{"resolution": json.RawMessage(fmt.Sprintf("%q", tier))}}
+					var firstSize string
+					for pass := 0; pass < 3; pass++ {
+						var err error
+						request, err = NormalizeToAPISImageRequest(request)
+						require.NoError(t, err, "%s/%s/%s/%s/pass%d", model, ratio, tier, quality, pass)
+						if pass == 0 {
+							firstSize = request.Size
+							var w, h int
+							_, err := fmt.Sscanf(firstSize, "%dx%d", &w, &h)
+							require.NoError(t, err)
+							require.Zero(t, w%16)
+							require.Zero(t, h%16)
+							require.GreaterOrEqual(t, w*h, 655360)
+							require.LessOrEqual(t, w*h, 8294400)
+							require.LessOrEqual(t, max(w, h), 3840)
+						}
+						require.Equal(t, firstSize, request.Size)
+						require.JSONEq(t, fmt.Sprintf("%q", tier), string(request.Extra["resolution"]))
+						price, ok := constant.ToAPISImagePriceCNY(model, quality, tier)
+						require.True(t, ok)
+						require.InDelta(t, price, request.GetTokenCountMeta().ImagePriceRatio*.2, 1e-12)
+					}
+				}
+			}
+		}
+	}
 }
 
 func TestToAPISVIPDefaultsAndPixelBilling(t *testing.T) {
@@ -131,7 +167,7 @@ func TestToAPISNano21ResolutionAndReferences(t *testing.T) {
 
 func TestToAPISImageRejectsInvalidOrConflictingInputs(t *testing.T) {
 	for _, extra := range []string{
-		`"quality":"hd"`, `"n":0`, `"n":2`, `"size":"1024x512"`, `"size":"8192x8192"`,
+		`"quality":"hd"`, `"n":0`, `"n":2`, `"size":"1024x512"`, `"size":"8192x8192"`, `"size":"864x2016"`, `"size":"9:21"`,
 		`"size":"1024x1024","resolution":"4K"`,
 		`"resolution":"1K","metadata":{"resolution":"2K"}`,
 		`"metadata":{"n":2}`, `"metadata":[]`,

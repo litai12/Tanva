@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"time"
@@ -233,6 +234,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	} else if usesToAPISNestedImageMetadata(info.UpstreamModelName, info.ChannelBaseUrl) {
 		nestToAPISImageMetadata(payload, request, resolution)
 	}
+	normalizeToAPISGPTImagePayload(payload, info.ChannelBaseUrl)
 	return payload, nil
 }
 
@@ -360,22 +362,36 @@ func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.Relay
 	if common.RelayTimeout > 0 {
 		pollTimeout = time.Duration(common.RelayTimeout) * time.Second
 	}
-	deadline := time.Now().Add(pollTimeout)
+	// Bind both the wait and every HTTP request to the same deadline. A slow
+	// status endpoint must not keep an accepted task polling indefinitely.
+	pollCtx, cancel := context.WithTimeout(ctx, pollTimeout)
+	defer cancel()
 
 	interval := 1500 * time.Millisecond
 	const maxInterval = 5 * time.Second
+	if flat {
+		interval = maxInterval
+	}
 
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, unknown("Upstream image task polling was interrupted; task outcome is unconfirmed", "upstream_image_poll_interrupted", http.StatusGatewayTimeout)
-		case <-time.After(interval):
+		wait := interval
+		if flat && wait <= time.Duration(1<<63-1)-time.Second {
+			// ToAPIs documents at least 5s between queries, with jitter. A
+			// transient status-query failure only retries GET for this task.
+			wait += time.Duration(rand.Int64N(int64(time.Second)))
 		}
-		if time.Now().After(deadline) {
+		timer := time.NewTimer(wait)
+		select {
+		case <-pollCtx.Done():
+			timer.Stop()
+			if ctx.Err() != nil {
+				return nil, unknown("Upstream image task polling was interrupted; task outcome is unconfirmed", "upstream_image_poll_interrupted", http.StatusGatewayTimeout)
+			}
 			return nil, unknown("Upstream image task is still unconfirmed after the polling deadline", "upstream_image_poll_timeout", http.StatusGatewayTimeout)
+		case <-timer.C:
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
+		req, err := http.NewRequestWithContext(pollCtx, http.MethodGet, detailURL, nil)
 		if err != nil {
 			return nil, unknown("Unable to query accepted upstream image task", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
@@ -384,12 +400,24 @@ func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.Relay
 
 		resp, err := client.Do(req)
 		if err != nil {
+			if flat || pollCtx.Err() != nil {
+				interval = nextImagePollRetryDelay(interval, "", time.Now())
+				continue
+			}
 			return nil, unknown("Unable to query accepted upstream image task", "upstream_image_poll_failed", http.StatusBadGateway)
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
+			if flat || pollCtx.Err() != nil {
+				interval = nextImagePollRetryDelay(interval, "", time.Now())
+				continue
+			}
 			return nil, unknown("Unable to read upstream image task status", "upstream_image_poll_failed", http.StatusBadGateway)
+		}
+		if flat && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
+			interval = nextImagePollRetryDelay(interval, resp.Header.Get("Retry-After"), time.Now())
+			continue
 		}
 		if resp.StatusCode != http.StatusOK {
 			return nil, unknown("Upstream image task status query was unsuccessful", "upstream_image_poll_failed", http.StatusBadGateway)
@@ -417,7 +445,9 @@ func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.Relay
 			return body, nil
 		}
 
-		if interval < maxInterval {
+		if flat {
+			interval = maxInterval
+		} else if interval < maxInterval {
 			interval += 500 * time.Millisecond
 			if interval > maxInterval {
 				interval = maxInterval

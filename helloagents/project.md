@@ -63,7 +63,7 @@
 
 ### Flow / AI 运行约定
 
-- 图片上游按模型准备参考图与映射规格：旧 Nano2 的 ToAPIs 分辨率/搜索置于 metadata；已验证 VIP 4K 比例使用供应商实测尺寸且保留 4K 计费档。结构化上游任务回执贯穿同步/异步结算，明确终态且已退款才即时退款，未知结果按原任务核账、不得仅按年龄退款或自动重提。详见 `wiki/image-upstream-rootfix-20261014.md`。
+- 图片上游按模型准备参考图与映射规格：ToAPIs Gemini 的分辨率/搜索遵循各型号 metadata 合同；VIP 比例与档位使用标准像素表，包含舍入尺寸并保持多次归一化计费一致。已核验 Gemini 路线参考图按 10MB、JPEG/PNG/WebP 准备，其他可解码单帧格式转为远程派生资产，多帧不静默取首帧。任务查询暂态故障只继续 GET 原 ID，遵循 Retry-After 与原截止时间。结构化回执贯穿同步/异步结算，明确终态且已退款才即时退款，未知结果按原任务核账、不得仅按年龄退款或自动重提。现行合同见 `wiki/image-protocol-20261016.md`，历史见 `wiki/image-upstream-rootfix-20261014.md`。
 
 - 单图生成节点（generate / generatePro / generateRef / viewAngle / nano2 / gptImage2）须在参考图解析、上传或请求提交之前显示 running，并同步清除上一轮 taskId/taskPhase/error、重置进度起点。同步防重锁覆盖整个运行过程；准备失败必须显示失败并释放锁。停止按钮仅尝试取消已知的排队任务，不得先清除任务身份、停止轮询或开放重新生成；后台无法取消时继续等待真实终态。详见 `wiki/image-generation-submission-feedback.md`。
 - Prompt 提示词库的官方案例只能通过后端代理读取 `TAPCANVAS_PROMPT_LIBRARY_API_URL`，默认上游为 `https://tc.tanvas.cn/api/prompt-library`；前端不得固化另一仓库的样例数据或直连本机端口。视频卡片默认只加载封面，鼠标移入才按需静音播放，移出必须暂停、复位并恢复封面。用户自定义提示词与常用关系按账号写入 PostgreSQL；自定义卡片封面由用户选择图片并先上传 OSS，数据库只保存远程 HTTP(S) 引用，界面不得要求用户手填封面 URL。

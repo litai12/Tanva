@@ -114,7 +114,7 @@ func TestImagePollingPendingTimeoutRetainsAcceptedTask(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"task-123","object":"generation.task","status":"processing"}`))
 	}))
 	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
 	_, pollErr := (&Adaptor{}).pollUntilTerminal(ctx, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL}}, "task-123", true, "submit-request")
 	var apiErr *types.NewAPIError

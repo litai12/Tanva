@@ -129,23 +129,17 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 		divisor := gcd(w, h)
 		ratio := fmt.Sprintf("%d:%d", w/divisor, h/divisor)
 		allowed := map[string]bool{"1:1": true, "16:9": true, "9:16": true, "4:3": true, "3:4": true, "3:2": true, "2:3": true, "5:4": true, "4:5": true, "7:3": true}
-		if !allowed[ratio] {
+		pixelTier, standardPixels := toAPISVIPStandardPixelTier(w, h)
+		if !allowed[ratio] && (isRatio || !standardPixels) {
 			return request, fmt.Errorf("%s unsupported size ratio", request.Model)
 		}
 		if isRatio {
 			if tier == "" {
 				tier = "1K"
 			}
-			w /= divisor
-			h /= divisor
-			if dimensions, verified := verifiedToAPISVIP4KSize(request.Model, ratio); tier == "4K" && verified {
-				w, h = dimensions[0], dimensions[1]
-			} else {
-				edge := map[string]int{"1K": 1024, "2K": 2048, "4K": 4096}[tier]
-				step := edge / (max(w, h) * 16)
-				w *= step * 16
-				h *= step * 16
-			}
+			dimensions, _ := toAPISVIPStandardSize(ratio, tier)
+			w, h = dimensions[0], dimensions[1]
+			pixelTier, standardPixels = tier, true
 		}
 		resolved := "1K"
 		// Standard 1K landscape/portrait requests include 1536x1024.
@@ -155,11 +149,11 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 		} else if max(w, h) > 1536 {
 			resolved = "2K"
 		}
-		// The verified square 4K output has a 2880px edge. Preserve the
-		// explicit retail tier when this request is normalized again for
-		// estimation or relay; do not reclassify it as 2K by its long edge.
-		if dimensions, verified := verifiedToAPISVIP4KSize(request.Model, ratio); tier == "4K" && verified && w == dimensions[0] && h == dimensions[1] {
-			resolved = "4K"
+		// Standard tiers describe pixel area, not a universal long edge.
+		// Reuse the exact table on subsequent validation so rounded 3:2 and
+		// 21:9 sizes and 2880px square 4K remain billable at the same tier.
+		if standardPixels {
+			resolved = pixelTier
 		}
 		if tier != "" && tier != resolved {
 			return request, fmt.Errorf("%s pixel size conflicts with resolution", request.Model)
@@ -232,20 +226,54 @@ func NormalizeToAPISImageRequest(request ImageRequest) (ImageRequest, error) {
 	return request, nil
 }
 
-// These two model/ratio combinations were verified against ToAPIs channel 31
-// on 2026-10-14, including the resulting PNG dimensions. The ordinary model's
-// published 4K table is not a VIP contract: Flare VIP rejected 2880x2880 in
-// the same probe. Do not extrapolate these dimensions to other model/ratios.
-func verifiedToAPISVIP4KSize(model, ratio string) ([2]int, bool) {
-	switch strings.ToLower(strings.TrimSpace(model)) {
-	case "gpt-image-2.5-sunburst-vip":
-		if ratio == "1:1" {
-			return [2]int{2880, 2880}, true
-		}
-	case "gpt-image-2.5-flare-vip":
-		if ratio == "16:9" {
-			return [2]int{3840, 2160}, true
+// Tanva's ratio + retail tier input must be converted to pixels for VIP.
+// Use the standard GPT image size table published by ToAPIs, rather than
+// treating every 4K request as a 4096px long edge (up to 16.8MP). This is our
+// ratio conversion policy, not a claim about VIP's custom pixel-size limits.
+// Explicit pixel inputs are never resized. Provider validation still applies.
+var toAPISVIPStandardSizes = map[string][3][2]int{
+	"1:1":  {{1024, 1024}, {2048, 2048}, {2880, 2880}},
+	"3:2":  {{1536, 1024}, {2048, 1360}, {3520, 2336}},
+	"4:3":  {{1024, 768}, {2048, 1536}, {3312, 2480}},
+	"5:4":  {{1280, 1024}, {2560, 2048}, {3216, 2576}},
+	"16:9": {{1536, 864}, {2048, 1152}, {3840, 2160}},
+	"7:3":  {{2016, 864}, {2688, 1152}, {3840, 1648}},
+}
+
+func toAPISVIPStandardSize(ratio, tier string) ([2]int, bool) {
+	reverse := false
+	switch ratio {
+	case "2:3":
+		ratio, reverse = "3:2", true
+	case "3:4":
+		ratio, reverse = "4:3", true
+	case "4:5":
+		ratio, reverse = "5:4", true
+	case "9:16":
+		ratio, reverse = "16:9", true
+	}
+	row, ok := toAPISVIPStandardSizes[ratio]
+	if !ok {
+		return [2]int{}, false
+	}
+	index, ok := map[string]int{"1K": 0, "2K": 1, "4K": 2}[tier]
+	if !ok {
+		return [2]int{}, false
+	}
+	size := row[index]
+	if reverse {
+		size = [2]int{size[1], size[0]}
+	}
+	return size, true
+}
+
+func toAPISVIPStandardPixelTier(w, h int) (string, bool) {
+	for ratio, row := range toAPISVIPStandardSizes {
+		for index, dimensions := range row {
+			if w == dimensions[0] && h == dimensions[1] || ratio != "7:3" && w == dimensions[1] && h == dimensions[0] {
+				return [3]string{"1K", "2K", "4K"}[index], true
+			}
 		}
 	}
-	return [2]int{}, false
+	return "", false
 }

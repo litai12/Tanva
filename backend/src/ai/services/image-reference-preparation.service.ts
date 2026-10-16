@@ -9,30 +9,42 @@ import { Agent } from 'undici';
 import sharp from 'sharp';
 import { OssService } from '../../oss/oss.service';
 
-// The deployed Gemini 3.1 ToAPIs reference downloader rejects files > 20 MiB.
+// Current ToAPIs Gemini reference contracts document 10 MB per image.
 // This is a model/channel constraint, not the original asset/upload size limit.
-export const TOAPIS_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
+export const TOAPIS_REFERENCE_MAX_BYTES = 10_000_000;
 const DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 3;
 const MAX_INPUT_PIXELS = 40_000_000;
 
 /** Only apply verified contracts. Do not transfer one model's cap to other routes.
- * Gemini 3.1 normal/default: deployed ToAPIs download rejection says 20 MiB.
+ * Gemini ordinary routes and Nano 2.1: official generation pages document
+ * 10 MB and JPEG/PNG/WebP. Do not infer a larger supported limit from a
+ * downloader that only rejects at 20 MiB.
  * Stable/ultra use different gateway keys and do not inherit that cap.
- * GPT Image 2: https://docs.toapis.com/docs/cn/api-reference/images/gpt-image-2/edits
- * documents PNG/JPG inputs up to 50 MB; Tencent stable has a separate contract.
+ * GPT Image 2 retains its previously verified 50 MB byte limit; the former
+ * /gpt-image-2/edits page is no longer published, so do not infer a current
+ * format whitelist from it. Tencent stable has a separate contract.
  */
 export function imageReferenceByteLimit(model: unknown, options?: any): number | undefined {
   const identity = String(model || '').trim().toLowerCase();
   const imageRoute = options?.banana?.imageRoute || options?.bananaImageRoute;
-  if (/^gemini-3\.1-(?:image(?:-edit|-blend)?|flash-image-preview)$/.test(identity) &&
+  // Nano 2.1 official is also a ToAPIs model, even when its UI route is stable.
+  if (/^gemini-nano-banana-2\.1(?:-official)?$/.test(identity)) return TOAPIS_REFERENCE_MAX_BYTES;
+  if (/^gemini-(?:3\.1-(?:image(?:-edit|-blend)?|flash-image-preview)|3-pro-image(?:-preview|-edit|-blend)?|2\.5-(?:image(?:-edit|-blend)?|flash-image(?:-preview)?))$/.test(identity) &&
       (!imageRoute || imageRoute === 'normal')) {
     return TOAPIS_REFERENCE_MAX_BYTES;
   }
   if (identity === 'gpt-image-2' &&
       (options?.banana?.imageRoute || options?.bananaImageRoute) !== 'stable') return 50_000_000;
   return undefined;
+}
+
+function supportedReferenceFormats(model: unknown): readonly string[] | undefined {
+  // GPT2 retains its existing byte-only preparation contract: its current
+  // generation documentation does not specify a format whitelist.
+  return String(model || '').trim().toLowerCase().startsWith('gemini-')
+    ? ['jpeg', 'png', 'webp'] : undefined;
 }
 
 export function needsToapisReferencePreparation(model: unknown, options?: any): boolean {
@@ -90,15 +102,16 @@ export class ImageReferencePreparationService {
     }
     const results = new Map<string, { url: string; adjustment?: PreparedImageReference }>();
     const uniqueUrls = [...new Set(urls)];
+    const formats = supportedReferenceFormats(model);
     const probes = await Promise.allSettled(uniqueUrls.map(url =>
-      this.withHeadSlot(() => this.probeSize(url))));
+      this.withHeadSlot(() => this.probeSize(url, formats))));
     // Download/transform only references requiring it; retain render URLs and order.
     for (const [index, url] of uniqueUrls.entries()) {
       const probe = probes[index];
       if (probe.status === 'rejected') throw probe.reason;
       const size = probe.value;
       results.set(url, size !== undefined && size <= limit
-        ? { url } : await this.withSlot(() => this.prepareOne(url, limit)));
+        ? { url } : await this.withSlot(() => this.prepareOne(url, limit, formats)));
     }
     return {
       urls: urls.map(url => results.get(url)!.url),
@@ -117,12 +130,18 @@ export class ImageReferencePreparationService {
     }
   }
 
-  private async prepareOne(url: string, limit: number): Promise<{ url: string; adjustment?: PreparedImageReference }> {
+  private async prepareOne(url: string, limit: number, formats?: readonly string[]): Promise<{ url: string; adjustment?: PreparedImageReference }> {
     const directory = await fs.mkdtemp(join(tmpdir(), 'tanva-image-reference-'));
     const input = join(directory, 'input');
     try {
       const bytes = await this.download(url, input);
-      if (bytes <= limit) return { url };
+      const metadata = await sharp(input, { sequentialRead: true, limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+      if (!metadata.width || !metadata.height) throw new BadRequestException('参考图必须是有效的图片');
+      const unsupportedFormat = formats !== undefined && !formats.includes(metadata.format || '');
+      if (bytes <= limit && !unsupportedFormat) return { url };
+      if ((metadata.pages || 1) > 1) {
+        throw new BadRequestException('当前型号不支持此多帧参考图的格式或大小，请先选择要使用的单帧并上传');
+      }
       const prepared = await this.compress(input, limit);
       const key = `uploads/ai/references/${randomUUID()}.${prepared.format === 'jpeg' ? 'jpg' : 'png'}`;
       const upload = await this.oss.putBufferWithHeaders(key, prepared.buffer,
@@ -138,7 +157,7 @@ export class ImageReferencePreparationService {
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       // Do not leak presigned URLs or storage credentials in native/fetch errors.
-      throw new BadRequestException('无法准备远程参考图，请确认图片可访问且大小不超过 64MiB');
+      throw new BadRequestException('无法准备远程参考图，请确认图片可访问、格式可解码且大小不超过 64MiB');
     } finally {
       await fs.rm(directory, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -241,7 +260,7 @@ export class ImageReferencePreparationService {
     throw new Error('redirect limit');
   }
 
-  private async probeSize(url: string): Promise<number | undefined> {
+  private async probeSize(url: string, formats?: readonly string[]): Promise<number | undefined> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
     try {
@@ -251,9 +270,10 @@ export class ImageReferencePreparationService {
         const length = Number(lengthHeader);
         const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         const encoding = (response.headers.get('content-encoding') || 'identity').toLowerCase();
+        const format = ({ 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[mime];
         return response.ok && lengthHeader !== null && Number.isSafeInteger(length) && length > 0 &&
           encoding === 'identity' &&
-          ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)
+          format !== undefined && (!formats || formats.includes(format))
           ? length : undefined;
       } finally {
         await response.body?.cancel();

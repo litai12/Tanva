@@ -34,12 +34,13 @@ async function main(): Promise<void> {
       }
     }
   }
-  assert.equal(needsToapisReferencePreparation('gemini-nano-banana-2.1-official'), false);
+  assert.equal(needsToapisReferencePreparation('gemini-nano-banana-2.1-official'), true);
+  assert.equal(imageReferenceByteLimit('gemini-nano-banana-2.1', { bananaImageRoute: 'stable' }), 10_000_000);
   assert.equal(imageReferenceByteLimit('gpt-image-2'), 50_000_000);
-  assert.equal(imageReferenceByteLimit('gemini-3.1-flash-image-preview'), 20 * 1024 * 1024);
+  assert.equal(imageReferenceByteLimit('gemini-3.1-flash-image-preview'), 10_000_000);
   assert.equal(imageReferenceByteLimit('gpt-image-2.5-flare'), undefined);
   assert.equal(needsToapisReferencePreparation('seedream-5-0'), false);
-  assert.equal(needsToapisReferencePreparation('gemini-3-pro-image-preview'), false);
+  assert.equal(needsToapisReferencePreparation('gemini-3-pro-image-preview'), true);
 
   let source = await sharp({ create: { width: 64, height: 48, channels: 4,
     background: { r: 50, g: 20, b: 200, alpha: 0.5 } } }).png().toBuffer();
@@ -66,6 +67,34 @@ async function main(): Promise<void> {
   await service.prepare([SOURCE_URL], 'gemini-3.1-image-edit', { banana: { imageRoute: 'stable' } });
   assert.equal(downloads.length, 1, 'Tencent Gemini stable skips ToAPIs preparation');
 
+  // Real single-frame unsupported files are normalized even below the byte cap.
+  // Decode the rendered URL exactly, preserving alpha, dimensions, and crop query.
+  for (const format of ['avif', 'tiff', 'gif'] as const) {
+    source = await sharp({ create: { width: 64, height: 48, channels: 4,
+      background: { r: 50, g: 20, b: 200, alpha: 0.5 } } }).toFormat(format).toBuffer();
+    const changed = await service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1-official');
+    assert.equal(changed.adjustments[0].format, 'png', format);
+    const uploaded = await sharp(uploads.at(-1)!.buffer).metadata();
+    assert.equal(uploaded.width, 64, format);
+    assert.equal(uploaded.height, 48, format);
+    assert.equal(uploaded.hasAlpha || false, (await sharp(source).metadata()).hasAlpha || false, format);
+    assert.equal(changed.adjustments[0].originalUrl, SOURCE_URL);
+  }
+  source = await sharp({ create: { width: 64, height: 48, channels: 3,
+    background: { r: 50, g: 20, b: 200 } } }).withMetadata({ orientation: 6 }).tiff().toBuffer();
+  const oriented = await service.prepare([SOURCE_URL], 'gemini-3-pro-image-preview');
+  assert.equal(oriented.adjustments[0].width, 48, 'conversion applies EXIF orientation');
+  assert.equal(oriented.adjustments[0].height, 64);
+  const afterConversions = uploads.length;
+  source = randomBytes(64 * 96 * 4);
+  source = await sharp(source, { raw: { width: 64, height: 96, channels: 4, pageHeight: 48 } })
+    .gif().toBuffer();
+  assert.equal((await sharp(source).metadata()).pages, 2);
+  await assert.rejects(service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1'), /多帧/);
+  assert.equal(uploads.length, afterConversions, 'animated unsupported input never silently selects its first frame');
+  source = Buffer.from('not a decodable image');
+  await assert.rejects(service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1'), /格式可解码/);
+
   // A poorly compressed PNG larger than the production rejection shrinks losslessly.
   source = await sharp({ create: { width: 3200, height: 3000, channels: 3,
     background: { r: 127, g: 80, b: 180 } } }).png({ compressionLevel: 0 }).toBuffer();
@@ -74,13 +103,13 @@ async function main(): Promise<void> {
   assert.equal(lossless.adjustments[0].width, 3200);
   assert.equal(lossless.adjustments[0].height, 3000);
   assert.equal(lossless.adjustments[0].format, 'png');
-  assert.ok(uploads[0].buffer.length <= TOAPIS_REFERENCE_MAX_BYTES);
-  const pixel = await sharp(uploads[0].buffer).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
+  assert.ok(uploads.at(-1)!.buffer.length <= TOAPIS_REFERENCE_MAX_BYTES);
+  const pixel = await sharp(uploads.at(-1)!.buffer).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
   assert.deepEqual([...pixel], [127, 80, 180]);
   assert.ok(lossless.urls[0].startsWith('https://'));
   assert.equal(lossless.adjustments[0].originalUrl, SOURCE_URL);
 
-  // Actual 27+ MiB noisy PNG: same-size JPEG fits, avoiding loss of input dimensions.
+  // Actual 27+ MiB noisy PNG: JPEG and proportional resizing obey the 10 MB cap.
   source = await sharp(randomBytes(3200 * 3000 * 3), {
     raw: { width: 3200, height: 3000, channels: 3 },
   }).ensureAlpha().png({ compressionLevel: 0 }).toBuffer();
@@ -91,8 +120,8 @@ async function main(): Promise<void> {
   assert.deepEqual(gptCompliant, { urls: [SOURCE_URL], adjustments: [] });
   assert.equal(uploads.length, beforeGpt, '27MiB GPT2 source fits its 50MB contract');
   const opaque = await service.prepare([SOURCE_URL], 'gemini-3.1-flash-image-preview');
-  assert.equal(opaque.adjustments[0].width, 3200);
-  assert.equal(opaque.adjustments[0].height, 3000);
+  assert.ok(opaque.adjustments[0].width <= 3200);
+  assert.ok(opaque.adjustments[0].height <= 3000);
   assert.equal(opaque.adjustments[0].format, 'jpeg');
   assert.ok(opaque.adjustments[0].preparedBytes <= TOAPIS_REFERENCE_MAX_BYTES);
 
@@ -106,7 +135,7 @@ async function main(): Promise<void> {
   assert.ok(adjusted.width < 3200);
   assert.ok(Math.abs(adjusted.width / adjusted.height - 1.6) < 0.002);
   assert.ok(adjusted.preparedBytes <= TOAPIS_REFERENCE_MAX_BYTES);
-  assert.equal((await sharp(uploads[2].buffer).metadata()).hasAlpha, true);
+  assert.equal((await sharp(uploads.at(-1)!.buffer).metadata()).hasAlpha, true);
 
   // Provider boundary covers synchronous and async callers for all three verbs.
   const prepareCalls: string[][] = [];
@@ -191,6 +220,13 @@ async function main(): Promise<void> {
       urls: ['https://8.8.8.8/image.png'], adjustments: [],
     });
     assert.equal(unnecessaryGet, 0, 'compliant HEAD skips GET and decoding');
+    for (const mime of ['image/gif', 'image/avif', 'image/tiff', 'application/octet-stream']) {
+      globalThis.fetch = (async () => new Response(null, { headers: {
+        'content-length': '1024', 'content-type': mime,
+      } })) as any;
+      assert.equal(await downloader.probeSize('https://8.8.8.8/image.png', ['jpeg', 'png', 'webp']), undefined,
+        `${mime} must be downloaded and inspected even when small`);
+    }
     globalThis.fetch = (async () => new Response(null, { headers: { 'content-type': 'image/png' } })) as any;
     assert.equal(await downloader.probeSize('https://8.8.8.8/image.png'), undefined);
     globalThis.fetch = (async () => new Response(null, { status: 405 })) as any;
@@ -204,8 +240,10 @@ async function main(): Promise<void> {
       'content-length': String(30 * 1024 * 1024), 'content-type': 'image/png',
     } })) as any;
     downloader.download = async (_url: string, path: string) => {
-      await fs.writeFile(path, Buffer.from('small image body'));
-      return 16;
+      const small = await sharp({ create: { width: 2, height: 2, channels: 3,
+        background: { r: 50, g: 20, b: 200 } } }).png().toBuffer();
+      await fs.writeFile(path, small);
+      return small.length;
     };
     assert.deepEqual(await downloader.prepare(['https://8.8.8.8/image.png'], 'gemini-3.1-image'), {
       urls: ['https://8.8.8.8/image.png'], adjustments: [],

@@ -148,3 +148,68 @@ func TestLegacyNanoOtherProvidersRetainContract(t *testing.T) {
 	}
 	require.False(t, usesToAPISNestedImageMetadata("gpt-image-2.5-flare", "https://toapis.cn"))
 }
+
+func TestToAPISGeminiMetadataPreservesOtherDocumentedImageModels(t *testing.T) {
+	for _, model := range []string{"gemini-3.1-flash-image-preview-vip", "gemini-3.1-flash-image-official", "gemini-3-pro-image-preview", "nano-banana-pro", "gemini-3-pro-image-official", "gemini-2.5-flash-image-preview", "nano-banana"} {
+		t.Run(model, func(t *testing.T) {
+			require.True(t, usesToAPISNestedImageMetadata(model, "https://toapis.cn"))
+			require.False(t, usesToAPISNestedImageMetadata(model, "https://api.apimart.ai"))
+			var request dto.ImageRequest
+			require.NoError(t, common.Unmarshal([]byte(`{"metadata":{"resolution":"1K","temperature":0,"thinkingConfig":{"thinkingBudget":0}},"orientation":"portrait"}`), &request))
+			payload := &taskapimart.SubmitPayload{Model: model, Size: "3:4", Resolution: "1K", AspectRatio: "3:4", Extras: map[string]any{"resolution": "1K", "temperature": 0, "orientation": "portrait", "thinkingConfig": map[string]any{"thinkingBudget": 0}}}
+			nestToAPISImageMetadata(payload, request, "1K")
+			encoded, err := common.Marshal(payload)
+			require.NoError(t, err)
+			var got map[string]any
+			require.NoError(t, common.Unmarshal(encoded, &got))
+			require.Equal(t, "3:4", got["size"])
+			require.Equal(t, map[string]any{"resolution": "1K", "temperature": float64(0), "orientation": "portrait", "thinkingConfig": map[string]any{"thinkingBudget": float64(0)}}, got["metadata"])
+			for _, key := range []string{"resolution", "aspect_ratio", "orientation", "temperature", "thinkingConfig"} {
+				require.NotContains(t, got, key)
+			}
+		})
+	}
+}
+
+func TestToAPISGemini25OfficialPreservesNativeMetadataWithoutInventingResolution(t *testing.T) {
+	var request dto.ImageRequest
+	require.NoError(t, common.Unmarshal([]byte(`{"metadata":{"temperature":0,"thinkingConfig":{"thinkingBudget":0}}}`), &request))
+	model := "gemini-2.5-flash-image-official"
+	require.True(t, usesToAPISNestedImageMetadata(model, "https://toapis.cn"))
+	require.False(t, usesToAPISNestedImageMetadata(model, "https://api.apimart.ai"))
+	payload := &taskapimart.SubmitPayload{Model: model, Extras: map[string]any{"temperature": 0, "thinkingConfig": map[string]any{"thinkingBudget": 0}}}
+	nestToAPISImageMetadata(payload, request, "2K")
+	encoded, err := common.Marshal(payload)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, common.Unmarshal(encoded, &got))
+	require.Equal(t, map[string]any{"temperature": float64(0), "thinkingConfig": map[string]any{"thinkingBudget": float64(0)}}, got["metadata"])
+	require.NotContains(t, got, "resolution")
+}
+
+func TestToAPISGPTImagesUseSizeAndOrdinary25FixedQuality(t *testing.T) {
+	for _, model := range []string{"gpt-image-2", "gpt-image-2-official", "gpt-image-2-vip", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		for _, baseURL := range []string{"https://toapis.cn", "https://api.toapis.com", "https://api.apimart.ai"} {
+			payload := &taskapimart.SubmitPayload{Model: model, Size: "16:9", AspectRatio: "16:9", Resolution: "2K", Extras: map[string]any{"quality": "max", "aspect_ratio": "16:9", "official_fallback": false}}
+			normalizeToAPISGPTImagePayload(payload, baseURL)
+			encoded, err := common.Marshal(payload)
+			require.NoError(t, err)
+			var got map[string]any
+			require.NoError(t, common.Unmarshal(encoded, &got))
+			require.Equal(t, "16:9", got["size"])
+			require.Equal(t, "2K", got["resolution"])
+			require.Equal(t, false, got["official_fallback"])
+			if baseURL == "https://api.apimart.ai" {
+				require.Equal(t, "16:9", got["aspect_ratio"])
+				require.Equal(t, "max", got["quality"])
+			} else {
+				require.NotContains(t, got, "aspect_ratio")
+				if model == "gpt-image-2.5-flare" || model == "gpt-image-2.5-sunburst" {
+					require.Equal(t, "high", got["quality"])
+				} else {
+					require.Equal(t, "max", got["quality"])
+				}
+			}
+		}
+	}
+}
