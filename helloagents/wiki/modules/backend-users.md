@@ -19,4 +19,5 @@
 - `GET /api/admin/users` 增加 `inviterPhone: string | null`，按 `User.invitedBy.phone` 返回填写邀请码所关联的邀请人手机号；关系查询仅选取手机号，不返回邀请人其他资料。
 - 邀请码兑换与 `User.invitedById` 写入在同一事务完成。无邀请关系或邀请人无手机号时返回 `null`；管理员直接创建的用户同样返回 `null`。
 - Admin 用户列表在用户手机号右侧展示“邀请人手机号”，无值显示“—”。沿用管理员权限，无数据库迁移，不修改邀请码兑换或积分发放规则。
+- `GET /api/admin/users?inviterPhone=完整手机号` 独立筛选邀请人，首尾空白被忽略、空白等效未筛选，按 `invitedBy.phone` 精确匹配；与原用户关键词 `search` 组合时取交集。`pagination.total` 为全部匹配用户数量，不是当前页人数。
 

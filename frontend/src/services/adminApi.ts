@@ -380,6 +380,7 @@ export async function getUsers(params: {
   page?: number;
   pageSize?: number;
   search?: string;
+  inviterPhone?: string;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
 }): Promise<{ users: UserWithCredits[]; pagination: Pagination }> {
@@ -387,6 +388,7 @@ export async function getUsers(params: {
   if (params.page) searchParams.set("page", String(params.page));
   if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params.search) searchParams.set("search", params.search);
+  if (params.inviterPhone?.trim()) searchParams.set("inviterPhone", params.inviterPhone.trim());
   if (params.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
 

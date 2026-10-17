@@ -875,12 +875,17 @@ export class AdminService {
     page?: number;
     pageSize?: number;
     search?: string;
+    inviterPhone?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}): Promise<{ users: UserWithCredits[]; pagination: any }> {
     const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = options;
 
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
+    const inviterPhone = options.inviterPhone?.trim();
+    if (inviterPhone) {
+      where.invitedBy = { is: { phone: inviterPhone } };
+    }
     if (search) {
       where.OR = [
         { phone: { contains: search } },

@@ -5497,9 +5497,18 @@ function UsersTab({
   const currentUserId = useAuthStore((state) => state.user?.id);
   const [users, setUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [inviterPhoneInput, setInviterPhoneInput] = useState("");
+  const [userFilters, setUserFilters] = useState({ search: "", inviterPhone: "" });
   const [loading, setLoading] = useState(false);
+  const [usersError, setUsersError] = useState("");
   const [page, setPage] = useState(1);
+  const usersQueryKey = JSON.stringify({ page, ...userFilters });
+  const usersQueryRef = useRef<string | null>(usersQueryKey);
+  const usersRequestRef = useRef(0);
+  const [usersResultKey, setUsersResultKey] = useState<string | null>(null);
+  const usersResultIsCurrent = usersResultKey === usersQueryKey;
+  const usersTotalPages = Math.max(1, pagination?.totalPages ?? 1);
   const [pageJumpInput, setPageJumpInput] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [unbindingWechatUserId, setUnbindingWechatUserId] = useState<string | null>(null);
@@ -5677,22 +5686,52 @@ function UsersTab({
     }
   };
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
+    if (usersQueryRef.current !== usersQueryKey) return;
+    const requestId = ++usersRequestRef.current;
     setLoading(true);
+    setUsersError("");
+    setUsers([]);
+    setPagination(null);
     try {
-      const result = await getUsers({ page, pageSize: 10, search });
+      const result = await getUsers({ page, pageSize: 10, ...userFilters });
+      if (requestId !== usersRequestRef.current) return;
       setUsers(result.users);
       setPagination(result.pagination);
+      setUsersResultKey(usersQueryKey);
     } catch (error) {
+      if (requestId !== usersRequestRef.current) return;
       console.error("加载用户失败:", error);
+      setUsersError(error instanceof Error ? error.message : "加载用户失败，请重试");
+      setUsersResultKey(usersQueryKey);
     } finally {
-      setLoading(false);
+      if (requestId === usersRequestRef.current) setLoading(false);
     }
-  };
+  }, [page, userFilters, usersQueryKey]);
 
   useEffect(() => {
-    loadUsers();
-  }, [page, search]);
+    usersQueryRef.current = usersQueryKey;
+    void loadUsers();
+    return () => {
+      usersQueryRef.current = null;
+      usersRequestRef.current += 1;
+    };
+  }, [loadUsers, usersQueryKey]);
+
+  const handleUserSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    setUserFilters({ search: searchInput.trim(), inviterPhone: inviterPhoneInput.trim() });
+    setPage(1);
+    setPageJumpInput("");
+  };
+
+  const clearUserFilters = () => {
+    setSearchInput("");
+    setInviterPhoneInput("");
+    setUserFilters({ search: "", inviterPhone: "" });
+    setPage(1);
+    setPageJumpInput("");
+  };
 
   const handleCreditOperation = async () => {
     if (!creditModal || !creditAmount || !creditReason) return;
@@ -5915,7 +5954,7 @@ function UsersTab({
     if (!pagination) return;
     const target = Number.parseInt(pageJumpInput, 10);
     if (!Number.isFinite(target)) return;
-    const nextPage = Math.min(pagination.totalPages, Math.max(1, target));
+    const nextPage = Math.min(usersTotalPages, Math.max(1, target));
     setPage(nextPage);
     setPageJumpInput("");
   };
@@ -6291,22 +6330,36 @@ function UsersTab({
         </form>
       )}
 
-      {view === 'users' && <div className='mb-4 flex gap-2'>
-        <Input
-          placeholder='搜索手机号/邮箱/昵称'
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className='max-w-xs'
-        />
-        <Button
-          onClick={() => {
-            setPage(1);
-            loadUsers();
-          }}
-        >
-          搜索
+      {view === 'users' && <form onSubmit={handleUserSearch} className='mb-4 flex flex-wrap items-end gap-2'>
+        <label className='flex w-full max-w-xs flex-col gap-1 text-sm text-gray-600'>
+          用户搜索
+          <Input
+            placeholder='搜索手机号/邮箱/昵称'
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </label>
+        <label className='flex w-full max-w-xs flex-col gap-1 text-sm text-gray-600'>
+          邀请人手机号
+          <Input
+            type='tel'
+            placeholder='输入完整邀请人手机号（精确筛选）'
+            value={inviterPhoneInput}
+            onChange={(e) => setInviterPhoneInput(e.target.value)}
+          />
+        </label>
+        <Button type='submit'>搜索</Button>
+        <Button type='button' variant='outline' onClick={clearUserFilters}>
+          清除筛选
         </Button>
-      </div>}
+        {!loading && usersResultIsCurrent && pagination && userFilters.inviterPhone && (
+          <p className='w-full text-sm text-gray-600' role='status'>
+            {userFilters.search
+              ? `邀请人 ${userFilters.inviterPhone}：筛选匹配被邀请用户 ${pagination.total} 人`
+              : `邀请人 ${userFilters.inviterPhone} 共邀请 ${pagination.total} 人`}
+          </p>
+        )}
+      </form>}
 
       {view === 'users' && <div className='bg-white rounded-lg border overflow-hidden'>
         <div className='max-h-[1100px] overflow-auto'>
@@ -6326,13 +6379,19 @@ function UsersTab({
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading || !usersResultIsCurrent ? (
                 <tr>
                   <td
                     colSpan={tableColumnCount}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     加载中...
+                  </td>
+                </tr>
+              ) : usersError ? (
+                <tr>
+                  <td colSpan={tableColumnCount} className='px-4 py-8 text-center text-red-600' role='alert'>
+                    {usersError}
                   </td>
                 </tr>
               ) : users.length === 0 ? (
@@ -6488,7 +6547,7 @@ function UsersTab({
         </div>
       </div>}
 
-      {view === 'users' && pagination && (
+      {view === 'users' && !loading && usersResultIsCurrent && pagination && (
         <div className='mt-4 flex items-center justify-center gap-4'>
           <span className='text-sm text-gray-500'>
             共 {pagination.total} 条记录
@@ -6503,12 +6562,12 @@ function UsersTab({
               上一页
             </Button>
             <span className='px-4 py-2 text-sm'>
-              {page} / {pagination.totalPages}
+              {page} / {usersTotalPages}
             </span>
             <Button
               variant='outline'
               size='sm'
-              disabled={page === pagination.totalPages}
+              disabled={page >= usersTotalPages}
               onClick={() => setPage(page + 1)}
             >
               下一页
@@ -6518,7 +6577,7 @@ function UsersTab({
               <Input
                 type='number'
                 min={1}
-                max={pagination.totalPages}
+                max={usersTotalPages}
                 value={pageJumpInput}
                 onChange={(event) => setPageJumpInput(event.target.value)}
                 placeholder='页码'

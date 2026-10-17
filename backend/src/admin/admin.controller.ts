@@ -156,6 +156,7 @@ export class AdminController {
       page: query.page,
       pageSize: query.pageSize,
       search: query.search,
+      inviterPhone: query.inviterPhone,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });

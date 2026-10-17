@@ -29,6 +29,11 @@ export class UsersQueryDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional({ description: '邀请人完整手机号（精确匹配）' })
+  @IsOptional()
+  @IsString()
+  inviterPhone?: string;
+
   @ApiPropertyOptional({ description: '排序字段', default: 'createdAt' })
   @IsOptional()
   @IsString()
