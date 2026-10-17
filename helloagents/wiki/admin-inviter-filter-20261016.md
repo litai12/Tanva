@@ -9,4 +9,15 @@
 ## 验证与发布
 
 - 基于上一版 101 前端发布源码仅覆盖本次两个前端文件，后端只发布 Admin service/controller/dto 的 JS 与声明文件。
-- 本地验证和 101 部署结果完成后补充。
+- 后端构建、新增 `admin-users.spec.ts` 与现有 `test:admin-paid-orders` 通过；覆盖 DTO/controller 参数传递、真实关联精确匹配、组合条件、跨页总数、空白与零匹配。
+- 真实 UsersTab 浏览器验证通过：47 人按每页 10 人翻页、组合搜索 17 人、切换条件回第一页、清除、零匹配、请求失败隐藏旧计数、旧延迟响应不覆盖新 22 人结果。API 使用隔离测试数据，无真实用户修改。
+- 两个修改的前端文件 lint 无新增诊断，既有警告减少 1 条（140 errors / 8 warnings）。本轮全量 lint 因本机构建资源争用主动停止，退出码 143，未记为通过；上一轮全量 lint 为既有 2556 errors / 199 warnings。AI metadata 同步脚本仍缺失。
+- 隔离生产 `npm run build`（TypeScript 与 Vite）通过，代码提交 `65ef220e` 已推送并部署 101。
+
+## 101 部署回执
+
+- 2026-10-17 05:44:54 UTC（洛杉矶 2026-10-16 22:44:54）完成部署。发布前 active 图片任务和近期网关未结请求均为 0，服务 reload 后内外网健康正常，队列已恢复。
+- 发布目录 `/opt/tanva-releases/admin-inviter-filter-20261016/`，回退目录 `/opt/tanva-backups/admin-inviter-filter-20261016/`。
+- 54 个文件（48 个前端、6 个后端）线上哈希与发布包一致；公网 HTML、版本、入口 JS/CSS 校验通过，旧入口资源仍可访问。
+- 在生产只读、可重复读事务中抽查邀请人数最多的已有邀请人：全部匹配 456 人，第一页/第二页人数、总数和邀请人关联正确且不重复；组合用户关键词、首尾空白、空条件、零匹配均通过。未登录用户列表请求仍返回 401。
+- 回执保存在 `deployment.json`、`postcheck.json`、`public-acceptance.json`；`artifacts/manifest.json` 记录源码基线和产物校验和，`browser-check/` 保存隔离页面验证回执与截图。
