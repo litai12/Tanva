@@ -32,6 +32,7 @@ export interface UserWithCredits {
   id: string;
   email: string | null;
   phone: string;
+  inviterPhone: string | null;
   name: string | null;
   role: string;
   status: string;
@@ -893,6 +894,7 @@ export class AdminService {
         where,
         include: {
           creditAccount: true,
+          invitedBy: { select: { phone: true } },
           _count: {
             select: { apiUsageRecords: true },
           },
@@ -908,6 +910,7 @@ export class AdminService {
       id: user.id,
       email: user.email,
       phone: user.phone,
+      inviterPhone: user.invitedBy?.phone ?? null,
       name: user.name,
       role: user.role,
       status: user.status,
@@ -1019,6 +1022,7 @@ export class AdminService {
       id: user.id,
       email: user.email,
       phone: user.phone,
+      inviterPhone: null,
       name: user.name,
       role: user.role,
       status: user.status,

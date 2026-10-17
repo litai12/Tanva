@@ -5560,7 +5560,7 @@ function UsersTab({
   const [membershipEffectiveMode, setMembershipEffectiveMode] = useState<
     "immediate" | "next_cycle"
   >("immediate");
-  const tableColumnCount = 9;
+  const tableColumnCount = 10;
 
   // ── 团队视图 ──
   const [view, setView] = useState<'users' | 'teams'>('users');
@@ -6315,6 +6315,7 @@ function UsersTab({
               <tr>
                 <th className='px-4 py-3 text-left'>用户</th>
                 <th className='px-4 py-3 text-left'>手机号</th>
+                <th className='px-4 py-3 text-left'>邀请人手机号</th>
                 <th className='px-4 py-3 text-left'>积分余额</th>
                 <th className='px-4 py-3 text-left'>总消费</th>
                 <th className='px-4 py-3 text-left'>API调用</th>
@@ -6362,6 +6363,7 @@ function UsersTab({
                       </div>
                     </td>
                     <td className='px-4 py-3'>{user.phone}</td>
+                    <td className='px-4 py-3'>{user.inviterPhone || "—"}</td>
                     <td className='px-4 py-3 font-medium text-blue-600'>
                       {user.creditBalance}
                     </td>

@@ -47,6 +47,7 @@ export interface UserWithCredits {
   id: string;
   email: string | null;
   phone: string;
+  inviterPhone: string | null;
   name: string | null;
   role: string;
   status: string;
