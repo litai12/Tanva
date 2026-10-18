@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-17：图片水印权益全链路统一。新增 `WatermarkEntitlementService`：有效会员期限、统一白名单“去水印”（`User.noWatermark`）、管理员均免水印；免费用户继续加水印。同步接口（`generate-image` / `edit-image` / `blend-images` / `expand-image`）与异步图片任务（`ImageTaskService` 落 OSS 前，含 GPT Image 2.5 / Seedream 5 / Generate 4 / 小T生图）共用同一判断，修复 Nano 2.1 专属节点有水印、正常生图节点无判断的问题。新增 `npm run test:watermark-entitlement`。
+
 - 2026-10-16：Admin 用户列表新增独立“邀请人手机号”查询条件，完整号码精确匹配，并展示跨页邀请人数；与用户关键词组合时标明当前匹配人数。`65ef220e` 已部署 101，构建、后端/浏览器回归、线上 456 人分页与组合条件核对、54 文件哈希和公网健康验证通过。发布记录见 `wiki/admin-inviter-filter-20261016.md`。
 
 - 2026-10-16：Admin 用户列表新增“邀请人手机号”列，读取邀请码兑换时保存的邀请人关联；无关联显示“—”。`efa872ce` 已推送部署 101，构建、浏览器显示、线上 10 个邀请关系只读核对、50 文件哈希与公网健康验证通过。无数据库迁移，不改变积分发放。发布验证记录见 `wiki/admin-inviter-phone-20261016.md`。

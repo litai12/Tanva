@@ -73,6 +73,7 @@ import { AudioGenerateResult } from './audio/audio-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
 import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
+import { WatermarkEntitlementService } from './services/watermark-entitlement.service';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import {
   createAsyncTask,
@@ -309,59 +310,6 @@ export class AiController {
     return 'disabled';
   }
 
-  private normalizeNoWatermarkAccess(value: unknown): 'enabled' | 'disabled' {
-    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-    if (
-      normalized === 'enabled' ||
-      normalized === 'allow' ||
-      normalized === 'on' ||
-      normalized === 'true' ||
-      normalized === 'yes' ||
-      normalized === 'vip' ||
-      normalized === 'supported' ||
-      normalized === 'support' ||
-      normalized === '支持' ||
-      normalized === '可用' ||
-      normalized === '1'
-    ) {
-      return 'enabled';
-    }
-
-    if (typeof value === 'boolean') {
-      return value ? 'enabled' : 'disabled';
-    }
-    if (typeof value === 'number') {
-      return value > 0 ? 'enabled' : 'disabled';
-    }
-    return 'disabled';
-  }
-
-  private async resolveUserNoWatermarkAccess(userId: string): Promise<'enabled' | 'disabled'> {
-    const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
-
-    if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
-      const metadata = plan.metadata as Record<string, unknown>;
-      const explicitNoWatermark =
-        metadata.noWatermarkAccess ??
-        metadata.removeWatermarkAccess ??
-        metadata.watermarkFree ??
-        metadata.noWatermark;
-
-      // No default VIP bypass: must be explicitly enabled on the membership plan.
-      if (
-        explicitNoWatermark === undefined ||
-        explicitNoWatermark === null ||
-        explicitNoWatermark === ''
-      ) {
-        return 'disabled';
-      }
-      return this.normalizeNoWatermarkAccess(explicitNoWatermark);
-    }
-
-    // Plan metadata absent: default to disabled.
-    return 'disabled';
-  }
-
   private async resolveUserSeedance2Access(userId: string): Promise<'enabled' | 'disabled'> {
     const { plan } = await resolveEffectiveMembershipPlan(this.prisma, userId);
     if (plan) {
@@ -516,6 +464,7 @@ export class AiController {
     private readonly minimaxMusicService: MinimaxMusicService,
     private readonly audioRouting: AudioRoutingService,
     private readonly prisma: PrismaService,
+    private readonly watermarkEntitlement: WatermarkEntitlementService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly newApiVideoTaskReconciliation: NewApiVideoTaskReconciliationService,
@@ -743,19 +692,7 @@ export class AiController {
 
   private async canSkipWatermark(req: any): Promise<boolean> {
     const userId = this.resolveRequestUserId(req);
-    if (!userId) {
-      return false;
-    }
-    try {
-      const user = await this.usersService.findById(userId);
-      if (this.isPrivilegedAdminRole(user?.role) || user?.noWatermark === true) {
-        return true;
-      }
-      return (await this.resolveUserNoWatermarkAccess(userId)) === 'enabled';
-    } catch (e) {
-      this.logger.warn('检查水印白名单失败', e);
-      return false;
-    }
+    return this.watermarkEntitlement.canSkipWatermarkByUserId(userId);
   }
 
   /**

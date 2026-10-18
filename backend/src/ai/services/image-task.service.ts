@@ -23,6 +23,8 @@ import { Seedream5Service } from './seedream5.service';
 import { bufferResponseWithLimit } from '../../common/http-buffer.util';
 import { resolveImageTaskRuntimeConfig } from './image-task-runtime.config';
 import { needsToapisReferencePreparation } from './image-reference-preparation.service';
+import { applyWatermarkToBuffer } from './watermark.util';
+import { WatermarkEntitlementService } from './watermark-entitlement.service';
 
 const IMAGE_TASK_RUNTIME_CONFIG = resolveImageTaskRuntimeConfig();
 
@@ -131,6 +133,7 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    private readonly watermarkEntitlement: WatermarkEntitlementService,
     @Inject(forwardRef(() => ImageTaskQueueService))
     private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
@@ -224,6 +227,7 @@ export class ImageTaskService {
   private async uploadImagePayloadToOss(
     imageValue: string,
     userId: string,
+    skipWatermark: boolean,
   ): Promise<{ url: string; key: string; mimeType: string; size: number }> {
     if (!this.oss.isEnabled()) {
       throw new ServiceUnavailableException('OSS 未配置或已禁用，无法持久化图像任务结果');
@@ -272,6 +276,14 @@ export class ImageTaskService {
       buffer = bufferAlt;
     }
 
+    if (!skipWatermark) {
+      const watermarked = await this.applyWatermarkSafely(buffer);
+      if (watermarked !== buffer) {
+        buffer = watermarked;
+        ({ mimeType, extension } = this.inferImageMimeFromBuffer(buffer));
+      }
+    }
+
     const userTag = crypto.createHash('sha1').update(String(userId)).digest('hex').slice(0, 8);
     const key = `uploads/ai/tasks/${userTag}/${Date.now()}-${crypto
       .randomBytes(6)
@@ -290,6 +302,7 @@ export class ImageTaskService {
   private async uploadRemoteImageToOss(
     imageUrl: string,
     userId: string,
+    skipWatermark: boolean,
   ): Promise<{ url: string; key: string; mimeType: string; size: number }> {
     if (!this.oss.isEnabled()) {
       throw new ServiceUnavailableException('OSS 未配置或已禁用，无法持久化图像任务结果');
@@ -313,19 +326,33 @@ export class ImageTaskService {
         response,
         IMAGE_TASK_RUNTIME_CONFIG.outputMaxBytes,
       );
-      const { mimeType, extension } = this.inferImageMimeFromBuffer(buffer);
+      const output = skipWatermark ? buffer : await this.applyWatermarkSafely(buffer);
+      const { mimeType, extension } = this.inferImageMimeFromBuffer(output);
       const userTag = crypto.createHash('sha1').update(String(userId)).digest('hex').slice(0, 8);
       const key = `uploads/ai/tasks/${userTag}/${Date.now()}-${crypto
         .randomBytes(6)
         .toString('hex')}.${extension}`;
 
-      const { url } = await this.oss.putBufferWithHeaders(key, buffer, mimeType, {
+      const { url } = await this.oss.putBufferWithHeaders(key, output, mimeType, {
         'Cache-Control': 'public, max-age=31536000, immutable',
       });
 
-      return { url, key, mimeType, size: buffer.length };
+      return { url, key, mimeType, size: output.length };
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  private async applyWatermarkSafely(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await applyWatermarkToBuffer(buffer);
+    } catch (error) {
+      this.logger.warn(
+        `图像任务加水印失败，回退原图: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return buffer;
     }
   }
 
@@ -1031,22 +1058,36 @@ export class ImageTaskService {
           let persistedImageUrl: string | null = null;
           let persistedThumbnailUrl: string | null = null;
           if (taskImagePayload) {
+            // Same entitlement as the synchronous image endpoints; without this
+            // the async worker would bypass the product's watermark policy.
+            const skipWatermark =
+              await this.watermarkEntitlement.canSkipWatermarkByUserId(task.userId);
             if (/^https?:\/\//i.test(taskImagePayload)) {
-              const uploaded = await this.uploadRemoteImageToOss(taskImagePayload, task.userId);
+              const uploaded = await this.uploadRemoteImageToOss(
+                taskImagePayload,
+                task.userId,
+                skipWatermark,
+              );
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
               resultMetadata.imageUrl = uploaded.url;
               resultMetadata.imageKey = uploaded.key;
               resultMetadata.mimeType = uploaded.mimeType;
               resultMetadata.bytes = uploaded.size;
+              resultMetadata.watermarkSkipped = skipWatermark;
             } else {
-              const uploaded = await this.uploadImagePayloadToOss(taskImagePayload, task.userId);
+              const uploaded = await this.uploadImagePayloadToOss(
+                taskImagePayload,
+                task.userId,
+                skipWatermark,
+              );
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
               resultMetadata.imageUrl = uploaded.url;
               resultMetadata.imageKey = uploaded.key;
               resultMetadata.mimeType = uploaded.mimeType;
               resultMetadata.bytes = uploaded.size;
+              resultMetadata.watermarkSkipped = skipWatermark;
             }
           }
 

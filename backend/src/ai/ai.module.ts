@@ -50,6 +50,7 @@ import { ReferenceVideoDurationService } from './services/reference-video-durati
 import { NewApiVideoTaskReconciliationService } from './services/new-api-video-task-reconciliation.service';
 import { GlobalImageHistoryModule } from '../global-image-history/global-image-history.module';
 import { ImageReferencePreparationService } from './services/image-reference-preparation.service';
+import { WatermarkEntitlementService } from './services/watermark-entitlement.service';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { ImageReferencePreparationService } from './services/image-reference-pre
     Seedream5Provider,
     NewApiProvider,
     ImageReferencePreparationService,
+    WatermarkEntitlementService,
     AIProviderFactory,
     CostCalculatorService,
     Convert2Dto3DService,
