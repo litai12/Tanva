@@ -64,7 +64,7 @@ INSERT INTO options VALUES
  ('CompletionRatio','{"doubao-seed-2-0-pro-260215":5,"other-model":4}'),
  ('CacheRatio','{"doubao-seed-2-0-pro-260215":0.2,"other-model":0.4}'),
  ('ModelPrice','{"doubao-seedance-2-0-260128":1.23}'),
- ('ModelRatioTiers','{"doubao-seed-2-0-pro-260215":[{"max_prompt_tokens":32768,"model_ratio":2}]}'),
+ ('unrelated-price-map','{"other-model":{"fixture_rate":123}}'),
  ('unrelated-option','keep exactly');
 INSERT INTO logs VALUES (1,10,'doubao-seed-2-0-pro-260215',932,'historic bill'),
  (2,20,'doubao-seed-2-1-turbo-260628',732,'historic other-channel bill');
@@ -136,9 +136,10 @@ def run_tests():
     for key, expected in EXPECTED.items():
         for model, rate in expected.items():
             assert new_options[key][model] == rate, (key, model, 'incorrect retail ratio')
-    assert new_options['ModelRatioTiers'] == old_options['ModelRatioTiers'], 'No new context tiers'
+    assert set(new_options) == set(old_options) | {'AudioRatio'}, 'Only the intended ratio option may be added'
     assert query('SELECT count(*) FROM abilities WHERE channel_id=10 AND model LIKE \'doubao-seed-2-1-%\' AND enabled;', db) == '6'
     rows = value('SELECT json_agg(m ORDER BY model_name) FROM models m WHERE model_name LIKE \'doubao-seed-2-1-%\';', db)
+    assert len(rows) == 3
     endpoints = set(re.findall(r'EndpointType\s*=\s*"([^"]+)"', (ROOT / 'new-api/constant/endpoint_type.go').read_text()))
     for row in rows:
         eps = json.loads(row['endpoints'])
@@ -181,6 +182,13 @@ def run_tests():
     apply(disabled)
     assert query("SELECT count(*) FROM abilities WHERE channel_id=10 AND model LIKE 'doubao-seed-2-1-%' AND enabled;", disabled) == '0'
     assert query('SELECT status FROM channels WHERE id=10;', disabled) == '3'
+
+    # Newly inserted option rows must have the same representation as replays.
+    empty = fixture('empty_options', 'DELETE FROM options;')
+    apply(empty)
+    inserted = fingerprint(empty)
+    apply(empty)
+    assert fingerprint(empty) == inserted, 'Initially absent ratio options must also replay without changes'
 
     for name, sql in (
         ('missing', 'DELETE FROM channels WHERE id=10;'),
