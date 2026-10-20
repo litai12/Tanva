@@ -6,7 +6,10 @@ export interface GatewayConsumptionPayload {
   gatewayInstanceId: string; gatewayRequestId: string; model: string;
   status: GatewayConsumptionStatus; priceCurrency: 'CNY'; costCny?: string;
   quota?: string; quotaPerUnit: string; startedAt: string; settledAt?: string;
-  usageEvidence: 'upstream_tokens' | 'gateway_estimated_usage' | 'gateway_fixed_price' | 'unknown';
+  // tapcanvas_*: the TapCanvas 小T facade priced the whole turn (chat + paid tools) in CNY;
+  // amount = settled at turn end, pending = parked until its upstream receipt, receipt = settled from it.
+  usageEvidence: 'upstream_tokens' | 'gateway_estimated_usage' | 'gateway_fixed_price' | 'unknown'
+    | 'tapcanvas_amount' | 'tapcanvas_pending' | 'tapcanvas_receipt';
   usage?: Record<string, unknown>; errorCode?: string;
 }
 export interface GatewayConsumptionEnvelope { timestamp: string; payload: string; signature: string }
@@ -50,12 +53,14 @@ export function verifyConsumptionEnvelope(value: unknown, secret: string, now = 
   if (bytes.toString('base64url') !== envelope.payload) throw new Error('Invalid consumption payload encoding');
   return validateConsumptionPayload(JSON.parse(bytes.toString('utf8')));
 }
+const USAGE_EVIDENCE = new Set(['upstream_tokens', 'gateway_estimated_usage', 'gateway_fixed_price', 'unknown',
+  'tapcanvas_amount', 'tapcanvas_pending', 'tapcanvas_receipt']);
 export function validateConsumptionPayload(value: unknown): GatewayConsumptionPayload {
   const p = object(value);
   const allowed = new Set(['version', 'eventId', 'revision', 'orderId', 'orderHash', 'gatewayInstanceId', 'gatewayRequestId', 'model', 'status', 'priceCurrency', 'costCny', 'quota', 'quotaPerUnit', 'startedAt', 'settledAt', 'usageEvidence', 'usage', 'errorCode']);
   if (Object.keys(p).some(k => !allowed.has(k)) || p.version !== 1 || !Number.isSafeInteger(p.revision) || p.revision < 0
     || !['pending', 'consumed', 'rejected', 'reconciliation_required'].includes(p.status)
-    || p.priceCurrency !== 'CNY' || !['upstream_tokens', 'gateway_estimated_usage', 'gateway_fixed_price', 'unknown'].includes(p.usageEvidence)) throw new Error('Invalid consumption payload');
+    || p.priceCurrency !== 'CNY' || !USAGE_EVIDENCE.has(p.usageEvidence)) throw new Error('Invalid consumption payload');
   id(p.eventId, 'eventId'); id(p.orderId, 'orderId'); id(p.orderHash, 'orderHash'); id(p.gatewayInstanceId, 'instance');
   id(p.gatewayRequestId, 'requestId'); id(p.model, 'model'); date(p.startedAt, 'startedAt');
   if (p.settledAt !== undefined) date(p.settledAt, 'settledAt');

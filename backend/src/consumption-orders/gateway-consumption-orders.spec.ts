@@ -157,6 +157,23 @@ async function run() {
   const fixed = await admit(user.id, 2, null, 'xiaot-agent-deepseek-v4-flash');
   await orders.receiveEnvelope(envelope({ ...proof(fixed), model: 'xiaot-agent-deepseek-v4-flash', costCny: '0.01', quota: '5000', usageEvidence: 'gateway_fixed_price' }));
   assert.equal((await orders.getState(fixed)).creditsCharged, 2);
+  // TapCanvas 小T prices the whole turn (chat + paid tools); new-api settles that amount
+  // × channel ratio, and the wallet charges it at the order's markup like any consumption.
+  const priced = await admit(user.id, 2, null, 'xiaot-agent-deepseek-v4-flash');
+  const pricedBefore = await balance(user.id);
+  await orders.receiveEnvelope(envelope({ ...proof(priced), model: 'xiaot-agent-deepseek-v4-flash', costCny: '0.75', quota: '375000',
+    usageEvidence: 'tapcanvas_amount', usage: { tapcanvas_total_credits: 50, tapcanvas_amount_cny: '0.5', tapcanvas_billing_status: 'complete', tapcanvas_request_id: 'req-turn' } }));
+  assert.equal((await orders.getState(priced)).status, 'settled');
+  assert.equal((await orders.getState(priced)).creditsCharged, 113);
+  assert.equal(await balance(user.id), pricedBefore - 111);
+  // A pending upstream total parks the order; the later receipt settles it once.
+  const parked = await admit(user.id, 2, null, 'xiaot-agent-deepseek-v4-flash');
+  await orders.receiveEnvelope(envelope({ ...proof(parked, 'reconciliation_required'), model: 'xiaot-agent-deepseek-v4-flash',
+    usageEvidence: 'tapcanvas_pending', errorCode: 'upstream_receipt_pending' }));
+  assert.equal((await orders.getState(parked)).status, 'reconciliation_required');
+  await orders.receiveEnvelope(envelope({ ...proof(parked, 'consumed', 2), model: 'xiaot-agent-deepseek-v4-flash', costCny: '0.3', quota: '150000', usageEvidence: 'tapcanvas_receipt' }));
+  assert.equal((await orders.getState(parked)).status, 'settled');
+  assert.equal((await orders.getState(parked)).creditsCharged, 45);
   const unregistered = await db.apiUsageRecord.create({ data: { userId: user.id, provider: 'new-api', serviceType: 'gemini-text', serviceName: 'Legacy', model: 'deepseek-v4.1-flash', creditsUsed: 30, responseStatus: 'success' } });
   assert.deepEqual(await orders.getState(unregistered.id), { enabled: false });
   await assert.rejects(db.$transaction(tx => orders.register(unregistered.id, tx)));

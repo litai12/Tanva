@@ -26,6 +26,17 @@ type ChannelSettings struct {
 	// new-api 仍在内部把 SSE 流收完后，向下游返回一次性 images JSON。
 	// 仅影响 Gemini imagine 出图链路（RelayModeImagesGenerations）。
 	ImageUpstreamStream bool `json:"image_upstream_stream,omitempty"`
+	// PriceRatio 渠道价格倍率：对按上游回报金额结算的渠道（如小T：上游在 usage 里
+	// 回报 tapcanvas_amount_cny），结算额 = 上游金额 × 此倍率。0/缺省 = 1.0（原价）。
+	PriceRatio float64 `json:"price_ratio,omitempty"`
+}
+
+// GetPriceRatio 返回归一化的渠道价格倍率：未配置（<=0）时为 1.0。
+func (s ChannelSettings) GetPriceRatio() float64 {
+	if s.PriceRatio <= 0 {
+		return 1.0
+	}
+	return s.PriceRatio
 }
 
 func (s ChannelSettings) TextPricing(model string) (*types.ChannelTextPricing, error) {

@@ -197,6 +197,7 @@ const EditChannelModal = (props) => {
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    price_ratio: 1,
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -501,6 +502,7 @@ const EditChannelModal = (props) => {
     proxy: '',
     pass_through_body_enabled: false,
     system_prompt: '',
+    price_ratio: 1,
   });
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
   const getInitValues = () => ({ ...originInputs });
@@ -855,6 +857,7 @@ const EditChannelModal = (props) => {
           data.system_prompt = parsedSettings.system_prompt || '';
           data.system_prompt_override =
             parsedSettings.system_prompt_override || false;
+          data.price_ratio = parsedSettings.price_ratio > 0 ? parsedSettings.price_ratio : 1;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -863,6 +866,7 @@ const EditChannelModal = (props) => {
           data.pass_through_body_enabled = false;
           data.system_prompt = '';
           data.system_prompt_override = false;
+          data.price_ratio = 1;
         }
       } else {
         data.force_format = false;
@@ -871,6 +875,7 @@ const EditChannelModal = (props) => {
         data.pass_through_body_enabled = false;
         data.system_prompt = '';
         data.system_prompt_override = false;
+        data.price_ratio = 1;
       }
 
       if (data.settings) {
@@ -987,6 +992,7 @@ const EditChannelModal = (props) => {
         pass_through_body_enabled: data.pass_through_body_enabled,
         system_prompt: data.system_prompt,
         system_prompt_override: data.system_prompt_override || false,
+        price_ratio: data.price_ratio,
       });
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
@@ -1029,7 +1035,8 @@ const EditChannelModal = (props) => {
         data.pass_through_body_enabled ||
         data.force_format ||
         data.claude_beta_query ||
-        data.system_prompt_override;
+        data.system_prompt_override ||
+        (data.price_ratio && data.price_ratio !== 1);
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
       }
@@ -1376,6 +1383,7 @@ const EditChannelModal = (props) => {
       pass_through_body_enabled: false,
       system_prompt: '',
       system_prompt_override: false,
+      price_ratio: 1,
     });
     // 重置密钥模式状态
     setKeyMode('append');
@@ -1751,6 +1759,8 @@ const EditChannelModal = (props) => {
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
+      ...(Number(localInputs.price_ratio) > 0 && Number(localInputs.price_ratio) !== 1
+        ? { price_ratio: Number(localInputs.price_ratio) } : {}),
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -1832,6 +1842,7 @@ const EditChannelModal = (props) => {
     delete localInputs.pass_through_body_enabled;
     delete localInputs.system_prompt;
     delete localInputs.system_prompt_override;
+    delete localInputs.price_ratio;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -2546,6 +2557,8 @@ const EditChannelModal = (props) => {
 
                   <Form.Switch field='thinking_to_content' label={t('思考内容转换')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('thinking_to_content', value)} extraText={t('将 reasoning_content 转换为 <think> 标签拼接到内容中')} />
                   <Form.Switch field='pass_through_body_enabled' label={t('透传请求体')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('pass_through_body_enabled', value)} extraText={t('启用请求体透传功能')} />
+
+                  <Form.InputNumber field='price_ratio' label={t('渠道价格倍率')} min={0.01} step={0.1} precision={4} onChange={(value) => handleChannelSettingsChange('price_ratio', value)} extraText={t('按上游回报金额结算的渠道（如小T）：扣费 = 上游金额 × 倍率；1 为原价')} />
 
                   <Form.Input field='proxy' label={t('代理地址')} placeholder={t('例如: socks5://user:pass@host:port')} onChange={(value) => handleChannelSettingsChange('proxy', value)} showClear extraText={t('用于配置网络代理，支持 socks5 协议')} />
 

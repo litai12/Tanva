@@ -145,6 +145,7 @@ type RelayInfo struct {
 	TanvaConsumptionID     int64
 	TanvaUsageEvidence     string
 	TanvaUsageJSON         string
+	TanvaUpstreamAmountCny string // TapCanvas usage.tapcanvas_amount_cny
 	TanvaSettlementHandled bool
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.
 	SubscriptionAmountTotal               int64

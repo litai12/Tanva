@@ -16,6 +16,7 @@ function run(command, args, env = process.env, quiet = false, input) {
 async function main() {
   let created = false;
   try {
+    run(process.execPath, ['node_modules/ts-node/dist/bin.js', '--transpile-only', 'src/desktop-chat/desktop-catalog-diagnostics.spec.ts']);
     run('docker', ['run', '--rm', '-d', '--name', name, '-e', 'POSTGRES_PASSWORD=local-only-test', '-e', 'POSTGRES_DB=desktop_chat_test', '-p', '127.0.0.1::5432', 'postgres:16-alpine'], process.env, true);
     created = true;
     const endpoint = run('docker', ['port', name, '5432'], process.env, true);

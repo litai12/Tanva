@@ -239,6 +239,13 @@ type Usage struct {
 
 	// OpenRouter Params
 	Cost any `json:"cost,omitempty"`
+
+	// TapCanvas 小T门面回报的本回合总消耗（按 TapCanvas 定价，含本回合付费工具）。
+	// prompt/completion_tokens 在该上游是积分而非 token，计费只看这里的金额。
+	TapCanvasTotalCredits  *int   `json:"tapcanvas_total_credits,omitempty"`
+	TapCanvasAmountCny     string `json:"tapcanvas_amount_cny,omitempty"`
+	TapCanvasBillingStatus string `json:"tapcanvas_billing_status,omitempty"`
+	TapCanvasRequestID     string `json:"tapcanvas_request_id,omitempty"`
 }
 
 type OpenAIVideoResponse struct {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 const TanvaConsumptionContextKey = "tanva_consumption"
@@ -186,6 +188,19 @@ func ObserveTanvaUsage(info *relaycommon.RelayInfo, usage *dto.Usage, authoritat
 	if info.TanvaConsumptionID == 0 {
 		return
 	}
+	// TapCanvas 门面按自己的定价回报本回合总金额（对话 + 付费工具）：以此为准。
+	// The amount itself is upstream evidence, even when its token fields are zero.
+	if usage != nil && usage.TapCanvasAmountCny != "" {
+		info.TanvaUsageEvidence = "tapcanvas_pending"
+		if usage.TapCanvasBillingStatus == "complete" {
+			info.TanvaUsageEvidence = "tapcanvas_amount"
+		}
+		info.TanvaUpstreamAmountCny = usage.TapCanvasAmountCny
+		if raw, err := common.Marshal(usage); err == nil {
+			info.TanvaUsageJSON = string(raw)
+		}
+		return
+	}
 	if info.OriginModelName == "xiaot-agent-deepseek-v4-flash" {
 		if authoritative {
 			info.TanvaUsageEvidence = "gateway_fixed_price"
@@ -206,6 +221,18 @@ func SettleTanvaTextConsumption(c *gin.Context, info *relaycommon.RelayInfo, sum
 		return summary.BillingError
 	}
 	quota := summary.Quota
+	switch info.TanvaUsageEvidence {
+	case "tapcanvas_amount":
+		amountQuota, err := TapCanvasAmountQuota(info.TanvaUpstreamAmountCny, info.ChannelSetting.GetPriceRatio())
+		if err != nil {
+			_ = model.FailTanvaConsumption(info.TanvaConsumptionID, "invalid_upstream_amount")
+			return err
+		}
+		quota = int(amountQuota)
+	case "tapcanvas_pending":
+		// Not final upstream: keep the pre-consumed quota until the receipt settles.
+		return model.AwaitTanvaUpstreamReceipt(info.TanvaConsumptionID, info.TanvaUsageJSON, time.Now().Unix())
+	}
 	// The facade contract is a fixed-price gateway call. Its synthetic token
 	// values (including zero on valid results) must not determine the amount.
 	if info.TanvaUsageEvidence == "gateway_fixed_price" && quota == 0 {
@@ -231,7 +258,7 @@ func RecordTanvaConsumptionLog(c *gin.Context, info *relaycommon.RelayInfo, summ
 		return
 	}
 	prompt, completion := summary.PromptTokens, summary.CompletionTokens
-	if settled.UsageEvidence == "gateway_fixed_price" {
+	if settled.UsageEvidence == "gateway_fixed_price" || strings.HasPrefix(settled.UsageEvidence, "tapcanvas_") {
 		prompt, completion = 0, 0
 	}
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
@@ -243,6 +270,122 @@ func RecordTanvaConsumptionLog(c *gin.Context, info *relaycommon.RelayInfo, summ
 			"usage_evidence": settled.UsageEvidence, "cost_cny": settled.Receipt().CostCny, "model_ratio": summary.ModelRatio,
 			"completion_ratio": summary.CompletionRatio, "cache_ratio": summary.CacheRatio, "group_ratio": summary.GroupRatio, "model_price": summary.ModelPrice},
 	})
+}
+
+// TapCanvasAmountQuota converts an upstream CNY amount to quota at the channel
+// price ratio, rounding up so a paid call never settles below its price.
+func TapCanvasAmountQuota(amountCny string, priceRatio float64) (int64, error) {
+	amount, err := decimal.NewFromString(strings.TrimSpace(amountCny))
+	if err != nil || amount.IsNegative() {
+		return 0, fmt.Errorf("invalid upstream amount %q", amountCny)
+	}
+	if priceRatio <= 0 || math.IsNaN(priceRatio) || math.IsInf(priceRatio, 0) {
+		return 0, fmt.Errorf("invalid channel price ratio %v", priceRatio)
+	}
+	quota := amount.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(priceRatio)).Ceil()
+	if !quota.IsPositive() {
+		return 0, nil
+	}
+	return quota.IntPart(), nil
+}
+
+// tapCanvasReceipt is the part of TapCanvas GET /v1/billing/receipts/:requestId
+// the reconciler needs: the turn total, final only when total_status=settled.
+type tapCanvasReceipt struct {
+	TotalStatus    string `json:"total_status"`
+	TotalAmountCny string `json:"total_amount_cny"`
+}
+
+const tapCanvasReceiptRetrySeconds = 60
+
+// ReconcileTapCanvasReceipts settles parked orders from the upstream's final
+// receipt. The receipt is read with the order's own channel credentials; no
+// supplier call is repeated and an unreadable receipt only defers the check.
+func ReconcileTapCanvasReceipts(now int64, client *http.Client) {
+	rows, err := model.ListTanvaUpstreamReceiptsDue(now, 20)
+	if err != nil {
+		common.SysLog("tapcanvas receipt reconcile list failed: " + err.Error())
+		return
+	}
+	for i := range rows {
+		o := &rows[i]
+		if err := reconcileTapCanvasReceipt(o, client); err != nil {
+			common.SysLog(fmt.Sprintf("tapcanvas receipt pending for tanva order %d: %s", o.ID, err.Error()))
+			_ = model.DeferTanvaUpstreamReceipt(o.ID, now+tapCanvasReceiptRetrySeconds)
+		}
+	}
+}
+
+func reconcileTapCanvasReceipt(o *model.TanvaConsumption, client *http.Client) error {
+	var usage dto.Usage
+	if err := common.Unmarshal([]byte(o.UsageJSON), &usage); err != nil || !tanvaIdentifier(usage.TapCanvasRequestID) {
+		return errors.New("parked order has no upstream request id")
+	}
+	channel, err := model.GetChannelById(o.ChannelID, true)
+	if err != nil {
+		return err
+	}
+	receipt, err := fetchTapCanvasReceipt(channel, usage.TapCanvasRequestID, client)
+	if err != nil {
+		return err
+	}
+	if receipt.TotalStatus != "settled" {
+		return errors.New("upstream receipt not settled yet")
+	}
+	quota, err := TapCanvasAmountQuota(receipt.TotalAmountCny, channel.GetSetting().GetPriceRatio())
+	if err != nil {
+		return err
+	}
+	usage.TapCanvasAmountCny, usage.TapCanvasBillingStatus = receipt.TotalAmountCny, "settled"
+	raw, _ := common.Marshal(usage)
+	if err := model.ReceiveTanvaConsumption(o.ID, quota, "tapcanvas_receipt", string(raw)); err != nil {
+		return err
+	}
+	return model.SettleTanvaConsumption(o.ID)
+}
+
+// The receipt sits next to the facade's chat route; a multi-key channel is
+// tried key by key since only the key that made the request owns the receipt.
+func fetchTapCanvasReceipt(channel *model.Channel, requestID string, client *http.Client) (*tapCanvasReceipt, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	endpoint := strings.TrimRight(channel.GetBaseURL(), "/") + "/v1/billing/receipts/" + url.PathEscape(requestID)
+	var lastErr error = errors.New("channel has no key")
+	for _, key := range channel.GetKeys() {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			lastErr = errors.New("receipt not found for this key")
+			continue
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("upstream receipt returned %d", resp.StatusCode)
+		}
+		var receipt tapCanvasReceipt
+		if err := common.Unmarshal(body, &receipt); err != nil {
+			return nil, err
+		}
+		return &receipt, nil
+	}
+	return nil, lastErr
 }
 
 var tanvaWorkerOnce sync.Once
@@ -259,6 +402,7 @@ func StartTanvaConsumptionWorker() {
 				if err := model.RecoverTanvaConsumptions(time.Now().Unix()); err != nil {
 					common.SysLog("tanva consumption recovery failed: " + err.Error())
 				}
+				ReconcileTapCanvasReceipts(time.Now().Unix(), nil)
 				for i := 0; i < 20; i++ {
 					o, err := model.LeaseTanvaOutbox(time.Now().Unix())
 					if err != nil || o == nil {

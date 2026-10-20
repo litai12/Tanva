@@ -29,5 +29,6 @@ func ResponseText2Usage(c *gin.Context, responseText string, modeName string, pr
 }
 
 func ValidUsage(usage *dto.Usage) bool {
-	return usage != nil && (usage.PromptTokens != 0 || usage.CompletionTokens != 0)
+	// A TapCanvas facade amount is billing evidence even when its token fields are zero.
+	return usage != nil && (usage.PromptTokens != 0 || usage.CompletionTokens != 0 || usage.TapCanvasAmountCny != "")
 }

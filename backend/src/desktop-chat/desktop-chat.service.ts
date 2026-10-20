@@ -10,6 +10,7 @@ import { DESKTOP_CHAT_MODEL, DesktopChatMeta, DesktopScope, REQUEST_TIMEOUT_MS, 
 import { createDeepSeekPricingSnapshot, calculateDeepSeekUsage, estimateDeepSeekReservation } from './deepseek-pricing';
 import { GatewayConsumptionOrdersService } from '../consumption-orders/gateway-consumption-orders.service';
 import { desktopModelsFromGateway } from './desktop-model-catalog';
+import { catalogHttpFailure, catalogUnavailable } from './desktop-catalog-diagnostics';
 
 /** One durable ApiUsageRecord primary key per user/request. Admission, receipt,
  * and wallet change share a transaction. Unknown accepted work is never resent. */
@@ -92,20 +93,30 @@ export class DesktopChatService {
   }
   private async gatewayModels() {
     const { base, key } = this.gateway();
-    if (!key) throw new ServiceUnavailableException('模型网关凭据未配置');
+    if (!key.trim()) throw catalogUnavailable('TANVA_MODEL_GATEWAY_UNCONFIGURED');
+    const signal = AbortSignal.timeout(10_000);
     try {
-      const signal = AbortSignal.timeout(10_000);
-      const responses = await Promise.all(['/v1/models', '/api/pricing'].map(path => this.fetchImpl(`${base}${path}`, {
+      const attempts = await Promise.allSettled(['/v1/models', '/api/pricing'].map(path => this.fetchImpl(`${base}${path}`, {
         headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal,
       })));
+      const responses = attempts.flatMap(attempt => attempt.status === 'fulfilled' ? [attempt.value] : []);
+      if (attempts.some(attempt => attempt.status === 'rejected')) {
+        for (const response of responses) void response.body?.cancel().catch(() => undefined);
+        throw catalogUnavailable(signal.aborted ? 'TANVA_MODEL_CATALOG_TIMEOUT' : 'TANVA_MODEL_CATALOG_NETWORK_FAILED');
+      }
       if (responses.some(response => !response.ok)) {
         for (const response of responses) void response.body?.cancel().catch(() => undefined);
-        throw new Error('Gateway catalog unavailable');
+        throw catalogHttpFailure(responses.find(response => !response.ok)!.status);
       }
-      const [models, pricing] = await Promise.all(responses.map(response => readBoundedJson(response, 4 * 1024 * 1024, signal)));
-      return desktopModelsFromGateway(models, pricing);
-    } catch {
-      throw new ServiceUnavailableException('模型网关动态对话目录暂不可用');
+      const parsed = await Promise.allSettled(responses.map(response => readBoundedJson(response, 4 * 1024 * 1024, signal)));
+      if (parsed.some(item => item.status === 'rejected')) {
+        throw catalogUnavailable(signal.aborted ? 'TANVA_MODEL_CATALOG_TIMEOUT' : 'TANVA_MODEL_CATALOG_INVALID');
+      }
+      try { return desktopModelsFromGateway((parsed[0] as PromiseFulfilledResult<unknown>).value, (parsed[1] as PromiseFulfilledResult<unknown>).value); }
+      catch { throw catalogUnavailable('TANVA_MODEL_CATALOG_INVALID'); }
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw catalogUnavailable(signal.aborted ? 'TANVA_MODEL_CATALOG_TIMEOUT' : 'TANVA_MODEL_CATALOG_NETWORK_FAILED');
     }
   }
   private async row(userId: string, id: string) {

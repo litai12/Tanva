@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -96,7 +97,7 @@ func (o *TanvaConsumption) Receipt() TanvaConsumptionReceipt {
 	if o.SettledAt > 0 {
 		r.SettledAt = time.Unix(o.SettledAt, 0).UTC().Format(time.RFC3339)
 	}
-	if o.UsageJSON != "" && o.UsageEvidence == "upstream_tokens" {
+	if o.UsageJSON != "" && (o.UsageEvidence == "upstream_tokens" || strings.HasPrefix(o.UsageEvidence, "tapcanvas_")) {
 		var usage interface{}
 		if common.UnmarshalJsonStr(o.UsageJSON, &usage) == nil {
 			r.Usage = usage
@@ -419,6 +420,52 @@ func failTanvaConsumption(id int64, code string, expiredBefore int64) error {
 		invalidateTanvaCaches(result)
 	}
 	return err
+}
+
+// TanvaUpstreamReceiptPending marks a dispatched order whose upstream reported
+// a not-yet-final amount (TapCanvas billing_status=pending). It keeps the
+// pre-consumed quota and is settled only from the upstream's final receipt.
+const TanvaUpstreamReceiptPending = "upstream_receipt_pending"
+
+// AwaitTanvaUpstreamReceipt parks a dispatched order until the upstream receipt
+// is final. Nothing is refunded or invented; the reconciler settles it later.
+func AwaitTanvaUpstreamReceipt(id int64, usageJSON string, now int64) error {
+	var result *TanvaConsumption
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		o, err := tanvaLockTx(tx, id)
+		if err != nil {
+			return err
+		}
+		result = o
+		if o.Phase != "dispatching" || (o.Status != "pending" && o.Status != "reconciliation_required") {
+			return errors.New("tanva_usage_not_dispatching")
+		}
+		rev := o.Revision
+		o.Revision++
+		o.Status, o.ErrorCode, o.UsageEvidence, o.UsageJSON, o.LeaseUntil = "reconciliation_required", TanvaUpstreamReceiptPending, "tapcanvas_pending", usageJSON, now
+		if err := tanvaSaveTx(tx, o, rev); err != nil {
+			return err
+		}
+		return tanvaEnqueueTx(tx, o)
+	})
+	if err == nil {
+		invalidateTanvaCaches(result)
+	}
+	return err
+}
+
+// ListTanvaUpstreamReceiptsDue returns parked orders whose next receipt check is due.
+func ListTanvaUpstreamReceiptsDue(now int64, limit int) ([]TanvaConsumption, error) {
+	var rows []TanvaConsumption
+	err := DB.Where("status = ? AND phase = ? AND error_code = ? AND lease_until <= ?",
+		"reconciliation_required", "dispatching", TanvaUpstreamReceiptPending, now).Order("lease_until").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// DeferTanvaUpstreamReceipt schedules the next receipt check of a parked order.
+func DeferTanvaUpstreamReceipt(id int64, next int64) error {
+	return DB.Model(&TanvaConsumption{}).Where("id = ? AND error_code = ? AND phase = ?", id, TanvaUpstreamReceiptPending, "dispatching").
+		Update("lease_until", next).Error
 }
 
 func RecoverTanvaConsumptions(now int64) error {
