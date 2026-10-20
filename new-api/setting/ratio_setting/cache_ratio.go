@@ -85,6 +85,10 @@ var defaultCacheRatio = map[string]float64{
 	"doubao-seed-2.0-lite":        0.2,
 	"doubao-seed-2-0-mini-260428": 0.2,
 	"doubao-seed-2.0-mini":        0.2,
+	// Doubao Seed 2.1: official cached input is 20% of uncached input.
+	"doubao-seed-2-1-pro-260915":   0.2,
+	"doubao-seed-2-1-lite-260915":  0.2,
+	"doubao-seed-2-1-turbo-260628": 0.2,
 }
 
 var defaultCreateCacheRatio = map[string]float64{

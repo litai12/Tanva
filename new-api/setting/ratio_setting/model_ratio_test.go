@@ -1,6 +1,9 @@
 package ratio_setting
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestDefaultSeedance2ModelRatiosUseOnePointFiveMarkup(t *testing.T) {
 	want := 31.25 * 1.5
@@ -52,5 +55,38 @@ func TestDefaultDoubaoSeed20RatiosUseSupportedVersions(t *testing.T) {
 		if got := defaultAudioRatio[model]; got != 15 {
 			t.Errorf("%s default audio ratio = %v, want 15", model, got)
 		}
+	}
+}
+
+func TestDefaultDoubaoSeed21OfficialTokenPrices(t *testing.T) {
+	for _, test := range []struct {
+		model                    string
+		input, output, cacheRead float64
+	}{
+		{"doubao-seed-2-1-pro-260915", 6, 30, 1.2},
+		{"doubao-seed-2-1-lite-260915", 0.8, 2.7, 0.16},
+		{"doubao-seed-2-1-turbo-260628", 3, 15, 0.6},
+	} {
+		t.Run(test.model, func(t *testing.T) {
+			// The gateway converts CNY/M input to ModelRatio by dividing by two.
+			input := defaultModelRatio[test.model] * 2
+			output := input * defaultCompletionRatio[test.model]
+			cacheRead := input * defaultCacheRatio[test.model]
+			for _, price := range []struct {
+				kind      string
+				got, want float64
+			}{
+				{"input", input, test.input * 1.5},
+				{"output", output, test.output * 1.5},
+				{"cache read", cacheRead, test.cacheRead * 1.5},
+			} {
+				if math.Abs(price.got-price.want) > 1e-12 {
+					t.Errorf("%s retail price = %v CNY/M, want %v", price.kind, price.got, price.want)
+				}
+			}
+		})
+	}
+	if got := defaultAudioRatio["doubao-seed-2-1-lite-260915"]; got != 15 {
+		t.Errorf("Seed 2.1 Lite audio ratio = %v, want 15", got)
 	}
 }

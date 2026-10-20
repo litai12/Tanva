@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-20：Ark 对话新增官方 Seed 2.1 Pro / Lite / Turbo，用户确认原 Mini 升级选择对应 Turbo；沿用官价 × 1.5 和 1 元 = 100 积分，新三款采用平价上下文合同。补齐默认倍率、目录及幂等生产数据补丁，保留旧 2.0 视频理解兼容与鲁班独立计价。三款已通过 101 原凭据上游文本冒烟，提交、推送和生产发布按本轮最终记录更新；见 `wiki/ark-seed21-20261020.md`。
+
 - 2026-10-19：桌面动态模型目录补充固定安全诊断，区分网关凭据未配置、上游鉴权/接口/限流/不可用、目录格式、超时和网络故障；所有上游失败仍映射 HTTP 503，不把上游 401 当作 Tanva 登录失效，不返回错误原文或凭据。新增独立 `npm run test:desktop-catalog`，计费受理、钱包和原订单恢复不变。本轮未部署或重跑用户任务；证据和配置核对见 `wiki/desktop-catalog-diagnostics-20261019.md`。
 
 - 2026-10-17：图片水印权益全链路统一。新增 `WatermarkEntitlementService`：有效会员期限、统一白名单“去水印”（`User.noWatermark`）、管理员均免水印；免费用户继续加水印。同步接口（`generate-image` / `edit-image` / `blend-images` / `expand-image`）与异步图片任务（`ImageTaskService` 落 OSS 前，含 GPT Image 2.5 / Seedream 5 / Generate 4 / 小T生图）共用同一判断，修复 Nano 2.1 专属节点有水印、正常生图节点无判断的问题。新增 `npm run test:watermark-entitlement`。`af14c582` 已推送并部署 101：本地/生产测试与构建、PM2 reload、公网 health、生产只读权益核验（会员/白名单 true、免费用户 false）及真实水印处理核验通过；无数据库迁移。详见 `wiki/watermark-entitlement-20261017.md`。AI Metadata 同步脚本在本机缺失，知识库已人工同步。

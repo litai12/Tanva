@@ -22,3 +22,22 @@ func TestModelListUsesSupportedDoubaoSeed20Versions(t *testing.T) {
 		t.Error("ModelList exposes unsupported doubao-seed-2-0-pro-260428")
 	}
 }
+
+func TestModelListOffersOfficialDoubaoSeed21Versions(t *testing.T) {
+	models := make(map[string]bool, len(ModelList))
+	for _, model := range ModelList {
+		models[model] = true
+	}
+	for _, model := range []string{
+		"doubao-seed-2-1-pro-260915",
+		"doubao-seed-2-1-lite-260915",
+		"doubao-seed-2-1-turbo-260628",
+	} {
+		if !models[model] {
+			t.Errorf("ModelList does not contain %s", model)
+		}
+	}
+	if models["doubao-seed-2-1-mini-260915"] {
+		t.Error("ModelList exposes a guessed Seed 2.1 Mini version")
+	}
+}

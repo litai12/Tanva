@@ -295,6 +295,11 @@ var defaultModelRatio = map[string]float64{
 	"doubao-seed-2.0-lite":        0.6 / 1000 * USD * 1.5,
 	"doubao-seed-2-0-mini-260428": 0.2 / 1000 * USD * 1.5,
 	"doubao-seed-2.0-mini":        0.2 / 1000 * USD * 1.5,
+	// Doubao Seed 2.1 uses one official input tier across its supported context.
+	// Prices are CNY/M tokens with the existing 1.5 retail multiplier.
+	"doubao-seed-2-1-pro-260915":   6.0 / 1000 * USD * 1.5,
+	"doubao-seed-2-1-lite-260915":  0.8 / 1000 * USD * 1.5,
+	"doubao-seed-2-1-turbo-260628": 3.0 / 1000 * USD * 1.5,
 	// Perplexity online 模型对搜索额外收费，有需要应自行调整，此处不计入搜索费用
 	"llama-3-sonar-small-32k-chat":   0.2 / 1000 * USD,
 	"llama-3-sonar-small-32k-online": 0.2 / 1000 * USD,
@@ -420,6 +425,8 @@ var defaultAudioRatio = map[string]float64{
 	"doubao-seed-2.0-lite":        15,
 	"doubao-seed-2-0-mini-260428": 15,
 	"doubao-seed-2.0-mini":        15,
+	// Seed 2.1 Lite: official audio input 12 CNY/M / text input 0.8 CNY/M.
+	"doubao-seed-2-1-lite-260915": 15,
 }
 
 var defaultAudioCompletionRatio = map[string]float64{
@@ -456,6 +463,10 @@ var defaultCompletionRatio = map[string]float64{
 	"doubao-seed-2.0-lite":        6,
 	"doubao-seed-2-0-mini-260428": 10,
 	"doubao-seed-2.0-mini":        10,
+	// Doubao Seed 2.1 completion ratio = official output/input.
+	"doubao-seed-2-1-pro-260915":   30.0 / 6.0,
+	"doubao-seed-2-1-lite-260915":  2.7 / 0.8,
+	"doubao-seed-2-1-turbo-260628": 15.0 / 3.0,
 }
 
 // InitRatioSettings initializes all model related settings maps

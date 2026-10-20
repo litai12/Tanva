@@ -147,6 +147,9 @@
 - 历史免费来源矫正：有已支付订单的无批次混合余额继续保护充值；注册赠送、受邀注册和旧 `CHECK_IN` 需凭原流水及实际剩余证据补齐来源批次。无消费且逐笔过期/订单/账本闭合的账户可用 `backend/scripts/run-legacy-free-credit-repair.cjs` 回滚预演后，在同一账户锁事务内补来源、清签到并执行当日衰减；累计获得/消费保持不变，不追补漏衰减。有消费账户需逐笔回放来源、退款与外部核账证据；`run-audited-legacy-free-credit-repair.cjs` 仅处理独立后段来源、严格零剩余池和唯一注册来源精确剩额，真实服务限制新增已证实批次，未知池受保护。344 户已全量核验、11 户追加矫正；不假定原赠送额就是剩余，不将旧修正证据缺口视为应扣金额。详见 `wiki/legacy-free-credit-sources-20260930.md`。
 
 ## AI Metadata 同步
+
+- Ark 对话当前升级目标为 `doubao-seed-2-1-pro-260915`、`doubao-seed-2-1-lite-260915`、`doubao-seed-2-1-turbo-260628`，用户确认 Mini 的新选择对应 Turbo；无虚构 2.1 Mini。沿用官价 × 1.5 和 1 元 = 100 积分，三款 2.1 不套旧 2.0 长上下文阶梯。旧精确 ID 留作视频理解兼容，不静默映射或重算历史账单。官方价格、生产补丁及发布证据见 `wiki/ark-seed21-20261020.md`。
+
 - 修改代码或文档后，在仓库根目录运行：
   - `node "${CODEX_HOME:-$HOME/.codex}/Skills/ai-metadata-sync/scripts/sync-repo.mjs"`
 

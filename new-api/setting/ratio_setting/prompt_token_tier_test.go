@@ -45,3 +45,27 @@ func TestResolveModelRatioForPromptTokensLeavesUntieredModelsUnchanged(t *testin
 	assert.False(t, tiered)
 	assert.Equal(t, 0.5, ratio)
 }
+
+func TestDoubaoSeed21KeepsFlatPricesAcrossSupportedContext(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		model     string
+		maxTokens int
+	}{
+		{"doubao-seed-2-1-pro-260915", 1_024_000},
+		{"doubao-seed-2-1-lite-260915", 1_024_000},
+		{"doubao-seed-2-1-turbo-260628", 256_000},
+	} {
+		t.Run(test.model, func(t *testing.T) {
+			t.Parallel()
+			baseInput := defaultModelRatio[test.model]
+			baseOutput := defaultCompletionRatio[test.model]
+			for _, tokens := range []int{32_000, 32_001, 128_000, 128_001, test.maxTokens} {
+				ratio, tiered := ResolveModelRatioForPromptTokens(test.model, baseInput, tokens)
+				assert.False(t, tiered, "Seed 2.1 must not inherit Seed 2.0 tiers at %d tokens", tokens)
+				assert.Equal(t, baseInput, ratio)
+				assert.Equal(t, baseOutput, ResolveCompletionRatioForPromptTokens(test.model, baseOutput, tokens))
+			}
+		})
+	}
+}

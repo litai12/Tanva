@@ -25,6 +25,10 @@ var ModelList = []string{
 	"doubao-seed-2.0-pro",
 	"doubao-seed-2.0-lite",
 	"doubao-seed-2.0-mini",
+	// doubao-seed-2.1 official online-inference model versions.
+	"doubao-seed-2-1-pro-260915",
+	"doubao-seed-2-1-lite-260915",
+	"doubao-seed-2-1-turbo-260628",
 	"deepseek-v4-flash-260425",
 	"deepseek-v4-pro-260425",
 	// doubao 语音（音频生成，同步 HTTP，openspeech /api/v3/tts/create，X-Api-Key 鉴权）
