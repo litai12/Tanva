@@ -82,6 +82,7 @@ const buildWorksheetXml = (
     freezeHeader?: boolean;
     autoFilter?: boolean;
     columnWidths?: number[];
+    mergeRefs?: string[];
   } = {},
 ): string => {
   const maxColumns = Math.max(1, ...rows.map((row) => row.length));
@@ -109,6 +110,11 @@ const buildWorksheetXml = (
   const autoFilter = options.autoFilter && rows.length > 0
     ? `<autoFilter ref="A1:${lastCell}"/>`
     : '';
+  const mergeCells = options.mergeRefs?.length
+    ? `<mergeCells count="${options.mergeRefs.length}">${options.mergeRefs
+      .map((ref) => `<mergeCell ref="${ref}"/>`)
+      .join('')}</mergeCells>`
+    : '';
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -117,6 +123,7 @@ const buildWorksheetXml = (
   <cols>${columns}</cols>
   <sheetData>${rowXml}</sheetData>
   ${autoFilter}
+  ${mergeCells}
 </worksheet>`;
 };
 
@@ -157,10 +164,33 @@ const buildStylesXml = (): string => `<?xml version="1.0" encoding="UTF-8" stand
 const createArchiveEntries = (
   table: StoryboardPromptTableData,
 ): Record<string, Uint8Array> => {
+  // Shot-scope cells are written once per shot and merged vertically
+  // instead of being repeated on every timeline row.
+  const mergeRefs: string[] = [];
+  const shotStarts = table.rows.map((row, index) =>
+    index === 0 || table.rows[index - 1].shotId !== row.shotId,
+  );
+  shotStarts.forEach((isStart, startIndex) => {
+    if (!isStart) return;
+    let endIndex = startIndex;
+    while (endIndex + 1 < table.rows.length && !shotStarts[endIndex + 1]) {
+      endIndex += 1;
+    }
+    if (endIndex === startIndex) return;
+    table.columns.forEach((column, columnIndex) => {
+      if (column.scope !== 'shot') return;
+      const letter = columnName(columnIndex);
+      mergeRefs.push(`${letter}${startIndex + 2}:${letter}${endIndex + 2}`);
+    });
+  });
   const storyboardRows = [
     table.columns.map((column) => column.label),
-    ...table.rows.map((row) =>
-      table.columns.map((column) => String(row.values[column.key] ?? '')),
+    ...table.rows.map((row, rowIndex) =>
+      table.columns.map((column) =>
+        column.scope === 'shot' && !shotStarts[rowIndex]
+          ? ''
+          : String(row.values[column.key] ?? ''),
+      ),
     ),
   ];
   const overviewRows = [
@@ -227,6 +257,7 @@ const createArchiveEntries = (
         columnWidths: table.columns.map((column) =>
           column.label === '时间段' || column.label === '镜号' ? 18 : 32,
         ),
+        mergeRefs,
       }),
     ),
     'xl/worksheets/sheet2.xml': text(
@@ -500,6 +531,21 @@ export const parseStoryboardPromptWorkbook = (
       scopeByLabel.get(label) ||
       inferColumnScope(label, index, dataRows, shotKeys),
   }));
+  // Merged shot cells only carry a value in the shot's first row.
+  const firstRowByShot = new Map<string, string[]>();
+  dataRows.forEach((row, rowIndex) => {
+    const shotKey = shotKeys[rowIndex];
+    const first = firstRowByShot.get(shotKey);
+    if (!first) {
+      firstRowByShot.set(shotKey, row);
+      return;
+    }
+    columns.forEach((column, columnIndex) => {
+      if (column.scope === 'shot' && !row[columnIndex]) {
+        row[columnIndex] = first[columnIndex];
+      }
+    });
+  });
   const shotIdByKey = new Map<string, string>();
   const rows: StoryboardPromptRow[] = dataRows.map((row, rowIndex) => {
     const shotKey = shotKeys[rowIndex] || `row:${rowIndex + 1}`;

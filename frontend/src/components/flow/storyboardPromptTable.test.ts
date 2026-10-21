@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { strFromU8, unzipSync } from 'fflate';
 import {
   createEmptyStoryboardPromptTable,
   parseStoryboardAnalysis,
@@ -250,4 +251,14 @@ test('round-trips dynamic storyboard rows and column scopes through xlsx', () =>
       : undefined,
     '保留为动态列',
   );
+  assert.equal(
+    customShotColumn
+      ? imported.rows[1]?.values[customShotColumn.key]
+      : undefined,
+    '保留为动态列',
+  );
+  const sheetXml = strFromU8(unzipSync(workbook)['xl/worksheets/sheet1.xml']!);
+  const mergeRefs = Array.from(sheetXml.matchAll(/<mergeCell ref="([^"]+)"/g), (match) => match[1]);
+  assert.ok(mergeRefs.includes('B2:B3'), mergeRefs.join(','));
+  assert.equal((sheetXml.match(/保留为动态列/g) || []).length, 1);
 });

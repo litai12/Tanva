@@ -19,25 +19,81 @@ export interface VideoAnalysisSegment {
   index: number; startSec: number; endSec: number;
   status: 'pending' | 'processing' | 'succeeded' | 'failed';
   videoUrl?: string; text?: string; usage?: any; error?: string;
+  /** Detected hard cuts inside this segment (absolute seconds). */
+  cuts?: number[];
+  /** The segment starts mid-shot: no cut was found near the target boundary. */
+  continuesPrevious?: boolean;
 }
-export function planVideoAnalysisSegments(duration: number): VideoAnalysisSegment[] {
+const TARGET_SEGMENT_SEC = 30;
+const MIN_SEGMENT_SEC = 20;
+const MAX_SEGMENT_SEC = 36;
+/** Ark samples input_video at 1fps by default; 2fps resolves sub-second cuts without large token growth. */
+export const VIDEO_ANALYSIS_FPS = 2;
+const round1 = (value: number) => Math.round(value * 10) / 10;
+/** Splits near 30s but snaps each boundary to a detected hard cut so one shot is never analysed twice. */
+export function planVideoAnalysisSegments(duration: number, cuts: number[] = []): VideoAnalysisSegment[] {
   if (!Number.isFinite(duration) || duration <= 0) throw new BadRequestException('视频时长必须为正数');
-  return Array.from({ length: Math.ceil(duration / 30) }, (_, index) => ({
-    index, startSec: index * 30, endSec: Math.min(duration, (index + 1) * 30), status: 'pending',
-  }));
+  const sorted = [...new Set(cuts.filter(cut => cut > 0 && cut < duration))].sort((a, b) => a - b);
+  const segments: VideoAnalysisSegment[] = [];
+  let start = 0; let continuesPrevious = false;
+  while (start < duration) {
+    let end = duration; let nextContinues = false;
+    if (duration - start > MAX_SEGMENT_SEC) {
+      const candidates = sorted.filter(cut => cut >= start + MIN_SEGMENT_SEC && cut <= start + MAX_SEGMENT_SEC);
+      if (candidates.length) end = candidates.reduce((best, cut) => Math.abs(cut - start - TARGET_SEGMENT_SEC) < Math.abs(best - start - TARGET_SEGMENT_SEC) ? cut : best);
+      else { end = start + TARGET_SEGMENT_SEC; nextContinues = true; }
+    }
+    segments.push({ index: segments.length, startSec: start, endSec: end, status: 'pending',
+      cuts: sorted.filter(cut => cut > start + 0.2 && cut < end - 0.2), ...(continuesPrevious ? { continuesPrevious: true } : {}) });
+    start = end; continuesPrevious = nextContinues;
+  }
+  return segments;
 }
-export function videoSegmentPrompt(prompt: string, segment: VideoAnalysisSegment, duration: number): string {
-  return `${prompt}\n\n【视频分段上下文】原视频总时长 ${duration} 秒。本次素材仅为原视频 ${segment.startSec}–${segment.endSec} 秒，第 ${segment.index + 1} 段。完整执行以上用户要求，仅报告本段实际可见/可听内容；所有时间码使用原视频绝对时间（本段局部时间加 ${segment.startSec} 秒）。不要推测其他片段，不要将缺失上下文当作原视频缺失。`;
+export function videoSegmentPrompt(prompt: string, segment: VideoAnalysisSegment, duration: number, segments: VideoAnalysisSegment[] = []): string {
+  const hints: string[] = [];
+  if (segment.cuts) {
+    hints.push(segment.cuts.length
+      ? `程序场景检测到本段硬切点（原视频绝对时间）：${segment.cuts.map(cut => `${round1(cut)}s`).join('、')}。镜头边界优先对齐这些时间点；相邻切点之间若画面主体、景别、机位未变化则属同一镜头，不要按时间平均拆分，也不要把跨越切点的不同画面合并为一个镜头。叠化/淡入淡出等软切换可能未被检测，以画面实际为准。`
+      : '程序场景检测未在本段发现硬切点：除非画面明确切换（叠化/淡入淡出等软切换），本段应视为同一镜头，不要按时间平均拆分镜头。');
+  }
+  if (segment.continuesPrevious) hints.push(`本段开头 ${segment.startSec}s 不是剪辑点，第一个镜头是上一段镜头的延续，程序会自动合并：照常输出该镜头，时间区间从 ${segment.startSec}s 开始。`);
+  if (segments[segment.index + 1]?.continuesPrevious) hints.push(`本段结尾 ${round1(segment.endSec)}s 不是剪辑点，最后一个镜头在下一段继续：时间区间写到 ${round1(segment.endSec)}s 即可。`);
+  return `${prompt}
+
+【视频分段上下文】原视频总时长 ${duration} 秒。本次素材仅为原视频 ${round1(segment.startSec)}–${round1(segment.endSec)} 秒，第 ${segment.index + 1} 段。完整执行以上用户要求，仅报告本段实际可见/可听内容；所有时间码使用原视频绝对时间（本段局部时间加 ${round1(segment.startSec)} 秒），统一写作“12.3s”格式。不要推测其他片段，不要将缺失上下文当作原视频缺失。${hints.length ? `\n${hints.join('\n')}` : ''}`;
+}
+const SHOT_BLOCK = /={3,}\s*单镜头开始\s*={3,}([\s\S]*?)(?:={3,}\s*单镜头结束\s*={3,}|(?==+\s*单镜头开始)|$)/g;
+const SHOT_RANGE = /^(\s*时间区间[^：:\n]*[：:]\s*)(.*?)\s*$/m;
+const TIMELINE_START = /^\s*(?:---\s*镜头内时序细分[^\n]*|时间段\s*[：:])/m;
+/** Appends a continued shot's timeline and dialogue onto the shot it continues, extending its range. */
+function joinContinuedShot(previous: string, next: string): string {
+  const endOf = (block: string) => /([\d.]+)\s*s?\s*$/.exec(SHOT_RANGE.exec(block)?.[2] || '')?.[1];
+  const nextEnd = endOf(next);
+  let joined = nextEnd ? previous.replace(SHOT_RANGE, (_, prefix, range) => `${prefix}${range.replace(/[\d.]+\s*s?\s*$/, `${nextEnd}s`)}`) : previous;
+  const dialogue = (block: string) => /^\s*台词文本\s*[：:]\s*(.*)$/m.exec(block)?.[1]?.trim() || '';
+  const nextDialogue = dialogue(next);
+  if (nextDialogue && !/^【?无台词】?$/.test(nextDialogue) && !dialogue(joined).includes(nextDialogue)) {
+    joined = joined.replace(/^(\s*台词文本\s*[：:]\s*)(.*)$/m, (_, prefix, text) => /^【?无台词】?$/.test(text.trim()) ? `${prefix}${nextDialogue}` : `${prefix}${text.trim()} ${nextDialogue}`);
+  }
+  const marker = next.search(TIMELINE_START);
+  if (marker < 0) return joined;
+  const timeline = next.slice(marker).replace(/^\s*---[^\n]*\n?/, '').trim();
+  return `${joined.trimEnd()}\n\n${timeline}`;
 }
 export function mergeVideoAnalysisSegments(segments: VideoAnalysisSegment[]): string {
   const completed = [...segments].sort((a, b) => a.index - b.index).filter(s => s.status === 'succeeded');
-  if (completed.length && completed.every(segment => /={3,}\s*单镜头开始\s*={3,}/.test(segment.text || '') && /={3,}\s*单镜头结束\s*={3,}/.test(segment.text || ''))) {
-    let count = 0;
-    const bodies = completed.map(segment => (segment.text || '')
-      .replace(/^\s*【镜头总览】\s*$/gm, '')
-      .replace(/^\s*(?:总镜数|素材总时长)\s*[：:].*$/gm, '')
-      .replace(/^(\s*镜号\s*[：:]\s*)\S+/gm, (_, prefix) => `${prefix}M${String(++count).padStart(3, '0')}`).trim());
-    return `【镜头总览】\n总镜数：${count}\n素材总时长：${Math.max(...completed.map(segment => segment.endSec))}s\n\n${bodies.join('\n\n')}`;
+  const blocksOf = (text: string) => Array.from(text.matchAll(SHOT_BLOCK), match => match[1].trim()).filter(Boolean);
+  if (completed.length && completed.every(segment => blocksOf(segment.text || '').length)) {
+    const shots: string[] = [];
+    completed.forEach((segment, position) => {
+      const blocks = blocksOf(segment.text || '').map(block => block.replace(/(\d+(?:\.\d+)?)\s+s\b/g, '$1s'));
+      const contiguous = completed[position - 1]?.index === segment.index - 1;
+      if (segment.continuesPrevious && contiguous && shots.length) shots.push(joinContinuedShot(shots.pop()!, blocks.shift()!));
+      shots.push(...blocks);
+    });
+    const bodies = shots.map((block, index) => `=========单镜头开始=========\n${block
+      .replace(/^(\s*镜号\s*[：:]\s*)\S+/m, (_, prefix) => `${prefix}M${String(index + 1).padStart(3, '0')}`)}\n=========单镜头结束=========`);
+    return `【镜头总览】\n总镜数：${shots.length}\n素材总时长：${Math.max(...completed.map(segment => segment.endSec))}s\n\n${bodies.join('\n\n')}`;
   }
   const tables = completed.map(segment => (segment.text || '').trim().split('\n').map(line => line.trim()).filter(Boolean));
   const isSeparator = (line: string) => /^\|?[\s:|-]+\|?$/.test(line) && line.includes('---');
@@ -200,19 +256,22 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
       const sourceHash = sourceDigest.digest('hex');
       if (meta.sourceHash && meta.sourceHash !== sourceHash) throw new ConflictException('原视频内容已发生变化，请发起新的分析任务');
       const durationSec = await this.media.probeLocalFile(source);
-      const segments: VideoAnalysisSegment[] = meta.segments?.length ? meta.segments : planVideoAnalysisSegments(durationSec);
-      await this.save(taskId, { durationSec, sourceHash, segments });
+      // Analysis proxy: Ark caps frames near 0.67MP, so 4K/60fps only costs transcode and upload time.
+      const proxy = join(directory, 'proxy.mp4');
+      const cuts = await this.transcodeProxy(source, proxy, durationSec);
+      const segments: VideoAnalysisSegment[] = meta.segments?.length ? meta.segments : planVideoAnalysisSegments(durationSec, cuts);
+      await this.save(taskId, { durationSec, sourceHash, sceneCuts: cuts, segments });
       for (const segment of segments) {
         if (segment.videoUrl || segment.status === 'succeeded') continue;
-        if (segments.length === 1) { segment.videoUrl = videoUrl; }
-        else {
-          const output = join(directory, `${segment.index}.mp4`);
-          await this.cut(source, output, segment.startSec, segment.endSec - segment.startSec);
-          const key = `ai/video-analysis/${taskId}/segment-${segment.index}.mp4`;
-          const upload = await this.oss.putStream(key, createReadStream(output), { headers: { 'Content-Type': 'video/mp4' } });
-          segment.videoUrl = upload.url;
-          await fs.rm(output, { force: true });
+        let output = proxy;
+        if (segments.length > 1) {
+          output = join(directory, `${segment.index}.mp4`);
+          await this.cut(proxy, output, segment.startSec, segment.endSec - segment.startSec);
         }
+        const key = `ai/video-analysis/${taskId}/segment-${segment.index}.mp4`;
+        const upload = await this.oss.putStream(key, createReadStream(output), { headers: { 'Content-Type': 'video/mp4' } });
+        segment.videoUrl = upload.url;
+        if (output !== proxy) await fs.rm(output, { force: true });
         await this.save(taskId, { segments });
       }
       return durationSec;
@@ -234,7 +293,7 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
         segment.status = 'processing'; delete segment.error; await save();
         try {
           const result = await provider.analyzeVideo!({ ...request, videoUrl: segment.videoUrl,
-            prompt: videoSegmentPrompt(request.prompt || '分析视频内容', segment, meta.durationSec) });
+            videoFps: VIDEO_ANALYSIS_FPS, prompt: videoSegmentPrompt(request.prompt || '分析视频内容', segment, meta.durationSec, segments) });
           if (!result.success || !result.data?.text?.trim()) throw new Error(result.error?.message || '该片段未返回分析文本');
           segment.text = result.data.text; segment.usage = result.data.metadata?.raw?.usage || result.data.metadata?.usage;
           segment.status = 'succeeded';
@@ -251,13 +310,34 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
     return { success: true as const, data: { text, metadata: { raw: { usage }, analysisMode: 'segmented_remote_input_video', segments: segments.length } } };
   }
 
-  private cut(source: string, output: string, start: number, duration: number): Promise<void> {
+  private run(args: string[], timeoutMs: number, onStderr?: (chunk: string) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      const child = spawn('ffmpeg', ['-nostdin', '-y', '-ss', String(start), '-i', source, '-t', String(duration), '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', output]);
-      let stderr = ''; child.stderr.on('data', value => { stderr = (stderr + value).slice(-1000); });
-      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('视频分段处理超时')); }, 120_000);
+      const child = spawn('ffmpeg', ['-nostdin', '-y', ...args]);
+      let stderr = ''; child.stderr.on('data', value => { onStderr?.(String(value)); stderr = (stderr + value).slice(-1000); });
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('视频分段处理超时')); }, timeoutMs);
       child.on('error', error => { clearTimeout(timer); reject(error); });
       child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`视频分段失败：${stderr}`)); });
     });
+  }
+  /** Decodes the source once: writes a ≤960px/10fps proxy and returns detected hard-cut times. */
+  private async transcodeProxy(source: string, output: string, durationSec: number): Promise<number[]> {
+    const cuts: number[] = []; let pending = ''; let frameTime = NaN;
+    const scale = "scale='if(gte(iw,ih),min(960,trunc(iw/2)*2),-2)':'if(gte(iw,ih),-2,min(960,trunc(ih/2)*2))'";
+    // select=gte(scene,0) keeps every frame but attaches lavfi.scene_score for metadata=print.
+    await this.run(['-i', source, '-vf', `${scale},fps=10,select='gte(scene,0)',metadata=print:key=lavfi.scene_score`,
+      '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '10', '-c:a', 'aac', '-b:a', '96k', '-ac', '1', '-movflags', '+faststart', output],
+      Math.max(120_000, durationSec * 4_000), chunk => {
+        const lines = (pending + chunk).split('\n'); pending = lines.pop() || '';
+        for (const line of lines) {
+          const time = /Parsed_metadata.*pts_time:\s*([\d.]+)/.exec(line)?.[1];
+          if (time) { frameTime = Number(time); continue; }
+          const score = /lavfi\.scene_score=([\d.]+)/.exec(line)?.[1];
+          if (score && Number(score) >= 0.3 && Number.isFinite(frameTime)) cuts.push(frameTime);
+        }
+      });
+    return cuts.filter((cut, index) => Number.isFinite(cut) && (index === 0 || cut - cuts[index - 1] >= 0.3));
+  }
+  private cut(source: string, output: string, start: number, duration: number): Promise<void> {
+    return this.run(['-ss', String(start), '-i', source, '-t', String(duration), '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', output], 120_000);
   }
 }

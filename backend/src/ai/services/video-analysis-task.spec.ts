@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createWriteStream } from 'node:fs';
-import { VideoAnalysisTaskService, planVideoAnalysisSegments, mergeVideoAnalysisSegments } from './video-analysis-task.service';
+import { VideoAnalysisTaskService, planVideoAnalysisSegments, mergeVideoAnalysisSegments, videoSegmentPrompt } from './video-analysis-task.service';
 import { ReferenceVideoDurationService } from './reference-video-duration.service';
 import { calculateDoubaoSeedVideoAnalysisDurationBilling, DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL } from './doubao-seed-video-analysis-pricing';
 import { AiController } from '../ai.controller';
@@ -61,7 +61,18 @@ async function main() {
     assert.match(result.data!.text, /\| 3 \| 60 \|/);
     assert.equal(row.metadata.stage, 'settling');
     assert.equal(mergeVideoAnalysisSegments(row.metadata.segments), result.data!.text);
-    const storyboards = planVideoAnalysisSegments(72.585).map(segment => ({ ...segment, status: 'succeeded' as const,
+    // Boundaries snap to the nearest detected cut inside 20–36s; without one, the next segment continues the shot.
+    assert.deepEqual(planVideoAnalysisSegments(95, [8, 27.4, 33, 61]).map(s => [s.startSec, s.endSec, !!s.continuesPrevious]),
+      [[0, 27.4, false], [27.4, 61, false], [61, 95, false]]);
+    assert.deepEqual(planVideoAnalysisSegments(72.585).map(s => !!s.continuesPrevious), [false, true, true]);
+    const storyboardText = (segment: any) => `【镜头总览】\n总镜数：1\n素材总时长：${segment.endSec - segment.startSec}s\n\n=========单镜头开始=========\n镜号：M001\n时间区间（镜头完整区间）：${segment.startSec} s - ${segment.endSec} s\n景别：近景\n台词文本：本段对白${segment.index}\n---镜头内时序细分（微表情/短时动作拆解）\n时间段：${segment.startSec}s - ${segment.startSec + .3}s\n目标人物：角色${segment.index}\n肢体动作变化：完整细动作${segment.index}\n=========单镜头结束=========`;
+    const continued = mergeVideoAnalysisSegments(planVideoAnalysisSegments(72.585).map(segment => ({ ...segment, status: 'succeeded' as const, text: storyboardText(segment) })));
+    assert.match(continued, /总镜数：1\n/);
+    assert.match(continued, /时间区间（镜头完整区间）：0s - 72\.585s/);
+    assert.match(continued, /台词文本：本段对白0 本段对白1 本段对白2/);
+    assert.ok(['完整细动作0', '完整细动作1', '完整细动作2'].every(text => continued.includes(text)));
+    assert.match(videoSegmentPrompt('p', planVideoAnalysisSegments(72.585, [12.34])[0], 72.585, []), /硬切点（原视频绝对时间）：12\.3s/);
+    const storyboards = planVideoAnalysisSegments(72.585, [30, 60]).map(segment => ({ ...segment, status: 'succeeded' as const,
       text: `【镜头总览】\n总镜数：1\n素材总时长：${segment.endSec - segment.startSec}s\n\n=========单镜头开始=========\n镜号：M001\n时间区间（镜头完整区间）：${segment.startSec}s - ${segment.endSec}s\n景别：近景\n台词文本：本段对白${segment.index}\n---镜头内时序细分（微表情/短时动作拆解）\n时间段：${segment.startSec}s - ${segment.startSec + .3}s\n目标人物：角色${segment.index}\n肢体动作变化：完整细动作${segment.index}\n=========单镜头结束=========` }));
     const merged = mergeVideoAnalysisSegments(storyboards);
     assert.equal((merged.match(/【镜头总览】/g) || []).length, 1);

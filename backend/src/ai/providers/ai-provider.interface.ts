@@ -134,6 +134,7 @@ export interface VideoAnalysisRequest {
   fileName?: string;
   model?: string;
   providerOptions?: ProviderOptionsPayload;
+  videoFps?: number; // Ark input_video sampling rate (0.2–5, upstream default 1)
 }
 
 export interface VideoAnalysisResult {

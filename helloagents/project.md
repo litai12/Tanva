@@ -23,7 +23,7 @@
 
 ## 开发约定
 
-- 视频分析新建默认Seed2.1 Lite，主选Pro/Lite/Turbo2.1，保留显式旧2.0身份。Seed视频通过持久后台任务按30秒物理分段、并发2分析并按原时间轴合并；恢复只继续未完成片段，按原总时长及稳定回执结算一次。Gemini保留原后台完整视频/抽帧协议。详见 `wiki/video-analysis-seed21-segments-20261021.md`。
+- 视频分析新建默认Seed2.1 Lite，主选Pro/Lite/Turbo2.1，保留显式旧2.0身份。Seed视频通过持久后台任务先一次解码生成≤960px/10fps分析代理并做场景切点检测，再以约30秒（20–36秒内贴近剪辑点）分段、`fps=2`、并发2分析；无切点的边界标记为镜头延续并在合并时拼回同一镜头；恢复只继续未完成片段，按原总时长及稳定回执结算一次。Gemini保留原后台完整视频/抽帧协议。详见 `wiki/video-analysis-seed21-segments-20261021.md`。
 
 - APIMart 图片渠道按已核验同档协议对接现有六个 GPT 2.5 / Nano 2.1 公共 SKU：普通版走 Ext，VIP/official 走原生官方型号；供应商映射只解释一跳，计费始终保留公共身份，APIMart Nano 使用顶层 resolution。管理台候选合并真实渠道配置但不改变启停。详见 `wiki/apimart-image-tier-parity-20261021.md`。
 

@@ -310,6 +310,7 @@ export class NewApiProvider implements IAIProvider {
                 {
                   type: 'input_video',
                   video_url: videoUrl,
+                  ...(request.videoFps ? { fps: request.videoFps } : {}),
                 },
                 {
                   type: 'text',
