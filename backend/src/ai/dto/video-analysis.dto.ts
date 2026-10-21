@@ -3,6 +3,22 @@ import { IsString, IsNotEmpty, IsOptional, IsObject } from 'class-validator';
 export class AnalyzeVideoDto {
   @IsOptional()
   @IsString()
+  clientRequestId?: string;
+
+  @IsOptional()
+  @IsString()
+  resumeTaskId?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @IsOptional()
+  @IsString()
   prompt?: string;
 
   @IsString()

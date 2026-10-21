@@ -37,6 +37,7 @@ export type VideoAnalysisAttempt = {
 };
 
 export type VideoAnalysisTaskNodeData = {
+  error?: string;
   analysisTaskId?: string;
   analysisTaskStatus?: VideoAnalysisTaskStatus;
   analysisTaskProgress?: VideoAnalysisTask['progress'];
@@ -89,6 +90,7 @@ export const videoAnalysisAttemptHistory = (data: VideoAnalysisTaskNodeData): Vi
     clientRequestId,
     status: data.analysisTaskStatus,
     progress: data.analysisTaskProgress,
+    error: data.error,
   }];
 };
 

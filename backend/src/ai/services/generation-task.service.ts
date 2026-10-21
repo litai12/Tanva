@@ -124,6 +124,7 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
           userId,
           id: { not: taskId },
           status: { in: ['queued', 'processing'] },
+          taskType: { not: 'video-analysis' },
         },
         data: { status: 'failed', error: 'superseded by newer task' },
       });
@@ -344,14 +345,14 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     const imageProcessingCutoff = new Date(now - IMAGE_PROCESSING_STUCK_MS);
     try {
       const { count: vProcessing } = await this.prisma.videoTask.updateMany({
-        where: { status: 'processing', updatedAt: { lt: videoProcessingCutoff } },
+        where: { status: 'processing', taskType: { not: 'video-analysis' }, updatedAt: { lt: videoProcessingCutoff } },
         data: { status: 'failed', error: STUCK_TASK_ERROR },
       });
       const iProcessing = await this.reconcileStuckImageTasks(
         'processing', imageProcessingCutoff, STUCK_TASK_ERROR, new Date(now),
       );
       const { count: vQueued } = await this.prisma.videoTask.updateMany({
-        where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
+        where: { status: 'queued', taskType: { not: 'video-analysis' }, updatedAt: { lt: queuedCutoff } },
         data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
       });
       const iQueued = await this.reconcileStuckImageTasks(

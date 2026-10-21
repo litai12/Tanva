@@ -7,7 +7,18 @@ import {
   type ReactFlowState,
 } from '@xyflow/react';
 import { fetchWithAuth } from '@/services/authFetch';
+import {
+  createVideoAnalysisTaskClient,
+  hasUnconfirmedVideoAnalysisSubmission,
+  VideoAnalysisRequestError,
+  videoAnalysisAttemptHistory,
+  videoAnalysisResumeTaskId,
+  type VideoAnalysisTask,
+  type VideoAnalysisTaskNodeData,
+  type VideoAnalysisTaskRequest,
+} from '@/services/videoAnalysisTasks';
 import { useCanvasStore } from '@/stores';
+import { useProjectStore } from '@/stores/projectStore';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
 import {
@@ -33,7 +44,7 @@ import {
 
 type Props = {
   id: string;
-  data: {
+  data: VideoAnalysisTaskNodeData & {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
     videoUrl?: string;
     prompt?: string;
@@ -71,6 +82,11 @@ const normalizeVideoDuration = (value: unknown): number | undefined => {
     : undefined;
 };
 
+const taskClient = createVideoAnalysisTaskClient(
+  fetchWithAuth,
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') || 'http://localhost:4000',
+);
+
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
@@ -78,6 +94,26 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [taskId, setTaskId] = React.useState(data.analysisTaskId);
+  const [taskSnapshot, setTaskSnapshot] = React.useState<VideoAnalysisTask | null>(null);
+  const [pollRevision, setPollRevision] = React.useState(0);
+  const [pollError, setPollError] = React.useState('');
+  const mountedRef = React.useRef(true);
+  const submissionBusyRef = React.useRef(false);
+  const completionWaiters = React.useRef<((success: boolean) => void)[]>([]);
+  const settleWaiters = React.useCallback((success: boolean) => {
+    completionWaiters.current.splice(0).forEach((resolve) => resolve(success));
+  }, []);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      settleWaiters(false);
+    };
+  }, [settleWaiters]);
+  React.useEffect(() => {
+    setTaskId(data.analysisTaskId);
+  }, [data.analysisTaskId]);
   const [loadedVideoDuration, setLoadedVideoDuration] = React.useState<
     number | undefined
   >(undefined);
@@ -353,8 +389,73 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     };
   }, [data.storyboardPromptNodeId, id, lt, rf]);
 
-  const onAnalyze = React.useCallback(async () => {
-    if (!effectiveVideoUrl) {
+  const latestTaskContext = React.useRef({ data, updateNodeData, upsertStoryboardPromptNode });
+  latestTaskContext.current = { data, updateNodeData, upsertStoryboardPromptNode };
+
+  React.useEffect(() => {
+    if (!taskId) return;
+    const saved = latestTaskContext.current.data;
+    if (pollRevision === 0 && (
+      saved.analysisTaskStatus === 'failed' ||
+      (saved.analysisTaskStatus === 'succeeded' && saved.analysisTaskAppliedId === taskId)
+    )) return;
+
+    const controller = new AbortController();
+    setPollError('');
+    void taskClient.observe(taskId, controller.signal, (task) => {
+      setTaskSnapshot(task);
+      latestTaskContext.current.updateNodeData({
+        analysisTaskId: task.taskId,
+        analysisTaskStatus: task.status,
+        analysisTaskProgress: task.progress,
+        analysisTaskStage: task.stage,
+      });
+    }).then((task) => {
+      if (controller.signal.aborted) return;
+      const context = latestTaskContext.current;
+      if (task.status === 'failed') {
+        context.updateNodeData({ status: 'failed', error: task.error || lt('视频分析失败', 'Video analysis failed') });
+        settleWaiters(false);
+        return;
+      }
+      const analysisText = String(task.result?.analysis || task.result?.text || '').trim();
+      if (!analysisText) {
+        throw new Error(lt('模型没有返回可解析的分析结果', 'The model returned no parseable analysis result'));
+      }
+      const output = context.upsertStoryboardPromptNode(analysisText);
+      context.updateNodeData({
+        status: 'succeeded', error: undefined,
+        prompt: analysisText, text: analysisText,
+        analysisMode: task.result?.analysisMode,
+        analysisTaskAppliedId: task.taskId,
+        storyboardPromptNodeId: output.outputNodeId,
+        storyboardRowCount: output.rowCount,
+        storyboardColumnCount: output.columnCount,
+      });
+      window.dispatchEvent(new CustomEvent('refresh-credits'));
+      settleWaiters(true);
+    }).catch((err: unknown) => {
+      if (controller.signal.aborted) return;
+      // A lost GET response says nothing about the backend task's outcome.
+      // Keep the same task identity; the next click only resumes observation.
+      setPollError(err instanceof Error ? err.message : String(err));
+      settleWaiters(false);
+    });
+    return () => controller.abort();
+  }, [taskId, pollRevision, lt, settleWaiters]);
+
+  const onAnalyze = React.useCallback(async (): Promise<boolean> => {
+    if (submissionBusyRef.current) return false;
+    const current = latestTaskContext.current.data;
+    const knownStatus = taskSnapshot && taskSnapshot.taskId === taskId ? taskSnapshot.status : current.analysisTaskStatus;
+    if (taskId && (knownStatus === 'queued' || knownStatus === 'processing' || pollError)) {
+      const completion = new Promise<boolean>((resolve) => completionWaiters.current.push(resolve));
+      if (pollError) setPollRevision((value) => value + 1);
+      return completion;
+    }
+
+    const unconfirmed = hasUnconfirmedVideoAnalysisSubmission(current);
+    if (!effectiveVideoUrl && !unconfirmed) {
       updateNodeData({
         status: 'failed',
         error: lt(
@@ -362,100 +463,90 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           'No video input to analyze. Please connect a video node first',
         ),
       });
-      return;
+      return false;
     }
-    if (status === 'running' || isAnalyzing) return;
 
     const promptToUse = analysisPromptDraft.trim();
-    if (!promptToUse) {
+    if (!promptToUse && !unconfirmed) {
       updateNodeData({
         status: 'failed',
         error: lt('提示词不能为空', 'Prompt cannot be empty'),
       });
-      return;
+      return false;
     }
 
+    // Persist the request identity before submitting. If the receipt is lost,
+    // an explicit retry sends this frozen request with the same key.
+    const request: VideoAnalysisTaskRequest = unconfirmed
+      ? current.analysisTaskRequest!
+      : {
+          prompt: promptToUse,
+          videoUrl: effectiveVideoUrl!,
+          model: selectedModel,
+          bananaImageRoute,
+          channelHint: bananaImageRoute === 'stable' ? 'tencent' : bananaImageRoute === 'ultra' ? 'beqlee' : 'apimart',
+          providerOptions: { banana: { imageRoute: bananaImageRoute } },
+          clientRequestId: crypto.randomUUID(),
+          nodeId: id,
+          projectId: useProjectStore.getState().currentProjectId || undefined,
+        };
+    if (!unconfirmed) request.resumeTaskId = videoAnalysisResumeTaskId(current, request);
+    submissionBusyRef.current = true;
+    setIsAnalyzing(true);
+    setPollError('');
     updateNodeData({
       status: 'running',
       error: undefined,
+      analysisTaskRequest: request,
+      analysisTaskHistory: unconfirmed ? current.analysisTaskHistory : videoAnalysisAttemptHistory(current),
+      analysisTaskId: undefined,
+      analysisTaskStatus: undefined,
+      analysisTaskProgress: undefined,
+      analysisTaskStage: undefined,
+      analysisTaskAppliedId: undefined,
+      analysisSubmissionState: 'submitting',
     });
 
     try {
-      setIsAnalyzing(true);
-      const apiBase =
-        import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') ||
-        'http://localhost:4000';
-      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptToUse,
-          videoUrl: effectiveVideoUrl,
-          model: selectedModel,
-          bananaImageRoute,
-          channelHint:
-            bananaImageRoute === 'stable'
-              ? 'tencent'
-              : bananaImageRoute === 'ultra'
-                ? 'beqlee'
-                : 'apimart',
-          providerOptions: {
-            banana: { imageRoute: bananaImageRoute },
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const message = Array.isArray(errorData.message)
-          ? errorData.message.join('; ')
-          : errorData.message;
-        throw new Error(message || `HTTP ${response.status}`);
-      }
-
-      const result = await response.json();
-      const analysisText = String(
-        result.analysis || result.text || result.data?.analysis || '',
-      ).trim();
-      if (!analysisText) {
-        throw new Error(lt(
-          '模型没有返回可解析的分析结果',
-          'The model returned no parseable analysis result',
-        ));
-      }
+      const task = await taskClient.submit(request);
       updateNodeData({
-        status: 'succeeded',
-        error: undefined,
-        prompt: analysisText,
-        text: analysisText,
-        analysisModel: selectedModel,
-        analysisMode: result.analysisMode,
+        analysisTaskId: task.taskId,
+        analysisTaskStatus: task.status,
+        analysisTaskProgress: task.progress,
+        analysisTaskStage: task.stage,
+        analysisSubmissionState: 'accepted',
+        analysisModel: request.model,
       });
-      const output = upsertStoryboardPromptNode(analysisText);
-      updateNodeData({
-        storyboardPromptNodeId: output.outputNodeId,
-        storyboardRowCount: output.rowCount,
-        storyboardColumnCount: output.columnCount,
-      });
+      if (!mountedRef.current) return false;
+      const completion = new Promise<boolean>((resolve) => completionWaiters.current.push(resolve));
+      setTaskSnapshot(task);
+      setTaskId(task.taskId);
+      setPollRevision((value) => value + 1);
+      return completion;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      const rejected = err instanceof VideoAnalysisRequestError && err.submissionRejected;
       updateNodeData({
-        status: 'failed',
+        status: rejected ? 'failed' : 'running',
         error: message,
+        analysisSubmissionState: rejected ? 'rejected' : 'unknown',
       });
+      return false;
     } finally {
-      setIsAnalyzing(false);
+      submissionBusyRef.current = false;
+      if (mountedRef.current) setIsAnalyzing(false);
     }
   }, [
     analysisPromptDraft,
     bananaImageRoute,
     effectiveVideoUrl,
-    isAnalyzing,
+    id,
     lt,
     selectedModel,
-    status,
+    taskId,
+    taskSnapshot,
+    pollError,
     updateNodeData,
-    upsertStoryboardPromptNode,
   ]);
 
   React.useEffect(() => {
@@ -465,7 +556,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       ).detail;
       if (!detail || detail.id !== id) return;
       void onAnalyze()
-        .then(() => detail.done?.(true))
+        .then((success) => detail.done?.(success))
         .catch(() => detail.done?.(false));
     };
     window.addEventListener('flow:run-node', handler as EventListener);
@@ -486,8 +577,18 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     });
   }, [data.storyboardPromptNodeId, rf]);
 
-  const canRun =
-    Boolean(effectiveVideoUrl) && status !== 'running' && !isAnalyzing;
+  const currentTaskStatus = taskSnapshot && taskSnapshot.taskId === taskId
+    ? taskSnapshot.status : data.analysisTaskStatus;
+  const hasPendingTask = Boolean(taskId) && currentTaskStatus !== 'succeeded' && currentTaskStatus !== 'failed';
+  const unconfirmedSubmission = hasUnconfirmedVideoAnalysisSubmission(data);
+  const controlsLocked = isAnalyzing || hasPendingTask || unconfirmedSubmission;
+  const canRun = !isAnalyzing && (
+    Boolean(pollError) || unconfirmedSubmission || (Boolean(effectiveVideoUrl) && !hasPendingTask)
+  );
+  const taskProgress = taskSnapshot && taskSnapshot.taskId === taskId ? taskSnapshot.progress : data.analysisTaskProgress;
+  const progressLabel = taskProgress && taskProgress.total > 0
+    ? lt(`已处理 ${taskProgress.completed}/${taskProgress.total} 段`, `Processed ${taskProgress.completed}/${taskProgress.total} clips`)
+    : lt('正在探测视频并拆分短片…', 'Inspecting video and preparing clips…');
   const shell = flowNodeShellChrome(isFlowDark, Boolean(selected));
   const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected
@@ -524,18 +625,23 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         </div>
         <button
           className="tanva-video-analyze-run-btn run-btn-with-credit"
-          onClick={onAnalyze}
+          onClick={() => { void onAnalyze(); }}
           disabled={!canRun}
           style={{ cursor: canRun ? 'pointer' : 'not-allowed' }}
         >
-          {status === 'running' || isAnalyzing ? (
+          {isAnalyzing || (hasPendingTask && !pollError) ? (
             <span className="run-text-trigger">
               {lt('分析中...', 'Analyzing...')}
             </span>
           ) : (
             <>
-              <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
-              {hasRunCredits ? (
+              <span className="run-text-trigger">{
+                pollError ? lt('恢复查询', 'Reconnect') :
+                unconfirmedSubmission ? lt('继续提交', 'Recover submission') :
+                currentTaskStatus === 'failed' || status === 'failed' ? lt('重试', 'Retry') :
+                status === 'succeeded' ? lt('重新分析', 'Analyze again') : lt('分析', 'Analyze')
+              }</span>
+              {hasRunCredits && !pollError && !unconfirmedSubmission ? (
                 <RunCreditBadge credits={runCredits} runButton />
               ) : null}
             </>
@@ -592,7 +698,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         <select
           className="nodrag nopan"
           value={selectedModel}
-          disabled={status === 'running' || isAnalyzing}
+          disabled={controlsLocked}
           onChange={(event) => {
             updateNodeData({
               analysisModel: event.target.value as VideoAnalyzeModel,
@@ -682,7 +788,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             fontFamily: 'inherit',
             ...controlField,
           }}
-          disabled={status === 'running' || isAnalyzing}
+          disabled={controlsLocked}
         />
       </div>
 
@@ -700,7 +806,16 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           gap: 6,
         }}
       >
-        {status === 'succeeded' && data.storyboardPromptNodeId ? (
+        {unconfirmedSubmission ? (
+          <span>{lt('提交回执待确认；点击继续提交将找回同一次分析，不会自动重提。', 'Submission is unconfirmed. Recover submission to retrieve the same analysis attempt.')}</span>
+        ) : hasPendingTask || (taskProgress && status === 'failed') ? (
+          <>
+            <span aria-live="polite">{progressLabel}</span>
+            {pollError ? <span>{lt('查询已暂停，后台任务继续处理。', 'Updates paused; the task continues in the background.')}</span> :
+              hasPendingTask && <span>{lt('短片分别分析后将合并为同一份分镜表。', 'Clip analyses will be combined into one storyboard table.')}</span>}
+            {currentTaskStatus === 'failed' && <span>{lt('重试将复用已完成片段。修改输入后将新建分析。', 'Retry reuses completed clips. Changed inputs start a new analysis.')}</span>}
+          </>
+        ) : status === 'succeeded' && data.storyboardPromptNodeId ? (
           <>
             <span>
               {lt(
@@ -731,7 +846,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           </>
         ) : (
           <span style={{ color: '#9ca3af' }}>
-            {status === 'running' || isAnalyzing
+            {isAnalyzing
               ? lt('正在解析镜头与时间轴…', 'Parsing shots and timeline…')
               : lt(
                   '分析完成后将自动生成可连线的分镜表 Prompt',
@@ -741,9 +856,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         )}
       </div>
 
-      {status === 'failed' && error && (
+      {(pollError || error) && (
         <div style={{ fontSize: 12, color: '#ef4444', whiteSpace: 'pre-wrap' }}>
-          {error}
+          {pollError || error}
         </div>
       )}
 

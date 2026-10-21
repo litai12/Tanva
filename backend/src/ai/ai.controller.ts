@@ -1,6 +1,7 @@
 import { isNanoBanana21Model, resolveNanoBanana21Model, resolveToapisImageRoute, isToapisImageModel, isNewToapisImageModel, normalizeToapisImageRequest } from './services/toapis-image-models';
 import { imageExecutionContext, isImageGenerationService, needsImageReconciliation, ImageExecutionState } from './services/image-execution-state';
 import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
+import { VideoAnalysisTaskService } from './services/video-analysis-task.service';
 import { DeepSeekChatBillingService, isDeepSeekChatModel, DeepSeekChatCharge } from './services/deepseek-chat-billing.service';
 import type { IAIProvider, AIProviderResponse, TextChatRequest, TextResult } from './providers/ai-provider.interface';
 import { assertVideoNodeEnabled } from './services/video-node-availability';
@@ -475,7 +476,10 @@ export class AiController {
     @Optional() private readonly creditCharge?: CreditChargeService,
     @Optional() private readonly referenceVideoDuration?: ReferenceVideoDurationService,
     @Optional() private readonly deepseekChatBilling?: DeepSeekChatBillingService,
-  ) {}
+    @Optional() private readonly videoAnalysisTasks?: VideoAnalysisTaskService,
+  ) {
+    this.videoAnalysisTasks?.registerExecutor((dto, req, taskId) => this.executeVideoAnalysis(dto, req, taskId));
+  }
 
   private extractAccessToken(req: any): string | null {
     const cookieToken = req?.cookies?.access_token;
@@ -2211,6 +2215,11 @@ export class AiController {
 
     await this.creditsService.getOrCreateAccount(userId);
 
+    const videoAnalysisTaskId = requestParams?.videoAnalysisTaskId;
+    const receiptId = typeof videoAnalysisTaskId === 'string' ? `video-analysis-${videoAnalysisTaskId}` : undefined;
+    const existingReceipt = receiptId ? await this.prisma.apiUsageRecord.findUnique({ where: { id: receiptId } }) : null;
+    if (existingReceipt && existingReceipt.userId !== userId) throw new ForbiddenException('视频分析结算归属不一致');
+
     const teamId = this.getTeamId(req);
     const isTeamProject = !!(
       teamId &&
@@ -2218,7 +2227,7 @@ export class AiController {
       (await this.isNonPersonalTeam(teamId))
     );
 
-    const balanceGuardCredits = Math.max(
+    const balanceGuardCredits = existingReceipt ? 0 : Math.max(
       0,
       Math.round(options?.balanceGuardCredits ?? SEED_AUDIO_MAX_CREDITS),
     );
@@ -2226,7 +2235,7 @@ export class AiController {
       options?.balanceGuardLabel || '音频生成最多可能消耗';
 
     // (a) 余额护栏（不是实际扣费）。
-    if (isTeamProject && teamId) {
+    if (!existingReceipt && isTeamProject && teamId) {
       const account = await this.prisma.teamCreditAccount.findUnique({
         where: { teamId },
         select: { balance: true, frozenBalance: true },
@@ -2275,7 +2284,7 @@ export class AiController {
 
     // 豆包可能因输入超过首档而高于预授权护栏；团队模式在落 SUCCESS
     // 用量记录前按实际金额复查，避免先产出记录后才发现无法预留。
-    if (isTeamProject && teamId) {
+    if (!existingReceipt && isTeamProject && teamId) {
       const account = await this.prisma.teamCreditAccount.findUnique({
         where: { teamId },
         select: { balance: true, frozenBalance: true },
@@ -2300,7 +2309,8 @@ export class AiController {
     };
 
     // (c) 精确后扣 new-api 回报的积分。
-    const deducted = await this.creditsService.deductExact(
+    if (existingReceipt && existingReceipt.creditsUsed !== amount) throw new ConflictException('视频分析已有结算金额不一致，请按原回执核账');
+    const deducted = existingReceipt ? { apiUsageId: existingReceipt.id } : await this.creditsService.deductExact(
       userId,
       isTeamProject ? teamId : null,
       amount,
@@ -2314,6 +2324,7 @@ export class AiController {
         responseStatus: deferSettlement
           ? ApiResponseStatus.PENDING
           : ApiResponseStatus.SUCCESS,
+        ...(receiptId ? { apiUsageId: receiptId } : {}),
       },
     );
 
@@ -2335,6 +2346,20 @@ export class AiController {
 
     // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
     if (isTeamProject && teamId) {
+      if (receiptId) {
+        const account = await this.prisma.teamCreditAccount.findUniqueOrThrow({ where: { teamId }, select: { id: true } });
+        const entries = await this.prisma.teamCreditLedger.findMany({ where: { teamAccId: account.id, taskId: deducted.apiUsageId }, select: { entryType: true } });
+        const types = new Set(entries.map(entry => entry.entryType));
+        if (!types.has('deduct')) {
+          if (types.has('release')) throw new ConflictException('视频分析原团队预留已释放，请按原回执核账');
+          if (!types.has('reserve')) {
+            const reserved = await this.teamCreditLedger!.reserve({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId });
+            if (!reserved.reserved) throw new BadRequestException(`视频分析结果已保存，团队积分结算待恢复：${reserved.reason || '预留失败'}`);
+          }
+          const settlement = await this.teamCreditLedger!.deduct({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId });
+          if (!settlement.deducted) throw new ServiceUnavailableException('视频分析结果已保存，团队积分结算未确认，请点击恢复');
+        }
+      } else {
       const reserved = await this.teamCreditLedger!.reserve({
         teamId,
         amount,
@@ -2370,6 +2395,7 @@ export class AiController {
             actorUserId: userId,
           })
           .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      }
       }
     }
 
@@ -7626,6 +7652,27 @@ export class AiController {
    */
   @Post('analyze-video')
   async analyzeVideo(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
+    return this.executeVideoAnalysis(dto, req);
+  }
+
+  @Post('video-analysis-tasks')
+  async submitVideoAnalysisTask(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
+    if (!this.videoAnalysisTasks) throw new ServiceUnavailableException('视频分析任务服务不可用');
+    const userId = this.getUserId(req) || (req.apiClient?.id ? `api:${req.apiClient.id}` : null);
+    if (!userId) throw new ForbiddenException('请登录后提交视频分析');
+    this.parseAndValidateAllowedUrl(dto.videoUrl);
+    return this.videoAnalysisTasks.submit({ ...dto, model: this.resolveVideoAnalysisModel(dto.model) }, req, userId);
+  }
+
+  @Get('video-analysis-tasks/:taskId')
+  async getVideoAnalysisTask(@Param('taskId') taskId: string, @Req() req: any) {
+    if (!this.videoAnalysisTasks) throw new ServiceUnavailableException('视频分析任务服务不可用');
+    const userId = this.getUserId(req) || (req.apiClient?.id ? `api:${req.apiClient.id}` : null);
+    if (!userId) throw new ForbiddenException('请登录后查询视频分析');
+    return this.videoAnalysisTasks.get(taskId, userId);
+  }
+
+  private async executeVideoAnalysis(dto: AnalyzeVideoDto, req: any, videoAnalysisTaskId?: string) {
     this.logger.log(`🎥 Video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
 
     const providerName = 'new-api';
@@ -7647,6 +7694,7 @@ export class AiController {
       nodeConfigNameZh: '视频分析节点',
       nodeConfigNameEn: 'Video Analysis',
       billingTitleSource: 'node',
+      ...(videoAnalysisTaskId ? { videoAnalysisTaskId } : {}),
     }, videoProviderOptions);
 
     if (isDoubaoSeedVideoAnalysisModel(model)) {
@@ -7658,10 +7706,9 @@ export class AiController {
                 '视频分析时长探测服务不可用，请稍后重试',
               );
             }
-            const durationSec = await this.referenceVideoDuration.probeDuration(
-              parsedVideoUrl.toString(),
-              '待分析视频',
-            );
+            const durationSec = videoAnalysisTaskId && this.videoAnalysisTasks
+              ? await this.videoAnalysisTasks.prepare(videoAnalysisTaskId, parsedVideoUrl.toString())
+              : await this.referenceVideoDuration.probeDuration(parsedVideoUrl.toString(), '待分析视频');
             return calculateDoubaoSeedVideoAnalysisDurationBilling(model, durationSec);
           })()
         : null;
@@ -7676,14 +7723,17 @@ export class AiController {
             throw new ServiceUnavailableException('当前 AI Provider 不支持视频分析');
           }
 
-          const result = await provider.analyzeVideo({
+          const analysisRequest = {
             prompt:
               dto.prompt ||
               '分析这个视频的内容，描述视频中的场景、动作和关键信息。',
             videoUrl: parsedVideoUrl.toString(),
             model,
             providerOptions: videoProviderOptions,
-          });
+          };
+          const result = videoAnalysisTaskId && this.videoAnalysisTasks
+            ? await this.videoAnalysisTasks.analyze(videoAnalysisTaskId, provider, analysisRequest)
+            : await provider.analyzeVideo(analysisRequest);
           if (!result.success || !result.data) {
             throw new ServiceUnavailableException(
               result.error?.message || 'Failed to analyze remote video',
@@ -7756,7 +7806,7 @@ export class AiController {
               model,
               provider: providerName,
               processingTime,
-              analysisMode: 'remote_input_video',
+              analysisMode: videoAnalysisTaskId ? 'segmented_remote_input_video' : 'remote_input_video',
               usage,
               billing: {
                 billingMode: billing.billingMode,

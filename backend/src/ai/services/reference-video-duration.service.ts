@@ -72,7 +72,7 @@ export class ReferenceVideoDurationService {
     }
   }
 
-  private async downloadToFile(rawUrl: string, targetPath: string): Promise<void> {
+  async downloadToFile(rawUrl: string, targetPath: string, maxDownloadBytes = this.maxDownloadBytes): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.downloadTimeoutMs);
 
@@ -101,7 +101,7 @@ export class ReferenceVideoDurationService {
         }
 
         const declaredLength = Number(response.headers.get('content-length'));
-        if (Number.isFinite(declaredLength) && declaredLength > this.maxDownloadBytes) {
+        if (Number.isFinite(declaredLength) && declaredLength > maxDownloadBytes) {
           throw new Error('reference video exceeds the maximum download size');
         }
 
@@ -113,7 +113,7 @@ export class ReferenceVideoDurationService {
             const { done, value } = await reader.read();
             if (done) break;
             written += value.byteLength;
-            if (written > this.maxDownloadBytes) {
+            if (written > maxDownloadBytes) {
               await reader.cancel();
               throw new Error('reference video exceeds the maximum download size');
             }
@@ -186,7 +186,7 @@ export class ReferenceVideoDurationService {
     return true;
   }
 
-  private probeLocalFile(filePath: string): Promise<number> {
+  probeLocalFile(filePath: string): Promise<number> {
     return new Promise((resolve, reject) => {
       const child = spawn('ffprobe', [
         '-v',

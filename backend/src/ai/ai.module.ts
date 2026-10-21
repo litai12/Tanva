@@ -51,6 +51,7 @@ import { NewApiVideoTaskReconciliationService } from './services/new-api-video-t
 import { GlobalImageHistoryModule } from '../global-image-history/global-image-history.module';
 import { ImageReferencePreparationService } from './services/image-reference-preparation.service';
 import { WatermarkEntitlementService } from './services/watermark-entitlement.service';
+import { VideoAnalysisTaskService } from './services/video-analysis-task.service';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { WatermarkEntitlementService } from './services/watermark-entitlement.se
     ImageTaskWorkerService,
     GenerationTaskService,
     ReferenceVideoDurationService,
+    VideoAnalysisTaskService,
     NewApiVideoTaskReconciliationService,
     ApiKeyOrJwtGuard,
   ],

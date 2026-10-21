@@ -35,3 +35,23 @@ APIMart 官方公开价格接口 `/api/pricing/model?model=...` 与国内地址�
 ## 验证与发布
 
 本地两个适配包及 DTO 完整回归通过；relay/helper/controller/model 定向回归通过，覆盖一跳映射、计费身份、参数覆盖、元数据规格保留、HTTP 200/202 回执与管理台候选。真实隔离 PostgreSQL 补丁测试通过，覆盖首次并发、重复幂等、禁用保持、空身份、冲突映射及缺失目录/价格原子回滚。生产发布与实际生成回执待上线后补记。
+
+
+### 101 实际发布
+
+代码 `d3eb3bf9d7c1d3d26ff6c2c9ee4867a9b03a9d51` 已提交推送并同步101。UTC 2026-10-21 07:01:18 上线镜像 `backend-new-api:apimart-parity-20261021`；二进制 SHA256 `a953d25189d9a4c82cf3cc11f63e07f19a6dc2e36b8621edd1aa8f0c154b164f`。沿用已部署管理台静态产物，未发布 Tanva 前后端。
+
+配置原生dump与目标字段快照保存于 `/opt/tanva-backups/apimart-parity-20261021/`。SQL先ROLLBACK预演再事务提交，仅新增9渠道六SKU对应的12条default/vip能力；其他渠道、完整价格选项和模型目录逐字段保持。等待active图片及近期未结网关请求均为0后切换，环境变量完全一致，队列已恢复，内外网健康及二进制哈希通过。
+
+六次独立中性文本curl按管理员渠道9定向验收，均HTTP200并返回可访问PNG/JPEG。未重跑用户素材或节点，未扣Tanva用户业务钱包；网关测试账户正常产生各一笔账单。原公共model_name、真实上游型号、version、渠道9、唯一attempt和预期quota逐笔一致。
+
+| 公共SKU | 秒 | 实际上游 | 网关quota |
+| --- | ---: | --- | ---: |
+| Flare普通 | 54.35 | gpt-image-2.5-ext / flare | 200000 |
+| Sunburst普通 | 33.53 | gpt-image-2.5-ext / sunburst | 200000 |
+| Flare VIP | 10.85 | gpt-image-2.5-flare | 100000 |
+| Sunburst VIP | 10.99 | gpt-image-2.5-sunburst | 100000 |
+| Nano2.1普通 | 18.92 | gemini-nano-banana-2.1-ext | 100000 |
+| Nano2.1官方 | 23.66 | gemini-nano-banana-2.1 | 150000 |
+
+均请求1K/1:1/n=1，VIP测试low；实际Ext PNG为1254×1254、VIP为1024×1024，Nano为JPEG。实测只覆盖这些规格，4K/质量及metadata差异由回归覆盖，不声称所有规格均实际生成。完整回执 `/opt/tanva-releases/apimart-parity-20261021/gateway-acceptance.json`，all_passed=true。
