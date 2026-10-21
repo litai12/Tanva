@@ -35,12 +35,13 @@ globalThis.fetch = async (input, init) => {
 };
 
 async function main(): Promise<void> {
-  const provider = new NewApiProvider(
-    new ConfigService({
+  const configuration: Record<string, string> = {
       NEW_API_BASE_URL: 'https://new-api.test',
       NEW_API_KEY: 'new-api-key',
-    }),
-  );
+  };
+  // ConfigService prefers process.env over constructor defaults. Keep this
+  // mocked transport fixture independent of the developer's real gateway.
+  const provider = new NewApiProvider({ get: (key: string) => configuration[key] } as unknown as ConfigService);
   await provider.initialize();
 
   const result = await provider.analyzeVideo({
@@ -113,6 +114,22 @@ async function main(): Promise<void> {
   assert.equal(invalid.error?.code, 'VIDEO_ANALYSIS_FAILED');
   assert.match(invalid.error?.message || '', /MIME type/);
   assert.equal(captured.length, 2);
+
+  for (const model of ['doubao-seed-2-1-pro-260915', 'doubao-seed-2-1-lite-260915', 'doubao-seed-2-1-turbo-260628']) {
+    const result = await provider.analyzeVideo({
+      prompt: '输出分镜表', videoUrl: 'https://cdn.example.com/storyboard.mp4', model,
+    });
+    assert.equal(result.success, true);
+    const request = captured.at(-1)!;
+    assert.equal(request.url, 'https://new-api.test/v1/responses');
+    assert.equal(request.body.model, model);
+    assert.deepEqual(request.body.input[0].content[0], {
+      type: 'input_video', video_url: 'https://cdn.example.com/storyboard.mp4',
+    });
+    assert.equal(request.body.max_output_tokens, 16384);
+    assert.equal(result.data?.metadata?.inputMode, 'remote_input_video');
+    assert.equal(request.body.input[0].content.some((part: any) => 'file_data' in part), false);
+  }
 
   console.log('new-api video analysis verification passed');
 }

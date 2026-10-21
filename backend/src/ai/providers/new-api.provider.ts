@@ -26,7 +26,7 @@ import {
   VideoAnalysisResult,
 } from './ai-provider.interface';
 import { normalizeGeminiImageSize } from '../image-size.util';
-import { extractNewApiTokenUsage } from '../services/doubao-seed-video-analysis-pricing';
+import { extractNewApiTokenUsage, isDoubaoSeedVideoAnalysisModel } from '../services/doubao-seed-video-analysis-pricing';
 import { collectAgentTextStream } from './new-api-agent-text-stream';
 import { ImageReferencePreparationService } from '../services/image-reference-preparation.service';
 
@@ -946,7 +946,7 @@ export class NewApiProvider implements IAIProvider {
   }
 
   private isDoubaoVideoUnderstandingModel(model: unknown): boolean {
-    return /^doubao-seed-2-0-(?:mini|lite|pro)(?:-\d{6})?$/i.test(
+    return isDoubaoSeedVideoAnalysisModel(String(model || '').trim().toLowerCase()) || /^doubao-seed-2-0-(?:mini|lite|pro)(?:-\d{6})?$/i.test(
       String(model || '').trim(),
     );
   }

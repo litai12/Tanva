@@ -24,13 +24,12 @@ import {
   parseStoryboardAnalysis,
 } from '../storyboardPromptTable';
 
-type VideoAnalyzeModel =
-  | 'doubao-seed-2-0-mini-260428'
-  | 'doubao-seed-2-0-lite-260428'
-  | 'doubao-seed-2-0-pro-260215'
-  | 'gemini-2.5-flash'
-  | 'gemini-3.5-flash'
-  | 'gemini-3.1-pro';
+import {
+  getVideoAnalyzeModelOptions,
+  isDurationPricedVideoAnalyzeModel,
+  resolveVideoAnalyzeModel,
+  type VideoAnalyzeModel,
+} from '@/services/videoAnalysisModels';
 
 type Props = {
   id: string;
@@ -50,59 +49,6 @@ type Props = {
   };
   selected?: boolean;
 };
-
-const DEFAULT_VIDEO_ANALYZE_MODEL: VideoAnalyzeModel =
-  'doubao-seed-2-0-lite-260428';
-
-const DURATION_PRICED_VIDEO_ANALYZE_MODELS = new Set<VideoAnalyzeModel>([
-  'doubao-seed-2-0-pro-260215',
-  'doubao-seed-2-0-lite-260428',
-  'doubao-seed-2-0-mini-260428',
-]);
-
-const VIDEO_ANALYZE_MODELS: Array<{
-  value: VideoAnalyzeModel;
-  label: string;
-  descriptionZh: string;
-  descriptionEn: string;
-}> = [
-  {
-    value: 'doubao-seed-2-0-lite-260428',
-    label: '豆包 Seed 2.0 Lite',
-    descriptionZh: '推荐 · 按视频时长计费（Seedance 2.0 480P 的 1/10）',
-    descriptionEn: 'Recommended · duration-priced at 1/10 of Seedance 2.0 480P',
-  },
-  {
-    value: 'doubao-seed-2-0-pro-260215',
-    label: '豆包 Seed 2.0 Pro',
-    descriptionZh: '高精度 · 按视频时长计费（Seedance 2.0 480P 的 1/3）',
-    descriptionEn: 'High-precision · duration-priced at 1/3 of Seedance 2.0 480P',
-  },
-  {
-    value: 'doubao-seed-2-0-mini-260428',
-    label: '豆包 Seed 2.0 Mini',
-    descriptionZh: '快速 · 按视频时长计费（Seedance 2.0 480P 的 1/20）',
-    descriptionEn: 'Fast · duration-priced at 1/20 of Seedance 2.0 480P',
-  },
-  {
-    value: 'gemini-3.5-flash',
-    label: 'Gemini 3.5 Flash',
-    descriptionZh: 'Gemini 均衡模型',
-    descriptionEn: 'Balanced Gemini model',
-  },
-  {
-    value: 'gemini-3.1-pro',
-    label: 'Gemini 3.1 Pro',
-    descriptionZh: 'Gemini 高精度模型',
-    descriptionEn: 'High-precision Gemini model',
-  },
-  {
-    value: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    descriptionZh: 'Gemini 快速模型',
-    descriptionEn: 'Fast Gemini model',
-  },
-];
 
 const LEGACY_VIDEO_ANALYSIS_PROMPTS = new Set([
   '分析这个视频，描述场景、动作和关键信息。',
@@ -188,15 +134,10 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     }));
   }, [id]);
 
-  const selectedModel = VIDEO_ANALYZE_MODELS.some(
-    (option) => option.value === data.analysisModel,
-  )
-    ? data.analysisModel as VideoAnalyzeModel
-    : DEFAULT_VIDEO_ANALYZE_MODEL;
-  const selectedModelOption =
-    VIDEO_ANALYZE_MODELS.find((option) => option.value === selectedModel) ||
-    VIDEO_ANALYZE_MODELS[0];
-  const usesDurationPricing = DURATION_PRICED_VIDEO_ANALYZE_MODELS.has(selectedModel);
+  const modelOptions = getVideoAnalyzeModelOptions(data.analysisModel);
+  const selectedModel = resolveVideoAnalyzeModel(data.analysisModel);
+  const selectedModelOption = modelOptions.find((option) => option.value === selectedModel)!;
+  const usesDurationPricing = isDurationPricedVideoAnalyzeModel(selectedModel);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const effectiveVideoDuration =
     connectedVideoDuration ?? loadedVideoDuration;
@@ -668,7 +609,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             ...controlField,
           }}
         >
-          {VIDEO_ANALYZE_MODELS.map((option) => (
+          {modelOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

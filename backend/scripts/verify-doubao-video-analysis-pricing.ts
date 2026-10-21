@@ -51,6 +51,27 @@ assert.equal(resolveDoubaoSeedVideoAnalysisTier(128_001), '128-256k');
 
 const durationCases = [
   {
+    model: 'doubao-seed-2-1-pro-260915', denominator: 3,
+    cases: [
+      { durationSec: 1, exactCredits: 41.66666667, creditsCharged: 42 },
+      { durationSec: 10, exactCredits: 416.66666667, creditsCharged: 417 },
+    ],
+  },
+  {
+    model: 'doubao-seed-2-1-lite-260915', denominator: 10,
+    cases: [
+      { durationSec: 1, exactCredits: 12.5, creditsCharged: 13 },
+      { durationSec: 10, exactCredits: 125, creditsCharged: 125 },
+    ],
+  },
+  {
+    model: 'doubao-seed-2-1-turbo-260628', denominator: 20,
+    cases: [
+      { durationSec: 1, exactCredits: 6.25, creditsCharged: 7 },
+      { durationSec: 10, exactCredits: 62.5, creditsCharged: 63 },
+    ],
+  },
+  {
     model: 'doubao-seed-2-0-pro-260215',
     denominator: 3,
     cases: [
@@ -104,7 +125,7 @@ assert.throws(
 /*
  * The token calculator remains covered because it documents the upstream
  * gateway cost/audit format. It is no longer the user-facing billing mode for
- * the three Doubao video-analysis models.
+ * the Doubao video-analysis models.
  */
 const miniTokenAudit = calculateDoubaoSeedVideoAnalysisBilling(
   'doubao-seed-2-0-mini-260428',
@@ -150,5 +171,25 @@ assert.equal(
   ),
   55,
 );
+
+// Seed 2.1 has its own flat token prices, not 2.0's context-length tiers.
+for (const [model, input, output, cached] of [
+  ['doubao-seed-2-1-pro-260915', 6, 30, 1.2],
+  ['doubao-seed-2-1-lite-260915', 0.8, 2.7, 0.16],
+  ['doubao-seed-2-1-turbo-260628', 3, 15, 0.6],
+] as const) {
+  for (const inputTokens of [10_000, 128_001, 200_000]) {
+    const billing = calculateDoubaoSeedVideoAnalysisBilling(model, {
+      inputTokens, outputTokens: 1000, totalTokens: inputTokens + 1000,
+      cachedInputTokens: 500, audioInputTokens: 0,
+    });
+    assert.equal(billing.tier, 'flat');
+    assert.equal(billing.unitPriceYuanPerMillionTokens.input, input);
+    assert.equal(billing.unitPriceYuanPerMillionTokens.output, output);
+    assert.equal(billing.unitPriceYuanPerMillionTokens.cachedInput, cached);
+    assert.equal(billing.officialCostYuan, Number((((inputTokens - 500) * input + 500 * cached + 1000 * output) / 1_000_000).toFixed(12)));
+    assert.equal(billing.markup, 1.5);
+  }
+}
 
 console.log('Doubao video analysis duration pricing verification passed');

@@ -2187,7 +2187,7 @@ export class CreditsService {
     const normalizedModel = String(model || requestParams?.model || '')
       .trim()
       .toLowerCase();
-    // 豆包 Seed 2.0 Pro/Lite/Mini 均按视频真实时长计价；前端已读取到的
+    // 豆包 Seed 2.1 与显式保留的 2.0 型号均按视频真实时长计价；前端已读取到的
     // 媒体时长只用于试算，analyze-video 仍会安全下载并用 ffprobe 复核。
     if (isDoubaoSeedDurationPricedModel(normalizedModel)) {
       const durationSec = Number(
@@ -2203,7 +2203,7 @@ export class CreditsService {
 
     // 未纳入当前时长价格表的豆包模型仍需在 analyze-video 拿到 Responses
     // usage 后精确后扣；preview 返回 0，不能伪装成旧 60/90/120 固定价。
-    if (normalizedModel.includes('doubao-seed-2-0-')) {
+    if (/^doubao-seed-2-[01]-/.test(normalizedModel)) {
       return 0;
     }
     const routeKey =

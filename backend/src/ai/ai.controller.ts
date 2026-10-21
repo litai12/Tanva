@@ -103,6 +103,7 @@ import { calculateSeedance20BillingDuration } from './services/seedance20-pricin
 import {
   calculateDoubaoSeedVideoAnalysisDurationBilling,
   calculateDoubaoSeedVideoAnalysisBilling,
+  DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL,
   extractNewApiTokenUsage,
   getDoubaoSeedVideoAnalysisPreflightCredits,
   isDoubaoSeedDurationPricedModel,
@@ -2186,7 +2187,7 @@ export class AiController {
    *
    * 与 withCredits 的固定预扣不同：调用前只做余额护栏，成功后按服务端确认的
    * 动态价格执行 deductExact。seed-audio 使用网关响应头；豆包视频分析的
-   * Seed 2.0 Pro/Lite/Mini 使用后端确认的真实视频时长与产品比例。
+   * Seed 视频理解使用后端确认的真实视频时长与产品比例。
    */
   private async withCreditsFromGateway<T>(
     req: any,
@@ -2478,7 +2479,7 @@ export class AiController {
   }
 
   private resolveVideoAnalysisModel(requestedModel?: string): string {
-    const defaultModel = 'doubao-seed-2-0-lite-260428';
+    const defaultModel = DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL;
     const trimmed = requestedModel?.trim().toLowerCase();
     if (!trimmed) return defaultModel;
 
@@ -2487,20 +2488,20 @@ export class AiController {
       'doubao-seed-2-0-lite': 'doubao-seed-2-0-lite-260428',
       'doubao-seed-2-0-lite-260215': 'doubao-seed-2-0-lite-260428',
       'doubao-seed-2-0-pro': 'doubao-seed-2-0-pro-260215',
+      'doubao-seed-2-1-pro': 'doubao-seed-2-1-pro-260915',
+      'doubao-seed-2-1-lite': 'doubao-seed-2-1-lite-260915',
+      'doubao-seed-2-1-turbo': 'doubao-seed-2-1-turbo-260628',
       'gemini-3-flash-preview': 'gemini-3.5-flash',
       'gemini-3-flash': 'gemini-3.5-flash',
       'gemini-3.1-pro-preview': 'gemini-3.1-pro',
     };
     const normalized = aliases[trimmed] || trimmed;
     const allowedModels = new Set([
-      'doubao-seed-2-0-mini-260428',
-      'doubao-seed-2-0-lite-260428',
-      'doubao-seed-2-0-pro-260215',
       'gemini-2.5-flash',
       'gemini-3.5-flash',
       'gemini-3.1-pro',
     ]);
-    if (allowedModels.has(normalized)) return normalized;
+    if (isDoubaoSeedVideoAnalysisModel(normalized) || allowedModels.has(normalized)) return normalized;
     throw new BadRequestException(`不支持的视频分析模型：${requestedModel}`);
   }
 
@@ -7621,7 +7622,7 @@ export class AiController {
   }
 
   /**
-   * 视频分析 - 豆包 Seed 2.0 Responses input_video / Gemini 完整视频与抽帧兜底
+   * 视频分析 - 豆包 Seed 2.1（兼容显式 2.0）Responses input_video / Gemini 完整视频与抽帧兜底
    */
   @Post('analyze-video')
   async analyzeVideo(@Body() dto: AnalyzeVideoDto, @Req() req: any) {

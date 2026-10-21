@@ -3,11 +3,12 @@ import { SEEDANCE20_STANDARD_480P_PRICE_YUAN_PER_SECOND } from './seedance20-pri
 export const DOUBAO_SEED_VIDEO_ANALYSIS_MARKUP = 1.5;
 export const TANVA_CREDITS_PER_YUAN = 100;
 
-// This table is the user-facing product price for Seedance 2.0 video analysis.
+// These are Tanva's duration-based product prices, independent of the model's
+// upstream token rates. Seed 2.1 keeps the existing product price bands.
 // The token ratios below remain separate because they represent upstream
 // gateway cost settlement and audit data, not the credits charged to users.
 export const DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL =
-  'doubao-seed-2-0-lite-260428' as const;
+  'doubao-seed-2-1-lite-260915' as const;
 export const DOUBAO_SEED_PRO_SEEDANCE20_480P_PRICE_NUMERATOR = 1;
 export const DOUBAO_SEED_PRO_SEEDANCE20_480P_PRICE_DENOMINATOR = 3;
 export const DOUBAO_SEED_LITE_SEEDANCE20_480P_PRICE_NUMERATOR = 1;
@@ -19,17 +20,27 @@ export const DOUBAO_SEED_MINI_SEEDANCE20_480P_PRICE_DENOMINATOR = 20;
 // https://www.volcengine.com/docs/82379/1544106
 // Price snapshot verified on 2026-07-31.
 
-export type DoubaoSeedVideoAnalysisModel =
+type LegacyDoubaoSeedVideoAnalysisModel =
   | 'doubao-seed-2-0-mini-260428'
   | 'doubao-seed-2-0-lite-260428'
   | 'doubao-seed-2-0-pro-260215';
+
+type DoubaoSeed21VideoAnalysisModel =
+  | 'doubao-seed-2-1-pro-260915'
+  | 'doubao-seed-2-1-lite-260915'
+  | 'doubao-seed-2-1-turbo-260628';
+
+export type DoubaoSeedVideoAnalysisModel =
+  | LegacyDoubaoSeedVideoAnalysisModel
+  | DoubaoSeed21VideoAnalysisModel;
 
 export type DoubaoSeedDurationPricedModel = DoubaoSeedVideoAnalysisModel;
 
 export type DoubaoSeedVideoAnalysisTier =
   | '0-32k'
   | '32-128k'
-  | '128-256k';
+  | '128-256k'
+  | 'flat';
 
 export interface NewApiTokenUsage {
   inputTokens: number;
@@ -97,6 +108,11 @@ const DOUBAO_SEED_DURATION_PRICE_RATIOS: Record<
   DoubaoSeedDurationPricedModel,
   { numerator: number; denominator: number }
 > = {
+  'doubao-seed-2-1-pro-260915': { numerator: 1, denominator: 3 },
+  'doubao-seed-2-1-lite-260915': { numerator: 1, denominator: 10 },
+  // This is the third product price band, not a claim that Turbo has Mini's
+  // model capabilities or upstream cost. Exact token rates are separate below.
+  'doubao-seed-2-1-turbo-260628': { numerator: 1, denominator: 20 },
   'doubao-seed-2-0-pro-260215': {
     numerator: DOUBAO_SEED_PRO_SEEDANCE20_480P_PRICE_NUMERATOR,
     denominator: DOUBAO_SEED_PRO_SEEDANCE20_480P_PRICE_DENOMINATOR,
@@ -112,8 +128,8 @@ const DOUBAO_SEED_DURATION_PRICE_RATIOS: Record<
 };
 
 const OFFICIAL_PRICING: Record<
-  DoubaoSeedVideoAnalysisModel,
-  Record<DoubaoSeedVideoAnalysisTier, OfficialTierPrice>
+  LegacyDoubaoSeedVideoAnalysisModel,
+  Record<Exclude<DoubaoSeedVideoAnalysisTier, 'flat'>, OfficialTierPrice>
 > = {
   'doubao-seed-2-0-pro-260215': {
     '0-32k': {
@@ -180,6 +196,24 @@ const OFFICIAL_PRICING: Record<
   },
 };
 
+// Official regular online inference prices, verified 2026-10-20. Seed 2.1
+// has no Seed 2.0 context-length price tiers; do not reuse the legacy matrix.
+const OFFICIAL_SEED21_PRICING: Record<DoubaoSeed21VideoAnalysisModel, OfficialTierPrice> = {
+  'doubao-seed-2-1-pro-260915': {
+    inputYuanPerMillion: 6, cachedInputYuanPerMillion: 1.2, outputYuanPerMillion: 30,
+  },
+  'doubao-seed-2-1-lite-260915': {
+    inputYuanPerMillion: 0.8, cachedInputYuanPerMillion: 0.16, outputYuanPerMillion: 2.7,
+    audioInputYuanPerMillion: 12, cachedAudioInputYuanPerMillion: 2.4,
+  },
+  'doubao-seed-2-1-turbo-260628': {
+    inputYuanPerMillion: 3, cachedInputYuanPerMillion: 0.6, outputYuanPerMillion: 15,
+  },
+};
+
+const isSeed21Model = (model: DoubaoSeedVideoAnalysisModel): model is DoubaoSeed21VideoAnalysisModel =>
+  Object.prototype.hasOwnProperty.call(OFFICIAL_SEED21_PRICING, model);
+
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -204,7 +238,10 @@ export function isDoubaoSeedVideoAnalysisModel(
   return (
     model === 'doubao-seed-2-0-mini-260428' ||
     model === 'doubao-seed-2-0-lite-260428' ||
-    model === 'doubao-seed-2-0-pro-260215'
+    model === 'doubao-seed-2-0-pro-260215' ||
+    model === 'doubao-seed-2-1-pro-260915' ||
+    model === 'doubao-seed-2-1-lite-260915' ||
+    model === 'doubao-seed-2-1-turbo-260628'
   );
 }
 
@@ -221,11 +258,11 @@ export function isDoubaoSeedLiteDurationPricedModel(
 }
 
 /**
- * Product price for Doubao Seed 2.0 video analysis.
+ * Product price for Doubao Seed video analysis.
  *
  * Contract: the full analyzed media duration is priced against the standard
  * paid Seedance 2.0 480P per-second retail price. The current product ratios
- * are Pro 1/3, Lite 1/10, and Mini 1/20. Calculate the full request first and
+ * are Pro 1/3, Lite 1/10, and the third product band 1/20. Calculate the full request first and
  * only then round up to integer Tanva credits.
  */
 export function calculateDoubaoSeedVideoAnalysisDurationBilling(
@@ -335,7 +372,7 @@ export function extractNewApiTokenUsage(raw: unknown): NewApiTokenUsage {
 
 export function resolveDoubaoSeedVideoAnalysisTier(
   inputTokens: number,
-): DoubaoSeedVideoAnalysisTier {
+): Exclude<DoubaoSeedVideoAnalysisTier, 'flat'> {
   if (inputTokens <= 32_000) return '0-32k';
   if (inputTokens <= 128_000) return '32-128k';
   return '128-256k';
@@ -365,8 +402,10 @@ export function calculateDoubaoSeedVideoAnalysisBilling(
     normalizedUsage.inputTokens + normalizedUsage.outputTokens,
   );
 
-  const tier = resolveDoubaoSeedVideoAnalysisTier(normalizedUsage.inputTokens);
-  const unitPrice = OFFICIAL_PRICING[model][tier];
+  const tier = isSeed21Model(model) ? 'flat' : resolveDoubaoSeedVideoAnalysisTier(normalizedUsage.inputTokens);
+  const unitPrice = isSeed21Model(model)
+    ? OFFICIAL_SEED21_PRICING[model]
+    : OFFICIAL_PRICING[model][resolveDoubaoSeedVideoAnalysisTier(normalizedUsage.inputTokens)];
 
   // Responses only exposes one cached_tokens total. Allocate cache hits to
   // non-audio input first, then to audio if the cached total exceeds it.
@@ -460,7 +499,7 @@ export function calculateDoubaoSeedVideoAnalysisBilling(
 export function getDoubaoSeedVideoAnalysisPreflightCredits(
   model: DoubaoSeedVideoAnalysisModel,
 ): number {
-  const price = OFFICIAL_PRICING[model]['0-32k'];
+  const price = isSeed21Model(model) ? OFFICIAL_SEED21_PRICING[model] : OFFICIAL_PRICING[model]['0-32k'];
   const inputPrice = Math.max(
     price.inputYuanPerMillion,
     price.audioInputYuanPerMillion ?? 0,

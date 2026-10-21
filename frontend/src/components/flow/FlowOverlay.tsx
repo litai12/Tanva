@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
+import { DEFAULT_VIDEO_ANALYZE_MODEL } from "@/services/videoAnalysisModels";
 import { computeFlowGroupBounds } from "@/utils/flowGroupBounds";
 import { GPT_IMAGE_25_STANDARD_MODELS, NANO_BANANA_2_MODEL, NANO_BANANA_21_MODEL, getToapiImageSettings, getToapiImageFallbackCredits, isToapiImageModel, isGptImage25Vip, normalizeToapiImageQuality, resolveNanoImageModelForRoute, isNanoBanana21Model, getToapiImageRoute } from "@/services/toapiImageModels";
 import { GPT_IMAGE_25_MODELS, expandGptImageModelConfigs, expandNanoImageModelConfigs, normalizeCanvasGptImage25Model, type GptImageModelOption } from "@/services/gptImage25";
@@ -11259,7 +11260,7 @@ function FlowInner() {
               videoUrl: undefined,
               prompt: "",
               analysisPrompt: undefined,
-              analysisModel: "doubao-seed-2-0-lite-260428",
+              analysisModel: DEFAULT_VIDEO_ANALYZE_MODEL,
               text: "",
               boxW: size.w,
               boxH: size.h,
