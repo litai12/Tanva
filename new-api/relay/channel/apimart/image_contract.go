@@ -1,6 +1,7 @@
 package apimart
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -11,11 +12,11 @@ import (
 )
 
 func usesToAPISNestedImageMetadata(model, baseURL string) bool {
-	if constant.IsToAPISNanoBanana21(model) {
-		return true
-	}
 	if !isToAPISImageBaseURL(baseURL) {
 		return false
+	}
+	if constant.IsToAPISNanoBanana21(model) {
+		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(model)) {
 	case "gemini-3.1-flash-image-preview", "gemini-3.1-flash-image-preview-vip", "gemini-3.1-flash-image-official",
@@ -24,6 +25,66 @@ func usesToAPISNestedImageMetadata(model, baseURL string) bool {
 		return true
 	}
 	return false
+}
+
+// APIMart's Ext SKUs take top-level ratio/resolution, unlike ToAPIs' Nano
+// metadata and VIP pixel-size contract. Public identities select the variant;
+// the upstream model itself remains the channel's explicit model mapping.
+func normalizeAPIMartImagePayload(payload *taskapimart.SubmitPayload, publicModel string) error {
+	upstream := strings.ToLower(strings.TrimSpace(payload.Model))
+	if upstream != "gpt-image-2.5-ext" && upstream != "gemini-nano-banana-2.1-ext" && upstream != "gemini-nano-banana-2.1" &&
+		!constant.IsToAPISImage25VIP(publicModel) {
+		return nil
+	}
+	if payload.Extras == nil {
+		payload.Extras = map[string]any{}
+	}
+	if payload.Size == "" {
+		if size, ok := payload.Extras["size"].(string); ok {
+			payload.Size = strings.TrimSpace(size)
+		} else {
+			payload.Size = payload.AspectRatio
+		}
+	}
+	if payload.Resolution == "" {
+		if resolution, ok := payload.Extras["resolution"].(string); ok {
+			payload.Resolution = resolution
+		}
+	}
+	payload.AspectRatio = ""
+	for _, key := range []string{"aspect_ratio", "image_size", "imageSize", "reference_images"} {
+		delete(payload.Extras, key)
+	}
+	// Canonical size/resolution have already been validated using the public
+	// SKU. Never let flattened metadata replace these billed inputs.
+	delete(payload.Extras, "size")
+	delete(payload.Extras, "resolution")
+	if constant.IsToAPISImage25VIP(publicModel) {
+		return nil // precise pixels + quality already match the retail quote
+	}
+	if upstream == "gpt-image-2.5-ext" {
+		switch publicModel {
+		case "gpt-image-2.5-flare":
+			payload.Extras["version"] = "flare"
+		case "gpt-image-2.5-sunburst":
+			payload.Extras["version"] = "sunburst"
+		}
+		delete(payload.Extras, "quality") // Ext has a fixed version/tier contract
+		delete(payload.Extras, "official_fallback")
+		allowed := map[string]bool{"": true, "auto": true, "1:1": true, "16:9": true, "9:16": true, "4:3": true, "3:4": true, "3:2": true, "2:3": true, "5:4": true, "4:5": true, "21:9": true}
+		if !allowed[payload.Size] {
+			return fmt.Errorf("apimart gpt-image-2.5-ext does not support size %q", payload.Size)
+		}
+	}
+	resolution := strings.ToUpper(strings.TrimSpace(payload.Resolution))
+	if resolution == "" {
+		resolution = "1K"
+	}
+	if resolution != "1K" && resolution != "2K" && resolution != "4K" {
+		return fmt.Errorf("apimart %s resolution must be 1K, 2K, or 4K", payload.Model)
+	}
+	payload.Resolution = resolution
+	return nil
 }
 
 func isToAPISImageBaseURL(baseURL string) bool {

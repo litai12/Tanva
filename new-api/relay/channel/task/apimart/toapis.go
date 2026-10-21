@@ -365,7 +365,7 @@ func (s *SubmitResponse) Accepted() bool {
 	if s.IsFlat() {
 		return true // toapis has no `code`; a top-level id+status means accepted
 	}
-	return s.Code == 200
+	return s.Code == 200 || s.Code == 202
 }
 
 // isFlat reports whether a poll response is the toapis flat form.

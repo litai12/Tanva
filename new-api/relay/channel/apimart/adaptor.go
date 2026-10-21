@@ -96,6 +96,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
+	if mainconstant.IsAPIMartImageBaseURL(info.ChannelBaseUrl) && info.UpstreamModelName == "gpt-image-2.5-ext" {
+		req.Set("X-APIMart-Response-Version", "2026-07-27")
+		key := c.GetString(common.RequestIdKey)
+		if key == "" {
+			key = common.GetUUID()
+		}
+		req.Set("Idempotency-Key", key)
+	}
 	return nil
 }
 
@@ -119,8 +127,17 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 // ConvertImageRequest wraps the OpenAI-style ImageRequest into APIMart's async
 // submit payload. The marshaled body is what DoRequest POSTs to submit.
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
-	if mainconstant.IsToAPISPricedImage(info.UpstreamModelName) {
-		request.Model = info.UpstreamModelName
+	// Public SKUs determine validation/billing; the mapped upstream identity
+	// may name an entirely different provider tier (notably official Nano).
+	publicModel := info.OriginModelName
+	if publicModel == "" {
+		publicModel = request.Model
+	}
+	if publicModel == "" {
+		publicModel = info.UpstreamModelName
+	}
+	if mainconstant.IsToAPISPricedImage(publicModel) {
+		request.Model = publicModel
 		normalized, err := dto.NormalizeToAPISImageRequest(request)
 		if err != nil {
 			return nil, err
@@ -130,7 +147,9 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	// Only reject models that are explicitly non-image (video, chat, audio, etc.).
 	// An empty kind means the model has no kind recorded in the DB — that is
 	// not a reason to block it on an /images/ endpoint; treat it as image.
-	if !mainconstant.IsToAPISPricedImage(info.UpstreamModelName) {
+	approvedAPIMartModel, approvedAPIMartTier := mainconstant.APIMartImageTierModel(publicModel)
+	approvedAPIMartTier = approvedAPIMartTier && mainconstant.IsAPIMartImageBaseURL(info.ChannelBaseUrl) && approvedAPIMartModel == info.UpstreamModelName
+	if !mainconstant.IsToAPISPricedImage(info.UpstreamModelName) && !approvedAPIMartTier {
 		if kind := model.GetModelKind(info.UpstreamModelName); kind != "" && kind != "image" && kind != "image_edit" {
 			return nil, fmt.Errorf("apimart: %q is not an image model (kind=%q) — use the task API for video/audio", info.UpstreamModelName, kind)
 		}
@@ -220,7 +239,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil, err
 	}
-	if mainconstant.IsToAPISImage25VIP(info.UpstreamModelName) {
+	if mainconstant.IsToAPISImage25VIP(publicModel) {
 		// VIP uses pixel size and top-level quality, never ordinary ratio /
 		// resolution fields. Protect the normalized billable values from extras.
 		payload.Size = request.Size
@@ -235,6 +254,11 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		nestToAPISImageMetadata(payload, request, resolution)
 	}
 	normalizeToAPISGPTImagePayload(payload, info.ChannelBaseUrl)
+	if mainconstant.IsAPIMartImageBaseURL(info.ChannelBaseUrl) {
+		if err := normalizeAPIMartImagePayload(payload, publicModel); err != nil {
+			return nil, err
+		}
+	}
 	return payload, nil
 }
 
@@ -287,7 +311,7 @@ func (a *Adaptor) doAsyncImage(c *gin.Context, info *relaycommon.RelayInfo, requ
 		return nil, imageTaskError("Upstream image submission outcome is unknown", "upstream_image_submission_unknown", http.StatusBadGateway,
 			types.UpstreamImageTaskEvidence{Provider: "apimart", Status: "unknown"})
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return resp, nil
 	}
 

@@ -1,6 +1,7 @@
 package apimart
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -729,13 +730,10 @@ func buildKlingMotionControlPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayl
 //
 //	{ "code": 200, "data": [ { "status": "submitted", "task_id": "task_..." } ] }
 type SubmitResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg,omitempty"`
-	Data []struct {
-		Status string `json:"status"`
-		TaskID string `json:"task_id"`
-	} `json:"data"`
-	Error *APIError `json:"error,omitempty"`
+	Code  int             `json:"code"`
+	Msg   string          `json:"msg,omitempty"`
+	Data  []SubmittedTask `json:"data"`
+	Error *APIError       `json:"error,omitempty"`
 
 	// toapis (OpenAI-style "generation.task") flat form: the task id is at the
 	// top level with no `code`/`data` wrapper. See toapis.go for the helpers
@@ -743,6 +741,40 @@ type SubmitResponse struct {
 	ID     string `json:"id,omitempty"`
 	Object string `json:"object,omitempty"`
 	Status string `json:"status,omitempty"`
+}
+
+type SubmittedTask struct {
+	Status string `json:"status"`
+	TaskID string `json:"task_id,omitempty"`
+	ID     string `json:"id,omitempty"`
+}
+
+// APIMart's versioned response wraps one generation.task object; legacy
+// responses wrap an array. Keep it wrapped so polling still uses /v1/tasks/.
+func (s *SubmitResponse) UnmarshalJSON(data []byte) error {
+	type wire SubmitResponse
+	var envelope struct {
+		*wire
+		Data json.RawMessage `json:"data"`
+	}
+	*s = SubmitResponse{}
+	envelope.wire = (*wire)(s)
+	if err := common.Unmarshal(data, &envelope); err != nil {
+		return err
+	}
+	raw := bytes.TrimSpace(envelope.Data)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	if raw[0] == '{' {
+		var task SubmittedTask
+		if err := common.Unmarshal(raw, &task); err != nil {
+			return err
+		}
+		s.Data = []SubmittedTask{task}
+		return nil
+	}
+	return common.Unmarshal(raw, &s.Data)
 }
 
 // APIError is the upstream error shape:
@@ -762,6 +794,9 @@ func (s *SubmitResponse) TaskID() string {
 	for _, d := range s.Data {
 		if d.TaskID != "" {
 			return d.TaskID
+		}
+		if d.ID != "" {
+			return d.ID
 		}
 	}
 	return s.ID // toapis flat form carries the task id at the top level

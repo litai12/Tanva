@@ -21,6 +21,18 @@ func TestToAPISBaseURLRecognizesDomesticEndpoint(t *testing.T) {
 // toapis flat "generation.task" envelope, exposing the right task id, poll path
 // and rejection behaviour for each.
 func TestSubmitResponseEnvelopes(t *testing.T) {
+	for _, body := range []string{
+		`{"code":200,"data":{"id":"task_abc","object":"generation.task","status":"pending","poll_url":"/v1/tasks/task_abc"}}`,
+		`{"code":202,"data":{"id":"task_abc","object":"generation.task","status":"pending","poll_url":"/v1/tasks/task_abc"}}`,
+	} {
+		var s SubmitResponse
+		if err := common.UnmarshalJsonStr(body, &s); err != nil {
+			t.Fatal(err)
+		}
+		if !s.Accepted() || s.IsFlat() || s.TaskID() != "task_abc" {
+			t.Fatalf("APIMart versioned object parsed incorrectly: %+v", s)
+		}
+	}
 	t.Run("toapis flat accepted", func(t *testing.T) {
 		var s SubmitResponse
 		if err := common.UnmarshalJsonStr(`{"id":"tsk_img_01KT12","object":"generation.task","status":"pending","progress":0}`, &s); err != nil {

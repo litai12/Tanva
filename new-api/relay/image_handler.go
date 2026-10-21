@@ -88,7 +88,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 	var requestBody io.Reader
 	var upstreamRequestBody string
 
-	if (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled) && !constant.IsToAPISPricedImage(request.Model) {
+	_, apimartImageTier := constant.APIMartImageTierModel(info.OriginModelName)
+	apimartImageTier = apimartImageTier && info.ChannelType == constant.ChannelTypeApimart && constant.IsAPIMartImageBaseURL(info.ChannelBaseUrl)
+	if (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled) && !constant.IsToAPISPricedImage(info.OriginModelName) && !apimartImageTier {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
@@ -130,7 +132,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 				if err != nil {
 					return NewAPIErrorFromParamOverride(err)
 				}
-				if constant.IsToAPISPricedImage(request.Model) {
+				if constant.IsToAPISPricedImage(info.OriginModelName) || apimartImageTier {
 					if err := validateToAPISImagePriceOverride(beforeOverride, jsonData); err != nil {
 						return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 					}
@@ -355,7 +357,7 @@ func validateToAPISImagePriceOverride(before, after []byte) error {
 	if err := common.Unmarshal(after, &overridden); err != nil {
 		return err
 	}
-	for _, key := range []string{"model", "size", "quality", "n", "resolution", "image_size", "imageSize", "aspect_ratio", "metadata"} {
+	for _, key := range []string{"model", "size", "quality", "n", "resolution", "image_size", "imageSize", "aspect_ratio", "metadata", "version", "official_fallback"} {
 		if !reflect.DeepEqual(original[key], overridden[key]) {
 			return fmt.Errorf("channel parameter override cannot change %s for fixed-price ToAPIs images", key)
 		}

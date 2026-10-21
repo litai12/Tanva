@@ -60,7 +60,7 @@ func TestToAPISNano21UsesNestedResolution(t *testing.T) {
 	for _, model := range []string{"gemini-nano-banana-2.1", "gemini-nano-banana-2.1-official"} {
 		var request dto.ImageRequest
 		require.NoError(t, common.Unmarshal([]byte(`{"model":"`+model+`","prompt":"test","size":"4:3","response_format":"url","metadata":{"resolution":"4K","custom":"preserved"},"image_urls":["https://example.test/ref.png"]}`), &request))
-		payload, err := (&Adaptor{}).ConvertImageRequest(nil, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: request.Model}}, request)
+		payload, err := (&Adaptor{}).ConvertImageRequest(nil, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: request.Model, ChannelBaseUrl: "https://toapis.cn"}}, request)
 		require.NoError(t, err)
 		encoded, err := common.Marshal(payload)
 		require.NoError(t, err)

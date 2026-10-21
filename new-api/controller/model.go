@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -299,17 +300,77 @@ func ListModels(c *gin.Context, modelType int) {
 	}
 }
 
+// dashboardModelCandidates adds configured models to the built-in suggestions.
+// Disabled channels remain editable, so this deliberately does not filter by
+// status or ability. Read only the columns needed here, never channel keys.
+// Build fresh collections so database changes cannot mutate the static relay
+// catalog used by public model and routing handlers.
+func dashboardModelCandidates() ([]dto.OpenAIModels, map[int][]string, error) {
+	var channels []struct {
+		Type   int
+		Models string
+	}
+	if err := model.DB.Model(&model.Channel{}).Select("type", "models").Order("id ASC").Find(&channels).Error; err != nil {
+		return nil, nil, err
+	}
+
+	all := append([]dto.OpenAIModels{}, openAIModels...)
+	seen := make(map[string]bool, len(all))
+	for _, entry := range all {
+		seen[entry.Id] = true
+	}
+	byType := make(map[int][]string, len(channelId2Models))
+	typeSeen := make(map[int]map[string]bool, len(channelId2Models))
+	for channelType, names := range channelId2Models {
+		byType[channelType] = append([]string{}, names...)
+		typeSeen[channelType] = make(map[string]bool, len(names))
+		for _, name := range names {
+			typeSeen[channelType][name] = true
+		}
+	}
+	for _, channel := range channels {
+		if typeSeen[channel.Type] == nil {
+			typeSeen[channel.Type] = make(map[string]bool)
+		}
+		for _, name := range strings.Split(channel.Models, ",") {
+			name = model.CanonicalModelKey(name)
+			if name == "" {
+				continue
+			}
+			if !typeSeen[channel.Type][name] {
+				byType[channel.Type] = append(byType[channel.Type], name)
+				typeSeen[channel.Type][name] = true
+			}
+			if !seen[name] {
+				all = append(all, dto.OpenAIModels{Id: name, Object: "model", Created: 1626777600, OwnedBy: constant.GetChannelTypeName(channel.Type)})
+				seen[name] = true
+			}
+		}
+	}
+	return all, byType, nil
+}
+
 func ChannelListModels(c *gin.Context) {
+	models, _, err := dashboardModelCandidates()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    openAIModels,
+		"data":    models,
 	})
 }
 
 func DashboardListModels(c *gin.Context) {
+	_, models, err := dashboardModelCandidates()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    channelId2Models,
+		"data":    models,
 	})
 }
 

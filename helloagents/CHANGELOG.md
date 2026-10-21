@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-21：对照 ToAPIs 已有图片档位，为 9「apimart」补齐 GPT 2.5 Flare/Sunburst 普通与 VIP、Nano 2.1 普通与官方六个公共 SKU。按两家官网区分 Ext/官方实际型号，修复递归映射降档、跨供应商 metadata 和管理台候选缺失；保留现有零售价及渠道31状态。增量SQL与适配回归已验证，发布记录见 `wiki/apimart-image-tier-parity-20261021.md`。
+
 - 2026-10-20：图片/视频上传上限统一为 200MB。后端 `MAX_IMAGE_SIZE` 32MB → 200MB；前端图片默认上限、VideoNode / 视频合成上传改为 200MB，中转上传前先校验大小并给出中文提示，图片中转超时放宽到 10 分钟。101 nginx `tanvas.cn` 的 `/api/` 增加 `client_max_body_size 200m`（全局原为 50m，此前视频超过 50MB 会被 nginx 413 拦截）。
 
 - 2026-10-20：Ark 对话上线官方 Seed 2.1 Pro / Lite / Turbo，用户确认原 Mini 升级选择对应 Turbo；沿用官价 × 1.5 和 1 元 = 100 积分，新三款不套旧长上下文阶梯。`abb85be9d` 已提交推送并部署 101，含此前已提交的最新网关管理页、计费及后端目录诊断代码；SQL 隔离回归、Go 四包、桌面计费完整套件、构建、线上三款 Chat/Responses 六次请求及精确账单、产物哈希与公网健康全部通过。保留旧 2.0 视频理解兼容及鲁班独立价格，图片队列已恢复；见 `wiki/ark-seed21-20261020.md`。

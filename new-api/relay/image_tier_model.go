@@ -30,11 +30,33 @@ func applyChannelBoundImageModel(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err := validateOfficialImageSkuChannel(upstreamModel, channelModels, info); err != nil {
 		return err
 	}
-	mappedModel, mapped, err := helper.MapModelName(c.GetString("model_mapping"), upstreamModel)
+	// APIMart's official upstream names also name our ordinary public tiers.
+	// Resolve the documented mapping once, otherwise VIP -> native -> Ext
+	// would silently turn an official request into an ordinary request.
+	mapping := c.GetString("model_mapping")
+	approvedTierMapping := false
+	mappedModel, mapped := upstreamModel, false
+	if info.ChannelType == constant.ChannelTypeApimart && constant.IsAPIMartImageBaseURL(info.ChannelBaseUrl) {
+		if expected, ok := constant.APIMartImageTierModel(info.OriginModelName); ok {
+			var entries map[string]string
+			if strings.TrimSpace(mapping) != "" {
+				if err := common.UnmarshalJsonStr(mapping, &entries); err != nil {
+					return fmt.Errorf("unmarshal_model_mapping_failed")
+				}
+			}
+			if entries[info.OriginModelName] == expected {
+				mappedModel, mapped, approvedTierMapping = expected, true, true
+			}
+		}
+	}
+	var err error
+	if !approvedTierMapping {
+		mappedModel, mapped, err = helper.MapModelName(mapping, upstreamModel)
+	}
 	if err != nil {
 		return err
 	}
-	if mappedModel != info.OriginModelName && (constant.IsToAPISPricedImage(mappedModel) || constant.IsToAPISPricedImage(info.OriginModelName)) {
+	if !approvedTierMapping && mappedModel != info.OriginModelName && (constant.IsToAPISPricedImage(mappedModel) || constant.IsToAPISPricedImage(info.OriginModelName)) {
 		return fmt.Errorf("fixed-price ToAPIs image model must not be mapped to a different billing SKU")
 	}
 	info.UpstreamModelName = mappedModel

@@ -23,6 +23,8 @@
 
 ## 开发约定
 
+- APIMart 图片渠道按已核验同档协议对接现有六个 GPT 2.5 / Nano 2.1 公共 SKU：普通版走 Ext，VIP/official 走原生官方型号；供应商映射只解释一跳，计费始终保留公共身份，APIMart Nano 使用顶层 resolution。管理台候选合并真实渠道配置但不改变启停。详见 `wiki/apimart-image-tier-parity-20261021.md`。
+
 - 2026-09-21 临时回退（优先于下方小T接入约定）：小 Tai 对话恢复旧版 Auto / 手动文字、图片工具链路，前端 `XIAOT_AGENT_ENABLED=false`，隐藏 Beta 入口并清除缓存中的启用状态；后端 `canvasAgent` 默认返回 503，仅 `XIAOT_AGENT_ENABLED=true` 可重新开放。聊天视频及其他依赖 facade 的能力暂停，视频请使用画布节点。接入实现保留供后续恢复。详见 `wiki/xiaot-legacy-chat-20260921.md`。
 
 - 小T网页查询合同：首轮上下文保持最小披露，声明 `browserContextQueries` 后的 `query_canvas` 必须通过浏览器按范围读取当前项目真实节点，不能拿侧栏 80 字预览或首轮筛选结果充当完整工具查询。回传绑定用户、run、queryId，30 秒过期且单次消费。异步生成节点提交不等于完成，宿主等待真实成功/失败终态（15 分钟上限），运行中的历史资产不是本轮交付。
