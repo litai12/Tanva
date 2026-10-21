@@ -19,6 +19,7 @@ import {
 } from '@/services/videoAnalysisTasks';
 import { useCanvasStore } from '@/stores';
 import { useProjectStore } from '@/stores/projectStore';
+import { useTeamStore } from '@/stores/teamStore';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
 import {
@@ -454,7 +455,11 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       return completion;
     }
 
-    const unconfirmed = hasUnconfirmedVideoAnalysisSubmission(current);
+    const currentTeamId = useTeamStore.getState().activeTeamId;
+    const currentProjectId = useProjectStore.getState().currentProjectId || undefined;
+    const unconfirmed = hasUnconfirmedVideoAnalysisSubmission(current) &&
+      (current.analysisTaskTeamId || null) === (currentTeamId || null) &&
+      (current.analysisTaskRequest?.projectId || undefined) === currentProjectId;
     if (!effectiveVideoUrl && !unconfirmed) {
       updateNodeData({
         status: 'failed',
@@ -488,9 +493,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           providerOptions: { banana: { imageRoute: bananaImageRoute } },
           clientRequestId: crypto.randomUUID(),
           nodeId: id,
-          projectId: useProjectStore.getState().currentProjectId || undefined,
+          projectId: currentProjectId,
         };
-    if (!unconfirmed) request.resumeTaskId = videoAnalysisResumeTaskId(current, request);
+    if (!unconfirmed) request.resumeTaskId = videoAnalysisResumeTaskId(current, request, currentTeamId);
     submissionBusyRef.current = true;
     setIsAnalyzing(true);
     setPollError('');
@@ -498,6 +503,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       status: 'running',
       error: undefined,
       analysisTaskRequest: request,
+      analysisTaskTeamId: currentTeamId,
       analysisTaskHistory: unconfirmed ? current.analysisTaskHistory : videoAnalysisAttemptHistory(current),
       analysisTaskId: undefined,
       analysisTaskStatus: undefined,
@@ -586,9 +592,12 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     Boolean(pollError) || unconfirmedSubmission || (Boolean(effectiveVideoUrl) && !hasPendingTask)
   );
   const taskProgress = taskSnapshot && taskSnapshot.taskId === taskId ? taskSnapshot.progress : data.analysisTaskProgress;
+  const usesSegmentedAnalysis = (data.analysisTaskRequest?.model || selectedModel).startsWith('doubao-seed-');
   const progressLabel = taskProgress && taskProgress.total > 0
     ? lt(`已处理 ${taskProgress.completed}/${taskProgress.total} 段`, `Processed ${taskProgress.completed}/${taskProgress.total} clips`)
-    : lt('正在探测视频并拆分短片…', 'Inspecting video and preparing clips…');
+    : usesSegmentedAnalysis
+      ? lt('正在探测视频并拆分短片…', 'Inspecting video and preparing clips…')
+      : lt('后台分析中…', 'Analyzing in the background…');
   const shell = flowNodeShellChrome(isFlowDark, Boolean(selected));
   const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected
@@ -812,7 +821,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           <>
             <span aria-live="polite">{progressLabel}</span>
             {pollError ? <span>{lt('查询已暂停，后台任务继续处理。', 'Updates paused; the task continues in the background.')}</span> :
-              hasPendingTask && <span>{lt('短片分别分析后将合并为同一份分镜表。', 'Clip analyses will be combined into one storyboard table.')}</span>}
+              hasPendingTask && <span>{usesSegmentedAnalysis
+                ? lt('短片分别分析后将合并为同一份分镜表。', 'Clip analyses will be combined into one storyboard table.')
+                : lt('完成后将生成分镜表。', 'A storyboard table will be created when analysis completes.')}</span>}
             {currentTaskStatus === 'failed' && <span>{lt('重试将复用已完成片段。修改输入后将新建分析。', 'Retry reuses completed clips. Changed inputs start a new analysis.')}</span>}
           </>
         ) : status === 'succeeded' && data.storyboardPromptNodeId ? (

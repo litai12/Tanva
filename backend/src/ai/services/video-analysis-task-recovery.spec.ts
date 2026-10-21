@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ConfigService } from '@nestjs/config';
 import { VideoAnalysisTaskService } from './video-analysis-task.service';
+import { AiController } from '../ai.controller';
 
 const clone = <T>(value: T): T => structuredClone(value);
 const dto = { videoUrl: 'https://cdn.example.test/clip.mp4', prompt: '分析镜头', model: 'doubao-seed-2-1-lite-260915', clientRequestId: 'one-click', projectId: 'project-a' };
@@ -67,7 +68,7 @@ function fixture() {
       if (controls.enqueueError) throw new Error('enqueue failed');
       const job: any = { state: 'waiting', failedReason: 'worker interrupted',
         getState: async () => job.state,
-        retry: async () => { controls.retries++; if (controls.enqueueError) throw new Error('retry failed'); job.state = 'waiting'; },
+        retry: async () => { controls.retries++; if (job.state !== 'failed') throw new Error('BullMQ can only retry a failed job'); if (controls.enqueueError) throw new Error('retry failed'); job.state = 'waiting'; },
         remove: async () => { jobs.delete(options.jobId); },
       };
       jobs.set(options.jobId, job); return job;
@@ -169,7 +170,148 @@ async function main() {
     assert.ok(unavailable.pollingWarning);
     assert.equal(controls.adds, 1);
   }
-  console.log('Video analysis task recovery: 7 scenarios passed');
+  {
+    const { service, rows, jobs, controls } = fixture();
+    const first = await service.submit(dto, request('team-a'), 'user-a');
+    rows.get(first.taskId).status = 'failed'; jobs.get(first.taskId).state = 'failed';
+    controls.member = false;
+    await assert.rejects(service.submit({ ...dto, resumeTaskId: first.taskId }, request('team-a'), 'user-a'), /团队/);
+    assert.equal(controls.retries, 0, 'membership revoked before resume must not spend the former team wallet');
+  }
+  {
+    const { service, rows, jobs, controls } = fixture();
+    const first = await service.submit(dto, request(), 'user-a');
+    rows.get(first.taskId).status = 'processing';
+    rows.get(first.taskId).updatedAt = new Date(Date.now() - 60_000);
+    jobs.delete(first.taskId);
+    assert.equal((await service.get(first.taskId, 'user-a')).status, 'failed');
+    assert.equal(controls.adds, 1, 'orphan detection must not automatically repeat the POST');
+  }
+  {
+    const { service, rows, jobs, controls } = fixture();
+    const first = await service.submit(dto, request(), 'user-a');
+    const row = rows.get(first.taskId);
+    row.status = 'processing'; row.updatedAt = new Date(Date.now() - 60_000);
+    row.metadata.segments = [{ index: 0, startSec: 0, endSec: 30, status: 'succeeded', text: 'saved partial result' }];
+    jobs.get(first.taskId).state = 'completed';
+    assert.equal((await service.get(first.taskId, 'user-a')).status, 'failed', 'a completed queue entry without a durable terminal result must be recoverable');
+    const recovered = await service.submit({ ...dto, resumeTaskId: first.taskId }, request(), 'user-a');
+    assert.equal(recovered.status, 'queued');
+    assert.equal(controls.adds, 2, 'an explicit retry may recreate the completed queue entry');
+    assert.equal(controls.retries, 0, 'BullMQ.retry(failed) cannot revive a completed entry');
+    assert.equal(rows.get(first.taskId).metadata.segments[0].text, 'saved partial result');
+  }
+
+  // A deterministic ApiUsage ID alone does not make TeamCreditLedger.reserve
+  // idempotent: calling reserve again can increment frozen balance and quotas.
+  // Recovery must therefore act on the existing ledger state before calling it.
+  for (const entryTypes of [[], ['reserve'], ['reserve', 'deduct']] as string[][]) {
+    const calls = { reserve: 0, deduct: 0, charge: 0, success: 0 };
+    const controller: any = Object.create(AiController.prototype);
+    controller.logger = { debug() {}, warn() {} };
+    controller.creditsService = { getOrCreateAccount: async () => ({}), getBalance: async () => 10_000,
+      deductExact: async () => { calls.charge++; throw new Error('must reuse receipt'); },
+      updateApiUsageStatus: async () => { throw new Error('team terminal status must commit inside the ledger transaction'); } };
+    controller.prisma = {
+      apiUsageRecord: { findUnique: async () => ({ id: 'video-analysis-team-task', userId: 'user-a', creditsUsed: 125 }),
+        update: async ({ data }: any) => { assert.equal(data.responseStatus, 'success'); assert.ok(entryTypes.includes('deduct')); calls.success++; } },
+      team: { findUnique: async () => ({ isPersonal: false }) },
+      teamCreditAccount: { findUnique: async () => ({ id: 'account-a', balance: 10_000, frozenBalance: 125 }), findUniqueOrThrow: async () => ({ id: 'account-a' }) },
+      teamCreditLedger: { findMany: async () => entryTypes.map((entryType) => ({ entryType })) },
+    };
+    controller.prisma.$queryRaw = async () => [];
+    controller.prisma.$transaction = async (work: any) => work(controller.prisma);
+    controller.teamCreditLedger = {
+      reserve: async (_params: any, tx: any) => { assert.equal(tx, controller.prisma); calls.reserve++; entryTypes.push('reserve'); return { reserved: true }; },
+      deduct: async (_params: any, tx: any) => { assert.equal(tx, controller.prisma); calls.deduct++; entryTypes.push('deduct'); return { deducted: true }; },
+    };
+    const hadReserve = entryTypes.includes('reserve'), hadDeduct = entryTypes.includes('deduct');
+    const op = async () => ({ result: { analysis: 'saved result' }, consumedCredits: 125 });
+    const result = await controller.withCreditsFromGateway(request('team-a'), 'gemini-video-analyze', op, { videoAnalysisTaskId: 'team-task' }, { model: dto.model });
+    assert.equal(result.analysis, 'saved result');
+    assert.equal(calls.charge, 0);
+    assert.equal(calls.reserve, hadReserve ? 0 : 1);
+    assert.equal(calls.deduct, hadDeduct ? 0 : 1);
+    assert.equal(calls.success, 1, 'team usage becomes successful only after a confirmed ledger deduction');
+    // Replaying the completed receipt must not freeze or deduct a second time.
+    await controller.withCreditsFromGateway(request('team-a'), 'gemini-video-analyze', op, { videoAnalysisTaskId: 'team-task' }, { model: dto.model });
+    assert.equal(calls.reserve, hadReserve ? 0 : 1);
+    assert.equal(calls.deduct, hadDeduct ? 0 : 1);
+  }
+  for (const released of [false, true]) {
+    let settlementCalls = 0;
+    let successUpdates = 0;
+    const controller: any = Object.create(AiController.prototype);
+    controller.logger = { debug() {}, warn() {} };
+    controller.creditsService = { getOrCreateAccount: async () => ({}), getBalance: async () => 10_000,
+      updateApiUsageStatus: async () => { successUpdates++; } };
+    controller.prisma = {
+      apiUsageRecord: { findUnique: async () => ({ id: 'video-analysis-team-task', userId: 'user-a', creditsUsed: 125 }),
+        update: async () => { successUpdates++; } },
+      team: { findUnique: async () => ({ isPersonal: false }) },
+      teamCreditAccount: { findUniqueOrThrow: async () => ({ id: 'account-a' }) },
+      teamCreditLedger: { findMany: async () => [{ entryType: 'reserve' }, ...(released ? [{ entryType: 'release' }] : [])] },
+    };
+    controller.prisma.$queryRaw = async () => [];
+    controller.prisma.$transaction = async (work: any) => work(controller.prisma);
+    controller.teamCreditLedger = {
+      reserve: async () => { throw new Error('a recorded reserve must never be repeated'); },
+      deduct: async () => { settlementCalls++; return { deducted: false }; },
+    };
+    await assert.rejects(controller.withCreditsFromGateway(request('team-a'), 'gemini-video-analyze',
+      async () => ({ result: { analysis: 'saved result' }, consumedCredits: 125 }), { videoAnalysisTaskId: 'team-task' }, { model: dto.model }),
+    released ? /释放|核账/ : /未确认|恢复/);
+    assert.equal(settlementCalls, released ? 0 : 1);
+    assert.equal(successUpdates, 0, 'unconfirmed or released team receipts must never be marked successful');
+  }
+  {
+    let receipt: any = null;
+    let charged = 0;
+    let canSettle = false;
+    let successUpdates = 0;
+    let reserveCalls = 0;
+    const entries: string[] = [];
+    const controller: any = Object.create(AiController.prototype);
+    controller.logger = { debug() {}, warn() {} };
+    controller.creditsService = { getOrCreateAccount: async () => ({}), getBalance: async () => 10_000,
+      deductExact: async (_u: string, team: string, amount: number, metadata: any) => {
+        charged++; assert.equal(team, 'team-a'); assert.equal(metadata.responseStatus, 'pending');
+        receipt = { id: metadata.apiUsageId, userId: 'user-a', creditsUsed: amount, responseStatus: 'pending' };
+        return { apiUsageId: receipt.id };
+      },
+      updateApiUsageStatus: async () => { throw new Error('team terminal status must commit inside the ledger transaction'); },
+    };
+    controller.prisma = {
+      apiUsageRecord: { findUnique: async () => receipt,
+        update: async ({ data }: any) => { assert.equal(data.responseStatus, 'success'); assert.ok(entries.includes('deduct')); receipt.responseStatus = data.responseStatus; successUpdates++; } },
+      team: { findUnique: async () => ({ isPersonal: false }) },
+      teamCreditAccount: { findUnique: async () => ({ id: 'account-a', balance: 10_000, frozenBalance: 0 }), findUniqueOrThrow: async () => ({ id: 'account-a' }) },
+      teamCreditLedger: { findMany: async () => entries.map((entryType) => ({ entryType })) },
+    };
+    controller.prisma.$queryRaw = async () => [];
+    controller.prisma.$transaction = async (work: any) => {
+      const originalEntries = [...entries];
+      try { return await work(controller.prisma); }
+      catch (error) { entries.splice(0, entries.length, ...originalEntries); throw error; }
+    };
+    controller.teamCreditLedger = {
+      reserve: async () => { reserveCalls++; entries.push('reserve'); return { reserved: true }; },
+      deduct: async () => { if (!canSettle) return { deducted: false }; entries.push('deduct'); return { deducted: true }; },
+    };
+    const op = async () => ({ result: { analysis: 'saved result' }, consumedCredits: 125 });
+    await assert.rejects(controller.withCreditsFromGateway(request('team-a'), 'gemini-video-analyze', op, { videoAnalysisTaskId: 'new-team-task' }, { model: dto.model }), /未确认|恢复/);
+    assert.equal(receipt.responseStatus, 'pending');
+    assert.equal(successUpdates, 0);
+    assert.deepEqual(entries, [], 'failed settlement must roll back its reservation');
+    canSettle = true;
+    await controller.withCreditsFromGateway(request('team-a'), 'gemini-video-analyze', op, { videoAnalysisTaskId: 'new-team-task' }, { model: dto.model });
+    assert.equal(charged, 1);
+    assert.equal(reserveCalls, 2, 'one rolled back reservation attempt plus the successful recovered transaction');
+    assert.deepEqual(entries, ['reserve', 'deduct']);
+    assert.equal(receipt.responseStatus, 'success');
+    assert.equal(successUpdates, 1);
+  }
+  console.log('Video analysis task recovery: concurrency, queue interruption, ownership and 5 team settlement states passed');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

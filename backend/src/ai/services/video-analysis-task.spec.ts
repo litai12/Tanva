@@ -11,6 +11,8 @@ import { VideoAnalysisTaskService, planVideoAnalysisSegments, mergeVideoAnalysis
 import { ReferenceVideoDurationService } from './reference-video-duration.service';
 import { calculateDoubaoSeedVideoAnalysisDurationBilling, DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL } from './doubao-seed-video-analysis-pricing';
 import { AiController } from '../ai.controller';
+import { transpileModule, ModuleKind } from 'typescript';
+import { runInNewContext } from 'node:vm';
 
 const command = promisify(execFile);
 async function main() {
@@ -59,6 +61,18 @@ async function main() {
     assert.match(result.data!.text, /\| 3 \| 60 \|/);
     assert.equal(row.metadata.stage, 'settling');
     assert.equal(mergeVideoAnalysisSegments(row.metadata.segments), result.data!.text);
+    const storyboards = planVideoAnalysisSegments(72.585).map(segment => ({ ...segment, status: 'succeeded' as const,
+      text: `【镜头总览】\n总镜数：1\n素材总时长：${segment.endSec - segment.startSec}s\n\n=========单镜头开始=========\n镜号：M001\n时间区间（镜头完整区间）：${segment.startSec}s - ${segment.endSec}s\n景别：近景\n台词文本：本段对白${segment.index}\n---镜头内时序细分（微表情/短时动作拆解）\n时间段：${segment.startSec}s - ${segment.startSec + .3}s\n目标人物：角色${segment.index}\n肢体动作变化：完整细动作${segment.index}\n=========单镜头结束=========` }));
+    const merged = mergeVideoAnalysisSegments(storyboards);
+    assert.equal((merged.match(/【镜头总览】/g) || []).length, 1);
+    assert.ok(merged.includes('完整细动作2'));
+    const parserModule = { exports: {} as any };
+    const parserSource = await fs.readFile(join(__dirname, '../../../../frontend/src/components/flow/storyboardPromptTable.ts'), 'utf8');
+    runInNewContext(transpileModule(parserSource, { compilerOptions: { module: ModuleKind.CommonJS } }).outputText, { exports: parserModule.exports, module: parserModule });
+    const parsed = parserModule.exports.parseStoryboardAnalysis(merged);
+    assert.equal(parsed.overview['总镜数'], '3');
+    assert.equal(parsed.overview['素材总时长'], '72.585s');
+    assert.deepEqual(Array.from(parsed.rows, (r: any) => r.values['镜号']), ['M001', 'M002', 'M003']);
     media.downloadToFile = download;
 
     const charge = calculateDoubaoSeedVideoAnalysisDurationBilling(DOUBAO_SEED_LITE_VIDEO_ANALYSIS_MODEL, duration).creditsCharged;

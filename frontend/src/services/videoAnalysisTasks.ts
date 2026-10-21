@@ -7,13 +7,13 @@ export type VideoAnalysisRequest = {
   bananaImageRoute?: string;
   channelHint?: string;
   providerOptions?: Record<string, unknown>;
+  projectId?: string;
 };
 
 export type VideoAnalysisTaskRequest = VideoAnalysisRequest & {
   clientRequestId: string;
   resumeTaskId?: string;
   nodeId?: string;
-  projectId?: string;
 };
 
 export type VideoAnalysisTask = {
@@ -46,17 +46,21 @@ export type VideoAnalysisTaskNodeData = {
   analysisTaskRequest?: VideoAnalysisTaskRequest;
   analysisSubmissionState?: 'submitting' | 'unknown' | 'accepted' | 'rejected';
   analysisTaskHistory?: VideoAnalysisAttempt[];
+  /** Local ownership context only; never sent in the task DTO. */
+  analysisTaskTeamId?: string | null;
 };
 
 type TaskFetch = (url: string, init: RequestInit & { timeoutMs?: number }) => Promise<Response>;
 
 export class VideoAnalysisRequestError extends Error {
   readonly submissionRejected: boolean;
+  readonly status: number;
 
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, status: number) {
     super(message);
     this.name = 'VideoAnalysisRequestError';
-    this.submissionRejected = [400, 401, 403, 404, 413, 422].includes(status);
+    this.status = status;
+    this.submissionRejected = [400, 401, 403, 404, 409, 413, 422].includes(status);
   }
 }
 
@@ -64,11 +68,14 @@ export class VideoAnalysisRequestError extends Error {
 export const videoAnalysisResumeTaskId = (
   previous: VideoAnalysisTaskNodeData,
   next: VideoAnalysisRequest,
+  currentTeamId?: string | null,
 ): string | undefined => {
   const saved = previous.analysisTaskRequest;
   if (previous.analysisTaskStatus !== 'failed' || !previous.analysisTaskId || !saved) return undefined;
   return saved.prompt === next.prompt && saved.videoUrl === next.videoUrl &&
     saved.model === next.model && saved.bananaImageRoute === next.bananaImageRoute &&
+    (saved.projectId || undefined) === (next.projectId || undefined) &&
+    (previous.analysisTaskTeamId || null) === (currentTeamId || null) &&
     saved.channelHint === next.channelHint &&
     JSON.stringify(saved.providerOptions) === JSON.stringify(next.providerOptions)
     ? previous.analysisTaskId : undefined;

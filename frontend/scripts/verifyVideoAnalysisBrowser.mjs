@@ -34,7 +34,9 @@ createRoot(document.getElementById('root')).render(<App/>);
   const page = await browser.newPage({ viewport: { width: 1250, height: 950 } });
   const errors = [], submissions = [], reads = [];
   let phase = 'processing', attempt = 1;
-  const analysis = '| 镜号 | 时间 | 内容 |\n| --- | --- | --- |\n| 1 | 00:00–00:30 | First clip |\n| 2 | 00:30–01:00 | Second clip |\n| 3 | 01:00–01:12.585 | Last clip |';
+  const analysis = '【镜头总览】\n总镜数：3\n素材总时长：72.585s\n\n' + [
+    ['M001', '0.0s - 30.0s', 'First clip'], ['M002', '30.0s - 60.0s', 'Second clip'], ['M003', '60.0s - 72.585s', 'Last clip'],
+  ].map(([number, time, content]) => `=========单镜头开始=========\n镜号：${number}\n时间区间（镜头完整区间）：${time}\n景别：中景\n画面整体内容：${content}\n台词文本：【无台词】\n---镜头内时序细分（微表情/短时动作拆解）\n时间段：${time}\n目标人物：测试人物\n面部肌肉与表情变化：嘴角保持水平\n肢体动作变化：手臂自然下垂\n=========单镜头结束=========`).join('\n\n');
   const receipt = (taskId) => ({ taskId, status: phase, stage: phase === 'processing' ? 'analyzing' : phase,
     progress: { completed: phase === 'succeeded' ? 3 : 1, total: 3 }, durationSec: 72.585, attempt,
     ...(phase === 'failed' ? { error: '第二段暂时失败，已完成片段已保存', partialAnalysis: 'First clip' } : {}),
@@ -77,6 +79,9 @@ createRoot(document.getElementById('root')).render(<App/>);
   await page.waitForFunction(() => window.analysisState.nodes.some(n => n.id === 'storyboard-prompt-analysis'));
   const outputs = await page.evaluate(() => window.analysisState.nodes.filter(n => n.id === 'storyboard-prompt-analysis'));
   assert.equal(outputs.length, 1); assert.equal(outputs[0].data.text, analysis);
+  assert.equal(outputs[0].data.storyboardTable.rows.length, 3);
+  assert.equal(outputs[0].data.storyboardTable.overview['总镜数'], '3');
+  assert.equal(outputs[0].data.storyboardTable.overview['素材总时长'], '72.585s');
   await page.screenshot({ path: '/tmp/tanva-video-analysis-smoke.png' });
   phase = 'processing';
   await node.getByRole('button', { name: /重新分析|Analyze again/ }).click();

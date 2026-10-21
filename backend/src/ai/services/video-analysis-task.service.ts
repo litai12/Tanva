@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
@@ -31,6 +31,14 @@ export function videoSegmentPrompt(prompt: string, segment: VideoAnalysisSegment
 }
 export function mergeVideoAnalysisSegments(segments: VideoAnalysisSegment[]): string {
   const completed = [...segments].sort((a, b) => a.index - b.index).filter(s => s.status === 'succeeded');
+  if (completed.length && completed.every(segment => /={3,}\s*单镜头开始\s*={3,}/.test(segment.text || '') && /={3,}\s*单镜头结束\s*={3,}/.test(segment.text || ''))) {
+    let count = 0;
+    const bodies = completed.map(segment => (segment.text || '')
+      .replace(/^\s*【镜头总览】\s*$/gm, '')
+      .replace(/^\s*(?:总镜数|素材总时长)\s*[：:].*$/gm, '')
+      .replace(/^(\s*镜号\s*[：:]\s*)\S+/gm, (_, prefix) => `${prefix}M${String(++count).padStart(3, '0')}`).trim());
+    return `【镜头总览】\n总镜数：${count}\n素材总时长：${Math.max(...completed.map(segment => segment.endSec))}s\n\n${bodies.join('\n\n')}`;
+  }
   const tables = completed.map(segment => (segment.text || '').trim().split('\n').map(line => line.trim()).filter(Boolean));
   const isSeparator = (line: string) => /^\|?[\s:|-]+\|?$/.test(line) && line.includes('---');
   if (tables.length && tables.every(lines => lines.length >= 2 && lines[0] === tables[0][0] && isSeparator(lines[1]) && lines.every(line => line.startsWith('|') && line.endsWith('|')))) {
@@ -45,6 +53,7 @@ export function mergeVideoAnalysisSegments(segments: VideoAnalysisSegment[]): st
 
 @Injectable()
 export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(VideoAnalysisTaskService.name);
   private queue!: Queue;
   private worker!: Worker;
   private execution = new AsyncLocalStorage<{ taskId: string; token: string }>();
@@ -57,7 +66,7 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
     const connection = { url: this.config.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379' };
     this.queue = new Queue(QUEUE, { connection, defaultJobOptions: { attempts: 1, removeOnComplete: 200, removeOnFail: 500 } });
     this.worker = new Worker(QUEUE, job => this.execute(job.data.taskId), { connection, concurrency: 2, maxStalledCount: 0 });
-    this.worker.on('error', () => undefined);
+    this.worker.on('error', error => this.logger.warn(`Video analysis queue error: ${error.message}`));
     this.worker.on('failed', (job, error) => {
       if (job) void job.getState().then(state => state === 'failed' ? this.fail(job.data.taskId, error.message) : undefined).catch(() => undefined);
     });
@@ -84,7 +93,7 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
       try {
         const job = await this.queue.getJob(taskId);
         const state = job ? await job.getState() : 'missing';
-        if (state === 'failed' || (state === 'missing' && Date.now() - row.updatedAt.getTime() > 30_000)) {
+        if (state === 'failed' || state === 'completed' || (state === 'missing' && Date.now() - row.updatedAt.getTime() > 30_000)) {
           await this.fail(taskId, job?.failedReason || '后台任务已中断，已完成片段已保存，请点击重试恢复');
           row = await this.owned(taskId, userId);
         }
@@ -113,10 +122,11 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
       // Preserve every completed segment and the previous attempt receipt.
       const accepted = await this.prisma.videoTask.updateMany({ where: { id: row.id, status: 'failed', updatedAt: row.updatedAt }, data: { status: 'queued', error: null, completedAt: null,
         metadata: { ...meta, stage: 'queued', attempt: (meta.attempt || 1) + 1,
-          attempts: [...(meta.attempts || []), { error: row.error, completedAt: row.completedAt?.toISOString() }] } } });
+          attempts: [...(meta.attempts || []), { attempt: meta.attempt || 1, stage: meta.stage, segments: meta.segments || [], error: row.error, completedAt: row.completedAt?.toISOString() }] } } });
       if (!accepted.count) return this.get(row.id, userId);
       try {
-        if (oldJob) await oldJob.retry('failed');
+        if (oldJob && await oldJob.getState() === 'failed') await oldJob.retry('failed');
+        else if (oldJob) { await oldJob.remove(); await this.queue.add('analyze', { taskId: row.id }, { jobId: row.id }); }
         else await this.queue.add('analyze', { taskId: row.id }, { jobId: row.id });
       } catch { await this.fail(row.id, '恢复任务入队失败，片段结果已保留，请再次点击重试'); }
       return this.get(row.id, userId);
@@ -128,7 +138,7 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
       if (previous.userId !== userId || (previous.metadata as any)?.requestHash !== hash) throw new ConflictException('重复请求的参数不一致');
       return this.view(previous);
     }
-    const billingRequest = { user: req.user ? { id: req.user.id || req.user.sub } : undefined, apiClient: req.apiClient ? { id: req.apiClient.id } : undefined,
+    const billingRequest = { user: req.user ? { id: req.user.id || req.user.sub } : undefined, apiClient: req.apiClient ? { id: userId } : undefined,
       ip: req.ip, headers: { 'x-team-id': req.headers?.['x-team-id'], 'user-agent': req.headers?.['user-agent'] } };
     try {
       await this.prisma.videoTask.create({ data: { id: taskId, userId, nodeId: dto.nodeId, taskType: TYPE,
@@ -185,9 +195,13 @@ export class VideoAnalysisTaskService implements OnModuleInit, OnModuleDestroy {
     try {
       const source = join(directory, 'source');
       await this.media.downloadToFile(videoUrl, source, 500 * 1024 * 1024);
+      const sourceDigest = createHash('sha256');
+      for await (const chunk of createReadStream(source)) sourceDigest.update(chunk);
+      const sourceHash = sourceDigest.digest('hex');
+      if (meta.sourceHash && meta.sourceHash !== sourceHash) throw new ConflictException('原视频内容已发生变化，请发起新的分析任务');
       const durationSec = await this.media.probeLocalFile(source);
       const segments: VideoAnalysisSegment[] = meta.segments?.length ? meta.segments : planVideoAnalysisSegments(durationSec);
-      await this.save(taskId, { durationSec, segments });
+      await this.save(taskId, { durationSec, sourceHash, segments });
       for (const segment of segments) {
         if (segment.videoUrl || segment.status === 'succeeded') continue;
         if (segments.length === 1) { segment.videoUrl = videoUrl; }

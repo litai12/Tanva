@@ -106,6 +106,36 @@ test('lost submit receipt preserves the key for explicit recovery and never auto
   assert.equal(hasUnconfirmedVideoAnalysisSubmission({ ...saved, analysisSubmissionState: 'rejected' }), false);
 });
 
+test('project or team changes start independent tasks without reusing foreign clips', () => {
+  const scopedRequest = { ...request, projectId: 'project-a' };
+  const previous: VideoAnalysisTaskNodeData = {
+    analysisTaskId: 'failed-a', analysisTaskStatus: 'failed',
+    analysisTaskRequest: scopedRequest, analysisTaskTeamId: 'team-a',
+  };
+  assert.equal(videoAnalysisResumeTaskId(previous, scopedRequest, 'team-a'), 'failed-a');
+  assert.equal(videoAnalysisResumeTaskId(previous, { ...scopedRequest, projectId: 'project-b' }, 'team-a'), undefined);
+  assert.equal(videoAnalysisResumeTaskId(previous, { ...scopedRequest, projectId: undefined }, 'team-a'), undefined);
+  assert.equal(videoAnalysisResumeTaskId(previous, scopedRequest, 'team-b'), undefined);
+  assert.equal(videoAnalysisResumeTaskId(previous, scopedRequest, null), undefined);
+});
+
+test('409 identity conflicts release unknown submission recovery and preserve the old attempt', async () => {
+  const client = createVideoAnalysisTaskClient(async () =>
+    Response.json({ message: 'Request identity belongs to different inputs' }, { status: 409 }), '');
+  const saved: VideoAnalysisTaskNodeData = {
+    analysisTaskRequest: request, analysisSubmissionState: 'unknown', error: 'Original request unconfirmed',
+  };
+  await assert.rejects(client.submit(request), (error: unknown) => {
+    assert.ok(error instanceof VideoAnalysisRequestError);
+    assert.equal(error.submissionRejected, true);
+    const rejected: VideoAnalysisTaskNodeData = { ...saved, analysisSubmissionState: 'rejected', error: error.message };
+    assert.equal(hasUnconfirmedVideoAnalysisSubmission(rejected), false);
+    assert.equal(videoAnalysisAttemptHistory(rejected)[0].clientRequestId, request.clientRequestId);
+    assert.equal(videoAnalysisAttemptHistory(rejected)[0].error, error.message);
+    return true;
+  });
+});
+
 test('failed tasks return terminal evidence and mismatched receipts are rejected', async () => {
   const failed = { ...receipt('failed', 2), error: 'clip 3 failed' };
   const client = createVideoAnalysisTaskClient(async () => Response.json(failed), 'https://api.example');

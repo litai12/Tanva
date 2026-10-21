@@ -2321,7 +2321,7 @@ export class AiController {
         requestParams: sanitizedRequestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
-        responseStatus: deferSettlement
+        responseStatus: (deferSettlement || (receiptId && isTeamProject))
           ? ApiResponseStatus.PENDING
           : ApiResponseStatus.SUCCESS,
         ...(receiptId ? { apiUsageId: receiptId } : {}),
@@ -2347,18 +2347,24 @@ export class AiController {
     // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
     if (isTeamProject && teamId) {
       if (receiptId) {
-        const account = await this.prisma.teamCreditAccount.findUniqueOrThrow({ where: { teamId }, select: { id: true } });
-        const entries = await this.prisma.teamCreditLedger.findMany({ where: { teamAccId: account.id, taskId: deducted.apiUsageId }, select: { entryType: true } });
+        // Fence a recovered/stalled attempt at the immutable receipt before
+        // reading the team ledger; reserve itself increments wallet/quota.
+        await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM "ApiUsageRecord" WHERE id = ${deducted.apiUsageId} FOR UPDATE`;
+        const account = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId }, select: { id: true } });
+        const entries = await tx.teamCreditLedger.findMany({ where: { teamAccId: account.id, taskId: deducted.apiUsageId }, select: { entryType: true } });
         const types = new Set(entries.map(entry => entry.entryType));
         if (!types.has('deduct')) {
           if (types.has('release')) throw new ConflictException('视频分析原团队预留已释放，请按原回执核账');
           if (!types.has('reserve')) {
-            const reserved = await this.teamCreditLedger!.reserve({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId });
+            const reserved = await this.teamCreditLedger!.reserve({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId }, tx);
             if (!reserved.reserved) throw new BadRequestException(`视频分析结果已保存，团队积分结算待恢复：${reserved.reason || '预留失败'}`);
           }
-          const settlement = await this.teamCreditLedger!.deduct({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId });
+          const settlement = await this.teamCreditLedger!.deduct({ teamId, amount, taskId: deducted.apiUsageId, taskKind: serviceType, actorUserId: userId }, tx);
           if (!settlement.deducted) throw new ServiceUnavailableException('视频分析结果已保存，团队积分结算未确认，请点击恢复');
         }
+        await tx.apiUsageRecord.update({ where: { id: deducted.apiUsageId }, data: { responseStatus: ApiResponseStatus.SUCCESS } });
+        });
       } else {
       const reserved = await this.teamCreditLedger!.reserve({
         teamId,
@@ -7658,8 +7664,8 @@ export class AiController {
   @Post('video-analysis-tasks')
   async submitVideoAnalysisTask(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
     if (!this.videoAnalysisTasks) throw new ServiceUnavailableException('视频分析任务服务不可用');
-    const userId = this.getUserId(req) || (req.apiClient?.id ? `api:${req.apiClient.id}` : null);
-    if (!userId) throw new ForbiddenException('请登录后提交视频分析');
+    const userId = this.getAsync3DTaskOwner(req);
+    if (userId === 'api-client') throw new ForbiddenException('请登录后提交视频分析');
     this.parseAndValidateAllowedUrl(dto.videoUrl);
     return this.videoAnalysisTasks.submit({ ...dto, model: this.resolveVideoAnalysisModel(dto.model) }, req, userId);
   }
@@ -7667,8 +7673,8 @@ export class AiController {
   @Get('video-analysis-tasks/:taskId')
   async getVideoAnalysisTask(@Param('taskId') taskId: string, @Req() req: any) {
     if (!this.videoAnalysisTasks) throw new ServiceUnavailableException('视频分析任务服务不可用');
-    const userId = this.getUserId(req) || (req.apiClient?.id ? `api:${req.apiClient.id}` : null);
-    if (!userId) throw new ForbiddenException('请登录后查询视频分析');
+    const userId = this.getAsync3DTaskOwner(req);
+    if (userId === 'api-client') throw new ForbiddenException('请登录后查询视频分析');
     return this.videoAnalysisTasks.get(taskId, userId);
   }
 
