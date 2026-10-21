@@ -95,7 +95,7 @@ function VideoComposeNodeInner({ id, data, selected }: Props) {
           projectId: null,
           fileName,
           contentType: "video/mp4",
-          maxSize: 500 * 1024 * 1024,
+          maxSize: 200 * 1024 * 1024,
         });
         if (result?.success && result.url) {
           const fresh = rf.getNode(id)?.data;

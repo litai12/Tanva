@@ -25,7 +25,7 @@ const SUPPORTED_VIDEO_TYPES = [
 ];
 
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
-const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32MB
+const MAX_IMAGE_SIZE = 200 * 1024 * 1024; // 200MB（与 nginx client_max_body_size 一致）
 const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB（与前端 AudioNode 一致）
 const MAX_DOCUMENT_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_MODEL_SIZE = 50 * 1024 * 1024; // 50MB

@@ -198,7 +198,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
       projectId: null,
       fileName: file.name || `video-${Date.now()}.mp4`,
       contentType: file.type || "video/mp4",
-      maxSize: 500 * 1024 * 1024, // 500MB
+      maxSize: 200 * 1024 * 1024, // 200MB
     });
 
     if (!result.success || !result.url) {

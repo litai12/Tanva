@@ -1,5 +1,5 @@
 import { logger } from '@/utils/logger';
-import { dataURLToBlobAsync, uploadToOSS, type OssUploadOptions } from './ossUploadService';
+import { dataURLToBlobAsync, MAX_MEDIA_UPLOAD_BYTES, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
 import {
   isRemoteUrl,
@@ -66,7 +66,7 @@ function validateImageFile(file: File, options?: ImageUploadOptions): string | n
   if (!SUPPORTED_IMAGE_TYPES.includes(fileType)) {
     return '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF、WebP 或 SVG 图片';
   }
-  const limit = options?.maxFileSize ?? options?.maxSize ?? 32 * 1024 * 1024;
+  const limit = options?.maxFileSize ?? options?.maxSize ?? MAX_MEDIA_UPLOAD_BYTES;
   if (file.size > limit) {
     return `图片文件过大，请选择小于 ${(limit / 1024 / 1024).toFixed(1)}MB 的图片`;
   }
@@ -135,7 +135,7 @@ async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Pr
         const uploadResult = await uploadToOSS(file, {
           ...options,
           fileName: resolvedFileName,
-          maxSize: options.maxSize ?? options.maxFileSize ?? 32 * 1024 * 1024,
+          maxSize: options.maxSize ?? options.maxFileSize ?? MAX_MEDIA_UPLOAD_BYTES,
           contentType: options.contentType || file.type,
         });
 

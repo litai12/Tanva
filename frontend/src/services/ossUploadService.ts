@@ -48,6 +48,17 @@ type PresignCacheEntry = {
 const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
 const PRESIGN_CACHE_SAFETY_MS = 10_000;
 const DEFAULT_UPLOAD_TIMEOUT_MS = 60_000;
+// 大文件（图片/视频）中转上传的超时窗口。
+const LARGE_UPLOAD_TIMEOUT_MS = 10 * 60_000;
+/** 图片/视频单文件上传上限，需与后端 uploads.controller 及 nginx client_max_body_size 保持一致 */
+export const MAX_MEDIA_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
+
+function checkMediaUploadSize(data: Blob, maxSize?: number): string | null {
+  const limit = Math.min(maxSize ?? MAX_MEDIA_UPLOAD_BYTES, MAX_MEDIA_UPLOAD_BYTES);
+  if (data.size <= limit) return null;
+  const toMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+  return `文件过大（${toMb(data.size)}MB），最大支持 ${toMb(limit)}MB`;
+}
 const presignCache = new Map<string, PresignCacheEntry>();
 
 async function fetchWithTimeout(
@@ -302,6 +313,8 @@ async function uploadImageViaBackend(
     : new File([data], fileName, {
         type: options.contentType || (data as File).type || "image/png",
       });
+  const sizeError = checkMediaUploadSize(file, options.maxSize);
+  if (sizeError) return { success: false, error: sizeError };
   const formData = new FormData();
   formData.append("file", file);
   if (options.dir) formData.append("dir", options.dir);
@@ -312,13 +325,18 @@ async function uploadImageViaBackend(
   if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
 
   try {
-    const res = await fetchWithTimeout(`${API_BASE}/api/uploads/image`, {
-      method: "POST",
-      body: formData,
-      headers,
-      auth: options.authToken ? "omit" : "auto",
-      credentials: options.authToken ? "omit" : "include",
-    });
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/uploads/image`,
+      {
+        method: "POST",
+        body: formData,
+        headers,
+        auth: options.authToken ? "omit" : "auto",
+        credentials: options.authToken ? "omit" : "include",
+      },
+      // 图片最大 200MB，给足超时窗口。
+      LARGE_UPLOAD_TIMEOUT_MS
+    );
     const dataJson = await res.json().catch(() => null);
     if (!res.ok) {
       return {
@@ -358,6 +376,8 @@ async function uploadVideoViaBackend(
     : new File([data], fileName, {
         type: options.contentType || (data as File).type || "video/mp4",
       });
+  const sizeError = checkMediaUploadSize(file, options.maxSize);
+  if (sizeError) return { success: false, error: sizeError };
   const formData = new FormData();
   formData.append("file", file);
   if (options.dir) formData.append("dir", options.dir);
@@ -377,8 +397,8 @@ async function uploadVideoViaBackend(
         auth: options.authToken ? "omit" : "auto",
         credentials: options.authToken ? "omit" : "include",
       },
-      // 视频可达 500MB，上传耗时远超默认 60s，给足超时窗口。
-      10 * 60_000
+      // 视频最大 200MB，上传耗时远超默认 60s，给足超时窗口。
+      LARGE_UPLOAD_TIMEOUT_MS
     );
     const dataJson = await res.json().catch(() => null);
     if (!res.ok) {
