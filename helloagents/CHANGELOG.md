@@ -1,8 +1,8 @@
 # Changelog
 
-- 2026-10-21：视频理解前后端升级Seed2.1 Pro/Lite/Turbo，默认仍Lite，旧节点精确2.0身份保留。Seed长视频改为30秒真实切片的后台任务，支持进度、刷新查询和失败片段恢复；固定回执避免整片重复收费，分镜按原时间轴完整合并。模型/报价、真实72.585秒切片、任务恢复与浏览器回归通过；发布见 `wiki/video-analysis-seed21-segments-20261021.md`。
+- 2026-10-21：视频理解前后端升级Seed2.1 Pro/Lite/Turbo，默认仍Lite，旧节点精确2.0身份保留。Seed长视频改为30秒真实切片的后台任务，支持进度、刷新查询和失败片段恢复；固定回执避免整片重复收费，分镜按原时间轴完整合并。`0dd2a72a` 已推送部署101；模型/报价、真实72.585秒切片、恢复和浏览器回归通过，线上72.6秒合成视频三片真实分析全部成功；发布见 `wiki/video-analysis-seed21-segments-20261021.md`。
 
-- 2026-10-21：对照 ToAPIs 已有图片档位，为 9「apimart」补齐 GPT 2.5 Flare/Sunburst 普通与 VIP、Nano 2.1 普通与官方六个公共 SKU。按两家官网区分 Ext/官方实际型号，修复递归映射降档、跨供应商 metadata 和管理台候选缺失；保留现有零售价及渠道31状态。增量SQL与适配回归已验证，发布记录见 `wiki/apimart-image-tier-parity-20261021.md`。
+- 2026-10-21：对照 ToAPIs 已有图片档位，为 9「apimart」补齐 GPT 2.5 Flare/Sunburst 普通与 VIP、Nano 2.1 普通与官方六个公共 SKU。按两家官网区分 Ext/官方实际型号，修复递归映射降档、跨供应商 metadata 和管理台候选缺失；保留现有零售价及渠道31状态。`d3eb3bf9` 已推送部署101，六款真实出图、型号与账单核对全部通过；发布记录见 `wiki/apimart-image-tier-parity-20261021.md`。
 
 - 2026-10-20：图片/视频上传上限统一为 200MB。后端 `MAX_IMAGE_SIZE` 32MB → 200MB；前端图片默认上限、VideoNode / 视频合成上传改为 200MB，中转上传前先校验大小并给出中文提示，图片中转超时放宽到 10 分钟。101 nginx `tanvas.cn` 的 `/api/` 增加 `client_max_body_size 200m`（全局原为 50m，此前视频超过 50MB 会被 nginx 413 拦截）。
 

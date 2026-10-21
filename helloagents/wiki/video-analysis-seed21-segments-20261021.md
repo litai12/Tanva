@@ -30,3 +30,16 @@
 - 真实无付费推理的72.585秒带音轨MP4测试切出精确30/30/12.585秒；并发2，第2段首次失败时第1/3段结果保存，恢复只调用第2段；整体产品费用仅结算一次。
 - 浏览器真实ReactFlow+mock API验收覆盖Seed2.1 Lite默认、一次受理、1/3进度、刷新只GET、失败显式恢复、三镜分镜Prompt生成及完成后独立新任务。
 - 提交、发布和线上回执完成后追加。
+
+
+## 101 发布与真实验收
+
+`59825767`、`e245d7f2` 与最终修正 `0dd2a72a365d7e578ed566bb32b626a36e13053f` 已推送并同步101。按最终提交隔离构建，前端 TypeScript/Vite 与后端完整构建通过；前端11项模型/异步任务回归、目标ESLint、真实ReactFlow浏览器回归通过。
+
+UTC 2026-10-21 07:26:22 完成发布：暂停图片与视频分析队列，确认active均0及近期网关未结请求0，备份并发布48个前端静态文件与20个后端编译文件，PM2 reload后恢复两队列。暂存/线上全部SHA256一致；公网version.json返回commitSha `0dd2a72a365d`，页面直接引用的JS/CSS内容哈希一致，内外网健康HTTP200。new-api保留本轮已上线的APIMart镜像，没有再次替换网关。
+
+回退目录：`/opt/tanva-backups/video-analysis-20261021/`；发布目录：`/opt/tanva-releases/video-analysis-20261021/`，包含deployment.json、artifact-manifest.json与public-assets.json。没有schema迁移。
+
+线上使用自建72.6秒测试视频验证真实服务/OSS/BullMQ/Ark链路：task `va-c36b198d1a2a181a21fe69d5291957581e0121111ba80fe81e0836fe6c0111f7`，精确型号 `doubao-seed-2-1-lite-260915`，真实切出0–30、30–60、60–72.6秒三片；进度0/3→1/3→2/3→3/3，全部succeeded，返回451字分析。每片实际返回非空文本（151/132/115字）。这是内部独立验收任务，不使用用户视频/节点；网关正常产生推理成本，Tanva用户钱包ApiUsageRecord为0。
+
+`live-acceptance.json` 保存真实成功证据。未授权GET任务接口返回401。浏览器刷新恢复、失败片段复用与重复计费防护由隔离/模拟故障测试覆盖；线上没有对用户任务注入失败或自动重跑。Gemini未实测真实分片，仍遵循上文兼容边界。
