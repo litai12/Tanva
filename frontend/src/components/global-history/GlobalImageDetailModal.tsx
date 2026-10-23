@@ -96,7 +96,8 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 flex items-center justify-center p-4"
+      className="notranslate fixed inset-0 bg-black/80 flex items-center justify-center p-4"
+      translate="no"
       style={{ zIndex: 999999 }}
       onClick={onClose}
     >

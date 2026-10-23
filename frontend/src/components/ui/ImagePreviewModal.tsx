@@ -31,6 +31,8 @@ interface ImagePreviewModalProps {
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 10;
+// Smooth wheel zoom multiplies this by deltaY; keep a 100px tick to 0.1x.
+const WHEEL_ZOOM_STEP = 0.001;
 const BUTTON_ZOOM_STEP = 0.18;
 const CLICK_MOVE_TOLERANCE = 5;
 const stopEvent = (event: React.SyntheticEvent) => event.stopPropagation();
@@ -255,7 +257,7 @@ const ImagePreviewModalView: React.FC<ImagePreviewModalProps> = ({ isOpen, image
   if (!isOpen) return null;
   return createPortal(
     <div ref={modalRef} className={`image-preview-modal${hasCollection ? ' image-preview-modal--with-gallery' : ''}`} data-image-preview-modal="true" role="dialog" aria-modal="true" aria-label={resolvedImageTitle} onContextMenuCapture={stopEvent} onPointerDown={stopEvent} onPointerMove={stopEvent} onPointerUp={stopEvent} onClick={stopEvent} onDoubleClick={stopEvent} onWheel={stopEvent} onTouchStart={stopEvent} onTouchMove={stopEvent} onTouchEnd={stopEvent}>
-      <TransformWrapper key={`${currentImageId || ''}:${imageSrc}`} minScale={MIN_SCALE} maxScale={MAX_SCALE} initialScale={1} centerOnInit wheel={{ step: 0.006 }} doubleClick={{ mode: 'reset' }} panning={{ velocityDisabled: true }}>
+      <TransformWrapper key={`${currentImageId || ''}:${imageSrc}`} minScale={MIN_SCALE} maxScale={MAX_SCALE} initialScale={1} centerOnInit wheel={{ step: WHEEL_ZOOM_STEP }} doubleClick={{ mode: 'reset' }} panning={{ velocityDisabled: true }}>
         <ImageStage src={imageSrc} crop={imageCrop} title={resolvedImageTitle} isZh={isZh} onClose={onClose} />
       </TransformWrapper>
       <div className="image-preview__top-right" onClick={stopEvent}>

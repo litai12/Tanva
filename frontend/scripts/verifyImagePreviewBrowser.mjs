@@ -136,6 +136,27 @@ createRoot(document.getElementById('root')).render(<App/>);
 
   await openPreview();
   await expectReset('initial open');
+  // A representative mouse-wheel tick should adjust the image gently and keep
+  // the image point under the cursor fixed, even away from the viewport center.
+  const stageBox = await stage.boundingBox();
+  const anchor = { x: stageBox.x + stageBox.width * .65, y: stageBox.y + stageBox.height * .6 };
+  const contentPoint = () => page.locator(transformSelector).evaluate((el, anchor) => {
+    const rect = el.getBoundingClientRect();
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    const scale = Math.hypot(matrix.a, matrix.b);
+    return { x: (anchor.x - rect.left) / scale, y: (anchor.y - rect.top) / scale };
+  }, anchor);
+  const pointBeforeWheel = await contentPoint();
+  await page.mouse.move(anchor.x, anchor.y);
+  await page.mouse.wheel(0, -100);
+  const gentleWheel = await waitScale(scale => scale > 1.01, '100px wheel zoom');
+  assert.ok(gentleWheel.scale >= 1.08 && gentleWheel.scale <= 1.12, `100px wheel should zoom by about 10%, got ${gentleWheel.scale}`);
+  const pointAfterWheel = await contentPoint();
+  assert.ok(Math.hypot(pointAfterWheel.x - pointBeforeWheel.x, pointAfterWheel.y - pointBeforeWheel.y) < 1, 'wheel zoom must preserve the cursor anchor');
+  await assertIsolated('gentle wheel zoom');
+  await page.mouse.wheel(0, 100);
+  await expectReset('reverse 100px wheel');
+  console.log(`100px wheel scale: ${gentleWheel.scale.toFixed(3)}; cursor anchor preserved.`);
   const initial = await transform();
   await focusStage();
   await page.mouse.wheel(0,-280);

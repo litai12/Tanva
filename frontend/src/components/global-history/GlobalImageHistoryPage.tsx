@@ -286,14 +286,12 @@ const ImageGrid: React.FC<ImageGridProps> = ({
               variant="outline"
               className="bg-white/10 text-white border-white/20 hover:bg-white/20"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {lt('加载中...', 'Loading...')}
-                </>
-              ) : (
-                lt('加载更多', 'Load More')
-              )}
+              {/* Keep text inside a stable element if a translation extension replaces it. */}
+              <Loader2
+                aria-hidden="true"
+                className={isLoading ? 'mr-2 h-4 w-4 animate-spin' : 'hidden'}
+              />
+              <span>{isLoading ? lt('加载中...', 'Loading...') : lt('加载更多', 'Load More')}</span>
             </Button>
           </div>
         )}
@@ -466,7 +464,8 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
 
   const content = (
     <div
-      className="fixed inset-0 bg-black/90 backdrop-blur-sm flex flex-col"
+      className="notranslate fixed inset-0 bg-black/90 backdrop-blur-sm flex flex-col"
+      translate="no"
       style={{ zIndex: 999998 }}
     >
       {/* 头部 */}
