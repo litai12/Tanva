@@ -25,4 +25,10 @@
 - 浏览器验证发现新帧节点的初始尺寸测量会额外写撤销快照；现仅对帧快照节点跳过纯观察器测量的历史提交，明确的用户尺寸调整仍记录历史。稳定后验证批量展开只产生一条历史。
 - 前端生产构建通过；仓库全量 ESLint 存在既有错误，新增辅助模块及测试定向 ESLint 通过。
 
-本轮仅修改本地代码，未部署。
+## 101 发布
+
+- 代码提交 `354ae09c1f925b3c7f2054ed55d2c3fc6755994c` 已在 origin/main 与 101 源码中核对一致。2026-10-23 01:22（America/Los_Angeles；UTC 08:22）完成前端静态发布。
+- 使用 `git archive` 提取该提交创建隔离源码，以 `GITHUB_SHA` 构建正式发布包；28 项单元测试、完整生产 FlowOverlay 浏览器回归及 TypeScript/Vite 构建均通过。
+- 发布目录 `/opt/tanva-releases/video-frames-20261023-354ae09c/`，旧版备份 `/opt/tanva-backups/video-frames-20261023-354ae09c/frontend-dist/`。发布锁内核对线上旧版本与源码，校验全部 48 个文件 SHA-256 后逐文件原子替换，最后切换页面与版本入口，保留旧 hash 资源。
+- 本机与 101 分别验证公网 `https://tanvas.cn/`、`/assets/index-2WLA9fCZ.js`、`/assets/index-B9xCGxLI.css`、`/version.json` 与发布包哈希一致；`commitSha=354ae09c1f92`，内外网 `/api/health.status=ok`，旧 `/assets/index-Bfg0uJCg.js` 仍可访问。
+- 发布目录保存构建包、清单、`deployment.json` 与 `public-acceptance.json`。功能验收使用隔离源码与本地夹具，线上验收为静态资源、版本与健康核验。本次未重启后端、修改数据库或重跑用户生成任务。
