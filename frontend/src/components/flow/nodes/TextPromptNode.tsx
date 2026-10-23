@@ -34,8 +34,8 @@ import StoryboardPromptTableView, {
   type StoryboardPromptTableViewHandle,
 } from './StoryboardPromptTableView';
 import {
-  normalizeStoryboardPromptTable,
   parseStoryboardAnalysis,
+  resolveStoryboardPromptTable,
   serializeStoryboardPromptTable,
 } from '../storyboardPromptTable';
 import StoryboardScriptToShotsDialog from './StoryboardScriptToShotsDialog';
@@ -327,9 +327,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const storyboardViewMode = data.storyboardViewMode === 'text' ? 'text' : 'table';
   const shouldRenderTextEditor = !isStoryboardTable || storyboardViewMode === 'text';
   const storyboardTable = React.useMemo(() => {
-    const persisted = normalizeStoryboardPromptTable(data.storyboardTable);
-    if (persisted && data.storyboardSourceText === value) return persisted;
-    return parseStoryboardAnalysis(value);
+    return resolveStoryboardPromptTable(value, data.storyboardTable, data.storyboardSourceText);
   }, [data.storyboardSourceText, data.storyboardTable, value]);
   const [hover, setHover] = React.useState<string | null>(null);
   const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);

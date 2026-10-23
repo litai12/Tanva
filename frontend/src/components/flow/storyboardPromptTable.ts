@@ -274,6 +274,94 @@ const addColumn = (
   columnsByLabel.set(label, { key: label, label, scope });
 };
 
+const splitMarkdownRow = (rawLine: string): string[] | null => {
+  const line = rawLine.trim();
+  const cells: string[] = [];
+  let cell = '';
+  let separators = 0;
+  let endsWithSeparator = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '\\' && (line[index + 1] === '|' || line[index + 1] === '\\')) {
+      const next = line[++index];
+      cell += next === '|' ? '|' : '\\\\';
+      endsWithSeparator = false;
+    } else if (char === '|') {
+      cells.push(cell.trim());
+      cell = '';
+      separators += 1;
+      endsWithSeparator = true;
+    } else {
+      cell += char;
+      endsWithSeparator = false;
+    }
+  }
+  if (separators === 0) return null;
+  cells.push(cell.trim());
+  if (line.startsWith('|')) cells.shift();
+  if (endsWithSeparator) cells.pop();
+  return cells.length >= 2 ? cells : null;
+};
+
+const isMarkdownSeparator = (cells: string[]): boolean =>
+  cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+
+// Detect the header/separator pair instead of interpreting prose or timecode
+// colons as labels. Fences and introductory text can occur anywhere in output.
+const parseMarkdownStoryboard = (text: string): {
+  columns: StoryboardPromptColumn[];
+  rows: StoryboardPromptRow[];
+} | null => {
+  const lines = text.split('\n');
+  const columnsByKey = new Map<string, StoryboardPromptColumn>();
+  const rows: StoryboardPromptRow[] = [];
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const headers = splitMarkdownRow(lines[index]);
+    const separator = splitMarkdownRow(lines[index + 1]);
+    if (!headers || !separator || headers.length !== separator.length ||
+      isMarkdownSeparator(headers) || !isMarkdownSeparator(separator)) continue;
+
+    const usedKeys = new Set<string>();
+    const columns = headers.map((header, columnIndex): StoryboardPromptColumn => {
+      const label = normalizeLabel(header) || `列${columnIndex + 1}`;
+      let key = label;
+      let suffix = 2;
+      while (usedKeys.has(key)) key = `${label}__${suffix++}`;
+      usedKeys.add(key);
+      return { key, label, scope: TIMELINE_LABELS.has(label) ? 'timeline' : 'shot' };
+    });
+
+    let bodyIndex = index + 2;
+    const bodyRows: StoryboardPromptRow[] = [];
+    for (; bodyIndex < lines.length; bodyIndex += 1) {
+      const cells = splitMarkdownRow(lines[bodyIndex]);
+      if (!cells) break;
+      // Some models repeat the table header between analysis segments.
+      const nextSeparator = splitMarkdownRow(lines[bodyIndex + 1] || '');
+      if (nextSeparator && cells.length === nextSeparator.length &&
+        isMarkdownSeparator(nextSeparator)) break;
+      if (isMarkdownSeparator(cells)) continue;
+      const rowIndex = rows.length + bodyRows.length + 1;
+      bodyRows.push({
+        id: `shot-${rowIndex}-segment-1`,
+        shotId: `shot-${rowIndex}`,
+        values: Object.fromEntries(columns.map((column, columnIndex) => [
+          column.key,
+          (columnIndex === columns.length - 1
+            ? cells.slice(columnIndex).join(' | ')
+            : cells[columnIndex] || '').replace(/<br\s*\/?\s*>/gi, '\n'),
+        ])),
+      });
+    }
+    if (bodyRows.length > 0) {
+      columns.forEach((column) => columnsByKey.set(column.key, column));
+      rows.push(...bodyRows);
+    }
+    index = bodyIndex - 1;
+  }
+  return rows.length > 0 ? { columns: Array.from(columnsByKey.values()), rows } : null;
+};
+
 const parseTimelineSection = (
   rawText: string,
   shotFields: ParsedFields,
@@ -382,6 +470,14 @@ export const parseStoryboardAnalysis = (
   }
 
   const shotBlocks = splitShotBlocks(text);
+  if (shotBlocks.length === 0) {
+    const markdown = parseMarkdownStoryboard(text);
+    if (markdown) {
+      markdown.columns.forEach((column) => columnsByLabel.set(column.key, column));
+      rows.push(...markdown.rows);
+      if (!overview['总镜数']) overview['总镜数'] = String(markdown.rows.length);
+    }
+  }
   shotBlocks.forEach((block, shotIndex) => {
     const explicitTimelineMarker = block.search(/---\s*镜头内时序细分[^\n]*/i);
     const timelineMarker = explicitTimelineMarker >= 0
@@ -459,6 +555,7 @@ export const parseStoryboardAnalysis = (
       const timeline = [
         row.values['时间区间（镜头完整区间）'],
         row.values['时间段'],
+        row.values['时间'],
       ].filter(Boolean).join(' ');
       return Array.from(timeline.matchAll(/(\d+(?:\.\d+)?)\s*s/gi))
         .map((match) => Number(match[1]))
@@ -546,6 +643,31 @@ export const normalizeStoryboardPromptTable = (
     columns: sortColumns(columns),
     rows,
   };
+};
+
+export const resolveStoryboardPromptTable = (
+  rawText: string,
+  persistedValue: unknown,
+  sourceText: unknown,
+): StoryboardPromptTableData => {
+  const persisted = normalizeStoryboardPromptTable(persistedValue);
+  if (persisted && sourceText === rawText) {
+    // Old label parsing cached Markdown rows as pipe-containing column labels
+    // (or one fallback analysis cell). Repair only those recognizable failures;
+    // ordinary persisted tables, including manual edits, remain authoritative.
+    const isLegacyMarkdownFallback = persisted.columns.some((column) =>
+      column.label.includes('|') || column.key.includes('|'),
+    ) || (persisted.columns.length === 1 && persisted.columns[0].label === '分析结果');
+    if (isLegacyMarkdownFallback) {
+      const markdown = parseMarkdownStoryboard(cleanOutputText(rawText));
+      const hasMalformedColumn = markdown && persisted.columns.some((column) =>
+        !markdown.columns.some((source) => source.key === column.key && source.label === column.label),
+      );
+      if (hasMalformedColumn) return parseStoryboardAnalysis(rawText);
+    }
+    return persisted;
+  }
+  return parseStoryboardAnalysis(rawText);
 };
 
 const orderedOverviewEntries = (

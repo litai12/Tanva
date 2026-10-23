@@ -131,6 +131,8 @@ import {
   normalizeKlingO3ImageMode,
 } from "./klingO3VideoMode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
+import { selectVideoFrames } from "./videoFrameSelection";
+import { createVideoFrameImageNodes } from "./videoFrameImageNodes";
 import VideoToGifNode from "./nodes/VideoToGifNode";
 import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
 import ImageGridNode from "./nodes/ImageGridNode";
@@ -5874,7 +5876,13 @@ function FlowInner() {
               (c?.type === "position" && c?.dragging === false) ||
               c?.type === "remove" ||
               c?.type === "add" ||
-              c?.type === "dimensions"
+              (c?.type === "dimensions" && (
+                // Expanded frames already have one batch snapshot. Observer
+                // measurements must not add extra undo steps after creation or
+                // redo; explicit user resizing still records its own edit.
+                typeof c.resizing === "boolean" || c.setAttributes ||
+                !nodesRef.current.some((node) => node.id === c.id && node.data?.sourceVideoFrameNodeId)
+              ))
           );
         if (needCommit)
           historyService.commit("flow-nodes-change").catch(() => {});
@@ -15182,6 +15190,54 @@ function FlowInner() {
       historyTimers.forEach((timer) => window.clearTimeout(timer));
     };
   }, [setEdges, setNodes, updateProjectPartial, rfNodesToTplNodes, rfEdgesToTplEdges]);
+
+  // Expand a frame selection in one edit; each Image keeps its own remote snapshot.
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id;
+      const source = typeof id === "string" ? rf.getNode(id) : undefined;
+      if (!hydrated || source?.type !== "videoFrameExtract") return;
+      const frames = selectVideoFrames(source.data).map((frame) => ({
+        ...frame,
+        imageUrl: normalizePersistableImageRef(frame.imageUrl),
+      }));
+      if (!frames.length) return;
+      if (frames.some((frame) => !isPersistableImageRef(frame.imageUrl))) {
+        window.dispatchEvent(new CustomEvent("toast", { detail: {
+          message: lt("帧图片尚未上传，请重新提取后再展开", "Frame images are not uploaded. Extract them again before expanding."),
+          type: "error",
+        } }));
+        return;
+      }
+
+      const currentNodes = rf.getNodes();
+      const expanded = createVideoFrameImageNodes(
+        frames,
+        {
+          idPrefix: generateId("video_frames"),
+          sourceNodeId: source.id,
+          sourceBounds: rf.getNodesBounds([source]),
+          occupiedBounds: currentNodes.filter((node) => !node.hidden).map((node) => rf.getNodesBounds([node])),
+          size: FLOW_NODE_DEFAULT_SIZE.image,
+          frameLabel: (frame) => lt(`帧 ${frame.index}`, `Frame ${frame.index}`) + ` · ${Number(frame.timestamp || 0).toFixed(2)}s`,
+        },
+      );
+      setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node).concat(expanded));
+      // Publish the complete batch before taking one undo snapshot. New nodes use
+      // the existing node-add collaboration effect, just like manually added Images.
+      requestAnimationFrame(() => {
+        if (useProjectContentStore.getState().projectId !== projectId) return;
+        if (!rf.getNode(expanded[0].id)) return;
+        updateProjectPartial({ flow: {
+          nodes: rfNodesToTplNodes(rf.getNodes(), { preserveRunningState: true }),
+          edges: rfEdgesToTplEdges(rf.getEdges()),
+        } }, { markDirty: true });
+        historyService.commit("flow-expand-video-frames").catch(() => {});
+      });
+    };
+    window.addEventListener("flow:expandVideoFrames", handler);
+    return () => window.removeEventListener("flow:expandVideoFrames", handler);
+  }, [hydrated, projectId, rf, setNodes, lt, updateProjectPartial, rfNodesToTplNodes, rfEdgesToTplEdges]);
 
   // happyhorse 节点切换 model 时，丢弃在新模式下不再合法的目标连线。
   React.useEffect(() => {

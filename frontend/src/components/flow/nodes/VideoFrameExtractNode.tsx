@@ -4,7 +4,10 @@ import SmartImage from '../../ui/SmartImage';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { fetchWithAuth } from '@/services/authFetch';
+import { resolveImageToBlob } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import { normalizeVideoFrameSelection, selectVideoFrames, type VideoFrame } from '../videoFrameSelection';
+import { buildVideoFramesZip, saveVideoFramesZip, type VideoFrameDownloadProgress } from '../videoFrameDownload';
 import {
   flowNodeControlField,
   flowNodeMutedWellBackground,
@@ -12,13 +15,6 @@ import {
   flowNodeWellOutlineBorder,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
-
-type FrameData = {
-  index: number;
-  timestamp: number;
-  imageUrl: string;
-  thumbnailDataUrl?: string;
-};
 
 type Props = {
   id: string;
@@ -28,7 +24,7 @@ type Props = {
     videoUrl?: string;
     videoDuration?: number;
     intervalSeconds: number;
-    frames: FrameData[];
+    frames: VideoFrame[];
     totalFrames: number;
     outputMode: 'all' | 'single' | 'range';
     selectedFrameIndex?: number;
@@ -118,9 +114,14 @@ const resolveVideoUrlFromNode = (node?: Node<any> | null): string | undefined =>
 function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
-  const { status = 'idle', error, frames = [], totalFrames = 0 } = data;
+  const { status = 'idle', error, frames = [] } = data;
+  const totalFrames = frames.length;
   const [hover, setHover] = React.useState<string | null>(null);
   const [showAllFrames, setShowAllFrames] = React.useState(false);
+  const [downloadProgress, setDownloadProgress] = React.useState<VideoFrameDownloadProgress | null>(null);
+  const [downloadError, setDownloadError] = React.useState<string | null>(null);
+  const downloadBusyRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const projectId = useProjectContentStore((s) => s.projectId);
@@ -169,10 +170,12 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     : '0 1px 2px rgba(0,0,0,0.04)';
 
   const intervalSeconds = data.intervalSeconds ?? DEFAULT_INTERVAL;
-  const outputMode = data.outputMode ?? 'all';
-  const selectedFrameIndex = data.selectedFrameIndex ?? 1;
-  const rangeStart = data.rangeStart ?? 1;
-  const rangeEnd = data.rangeEnd ?? Math.max(1, totalFrames);
+  const { outputMode, selectedFrameIndex, rangeStart, rangeEnd, maxFrameIndex } = normalizeVideoFrameSelection(data);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const updateNodeData = React.useCallback((patch: Record<string, any>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -259,7 +262,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       // 计算要抽取的帧数
       const interval = intervalSeconds;
       const frameCount = Math.floor(duration / interval) + 1;
-      const extractedFrames: FrameData[] = [];
+      const extractedFrames: VideoFrame[] = [];
 
       for (let i = 0; i < frameCount; i++) {
         const timestamp = Math.min(i * interval, duration - 0.1);
@@ -363,10 +366,10 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
   const onSelectedFrameChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10);
-    if (!isNaN(val) && val >= 1 && val <= totalFrames) {
+    if (!isNaN(val) && val >= 1 && val <= maxFrameIndex) {
       updateNodeData({ selectedFrameIndex: val });
     }
-  }, [totalFrames, updateNodeData]);
+  }, [maxFrameIndex, updateNodeData]);
 
   const onRangeChange = React.useCallback((values: [number, number]) => {
     updateNodeData({ rangeStart: values[0], rangeEnd: values[1] });
@@ -375,20 +378,34 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
   const canExtract = !!effectiveVideoUrl && status !== 'extracting';
 
   // 获取输出的帧
-  const outputFrames = React.useMemo(() => {
-    if (frames.length === 0) return [];
-    if (outputMode === 'all') return frames;
-    if (outputMode === 'single') {
-      const idx = (selectedFrameIndex ?? 1) - 1;
-      return frames[idx] ? [frames[idx]] : [];
+  const outputFrames = React.useMemo(
+    () => selectVideoFrames({ frames, outputMode, selectedFrameIndex, rangeStart, rangeEnd }),
+    [frames, outputMode, selectedFrameIndex, rangeStart, rangeEnd],
+  );
+
+  const downloadFrames = React.useCallback(async () => {
+    if (downloadBusyRef.current || outputFrames.length === 0) return;
+    downloadBusyRef.current = true;
+    setDownloadError(null);
+    setDownloadProgress({ completed: 0, total: outputFrames.length });
+    try {
+      const blob = await buildVideoFramesZip(
+        outputFrames,
+        (imageUrl) => resolveImageToBlob(imageUrl, { preferProxy: true }),
+        (progress) => { if (mountedRef.current) setDownloadProgress(progress); },
+      );
+      if (!mountedRef.current) return;
+      const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      saveVideoFramesZip(blob, `video_frames_${safeId}_${outputMode}.zip`);
+    } catch (err) {
+      if (mountedRef.current) {
+        setDownloadError(err instanceof Error ? err.message : lt('帧下载失败', 'Frame download failed'));
+      }
+    } finally {
+      downloadBusyRef.current = false;
+      if (mountedRef.current) setDownloadProgress(null);
     }
-    if (outputMode === 'range') {
-      const start = Math.max(0, (rangeStart ?? 1) - 1);
-      const end = Math.min(frames.length, rangeEnd ?? frames.length);
-      return frames.slice(start, end);
-    }
-    return frames;
-  }, [frames, outputMode, selectedFrameIndex, rangeStart, rangeEnd]);
+  }, [id, lt, outputFrames, outputMode]);
 
   // 预览帧（最多显示4个）
   const previewFrames = frames.slice(0, MAX_PREVIEW_FRAMES);
@@ -484,7 +501,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       {frames.length > 0 && (
         <div style={{ background: mutedWellBg, borderRadius: 6, padding: 8, border: `1px solid ${wellOutline}` }}>
           <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 6 }}>
-            📷 {lt('已提取', 'Extracted')} {totalFrames} {lt('帧', 'frame(s)')}
+            📷 {lt(`按间隔提取的 ${totalFrames} 帧`, `${totalFrames} frames extracted at intervals`)}
           </div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {previewFrames.map((frame) => (
@@ -500,7 +517,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                 }}
               >
                 <SmartImage
-                  src={frame.thumbnailDataUrl}
+                  src={frame.thumbnailDataUrl || frame.imageUrl}
                   alt={lt(`帧 ${frame.index}`, `Frame ${frame.index}`)}
                   decoding="async"
                   loading="lazy"
@@ -594,7 +611,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                 value={selectedFrameIndex}
                 onChange={onSelectedFrameChange}
                 min={1}
-                max={totalFrames}
+                max={maxFrameIndex}
                 style={{
                   width: 50,
                   fontSize: 11,
@@ -646,12 +663,12 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                 value={rangeEnd}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10);
-                  if (!isNaN(val) && val >= rangeStart && val <= totalFrames) {
+                  if (!isNaN(val) && val >= rangeStart && val <= maxFrameIndex) {
                     onRangeChange([rangeStart, val]);
                   }
                 }}
                 min={rangeStart}
-                max={totalFrames}
+                max={maxFrameIndex}
                 style={{
                   width: 50,
                   fontSize: 11,
@@ -660,6 +677,36 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   ...controlField,
                 }}
               />
+            </div>
+          )}
+        </div>
+      )}
+
+      {frames.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={downloadFrames}
+            disabled={downloadProgress !== null || outputFrames.length === 0}
+            style={{ ...controlField, padding: '6px 8px', borderRadius: 4, fontSize: 12, cursor: downloadProgress ? 'wait' : 'pointer' }}
+          >
+            {downloadProgress
+              ? lt(`下载中 ${downloadProgress.completed}/${downloadProgress.total}`, `Downloading ${downloadProgress.completed}/${downloadProgress.total}`)
+              : `${outputMode === 'all' ? lt('下载全部帧', 'Download all frames') : lt('下载所选帧', 'Download selected frames')} ZIP (${outputFrames.length})`}
+          </button>
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={() => window.dispatchEvent(new CustomEvent('flow:expandVideoFrames', { detail: { id } }))}
+            disabled={outputFrames.length === 0}
+            style={{ ...controlField, padding: '6px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
+          >
+            {lt(`展开为 Image 节点 (${outputFrames.length})`, `Expand as Image nodes (${outputFrames.length})`)}
+          </button>
+          {downloadError && (
+            <div role="alert" style={{ fontSize: 12, color: '#ef4444', overflowWrap: 'anywhere' }}>
+              {downloadError}
             </div>
           )}
         </div>
@@ -797,7 +844,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   }}
                 >
                   <SmartImage
-                    src={frame.thumbnailDataUrl}
+                    src={frame.thumbnailDataUrl || frame.imageUrl}
                     alt={lt(`帧 ${frame.index}`, `Frame ${frame.index}`)}
                     decoding="async"
                     loading="lazy"

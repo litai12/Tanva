@@ -4,6 +4,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import {
   createEmptyStoryboardPromptTable,
   parseStoryboardAnalysis,
+  resolveStoryboardPromptTable,
   serializeStoryboardPromptTable,
 } from './storyboardPromptTable.ts';
 import { DEFAULT_SCRIPT_TO_STORYBOARD_SKILL } from './storyboardScriptSkill.ts';
@@ -43,6 +44,104 @@ const SAMPLE = `【镜头总览】
 
 额外输出附加字段（用于影视特效开发）：
 画面主色调：冷蓝`;
+
+const MARKDOWN_SCRIPT = `为您整理的完整视频脚本如下，包含画面、口播和字幕：
+
+| 时间 | 镜号 | 画面 | 口播 | 字幕 |
+| :--- | :---: | --- | --- | ---: |
+| 00:00-00:03 | 1 | 主角走向窗边 | 看向远方 | 新的一天 |
+| 00:03-00:06 | 2 | 窗外城市全景 | 出发吧 | 即刻出发 |
+
+以上为完整脚本。`;
+
+test('finds the real Markdown script after introductory prose and ignores separators and footer', () => {
+  const table = parseStoryboardAnalysis(MARKDOWN_SCRIPT);
+  assert.equal(table.rows.length, 2);
+  assert.equal(table.columns.length, 5);
+  assert.deepEqual(new Set(table.columns.map((column) => column.label)),
+    new Set(['时间', '镜号', '画面', '口播', '字幕']));
+  assert.equal(table.rows[0]?.values['时间'], '00:00-00:03');
+  assert.equal(table.rows[1]?.values['字幕'], '即刻出发');
+  assert.equal(table.overview['总镜数'], '2');
+});
+
+test('parses fenced Markdown, optional outer pipes, escaped pipes, and dynamic columns', () => {
+  const table = parseStoryboardAnalysis(`脚本如下：
+\`\`\`markdown
+**镜号** | 时间 | 画面 | 自定义备注
+--- | :---: | --- | ---
+M001 | 0.0s-1.0s | 门牌 A\\|B<br>镜头推进 | 保留\\|分隔符
+M002 | 1.0s-2.0s | 走出门外 |
+\`\`\`
+补充说明：原视频无字幕。`);
+  assert.equal(table.columns.length, 4);
+  assert.equal(table.rows.length, 2);
+  assert.equal(table.rows[0]?.values['画面'], '门牌 A|B\n镜头推进');
+  assert.equal(table.rows[0]?.values['自定义备注'], '保留|分隔符');
+  assert.equal(table.rows[1]?.values['自定义备注'], '');
+  assert.equal(table.overview['素材总时长'], '2.0s');
+  const reparsed = parseStoryboardAnalysis(serializeStoryboardPromptTable(table));
+  assert.equal(reparsed.rows.length, 2);
+  assert.equal(reparsed.rows[0]?.values['自定义备注'], '保留|分隔符');
+  assert.equal(reparsed.rows[0]?.values['画面'], '门牌 A|B\n镜头推进');
+});
+
+test('keeps repeated Markdown header blocks out of data rows and retains unknown columns', () => {
+  const table = parseStoryboardAnalysis(`| 镜号 | 画面 | 备注 |
+| --- | --- | --- |
+| 1 | 进门 | 第一段 |
+
+第二段：
+| 镜号 | 画面 | 声音 |
+| --- | --- | --- |
+| 2 | 坐下 | 椅子摩擦 |`);
+  assert.equal(table.rows.length, 2);
+  assert.equal(table.columns.length, 4);
+  assert.equal(table.rows[0]?.values['备注'], '第一段');
+  assert.equal(table.rows[1]?.values['声音'], '椅子摩擦');
+});
+
+test('requires a Markdown separator and preserves the structured storyboard parser', () => {
+  const prose = parseStoryboardAnalysis('台词：A | B\n画面：人物站定');
+  assert.equal(prose.rows.length, 1);
+  assert.equal(prose.columns.length, 3);
+  assert.ok(prose.columns.some((column) => column.label === '台词'));
+  const structured = parseStoryboardAnalysis(`${SAMPLE}\n\n| 镜号 | 画面 |\n| --- | --- |\n| 99 | 示例 |`);
+  assert.equal(structured.rows.length, 2);
+  assert.equal(structured.rows[0]?.values['镜号'], 'M001');
+});
+
+test('repairs old Markdown fallback caches locally while keeping manually edited tables', () => {
+  const broken = {
+    version: 1 as const,
+    overview: {},
+    columns: [{ key: '| 00', label: '| 00', scope: 'shot' as const }],
+    rows: [{ id: 'analysis-1', shotId: 'shot-1', values: { '| 00': '00-00:03 | 1 | 主角' } }],
+  };
+  const recovered = resolveStoryboardPromptTable(MARKDOWN_SCRIPT, broken, MARKDOWN_SCRIPT);
+  assert.equal(recovered.rows.length, 2);
+  assert.equal(recovered.columns.length, 5);
+  assert.equal(broken.rows.length, 1);
+  const fallback = {
+    ...broken,
+    columns: [{ key: '分析结果', label: '分析结果', scope: 'timeline' as const }],
+    rows: [{ id: 'analysis-1', shotId: 'shot-1', values: { 分析结果: MARKDOWN_SCRIPT } }],
+  };
+  assert.equal(resolveStoryboardPromptTable(MARKDOWN_SCRIPT, fallback, MARKDOWN_SCRIPT).rows.length, 2);
+  assert.equal(resolveStoryboardPromptTable('普通分析文字', fallback, '普通分析文字')
+    .columns[0]?.label, '分析结果');
+
+  const edited = parseStoryboardAnalysis(MARKDOWN_SCRIPT);
+  edited.rows[0]!.values['画面'] = '手动修改';
+  const retained = resolveStoryboardPromptTable(MARKDOWN_SCRIPT, edited, MARKDOWN_SCRIPT);
+  assert.equal(retained.rows[0]?.values['画面'], '手动修改');
+
+  const sourceWithPipeHeader = '| 镜号 | A\\|B |\n| --- | --- |\n| 1 | 原始 |';
+  const editedWithPipeHeader = parseStoryboardAnalysis(sourceWithPipeHeader);
+  editedWithPipeHeader.rows[0]!.values['A|B'] = '手动修改';
+  assert.equal(resolveStoryboardPromptTable(sourceWithPipeHeader, editedWithPipeHeader,
+    sourceWithPipeHeader).rows[0]?.values['A|B'], '手动修改');
+});
 
 test('creates a ready-to-edit empty storyboard table for the text-node palette', () => {
   const table = createEmptyStoryboardPromptTable();
