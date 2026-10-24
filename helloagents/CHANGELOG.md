@@ -1,6 +1,6 @@
 # Changelog
 
-- 2026-10-24：会员生效口径单轨化。会员页/权益接口只看订阅 status 与滞后快照，而积分侧按真实结束时间判断，导致到期后 cron 扫描前出现“页面仍显示会员、签到积分已按免费清除、同档 199 无法重新购买”。新增 `effectiveSubscriptionWhere` 作为唯一口径，展示、预览、签到、衰减、赠送全部共用；支付激活前先结算已到期订阅，续费从支付时刻开新周期，升级单遇原订阅已到期按新开通。新增 `npm run test:membership-effective-subscription`。见 `wiki/membership-effective-subscription-20261024.md`。
+- 2026-10-24：会员生效口径单轨化。会员页/权益接口只看订阅 status 与滞后快照，而积分侧按真实结束时间判断，导致到期后 cron 扫描前出现“页面仍显示会员、签到积分已按免费清除、同档 199 无法重新购买”。新增 `effectiveSubscriptionWhere` 作为唯一口径，展示、预览、签到、衰减、赠送全部共用；支付激活前先结算已到期订阅，续费从支付时刻开新周期，升级单遇原订阅已到期按新开通。新增 `npm run test:membership-effective-subscription`。`9afea06c` 已部署 101，健康、产物、服务器测试与事故用户只读核验通过；见 `wiki/membership-effective-subscription-20261024.md`。
 
 - 2026-10-23：视频抽帧新增按全部/单帧/范围下载原图 ZIP 和批量展开独立 Image 节点，保留远程引用，自动避让与单次撤销；修复带说明文字的 Markdown 分镜表误解析与明确旧坏缓存，无需重跑分析。`354ae09c` 已部署 101；隔离构建、28 项测试、完整浏览器回归、48 文件哈希与内外网版本/健康核验通过。见 `wiki/video-frame-batch-export-20261023.md`。
 

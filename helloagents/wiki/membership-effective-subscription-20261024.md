@@ -29,3 +29,10 @@
 - 新增 `npm run test:membership-effective-subscription`：复现到期未扫描状态，校验会员页、预览、同档激活、升级激活；修复前失败、修复后通过。
 - `daily-reward-policy`、`free-credit-decay-policy`、`free-credit-consumption`、`watermark-entitlement`、`admin-paid-orders` 通过；`tsc --noEmit` 与 `npm run build` 通过。
 - `test:seedance2-whitelist` 在本次改动前已失败（mock 缺 `watermarkEntitlement`），与本次无关。
+
+## 发布
+
+- `9afea06c` 已推送并部署 101（git pull → `npm run build` → PM2 reload `tanvas-api`），无数据库迁移。
+- 生产验证：`tanvas-api` online；内网与公网 `/api/health` 200；`dist` 含新口径；服务器上 `test:membership-effective-subscription` 通过。
+- 生产只读核验（事故用户 `13316093001`）：`/membership/current` 返回 plan=null、`inactive`、`hasActiveSubscription=false`；`vip_199_monthly` 预览为 `subscribe`、应付 199，可正常购买。当前 `status=active` 且已过结束时间的订阅为 0。
+- 事故中被清除的 290 签到积分未补发，是否补偿待定。
