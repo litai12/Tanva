@@ -14,6 +14,7 @@ import { materializeLegacyReferralLots } from '../credits/legacy-referral-lots';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
 import {
+  effectiveSubscriptionWhere,
   findVipWhitelistHighestYearlyPlan,
   isHighestTierYearlyPlan,
 } from './vip-entitlement-policy';
@@ -256,10 +257,7 @@ export class MembershipService {
       this.withMissingMembershipTablesFallback(
         () =>
           this.prisma.userMembershipSubscription.findFirst({
-            where: {
-              userId,
-              status: 'active',
-            },
+            where: { userId, ...effectiveSubscriptionWhere(new Date()) },
             orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
           }),
         () => null,
@@ -327,7 +325,7 @@ export class MembershipService {
   }
 
   async getMembershipEntitlement(userId: string) {
-    const [snapshot, activeSubscriptionCount, whitelistPlan, user] = await Promise.all([
+    const [snapshot, activeSubscription, whitelistPlan, user] = await Promise.all([
       this.withMissingMembershipTablesFallback(
         () =>
           this.prisma.membershipEntitlementSnapshot.findUnique({
@@ -337,13 +335,11 @@ export class MembershipService {
       ),
       this.withMissingMembershipTablesFallback(
         () =>
-          this.prisma.userMembershipSubscription.count({
-            where: {
-              userId,
-              status: 'active',
-            },
+          this.prisma.userMembershipSubscription.findFirst({
+            where: { userId, ...effectiveSubscriptionWhere(new Date()) },
+            orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
           }),
-        () => 0,
+        () => null,
       ),
       this.withMissingMembershipTablesFallback(
         () => findVipWhitelistHighestYearlyPlan(this.prisma, userId),
@@ -371,32 +367,42 @@ export class MembershipService {
         currentPeriodStartAt: null,
         currentPeriodEndAt: null,
         pauseGiftDecay: metadata?.pauseGiftDecay === true,
-        hasActiveSubscription: activeSubscriptionCount > 0,
+        hasActiveSubscription: Boolean(activeSubscription),
         isVipEntitlementWhitelisted: true,
         vipRechargeBonusEnabled: user?.vipRechargeBonusEnabled === true,
       };
     }
 
-    if (!snapshot) {
+    // 快照只是到期 cron 写入的缓存，可能滞后；生效与否以生效订阅为准。
+    if (!activeSubscription) {
       return {
         currentPlanCode: 'free',
         membershipStatus: 'inactive',
         currentPeriodStartAt: null,
         currentPeriodEndAt: null,
         pauseGiftDecay: false,
-        hasActiveSubscription: activeSubscriptionCount > 0,
+        hasActiveSubscription: false,
         isVipEntitlementWhitelisted: false,
         vipRechargeBonusEnabled: false,
       };
     }
 
+    const subscriptionPlan = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findUnique({
+          where: { id: activeSubscription.membershipPlanId },
+          select: { code: true },
+        }),
+      () => null,
+    );
+
     return {
-      currentPlanCode: snapshot.currentPlanCode,
-      membershipStatus: snapshot.membershipStatus,
-      currentPeriodStartAt: snapshot.currentPeriodStartAt,
-      currentPeriodEndAt: snapshot.currentPeriodEndAt,
-      pauseGiftDecay: snapshot.pauseGiftDecay,
-      hasActiveSubscription: activeSubscriptionCount > 0,
+      currentPlanCode: subscriptionPlan?.code ?? snapshot?.currentPlanCode ?? 'free',
+      membershipStatus: 'active',
+      currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
+      currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+      pauseGiftDecay: snapshot?.pauseGiftDecay ?? false,
+      hasActiveSubscription: true,
       isVipEntitlementWhitelisted: false,
       vipRechargeBonusEnabled: false,
     };
@@ -416,9 +422,7 @@ export class MembershipService {
           this.prisma.userMembershipSubscription.findFirst({
             where: {
               userId,
-              status: 'active',
-              currentPeriodStartAt: { lte: now },
-              currentPeriodEndAt: { gt: now },
+              ...effectiveSubscriptionWhere(now),
             },
             select: { membershipPlanId: true },
             orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
@@ -703,7 +707,7 @@ export class MembershipService {
         this.prisma.userMembershipSubscription.findFirst({
           // 到期扫描是小时级异步任务；订单判断必须以实际到期时间为准，不能因
           // 尚未被 cron 标成 expired 而阻止已到期用户按新购逻辑选套餐。
-          where: { userId, status: 'active', currentPeriodEndAt: { gt: new Date() } },
+          where: { userId, ...effectiveSubscriptionWhere(new Date()) },
           orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
         }),
       () => null,
@@ -1385,9 +1389,7 @@ export class MembershipService {
       this.prisma.userMembershipSubscription.findMany({
         where: {
           userId: { in: userIds },
-          status: 'active',
-          currentPeriodStartAt: { lte: now },
-          currentPeriodEndAt: { gt: now },
+          ...effectiveSubscriptionWhere(now),
         },
         select: { userId: true },
         distinct: ['userId'],
@@ -1431,9 +1433,7 @@ export class MembershipService {
           tx.userMembershipSubscription.findFirst({
             where: {
               userId: account.userId,
-              status: 'active',
-              currentPeriodStartAt: { lte: now },
-              currentPeriodEndAt: { gt: now },
+              ...effectiveSubscriptionWhere(now),
             },
             select: { id: true },
           }),
@@ -1587,78 +1587,89 @@ export class MembershipService {
   }
 
   async expireElapsedMemberships(now = new Date()) {
-    return this.prisma.$transaction(async (tx) => {
-      const expiredSubscriptions = await tx.userMembershipSubscription.findMany({
-        where: {
-          status: 'active',
-          currentPeriodEndAt: { lte: now },
+    return this.prisma.$transaction((tx) => this.settleElapsedSubscriptions(tx, now));
+  }
+
+  /**
+   * 把已过 currentPeriodEndAt 但 status 仍为 active 的订阅落为 expired，并清理其会员积分、
+   * 重置快照。cron 全量调用；支付激活前按用户调用，保证续费/升级只基于真正生效的订阅。
+   */
+  private async settleElapsedSubscriptions(
+    tx: Prisma.TransactionClient,
+    now: Date,
+    userId?: string,
+  ) {
+    const expiredSubscriptions = await tx.userMembershipSubscription.findMany({
+      where: {
+        ...(userId ? { userId } : {}),
+        status: 'active',
+        currentPeriodEndAt: { lte: now },
+      },
+      orderBy: [{ currentPeriodEndAt: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    let expiredLots = 0;
+    let expiredCredits = 0;
+    let resetSnapshots = 0;
+
+    for (const subscription of expiredSubscriptions) {
+      await tx.userMembershipSubscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: 'expired',
+          expiredAt: subscription.expiredAt ?? now,
         },
-        orderBy: [{ currentPeriodEndAt: 'asc' }, { createdAt: 'asc' }],
       });
 
-      let expiredLots = 0;
-      let expiredCredits = 0;
-      let resetSnapshots = 0;
+      const result = await this.expireSubscriptionLots(
+        tx,
+        {
+          id: subscription.id,
+          userId: subscription.userId,
+          membershipPlanId: subscription.membershipPlanId,
+        },
+        now,
+        'membership_period_elapsed',
+      );
+      expiredLots += result.expiredLots;
+      expiredCredits += result.expiredCredits;
 
-      for (const subscription of expiredSubscriptions) {
-        await tx.userMembershipSubscription.update({
-          where: { id: subscription.id },
-          data: {
-            status: 'expired',
-            expiredAt: subscription.expiredAt ?? now,
+      const hasAnyActiveSubscription = await tx.userMembershipSubscription.count({
+        where: {
+          userId: subscription.userId,
+          status: 'active',
+        },
+      });
+
+      if (hasAnyActiveSubscription === 0) {
+        await tx.membershipEntitlementSnapshot.upsert({
+          where: { userId: subscription.userId },
+          create: {
+            userId: subscription.userId,
+            currentPlanCode: 'free',
+            membershipStatus: 'inactive',
+            currentPeriodStartAt: null,
+            currentPeriodEndAt: null,
+            pauseGiftDecay: false,
+          },
+          update: {
+            currentPlanCode: 'free',
+            membershipStatus: 'inactive',
+            currentPeriodStartAt: null,
+            currentPeriodEndAt: null,
+            pauseGiftDecay: false,
           },
         });
-
-        const result = await this.expireSubscriptionLots(
-          tx,
-          {
-            id: subscription.id,
-            userId: subscription.userId,
-            membershipPlanId: subscription.membershipPlanId,
-          },
-          now,
-          'membership_period_elapsed',
-        );
-        expiredLots += result.expiredLots;
-        expiredCredits += result.expiredCredits;
-
-        const hasAnyActiveSubscription = await tx.userMembershipSubscription.count({
-          where: {
-            userId: subscription.userId,
-            status: 'active',
-          },
-        });
-
-        if (hasAnyActiveSubscription === 0) {
-          await tx.membershipEntitlementSnapshot.upsert({
-            where: { userId: subscription.userId },
-            create: {
-              userId: subscription.userId,
-              currentPlanCode: 'free',
-              membershipStatus: 'inactive',
-              currentPeriodStartAt: null,
-              currentPeriodEndAt: null,
-              pauseGiftDecay: false,
-            },
-            update: {
-              currentPlanCode: 'free',
-              membershipStatus: 'inactive',
-              currentPeriodStartAt: null,
-              currentPeriodEndAt: null,
-              pauseGiftDecay: false,
-            },
-          });
-          resetSnapshots += 1;
-        }
+        resetSnapshots += 1;
       }
+    }
 
-      return {
-        expiredSubscriptions: expiredSubscriptions.length,
-        expiredLots,
-        expiredCredits,
-        resetSnapshots,
-      };
-    });
+    return {
+      expiredSubscriptions: expiredSubscriptions.length,
+      expiredLots,
+      expiredCredits,
+      resetSnapshots,
+    };
   }
 
   async refreshYearlySubscriptionQuotaLots(now = new Date()) {
@@ -2039,9 +2050,7 @@ export class MembershipService {
 
       const subscriptions = await tx.userMembershipSubscription.findMany({
         where: {
-          status: 'active',
-          currentPeriodStartAt: { lte: now },
-          currentPeriodEndAt: { gt: now },
+          ...effectiveSubscriptionWhere(now),
         },
         orderBy: [{ createdAt: 'asc' }],
       });
@@ -2188,15 +2197,26 @@ export class MembershipService {
       typeof orderMetadata?.membershipTransitionType === 'string'
         ? orderMetadata.membershipTransitionType
         : null;
+    const paidAt = params.paidAt;
+    // 支付时已过期但 cron 尚未扫描的订阅先落为过期：否则同档续费会从已过去的结束时间顺延，
+    // 升级会沿用已结束的周期。
+    await this.settleElapsedSubscriptions(params.tx, paidAt, params.userId);
+
     if (transitionType === 'upgrade') {
-      return this.applyPaidUpgradeOrder(params, order, persistedPlan, orderMetadata);
+      const upgradableSubscription = await params.tx.userMembershipSubscription.findFirst({
+        where: { userId: params.userId, status: 'active' },
+        select: { id: true },
+      });
+      // 下单时生效、支付时原订阅已到期：没有可升级的周期，按新开通处理，避免已付订单无法激活。
+      if (upgradableSubscription) {
+        return this.applyPaidUpgradeOrder(params, order, persistedPlan, orderMetadata);
+      }
     }
 
     const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
     const grantAmount = this.resolveInitialMembershipGrant(snapshot);
-    const paidAt = params.paidAt;
     const activeSubscription = await params.tx.userMembershipSubscription.findFirst({
       where: {
         userId: params.userId,

@@ -16,6 +16,19 @@ type VipEntitlementClient = Pick<
   'user' | 'membershipPlan' | 'userMembershipSubscription'
 >;
 
+/**
+ * 会员订阅「生效」的唯一口径：status=active 且 now ∈ [currentPeriodStartAt, currentPeriodEndAt)。
+ * 到期扫描是小时级 cron，status 可能滞后；展示、下单、签到、衰减等所有判断必须共用此条件，
+ * 不能单看 status，否则会出现“页面仍显示会员、积分侧已按免费用户处理”的双轨状态。
+ */
+export function effectiveSubscriptionWhere(now: Date) {
+  return {
+    status: 'active',
+    currentPeriodStartAt: { lte: now },
+    currentPeriodEndAt: { gt: now },
+  } satisfies Prisma.UserMembershipSubscriptionWhereInput;
+}
+
 const normalizeBillingCycle = (value: unknown): string =>
   typeof value === 'string' ? value.trim().toLowerCase() : '';
 
@@ -105,12 +118,7 @@ export async function resolveEffectiveMembershipPlan(
   }
 
   const subscription = await client.userMembershipSubscription.findFirst({
-    where: {
-      userId,
-      status: 'active',
-      currentPeriodStartAt: { lte: now },
-      currentPeriodEndAt: { gt: now },
-    },
+    where: { userId, ...effectiveSubscriptionWhere(now) },
     select: { membershipPlanId: true },
     orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
   });

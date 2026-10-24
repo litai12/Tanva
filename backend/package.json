@@ -15,6 +15,7 @@
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "test:gemini-omni-flash-pricing": "ts-node --transpile-only src/ai/services/gemini-omni-flash-pricing.spec.ts",
     "test:seedance2-whitelist": "ts-node --transpile-only src/membership/seedance2-whitelist.spec.ts",
+    "test:membership-effective-subscription": "ts-node --transpile-only src/membership/membership-effective-subscription.spec.ts",
     "test:daily-reward-policy": "ts-node --transpile-only src/credits/daily-reward-policy.spec.ts",
     "test:free-credit-decay-policy": "ts-node --transpile-only src/credits/free-credit-decay-policy.spec.ts",
     "test:referral-priority-audit": "node scripts/test-referral-priority-audit.cjs",

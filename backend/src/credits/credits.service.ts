@@ -41,7 +41,10 @@ import {
   type CreditLotStatus,
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
-import { resolveEffectiveMembershipPlan } from '../membership/vip-entitlement-policy';
+import {
+  effectiveSubscriptionWhere,
+  resolveEffectiveMembershipPlan,
+} from '../membership/vip-entitlement-policy';
 import {
   MODEL_PROVIDER_MAPPING_SETTING_KEY,
   DEFAULT_MODEL_PROVIDER_MAPPING_V2,
@@ -2511,9 +2514,7 @@ export class CreditsService {
         const activeSubscription = await client.userMembershipSubscription.findFirst({
           where: {
             userId,
-            status: 'active',
-            currentPeriodStartAt: { lte: new Date() },
-            currentPeriodEndAt: { gt: new Date() },
+            ...effectiveSubscriptionWhere(new Date()),
           },
           select: {
             snapshot: true,
@@ -2630,9 +2631,7 @@ export class CreditsService {
       client.userMembershipSubscription.findFirst({
         where: {
           userId,
-          status: 'active',
-          currentPeriodStartAt: { lte: now },
-          currentPeriodEndAt: { gt: now },
+          ...effectiveSubscriptionWhere(now),
         },
         select: { id: true },
       }),
@@ -2906,9 +2905,7 @@ export class CreditsService {
         tx.userMembershipSubscription.findFirst({
           where: {
             userId: params.userId,
-            status: 'active',
-            currentPeriodStartAt: { lte: now },
-            currentPeriodEndAt: { gt: now },
+            ...effectiveSubscriptionWhere(now),
           },
           select: { id: true },
         }),
@@ -3533,9 +3530,7 @@ export class CreditsService {
       client.userMembershipSubscription.findFirst({
         where: {
           userId,
-          status: 'active',
-          currentPeriodStartAt: { lte: new Date() },
-          currentPeriodEndAt: { gt: new Date() },
+          ...effectiveSubscriptionWhere(new Date()),
         },
         select: { id: true },
       }),
@@ -3884,9 +3879,7 @@ export class CreditsService {
       (
         await this.prisma.userMembershipSubscription.findMany({
           where: {
-            status: 'active',
-            currentPeriodStartAt: { lte: now },
-            currentPeriodEndAt: { gt: now },
+            ...effectiveSubscriptionWhere(now),
           },
           select: { userId: true },
         })
