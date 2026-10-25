@@ -3121,6 +3121,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   return (
     <div
+      className="tanva-asset-node"
       style={{
         width: 280,
         padding: 10,
@@ -4518,6 +4519,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       )}
 
       <div
+        className="tanva-flow-node-asset"
         style={{
           width: "100%",
           aspectRatio: previewAspect,

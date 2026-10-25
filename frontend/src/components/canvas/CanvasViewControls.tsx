@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/stores/uiStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import FocusModeButton from './FocusModeButton';
+import AssetPreviewButton from './AssetPreviewButton';
 import CanvasBackgroundPicker from './CanvasBackgroundPicker';
 import './canvasBackground.css';
 
@@ -93,6 +94,7 @@ export default function CanvasViewControls({ embeddedDesktop = false }: { embedd
       </button>
       {/* Keep the shortcut listener mounted while the controls are collapsed. */}
       {!embeddedDesktop && <FocusModeButton hidden={!expanded} />}
+      {expanded && !maximized && <AssetPreviewButton />}
       {expanded && !maximized && <CanvasBackgroundPicker />}
     </div>
   );

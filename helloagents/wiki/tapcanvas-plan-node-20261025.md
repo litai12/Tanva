@@ -6,7 +6,13 @@
 
 - **一键成片**：连接或填写故事/章节原文，可连多张参考图（角色/场景或画风）。
 - **爆款复刻**：必须连接 1 个参考视频；原视频只交给 TapCanvas 理解，提示词明确禁止作为生成输入。复刻要求缺省为「保留原片的叙事节奏、镜头切点、景别和运镜，人物、场景与台词重新原创设计」。
-- TapCanvas `POST /public/v1/asset-plans` 只做规划；成功后节点自动在右侧展开一个分组：每张参考图 = `textPrompt` + 生图节点（按规划 modelKey：gpt-image → `gptImage2`，nano-banana-2 → `nano2`，其余 `generatePro`），每段 Clip = 脚本 `textNote` + 视频提示词 `textPrompt` + `seedance20Video`（时长夹到 4–15 秒，首帧依赖切 `first_frame`，否则 `reference_images` 按 referenceBindings 顺序连参考图）。身份依赖（状态卡 ← 基础卡）连为图片参考边；`input:N` 连回提交时的画布源节点。**只建节点不运行**，生成走各节点原有报价与扣费。Tanva 无对应节点的视频模型保留提示词并提示，不静默换模型。
+- TapCanvas `POST /public/v1/asset-plans` 只做规划；成功后节点自动在右侧展开一个分组：每张参考图 = `textPrompt` + 生图节点（按规划 modelKey：gpt-image → `gptImage2`，nano-banana-2 → `nano2`，其余 `generatePro`），每段 Clip = 脚本 `textNote` + 视频提示词 `textPrompt` + `seedance20Video`（时长夹到 4–15 秒，首帧依赖切 `first_frame`，否则 `reference_images` 按 referenceBindings 顺序连参考图）。身份依赖（状态卡 ← 基础卡）连为图片参考边；`input:N` 连回提交时的画布源节点。**只建节点不运行**，生成依赖全部连好，在分组上「运行组」即按拓扑顺序先出参考图再出视频，走各节点原有报价与扣费。
+- 展开细则（2026-10-25 修订）：
+  - TapCanvas 规划的视频模型在 Tanva 无对应节点时（如账户 `full_video` 目标为 `minimax-h3`），统一回落 `seedance20Video`/`seedance-2.0` 并在节点提示中写明数量，保证分组可一键成片；参考图按 referenceBindings → reference_image 依赖顺序去重连线，超过 Seedance 上限（2.0 为 9 张、2.5 为 30 张）的省略并提示。规划分辨率不在 Seedance 选项内（如 `768p`）时落 720P。
+  - 视频提示词按 `referenceBindings[].mention` 写入 Flow 图片提及（`@<mention>` → 对应生图节点），运行时改写为 `@图N` 并附映射脚注，模型才能把每张参考图对上角色/场景/道具；只绑定实际连上且正文出现的 token。首帧取 `firstFrameAssetKey` 或依赖 `role=first_frame`；图片参照取 `upstreamDependencies` 与 `referenceAssetKeys` 并集（对照 TapCanvas `scripts/examples/README.md` §5.3）。
+  - 生图节点沿用规划 `size`（1K/2K/4K → `resolution`）与 `quality`（gptImage2 的 low/medium/high）。
+  - 镜头文本 `textNote` 与对应 Clip 同行仅作对照，不连入视频提示词（`textPrompt` 接入上游文本会覆盖规划提示词）；配音卡为 `textNote`（音频节点尚不支持分组运行）。
+  - 布局为槽位网格：左区参考图每行 3 组「提示词 + 生图」，按角色 → 场景 → 道具 → 色板 → 特效分区、状态卡紧跟基础卡；右区每 Clip 一行「镜头文本 → 视频提示词 → Seedance」。节点 data 写入 `tapcanvasLayout`（planId/origin/slot），展开后 `flow:tapcanvas-plan-relayout` 按实测尺寸与估算高度取大重排，列宽/行高取最大节点，杜绝叠压。
 - 节点内可停止、失败续跑（TapCanvas 子任务 + 新订单）、再展开一份；刷新后按节点 `taskId` 恢复轮询。
 
 当前「爆款复刻」是“参考视频作为资产规划输入素材”的方案；TapCanvas 自身复刻链路的逐秒拆解（`video-remakes`）尚未提供 plan-only 出口，后续可替换为该出口而节点与结算不变。

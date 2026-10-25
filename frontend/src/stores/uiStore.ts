@@ -22,6 +22,7 @@ interface UIState {
   mode: 'chat' | 'node'; // 全局模式
   flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
   focusMode: boolean; // 专注模式 - 仅隐藏顶部导航栏和 AI 对话框
+  assetPreviewMode: boolean; // 纯资产预览 - 图片/视频节点只显示资产，不持久化
   showSandboxPanel: boolean; // Paper.js 沙盒面板
   showTemplatePanel: boolean; // 模板库面板
   showDebugPanel: boolean; // 调试面板
@@ -45,6 +46,7 @@ interface UIState {
   toggleFlowEraser: () => void;
   setFlowEraser: (v: boolean) => void;
   toggleFocusMode: () => void;
+  toggleAssetPreviewMode: () => void;
   toggleSandboxPanel: () => void;
   toggleTemplatePanel: () => void;
   toggleDebugPanel: () => void;
@@ -124,6 +126,7 @@ export const useUIStore = create<UIState>()(
       mode: persistedUIPreferences?.mode ?? 'chat',
       flowEraserActive: persistedUIPreferences?.flowEraserActive ?? false,
       focusMode: persistedUIPreferences?.focusMode ?? false,
+      assetPreviewMode: false,
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
       showTemplatePanel: false, // 模板面板默认关闭，不持久化
       showDebugPanel: persistedUIPreferences?.showDebugPanel ?? false, // 调试面板默认关闭
@@ -155,6 +158,7 @@ export const useUIStore = create<UIState>()(
       toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
       setFlowEraser: (v) => set({ flowEraserActive: !!v }),
       toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
+      toggleAssetPreviewMode: () => set((state) => ({ assetPreviewMode: !state.assetPreviewMode })),
       toggleSandboxPanel: () => set((state) => ({ showSandboxPanel: !state.showSandboxPanel })),
       toggleTemplatePanel: () => set((state) => ({ showTemplatePanel: !state.showTemplatePanel })),
       toggleDebugPanel: () => set((state) => ({ showDebugPanel: !state.showDebugPanel })),

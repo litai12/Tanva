@@ -482,6 +482,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
   lt: (zhText: string, enText: string) => string;
 }) => (
   <div
+    className="tanva-flow-node-asset"
     onDrop={onDrop}
     onDragOver={onDragOver}
     onDoubleClick={onDoubleClick}
@@ -2123,7 +2124,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   return (
     <div
-      className={`flow-image-node${
+      className={`flow-image-node tanva-asset-node${
         isResizing ? " flow-image-node--resizing" : ""
       }`}
       onPaste={onPaste}

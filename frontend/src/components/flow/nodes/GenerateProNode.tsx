@@ -1300,6 +1300,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   return (
     <div
       ref={containerRef}
+      className="tanva-asset-node"
       onContextMenu={handleContextMenu}
       style={{
         width: imageWidth + 24, // 加上左右 padding
@@ -1473,6 +1474,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
         {/* 图片区域 */}
         <div
+          className="tanva-flow-node-asset"
           onDoubleClick={() => {
             if (!fullSrc) return;
             setPreviewOverrideValue('');

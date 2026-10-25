@@ -634,6 +634,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
   return (
     <div
+      className="tanva-asset-node"
       style={{
         width: 260,
         padding: 8,
@@ -1072,6 +1073,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       )}
 
       <div
+        className="tanva-flow-node-asset"
         onDoubleClick={() => fullSrc && setPreview(true)}
         style={{
           width: "100%",

@@ -1092,3 +1092,9 @@ video::-webkit-media-controls-fullscreen-button {
   color: #bfdbfe;
   -webkit-text-fill-color: #bfdbfe;
 }
+
+/* 纯资产预览（左下角视图控件开关）：图片/视频节点只保留资产区 .tanva-flow-node-asset，
+   其余标题、参数、按钮、进度与提示全部收起；:has() 保留资产的祖先链，连线锚点保留以免边断开。 */
+.tanva-asset-preview .tanva-asset-node :not(.tanva-flow-node-asset, .tanva-flow-node-asset *, .react-flow__handle, :has(.tanva-flow-node-asset)) {
+  display: none !important;
+}

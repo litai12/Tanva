@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-25：「爆款复刻 & 一键成片」展开改为可一键成片：规划视频模型无 Tanva 对应节点（本次 `minimax-h3`）时回落 Seedance 2.0 并提示，参考图/提示词全部连好，视频提示词的 `@参考名` 绑定到对应参考图（运行时改写为 @图N），生图沿用规划分辨率与质量，分组运行即可出片；组内改为按实测尺寸的槽位网格布局，消除叠压。左下角眼睛右侧新增「纯资产预览」，图片/视频节点只显示资产（GPT-Image/Nano2、通用视频节点、Pro 生图、Image）。见 `wiki/tapcanvas-plan-node-20261025.md`。
+
 - 2026-10-25：新增画布节点「爆款复刻 & 一键成片」，接入 TapCanvas 资产规划：TapCanvas 只规划，成功后在节点右侧展开参考图/Clip 脚本/Seedance 2.0 视频节点（只建不跑）。计费收口 new-api：签名订单停靠 `tapcanvas_pending`，按 TapCanvas 新增的 `/public/v1/asset-plans/{jobId}/receipt` 人民币回执结算，Tanva 扣 回执 × 1.5 × 100 积分（= TapCanvas 积分 × 15）。本地构建与测试通过，未部署；见 `wiki/tapcanvas-plan-node-20261025.md`。
 
 - 2026-10-24：会员生效口径单轨化。会员页/权益接口只看订阅 status 与滞后快照，而积分侧按真实结束时间判断，导致到期后 cron 扫描前出现“页面仍显示会员、签到积分已按免费清除、同档 199 无法重新购买”。新增 `effectiveSubscriptionWhere` 作为唯一口径，展示、预览、签到、衰减、赠送全部共用；支付激活前先结算已到期订阅，续费从支付时刻开新周期，升级单遇原订阅已到期按新开通。新增 `npm run test:membership-effective-subscription`。`9afea06c` 已部署 101，健康、产物、服务器测试与事故用户只读核验通过；见 `wiki/membership-effective-subscription-20261024.md`。

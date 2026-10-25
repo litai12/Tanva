@@ -183,6 +183,12 @@ import {
   resolveNodeLayoutSize,
 } from "@/utils/canvasAutoLayout";
 import {
+  PLAN_ESTIMATED_SIZE,
+  PLAN_RELAYOUT_EVENT,
+  layoutPlanSlots,
+  readPlanLayoutMeta,
+} from "./tapcanvasPlanExpansion";
+import {
   isAssetProxyRef,
   isBlobUrl,
   isDataImageUrl,
@@ -27554,6 +27560,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
+  const assetPreviewMode = useUIStore((s) => s.assetPreviewMode);
 
   const selectedNonGroupNodeCount = React.useMemo(
     () =>
@@ -28384,6 +28391,73 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
       window.removeEventListener("flow:instantiateTemplate", handler as EventListener);
   }, [rf, instantiateTemplateAt]);
 
+  // TapCanvas 资产规划展开后按实测尺寸重排：模板落点只能用估算尺寸，
+  // 等节点测量完成（画面外节点可能不测量，最多等约 2 秒）再按槽位网格对齐。
+  React.useEffect(() => {
+    const timers = new Set<number>();
+    const handler = (event: Event) => {
+      const planId = (event as CustomEvent).detail?.planId;
+      if (typeof planId !== "string" || !planId) return;
+      const attempt = (left: number) => {
+        const all = (rf.getNodes?.() || []) as RFNode[];
+        const members = all.filter((node) => readPlanLayoutMeta(node.data)?.planId === planId);
+        const slotted = members.filter((node) => readPlanLayoutMeta(node.data)?.slot);
+        if (!slotted.length) return;
+        if (left > 0 && slotted.some((node) => !(node as any).measured?.height)) {
+          const timer = window.setTimeout(() => { timers.delete(timer); attempt(left - 1); }, 200);
+          timers.add(timer);
+          return;
+        }
+        const origin = readPlanLayoutMeta(members[0].data)!.origin;
+        const byId = new Map(slotted.map((node) => [node.id, node]));
+        const { positions } = layoutPlanSlots(
+          slotted.map((node) => ({ id: node.id, slot: readPlanLayoutMeta(node.data)!.slot! })),
+          origin,
+          (id) => {
+            const node = byId.get(id)!;
+            const estimate = PLAN_ESTIMATED_SIZE[String(node.type)] ?? { w: 0, h: 0 };
+            const render = getNodeRenderSize(node);
+            const measured = (node as any).measured as { width?: number; height?: number } | undefined;
+            return {
+              w: Math.max(measured?.width ?? 0, render.width, estimate.w),
+              h: Math.max(measured?.height ?? 0, render.height, estimate.h),
+            };
+          }
+        );
+        for (const node of slotted) {
+          const p = positions.get(node.id);
+          if (p && node.position?.x === p.x && node.position?.y === p.y) positions.delete(node.id);
+        }
+        if (!positions.size) return;
+        setNodes((prev: any[]) =>
+          prev.map((node) => {
+            const target = positions.get(node.id);
+            if (!target) return node;
+            const { positionAbsolute: _pa, ...rest } = node as any;
+            return { ...rest, position: target };
+          })
+        );
+        try {
+          const c0 = collabRef.current;
+          if (c0?.connected && !applyingRemoteRef.current) {
+            c0.sendPatch({
+              upsertNodes: Array.from(positions.entries()).map(([id, position]) => ({ id, position })),
+            });
+          }
+        } catch {}
+        try {
+          historyService.commit("flow-tapcanvas-plan-layout").catch(() => {});
+        } catch {}
+      };
+      attempt(10);
+    };
+    window.addEventListener(PLAN_RELAYOUT_EVENT, handler as EventListener);
+    return () => {
+      window.removeEventListener(PLAN_RELAYOUT_EVENT, handler as EventListener);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [rf, setNodes]);
+
   const saveCurrentAsTemplate = React.useCallback(async () => {
     const allNodes = rf.getNodes();
     const selected = allNodes.filter((n: any) => n.selected);
@@ -28643,7 +28717,7 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
           isFlowEdgeEraserActive ? "eraser-mode" : ""
         } ${
           effectiveFlowLowDetailMode ? "low-detail-mode" : ""
-        } ${
+        } ${assetPreviewMode ? "tanva-asset-preview" : ""} ${
           effectiveFlowInteractionSoftDetailMode
             ? "interaction-soft-detail-mode"
             : ""

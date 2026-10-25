@@ -7,7 +7,7 @@ import {
   TAPCANVAS_PLAN_TERMINAL, tapcanvasPlanApi, type TapcanvasPlanAsset, type TapcanvasPlanMode,
   type TapcanvasPlanOptions, type TapcanvasPlanTask,
 } from '@/services/tapcanvasPlanApi';
-import { buildPlanExpansion, type PlanInputBinding } from '../tapcanvasPlanExpansion';
+import { PLAN_RELAYOUT_EVENT, buildPlanExpansion, type PlanInputBinding } from '../tapcanvasPlanExpansion';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 
 type InputRef = { nodeId: string; kind: 'image' | 'video'; sourceHandle: string };
@@ -127,12 +127,15 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
       const bindings: Record<string, PlanInputBinding> = {};
       (frozenInputs ?? []).forEach((ref, index) => { bindings[`input:${index + 1}`] = ref; });
       const origin = { x: inputsNow.position.x + NODE_WIDTH + 120, y: inputsNow.position.y };
-      const expansion = buildPlanExpansion(nodes, { origin, idPrefix: `tcp${Date.now().toString(36)}`, inputs: bindings,
+      const planId = `tcp${Date.now().toString(36)}`;
+      const expansion = buildPlanExpansion(nodes, { origin, idPrefix: planId, inputs: bindings,
         groupName: mode === 'remake' ? lt('爆款复刻规划', 'Remake plan') : lt('一键成片规划', 'Film plan') });
       window.dispatchEvent(new CustomEvent('flow:instantiateTemplate', { detail: {
         template: { nodes: expansion.nodes, edges: expansion.edges }, position: origin } }));
+      // 首帧渲染后按实测尺寸再排一次，避免带参数面板的生图/视频节点叠压。
+      requestAnimationFrame(() => window.dispatchEvent(new CustomEvent(PLAN_RELAYOUT_EVENT, { detail: { planId } })));
       update({ expandedTaskId: taskId });
-      setNotice(`${lt('已展开', 'Expanded')} ${nodes.length} ${lt('个规划节点（未运行，点击各节点生成）', 'planned nodes (not run)')}`
+      setNotice(`${lt('已展开', 'Expanded')} ${nodes.length} ${lt('个规划节点（未运行，可在分组上点运行一键生成）', 'planned nodes (not run; run the group to generate)')}`
         + (expansion.warnings.length ? `；${expansion.warnings.join('；')}` : ''));
     } catch (e) {
       setError(`${manual ? '' : lt('自动展开失败：', 'Auto expand failed: ')}${e instanceof Error ? e.message : String(e)}`);
