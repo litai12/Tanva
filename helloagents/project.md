@@ -23,6 +23,8 @@
 
 ## 开发约定
 
+- 「爆款复刻 & 一键成片」节点（`tapcanvasPlan`）调用 TapCanvas 资产规划，只规划不生成，结果展开为只建不跑的 Flow 节点；计费经 new-api 签名订单按 TapCanvas 回执实际金额 × 1.5 × 100 积分结算，渠道 `price_ratio` 固定 1.0。见 `wiki/tapcanvas-plan-node-20261025.md`。
+
 - 视频抽帧支持按全部/单帧/范围下载原始图片 ZIP，以及一次展开为保留远程引用的独立 Image 节点；“全部帧”指当前按间隔提取的全部图片。Markdown 分镜表识别真实表头/分隔线并本地修复明确旧坏缓存，保留正常表格编辑。见 `wiki/video-frame-batch-export-20261023.md`。
 
 - 视频分析新建默认Seed2.1 Lite，主选Pro/Lite/Turbo2.1，保留显式旧2.0身份。Seed视频通过持久后台任务先一次解码生成≤960px/10fps分析代理并做场景切点检测，再以约30秒（20–36秒内贴近剪辑点）分段、`fps=2`、并发2分析；无切点的边界标记为镜头延续并在合并时拼回同一镜头；恢复只继续未完成片段，按原总时长及稳定回执结算一次。Gemini保留原后台完整视频/抽帧协议。详见 `wiki/video-analysis-seed21-segments-20261021.md`。

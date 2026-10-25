@@ -43,6 +43,9 @@ type TanvaConsumption struct {
 	UsageJSON      string `gorm:"type:text"`
 	PriceJSON      string `gorm:"type:text"`
 	ErrorCode      string `gorm:"type:varchar(64)"`
+	// TapCanvasJobID is the upstream asset-plan job an order paid for; it
+	// scopes the job's read/cancel routes to the order owner.
+	TapCanvasJobID string `gorm:"type:varchar(128);index"`
 }
 
 type TanvaConsumptionOutbox struct {
@@ -430,6 +433,20 @@ const TanvaUpstreamReceiptPending = "upstream_receipt_pending"
 // AwaitTanvaUpstreamReceipt parks a dispatched order until the upstream receipt
 // is final. Nothing is refunded or invented; the reconciler settles it later.
 func AwaitTanvaUpstreamReceipt(id int64, usageJSON string, now int64) error {
+	return awaitTanvaUpstreamReceipt(id, "", usageJSON, now)
+}
+
+// AwaitTanvaAssetPlanReceipt parks a dispatched asset-plan order on its
+// accepted upstream job. Replays of the same job are no-ops; an order is never
+// rebound to another job.
+func AwaitTanvaAssetPlanReceipt(id int64, jobID, usageJSON string, now int64) error {
+	if jobID == "" {
+		return errors.New("tanva_asset_plan_job_missing")
+	}
+	return awaitTanvaUpstreamReceipt(id, jobID, usageJSON, now)
+}
+
+func awaitTanvaUpstreamReceipt(id int64, jobID, usageJSON string, now int64) error {
 	var result *TanvaConsumption
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		o, err := tanvaLockTx(tx, id)
@@ -437,12 +454,24 @@ func AwaitTanvaUpstreamReceipt(id int64, usageJSON string, now int64) error {
 			return err
 		}
 		result = o
+		if jobID != "" && o.TapCanvasJobID != "" {
+			if o.TapCanvasJobID != jobID {
+				return errors.New("tanva_asset_plan_job_conflict")
+			}
+			if o.ErrorCode == TanvaUpstreamReceiptPending || o.Status == "consumed" {
+				result = nil
+				return nil
+			}
+		}
 		if o.Phase != "dispatching" || (o.Status != "pending" && o.Status != "reconciliation_required") {
 			return errors.New("tanva_usage_not_dispatching")
 		}
 		rev := o.Revision
 		o.Revision++
 		o.Status, o.ErrorCode, o.UsageEvidence, o.UsageJSON, o.LeaseUntil = "reconciliation_required", TanvaUpstreamReceiptPending, "tapcanvas_pending", usageJSON, now
+		if jobID != "" {
+			o.TapCanvasJobID = jobID
+		}
 		if err := tanvaSaveTx(tx, o, rev); err != nil {
 			return err
 		}
@@ -452,6 +481,52 @@ func AwaitTanvaUpstreamReceipt(id int64, usageJSON string, now int64) error {
 		invalidateTanvaCaches(result)
 	}
 	return err
+}
+
+// RejectTanvaDispatchedConsumption refunds a dispatched order only on the
+// upstream's definitive non-acceptance (e.g. TapCanvas 402), and never once
+// an upstream job is bound to the order.
+func RejectTanvaDispatchedConsumption(id int64, code string) error {
+	var result *TanvaConsumption
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		o, err := tanvaLockTx(tx, id)
+		if err != nil {
+			return err
+		}
+		result = o
+		if o.Status == "rejected" {
+			return nil
+		}
+		if o.Phase != "dispatching" || (o.Status != "pending" && o.Status != "reconciliation_required") || o.TapCanvasJobID != "" || o.ErrorCode == TanvaUpstreamReceiptPending {
+			return errors.New("tanva_order_not_rejectable")
+		}
+		if o.PreQuota > 0 {
+			if err := tanvaFundingDeltaTx(tx, o, -o.PreQuota); err != nil {
+				return err
+			}
+			if err := tanvaTokenDeltaTx(tx, o, -o.PreQuota); err != nil {
+				return err
+			}
+		}
+		rev := o.Revision
+		o.Revision++
+		o.Status, o.Phase, o.SettledAt, o.ErrorCode, o.LeaseUntil = "rejected", "rejected", common.GetTimestamp(), code, 0
+		if err := tanvaSaveTx(tx, o, rev); err != nil {
+			return err
+		}
+		return tanvaEnqueueTx(tx, o)
+	})
+	if err == nil {
+		invalidateTanvaCaches(result)
+	}
+	return err
+}
+
+// GetTanvaConsumptionByTapCanvasJob finds the user's order bound to an upstream job.
+func GetTanvaConsumptionByTapCanvasJob(userID int, jobID string) (*TanvaConsumption, error) {
+	var o TanvaConsumption
+	err := DB.Where("user_id = ? AND tap_canvas_job_id = ?", userID, jobID).Order("id desc").First(&o).Error
+	return &o, err
 }
 
 // ListTanvaUpstreamReceiptsDue returns parked orders whose next receipt check is due.

@@ -138,6 +138,7 @@ const TYPE_CATEGORY: Record<string, TidyCategory> = {
   videoAnalyze: "video",
   videoFrameExtract: "video",
   videoToGif: "video",
+  tapcanvasPlan: "video",
   volcEnhanceVideo: "video",
   // 音频（含旧画布可能残留的历史 type）
   audioStudio: "audio",

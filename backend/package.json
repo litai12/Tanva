@@ -23,6 +23,7 @@
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
     "test:new-api-text-terminal": "ts-node --transpile-only src/ai/providers/new-api-text-terminal.spec.ts",
     "test:desktop-chat": "node scripts/test-desktop-chat.cjs",
+    "test:tapcanvas-plans": "ts-node --transpile-only src/tapcanvas-plans/tapcanvas-plans.protocol.spec.ts",
     "test:desktop-catalog": "ts-node --transpile-only src/desktop-chat/desktop-catalog-diagnostics.spec.ts",
     "test:text-chat-terminal-billing": "ts-node --transpile-only src/ai/text-chat-terminal-billing.spec.ts",
     "test:text-chat-right-routing": "ts-node --transpile-only src/ai/text-chat-right-routing.spec.ts",

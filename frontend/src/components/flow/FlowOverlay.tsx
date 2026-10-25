@@ -134,6 +134,7 @@ import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import { selectVideoFrames } from "./videoFrameSelection";
 import { createVideoFrameImageNodes } from "./videoFrameImageNodes";
 import VideoToGifNode from "./nodes/VideoToGifNode";
+import TapcanvasPlanNode from "./nodes/TapcanvasPlanNode";
 import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
@@ -1147,6 +1148,7 @@ const rawNodeTypes = guardFlowNodeTypes({
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
   videoToGif: VideoToGifNode,
+  tapcanvasPlan: TapcanvasPlanNode,
   volcEnhanceVideo: VolcEnhanceVideoNode,
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
@@ -1861,6 +1863,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
+  tapcanvasPlan: 0, // 爆款复刻 & 一键成片 - 按 TapCanvas 回执实际用量结算
   videoCompose: 0, // 视频合成 - 浏览器端合成，不消耗积分
   directorConsole: 0, // 导演台 - 3D 搭景截图，不消耗积分
   volcEnhanceVideo: 0, // 视频画质增强
@@ -1962,6 +1965,7 @@ const NODE_PALETTE_ITEMS: NodePaletteItem[] = [
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
   { key: "videoToGif", zh: "视频转GIF节点", en: "Video to GIF", category: "other" },
+  { key: "tapcanvasPlan", zh: "爆款复刻 & 一键成片", en: "Remake & One-click Film", category: "video" },
   { key: "volcEnhanceVideo", zh: "视频画质增强", en: "Video Enhance", category: "video" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioStudio", zh: "音频工作台", en: "Audio Studio", category: "audio" },
@@ -2080,6 +2084,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoAnalyze: "video",
   videoFrameExtract: "video",
   videoToGif: "video",
+  tapcanvasPlan: "video",
   videoCompose: "video",
   directorConsole: "three",
   audioUpload: "audio",
@@ -2151,6 +2156,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   videoAnalyze: { w: 320, h: 560 },
   videoFrameExtract: { w: 300, h: 420 },
   videoToGif: { w: 320, h: 420 },
+  tapcanvasPlan: { w: 340, h: 620 },
   volcEnhanceVideo: { w: 360, h: 620 },
   imageGrid: { w: 300, h: 380 },
   imageSplit: { w: 320, h: 400 },
@@ -2549,6 +2555,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoAnalyze: ["video"],
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
+  tapcanvasPlan: ["text", "img", "video"],
   videoCompose: ["video", "audio"],
   directorConsole: ["target"],
   audioUpload: ["audio"],
@@ -11284,6 +11291,16 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "tapcanvasPlan"
+          ? {
+              mode: "film" as const,
+              reasoningEffort: "none",
+              clipPreference: "single_shot",
+              knowledgeTier: "low",
+              imageType: "normal" as const,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "videoToGif"
           ? {
               status: "idle" as const,
@@ -12341,6 +12358,15 @@ function FlowInner() {
         isImageSource(node, handle) ||
         Boolean((node.data as any)?.imageUrl || (node.data as any)?.url || (node.data as any)?.src);
 
+      // 爆款复刻 & 一键成片：原文 text、参考图 img（多张）、参考视频 video（1 个）
+      if (targetNode.type === "tapcanvasPlan") {
+        if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "img") return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video")
+          return sourceNode.type === "video" || FLOW_VIDEO_GENERATION_NODE_TYPES.has(sourceNode.type || "");
+        return false;
+      }
+
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
         if (targetHandle === "text")
@@ -13301,6 +13327,11 @@ function FlowInner() {
       if (targetNode?.type === "videoToGif") {
         if (params.targetHandle === "video") return true; // 仅一条视频连接
       }
+      if (targetNode?.type === "tapcanvasPlan") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+        if (params.targetHandle === "img") return true; // 多张参考图，后端限制 12 张
+      }
       if (targetNode?.type === "volcEnhanceVideo") {
         if (params.targetHandle === "video") return true; // 仅一条视频连接
       }
@@ -13406,6 +13437,14 @@ function FlowInner() {
         ) {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "video")
+          );
+        }
+        if (
+          tgt?.type === "tapcanvasPlan" &&
+          (params.targetHandle === "text" || params.targetHandle === "video")
+        ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
           );
         }
         if (tgt?.type === "videoToGif" && params.targetHandle === "video") {
@@ -28317,9 +28356,19 @@ const VIDEO_NODE_REGENERATE_COOLDOWN_MS = 10_000;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as {
         template: FlowTemplate;
+        /** 可选：画布坐标落点（模板左上角）；缺省放在视口中心。 */
+        position?: { x: number; y: number };
       };
       if (!detail?.template?.nodes?.length) {
         console.warn("[FlowOverlay] instantiateTemplate: 模板数据无效", detail);
+        return;
+      }
+      if (
+        detail.position &&
+        Number.isFinite(detail.position.x) &&
+        Number.isFinite(detail.position.y)
+      ) {
+        instantiateTemplateAt(detail.template, detail.position);
         return;
       }
       const container = document.querySelector(".react-flow");

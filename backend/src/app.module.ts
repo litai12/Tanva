@@ -1,6 +1,7 @@
 import { EnterpriseLibraryModule } from './enterprise-library/enterprise-library.module';
 import { DesktopChatModule } from './desktop-chat/desktop-chat.module';
 import { GatewayConsumptionOrdersModule } from './consumption-orders/gateway-consumption-orders.module';
+import { TapcanvasPlansModule } from './tapcanvas-plans/tapcanvas-plans.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -76,6 +77,7 @@ import { PromptLibraryModule } from './prompt-library/prompt-library.module';
     PromptLibraryModule,
     DesktopChatModule,
     GatewayConsumptionOrdersModule,
+    TapcanvasPlansModule,
   ],
 })
 export class AppModule {}

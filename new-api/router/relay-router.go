@@ -18,6 +18,16 @@ func SetRelayRouter(router *gin.Engine) {
 	tanvaReceiptRouter := router.Group("/v1/tanva/consumptions")
 	tanvaReceiptRouter.Use(middleware.RouteTag("relay"), middleware.TanvaConsumptionQueryAuth())
 	tanvaReceiptRouter.GET("/:orderId", controller.GetTanvaConsumption)
+	// TapCanvas 资产规划：提交/重试需签名 Tanva 订单（在控制器内校验），读取/停止只校验订单归属。
+	tanvaAssetPlanRouter := router.Group("/v1/tanva/asset-plans")
+	tanvaAssetPlanRouter.Use(middleware.RouteTag("relay"), middleware.SystemPerformanceCheck(), middleware.TokenAuth())
+	{
+		tanvaAssetPlanRouter.POST("", controller.CreateTanvaAssetPlan)
+		tanvaAssetPlanRouter.POST("/:jobId/retry", controller.RetryTanvaAssetPlan)
+		tanvaAssetPlanRouter.POST("/:jobId/cancel", controller.CancelTanvaAssetPlan)
+		tanvaAssetPlanRouter.GET("/:jobId", controller.GetTanvaAssetPlan)
+		tanvaAssetPlanRouter.GET("/:jobId/result", controller.GetTanvaAssetPlanResult)
+	}
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))

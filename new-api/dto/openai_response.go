@@ -246,6 +246,8 @@ type Usage struct {
 	TapCanvasAmountCny     string `json:"tapcanvas_amount_cny,omitempty"`
 	TapCanvasBillingStatus string `json:"tapcanvas_billing_status,omitempty"`
 	TapCanvasRequestID     string `json:"tapcanvas_request_id,omitempty"`
+	// TapCanvasReceiptKind 为空表示对话回执；asset_plan 表示资产规划任务回执。
+	TapCanvasReceiptKind string `json:"tapcanvas_receipt_kind,omitempty"`
 }
 
 type OpenAIVideoResponse struct {

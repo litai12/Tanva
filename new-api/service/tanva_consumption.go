@@ -325,7 +325,11 @@ func reconcileTapCanvasReceipt(o *model.TanvaConsumption, client *http.Client) e
 	if err != nil {
 		return err
 	}
-	receipt, err := fetchTapCanvasReceipt(channel, usage.TapCanvasRequestID, client)
+	receiptPath := "/v1/billing/receipts/" + url.PathEscape(usage.TapCanvasRequestID)
+	if usage.TapCanvasReceiptKind == TapCanvasReceiptKindAssetPlan {
+		receiptPath = "/v1/asset-plans/" + url.PathEscape(usage.TapCanvasRequestID) + "/receipt"
+	}
+	receipt, err := fetchTapCanvasReceipt(channel, receiptPath, client)
 	if err != nil {
 		return err
 	}
@@ -344,13 +348,14 @@ func reconcileTapCanvasReceipt(o *model.TanvaConsumption, client *http.Client) e
 	return model.SettleTanvaConsumption(o.ID)
 }
 
-// The receipt sits next to the facade's chat route; a multi-key channel is
-// tried key by key since only the key that made the request owns the receipt.
-func fetchTapCanvasReceipt(channel *model.Channel, requestID string, client *http.Client) (*tapCanvasReceipt, error) {
+// The receipt sits next to the facade's chat (or asset-plan) route; a
+// multi-key channel is tried key by key since only the key that made the
+// request owns the receipt.
+func fetchTapCanvasReceipt(channel *model.Channel, receiptPath string, client *http.Client) (*tapCanvasReceipt, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
-	endpoint := strings.TrimRight(channel.GetBaseURL(), "/") + "/v1/billing/receipts/" + url.PathEscape(requestID)
+	endpoint := strings.TrimRight(channel.GetBaseURL(), "/") + receiptPath
 	var lastErr error = errors.New("channel has no key")
 	for _, key := range channel.GetKeys() {
 		key = strings.TrimSpace(key)
