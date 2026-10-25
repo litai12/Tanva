@@ -47,7 +47,9 @@ export class GatewayConsumptionOrdersService {
     await this.lock(tx, apiUsageId);
     const row = await tx.apiUsageRecord.findUniqueOrThrow({ where: { id: apiUsageId } });
     if (row.consumptionStatus) return true;
-    if (!this.isWebEnabled() && !(row.requestParams as any)?.desktopChat) return false;
+    // TapCanvas 资产规划只经签名订单结算，不受网页对话的 scope 开关限制。
+    const tapcanvasPlan = (row.requestParams as any)?.gatewayConsumption?.kind === 'tapcanvas_asset_plan';
+    if (!this.isWebEnabled() && !(row.requestParams as any)?.desktopChat && !tapcanvasPlan) return false;
     if (row.responseStatus !== 'pending') throw new ConflictException('历史输出订单不能自动注册消费结算');
     const params = row.requestParams as any;
     const orderHash = params?.desktopChat?.bodyHash ?? params?.deepseekBilling?.bodyHash ?? params?.gatewayConsumption?.orderHash;

@@ -50,7 +50,7 @@ export class TapcanvasPlansService {
   }
 
   options() {
-    return { enabled: this.orders.isWebEnabled(), authorModels: this.authorModels(), defaultModel: this.authorModels()[0],
+    return { enabled: this.orders.isEnabled(), authorModels: this.authorModels(), defaultModel: this.authorModels()[0],
       reasoningEfforts: REASONING_EFFORTS, clipPreferences: CLIP_PREFERENCES, knowledgeTiers: KNOWLEDGE_TIERS,
       reserveCredits: this.reserveCredits(), pricing: { basis: 'tapcanvas_receipt', creditsPerYuan: 100, markup: 1.5 } };
   }
@@ -65,7 +65,7 @@ export class TapcanvasPlansService {
   }
 
   async create(userId: string, raw: any, rawTeamId: unknown) {
-    if (!this.orders.isWebEnabled()) throw new ServiceUnavailableException('网关签名消费结算未开启，暂不能提交规划');
+    if (!this.orders.isEnabled()) throw new ServiceUnavailableException('网关签名消费结算未开启，暂不能提交规划');
     const input = parsePlanInput(raw);
     const request = buildAssetPlanRequest(input);
     const identity = sha(`${userId}\n${input.clientRequestId}`);
