@@ -1,7 +1,8 @@
 // tapcanvas.asset-plan/v5 节点数组 → Tanva Flow 节点 + 连线（纯函数）。
 // 约定：所有生成节点的提示词由 textPrompt 承载（text → text）；只建节点不运行，
 // 生成依赖全部连好，在分组上「运行组」即按拓扑顺序产出参考图 → 视频，
-// 走各节点现有的报价与扣费。
+// 走各节点现有的报价与扣费。没有节点消费的规划数据不建节点：镜头文本与视频提示词逐字相同，
+// 画布上多一份只会与改过的提示词互相矛盾；配音卡的声音描述已写在视频提示词里。
 import type { AssetPlanNode } from "@/services/tapcanvasPlanApi";
 import type { PromptImageMention } from "./types";
 
@@ -23,7 +24,7 @@ type Size = { w: number; h: number };
 
 /**
  * 网格槽位：image 区每行 IMAGE_PAIRS_PER_ROW 组「提示词 + 生图」；
- * clip 区每个 Clip 一行「镜头文本 → 视频提示词 → 视频」。列宽/行高取该列/行最大节点。
+ * clip 区每个 Clip 一行「视频提示词 → 视频」。列宽/行高取该列/行最大节点。
  */
 export type PlanLayoutSlot = { block: "image" | "clip"; row: number; col: number };
 /** 写入节点 data，展开后 FlowOverlay 按实测尺寸重排时据此找回槽位。 */
@@ -32,7 +33,7 @@ export const PLAN_RELAYOUT_EVENT = "flow:tapcanvas-plan-relayout";
 export type PlanLayoutMeta = { planId: string; origin: XY; slot?: PlanLayoutSlot };
 
 const IMAGE_PAIRS_PER_ROW = 3;
-const CLIP_COL = { script: 0, prompt: 1, video: 2 } as const;
+const CLIP_COL = { prompt: 0, video: 1 } as const;
 const GAP = { col: 40, row: 60, block: 160 };
 const GROUP_PADDING = 40;
 const GROUP_HEADER = 40;
@@ -43,7 +44,6 @@ const GROUP_HEADER = 40;
  */
 export const PLAN_ESTIMATED_SIZE: Record<string, Size> = {
   textPrompt: { w: 240, h: 200 },
-  textNote: { w: 240, h: 360 },
   gptImage2: { w: 260, h: 680 },
   nano2: { w: 260, h: 640 },
   generatePro: { w: 320, h: 640 },
@@ -230,9 +230,7 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
     if (binding.kind === "image") imageSources.set(key, { nodeId: binding.nodeId, sourceHandle: binding.sourceHandle });
   }
 
-  const texts = plan.filter((n) => n.type === "text");
   const videos = plan.filter((n) => n.type === "video");
-  const audios = plan.filter((n) => n.type === "audio");
   const plannedImages = plan.filter((n) => n.type === "image");
   const plannedKeys = new Set(plannedImages.map((n) => n.assetKey));
   const consumed = consumedImageKeys(plannedImages, videos, (key) => plannedKeys.has(key) || imageSources.has(key));
@@ -275,21 +273,6 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
       const source = imageSources.get(key);
       if (source && source.nodeId !== genId) edge(source.nodeId, source.sourceHandle, genId, "img");
     }
-  });
-
-  // 镜头文本与其 Clip 同行；仅作对照，不连入视频提示词（textPrompt 接入文本会覆盖规划提示词）。
-  const scriptRow = new Map<string, number>();
-  videos.forEach((node, row) => {
-    const script = (node.upstreamDependencies || []).find((d) => d.role === "script")?.assetKey;
-    if (script && !scriptRow.has(script)) scriptRow.set(script, row);
-  });
-  let extraRow = videos.length;
-  texts.forEach((node) => {
-    const content = str(node.parameters?.content) || node.prompt;
-    const row = scriptRow.get(node.assetKey) ?? extraRow++;
-    place({ id: id("script", node.assetKey), type: "textNote", data: { text: `【${node.title}】\n${content}` } },
-      { block: "clip", row, col: CLIP_COL.script });
-    typeOf.set(id("script", node.assetKey), "textNote");
   });
 
   const fallbackModels = new Map<string, number>();
@@ -358,13 +341,6 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
   for (const [model, count] of fallbackModels) {
     warnings.push(`规划视频模型 ${model} 在 Tanva 暂无对应节点，${count} 个 Clip 已改用 Seedance 2.0`);
   }
-
-  audios.forEach((node) => {
-    const noteId = id("audio", node.assetKey);
-    place({ id: noteId, type: "textNote", data: { text: `【${node.title}·音频规划】\n${node.prompt || ""}` } },
-      { block: "clip", row: extraRow++, col: CLIP_COL.script });
-    typeOf.set(noteId, "textNote");
-  });
 
   const layout = layoutPlanSlots(slots, origin, (nodeId) => PLAN_ESTIMATED_SIZE[typeOf.get(nodeId) ?? ""] ?? { w: 240, h: 240 });
   for (const node of nodes) node.position = layout.positions.get(node.id) ?? node.position;

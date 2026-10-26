@@ -48,6 +48,7 @@ func tanvaRelayFixture(t *testing.T, upstream http.Handler) (*httptest.Server, *
 		model.DB.Exec("DELETE FROM tokens")
 		model.DB.Exec("DELETE FROM channels")
 		model.DB.Exec("DELETE FROM logs")
+		model.DB.Exec("DELETE FROM tasks")
 		model.DB.Exec("DELETE FROM models")
 		model.DB.Exec("DELETE FROM abilities")
 		model.DB.Exec("DELETE FROM vendors")

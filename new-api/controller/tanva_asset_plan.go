@@ -284,6 +284,7 @@ func forwardTanvaAssetPlan(c *gin.Context, order *model.TanvaConsumption, channe
 			uncertain("tapcanvas_upstream_uncertain")
 			return
 		}
+		service.SyncTapCanvasAssetPlanLogs(order.ID, "")
 		writeTapCanvasUpstream(c, resp)
 		return
 	}

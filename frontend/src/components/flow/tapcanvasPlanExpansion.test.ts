@@ -34,8 +34,9 @@ test('expands plan into prompt-driven Tanva nodes wired by dependencies', () => 
   assert.equal(group.data.groupName, '第八章');
   assert.deepEqual(group.position, { x: 1000, y: 200 });
   assert.equal((group.data.childNodeIds as string[]).length, result.nodes.length - 1);
-  // 3 张图 ×（提示词 + 生图）+ 1 脚本 + 2 ×（视频提示词 + 视频节点）
-  assert.equal(result.nodes.length - 1, 3 * 2 + 1 + 2 * 2);
+  // 3 张图 ×（提示词 + 生图）+ 2 ×（视频提示词 + 视频节点）；镜头文本无节点消费，不建。
+  assert.equal(result.nodes.length - 1, 3 * 2 + 2 * 2);
+  assert.ok(!result.nodes.some((n) => n.type === 'textNote'));
 
   const base = byId.get('p1-img-0')!;
   assert.equal(base.type, 'gptImage2');
@@ -75,8 +76,8 @@ test('expands plan into prompt-driven Tanva nodes wired by dependencies', () => 
   assert.equal(new Set(result.edges.map((e) => e.id)).size, result.edges.length);
   assert.equal(new Set(result.nodes.map((n) => n.id)).size, result.nodes.length, 'Chinese-named assets never collide');
 
-  // 镜头文本与对应 Clip 同行，且所有节点携带重排元数据。
-  assert.equal(byId.get('p1-script-3')!.position.y, byId.get('p1-video-4')!.position.y);
+  // 视频提示词与对应 Clip 同行，且所有节点携带重排元数据。
+  assert.equal(byId.get('p1-vp-4')!.position.y, byId.get('p1-video-4')!.position.y);
   assert.ok(result.nodes.every((n) => readPlanLayoutMeta(n.data)?.planId === 'p1'));
 });
 

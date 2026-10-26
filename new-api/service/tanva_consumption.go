@@ -294,6 +294,8 @@ func TapCanvasAmountQuota(amountCny string, priceRatio float64) (int64, error) {
 type tapCanvasReceipt struct {
 	TotalStatus    string `json:"total_status"`
 	TotalAmountCny string `json:"total_amount_cny"`
+	// JobStatus is set only on asset-plan receipts.
+	JobStatus string `json:"job_status"`
 }
 
 const tapCanvasReceiptRetrySeconds = 60
@@ -341,11 +343,20 @@ func reconcileTapCanvasReceipt(o *model.TanvaConsumption, client *http.Client) e
 		return err
 	}
 	usage.TapCanvasAmountCny, usage.TapCanvasBillingStatus = receipt.TotalAmountCny, "settled"
+	if usage.TapCanvasReceiptKind == TapCanvasReceiptKindAssetPlan {
+		usage.TapCanvasJobStatus = receipt.JobStatus
+	}
 	raw, _ := common.Marshal(usage)
 	if err := model.ReceiveTanvaConsumption(o.ID, quota, "tapcanvas_receipt", string(raw)); err != nil {
 		return err
 	}
-	return model.SettleTanvaConsumption(o.ID)
+	if err := model.SettleTanvaConsumption(o.ID); err != nil {
+		return err
+	}
+	if usage.TapCanvasReceiptKind == TapCanvasReceiptKindAssetPlan {
+		SyncTapCanvasAssetPlanLogs(o.ID, receipt.JobStatus)
+	}
+	return nil
 }
 
 // The receipt sits next to the facade's chat (or asset-plan) route; a
@@ -401,6 +412,7 @@ func StartTanvaConsumptionWorker() {
 	}
 	tanvaWorkerOnce.Do(func() {
 		go func() {
+			backfillTapCanvasAssetPlanLogs(nil)
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
 			for {

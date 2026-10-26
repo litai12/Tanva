@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	apirouter "github.com/QuantumNous/new-api/router"
@@ -409,4 +410,104 @@ func TestTanvaAssetPlanReconcilerSettlesFromJobReceipt(t *testing.T) {
 	for _, p := range receiptPaths {
 		require.Contains(t, []string{"/v1/asset-plans/asset_plan_paid/receipt", "/v1/asset-plans/asset_plan_free/receipt"}, p)
 	}
+}
+
+func assetPlanTasks(t *testing.T) []model.Task {
+	t.Helper()
+	var tasks []model.Task
+	require.NoError(t, model.DB.Where("platform = ?", constant.TaskPlatformTapCanvas).Find(&tasks).Error)
+	return tasks
+}
+
+func assetPlanLogs(t *testing.T) []model.Log {
+	t.Helper()
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Where("model_name = ?", service.TapCanvasAssetPlanModel).Find(&logs).Error)
+	return logs
+}
+
+// 任务日志 shows the job from acceptance; 使用日志 gets one entry at settlement.
+// Polling and the refunding timeout sweeper must never touch the mirror.
+func TestTanvaAssetPlanMirrorsIntoTaskAndUsageLogs(t *testing.T) {
+	gateway, channel, upstream := assetPlanFixture(t)
+	upstream.setSubmit(acceptJob("asset_plan_logged"))
+	status, _ := assetPlanCreate(t, gateway.URL, "plan:logged", "idem-logged")
+	require.Equal(t, http.StatusAccepted, status)
+	_, _ = assetPlanCreate(t, gateway.URL, "plan:logged", "idem-logged")
+
+	tasks := assetPlanTasks(t)
+	require.Len(t, tasks, 1, "a replayed order mirrors the same job once")
+	task := tasks[0]
+	require.Equal(t, "asset_plan_logged", task.TaskID)
+	require.Equal(t, constant.TaskActionAssetPlan, task.Action)
+	require.Equal(t, model.TaskStatus(model.TaskStatusInProgress), task.Status)
+	require.Equal(t, 720, task.UserId)
+	require.Equal(t, channel.Id, task.ChannelId)
+	require.Equal(t, 250000, task.Quota, "reserved quota until the receipt settles")
+	require.Empty(t, assetPlanLogs(t))
+
+	for _, unfinished := range model.GetAllUnFinishSyncTasks(1000) {
+		require.NotEqual(t, constant.TaskPlatform(constant.TaskPlatformTapCanvas), unfinished.Platform)
+	}
+	for _, timedOut := range model.GetTimedOutUnfinishedTasks(time.Now().Add(48*time.Hour).Unix(), 1000) {
+		require.NotEqual(t, constant.TaskPlatform(constant.TaskPlatformTapCanvas), timedOut.Platform)
+	}
+
+	upstream.setReceipt("asset_plan_logged", `{"job_status":"failed","total_status":"settled","total_amount_cny":"3.7"}`)
+	service.ReconcileTapCanvasReceipts(time.Now().Unix()+61, nil)
+	task = assetPlanTasks(t)[0]
+	require.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status, "a failed plan is shown as failed")
+	require.Contains(t, task.FailReason, "按已发生的模型用量结算")
+	require.Equal(t, 1850000, task.Quota)
+	require.Equal(t, "100%", task.Progress)
+
+	logs := assetPlanLogs(t)
+	require.Len(t, logs, 1)
+	require.Equal(t, model.LogTypeConsume, logs[0].Type)
+	require.Equal(t, 1850000, logs[0].Quota)
+	require.Equal(t, channel.Id, logs[0].ChannelId)
+	require.Equal(t, 720, logs[0].TokenId)
+	require.Contains(t, logs[0].Content, "asset_plan_logged")
+	require.Contains(t, logs[0].Content, "¥3.7")
+	require.Contains(t, logs[0].Other, `"job_status":"failed"`)
+
+	order, err := model.GetTanvaConsumption(720, 720, "plan:logged")
+	require.NoError(t, err)
+	service.SyncTapCanvasAssetPlanLogs(order.ID, "")
+	require.Len(t, assetPlanLogs(t), 1, "re-sync never writes a second consume log")
+	rows, err := model.ListTanvaAssetPlanOrdersToMirror(100)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+}
+
+// Orders parked or settled before the mirror existed are found for backfill.
+func TestTanvaAssetPlanOrdersWithoutMirrorAreListed(t *testing.T) {
+	gateway, _, upstream := assetPlanFixture(t)
+	upstream.setSubmit(acceptJob("asset_plan_old"))
+	status, _ := assetPlanCreate(t, gateway.URL, "plan:old", "idem-old")
+	require.Equal(t, http.StatusAccepted, status)
+	require.NoError(t, model.DB.Exec("DELETE FROM tasks").Error)
+
+	rows, err := model.ListTanvaAssetPlanOrdersToMirror(100)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	rows0 := rows[0].ID
+	service.SyncTapCanvasAssetPlanLogs(rows0, "")
+	rows, err = model.ListTanvaAssetPlanOrdersToMirror(100)
+	require.NoError(t, err)
+	require.Empty(t, rows, "an in-progress mirror is enough while the order is parked")
+
+	// Settled by the pre-mirror reconciler (no job status, no log): listed again.
+	require.NoError(t, model.ReceiveTanvaConsumption(rows0, 500000, "tapcanvas_receipt", `{"tapcanvas_receipt_kind":"asset_plan"}`))
+	require.NoError(t, model.SettleTanvaConsumption(rows0))
+	require.Equal(t, model.TaskStatus(model.TaskStatusInProgress), assetPlanTasks(t)[0].Status)
+	rows, err = model.ListTanvaAssetPlanOrdersToMirror(100)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	service.SyncTapCanvasAssetPlanLogs(rows0, "succeeded")
+	tasks := assetPlanTasks(t)
+	require.Len(t, tasks, 1)
+	require.Equal(t, model.TaskStatus(model.TaskStatusSuccess), tasks[0].Status)
+	require.Equal(t, 500000, tasks[0].Quota)
+	require.Len(t, assetPlanLogs(t), 1)
 }

@@ -223,8 +223,9 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
         ? inputsNow.video.duration ?? await probeVideoDuration(inputsNow.video.url) : undefined;
       const created = await tapcanvasPlanApi.create({
         mode, text: effectiveText, requirement: data.requirement?.trim() || undefined, assets, modelKey,
-        reasoningEffort: data.reasoningEffort || 'none', clipPreference: data.clipPreference || undefined,
-        knowledgeTier: data.knowledgeTier || undefined, step: typeof data.step === 'number' ? data.step : undefined,
+        // 复刻的分段由后端按原片时长决定，不带节点上（一键成片模式下）留下的选择。
+        reasoningEffort: data.reasoningEffort || 'none', clipPreference: mode === 'film' ? data.clipPreference || undefined : undefined,
+        knowledgeTier: data.knowledgeTier || undefined, step: mode === 'film' && typeof data.step === 'number' ? data.step : undefined,
         sourceDurationSeconds, projectId: projectId || undefined, nodeId: id, clientRequestId: newRequestId(),
       });
       setTask(created);
@@ -322,16 +323,16 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
             {(options?.reasoningEfforts ?? ['none']).map((m) => <option key={m} value={m}>{m === 'none' ? lt('关闭', 'off') : m}</option>)}
           </select>
         </label>
-        <label style={label}>{lt('分段方式', 'Clip preference')}
+        {mode === 'film' && <label style={label}>{lt('分段方式', 'Clip preference')}
           <select value={data.clipPreference || 'single_shot'} onChange={(e) => update({ clipPreference: e.target.value })} style={field}>
             <option value='single_shot'>{lt('单镜头', 'Single shot')}</option>
             <option value='max_duration'>{lt('最大时长', 'Max duration')}</option>
           </select>
-        </label>
-        <label style={label}>{lt('单段上限(秒)', 'Max clip (s)')}
+        </label>}
+        {mode === 'film' && <label style={label}>{lt('单段上限(秒)', 'Max clip (s)')}
           <input type='number' min={4} max={15} value={data.step ?? ''} placeholder={lt('不限', 'Any')} style={field}
             onChange={(e) => update({ step: e.target.value === '' ? undefined : Math.max(1, Math.round(Number(e.target.value))) })} />
-        </label>
+        </label>}
         <label style={label}>{lt('知识档位', 'Knowledge')}
           <select value={data.knowledgeTier || 'low'} onChange={(e) => update({ knowledgeTier: e.target.value })} style={field}>
             <option value='low'>{lt('低', 'Low')}</option><option value='medium'>{lt('中', 'Medium')}</option><option value='high'>{lt('高', 'High')}</option>
@@ -343,9 +344,9 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
           </select>
         </label>
       </div>
-      {mode === 'remake' && data.clipPreference === 'max_duration' && (
-        <div style={{ fontSize: 11, color: '#b45309' }}>
-          {lt('最大时长下每段固定取上限秒数，成片总长难以贴合原片；复刻建议用「单镜头」。', 'Max duration fixes every clip at the cap, so the total rarely matches the source; use Single shot for remakes.')}
+      {mode === 'remake' && (
+        <div style={{ fontSize: 11, color: '#6b7280' }}>
+          {lt('按原片时长自动分段：原片多个镜头合进同一 Clip（4–15 秒），总长与原片一致。', 'Clips follow the source length: several source shots share one 4–15s clip.')}
         </div>
       )}
 

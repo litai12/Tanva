@@ -3,9 +3,11 @@ package service
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -77,6 +79,51 @@ func ParkTapCanvasAssetPlan(orderID int64, jobID string) error {
 		return err
 	}
 	return model.AwaitTanvaAssetPlanReceipt(orderID, jobID, string(raw), time.Now().Unix())
+}
+
+// SyncTapCanvasAssetPlanLogs mirrors an asset-plan order into 任务日志 (on
+// park) and, on its settlement, writes the 使用日志 consume entry. Mirrors are
+// observability only: a failure is logged and retried by the startup backfill.
+func SyncTapCanvasAssetPlanLogs(orderID int64, jobStatus string) {
+	task, order, finalized, err := model.SyncTanvaAssetPlanTask(orderID, jobStatus)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("tanva asset plan task mirror failed for order %d: %s", orderID, err.Error()))
+		return
+	}
+	if finalized {
+		model.RecordTanvaAssetPlanLog(task, order)
+	}
+}
+
+// backfillTapCanvasAssetPlanLogs mirrors orders parked or settled before the
+// task/consume logs existed. Settled orders without a recorded job status read
+// it from the (read-only) receipt; an unreadable receipt waits for the next start.
+func backfillTapCanvasAssetPlanLogs(client *http.Client) {
+	rows, err := model.ListTanvaAssetPlanOrdersToMirror(200)
+	if err != nil {
+		common.SysLog("tanva asset plan log backfill list failed: " + err.Error())
+		return
+	}
+	for i := range rows {
+		o := &rows[i]
+		jobStatus := ""
+		if o.Status == "consumed" {
+			var usage dto.Usage
+			_ = common.Unmarshal([]byte(o.UsageJSON), &usage)
+			if jobStatus = usage.TapCanvasJobStatus; jobStatus == "" {
+				channel, err := model.GetChannelById(o.ChannelID, true)
+				if err != nil {
+					continue
+				}
+				receipt, err := fetchTapCanvasReceipt(channel, "/v1/asset-plans/"+url.PathEscape(o.TapCanvasJobID)+"/receipt", client)
+				if err != nil || receipt.JobStatus == "" {
+					continue
+				}
+				jobStatus = receipt.JobStatus
+			}
+		}
+		SyncTapCanvasAssetPlanLogs(o.ID, jobStatus)
+	}
 }
 
 // Submits always use the channel's first enabled key: an idempotent resend

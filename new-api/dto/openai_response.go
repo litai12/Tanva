@@ -248,6 +248,8 @@ type Usage struct {
 	TapCanvasRequestID     string `json:"tapcanvas_request_id,omitempty"`
 	// TapCanvasReceiptKind 为空表示对话回执；asset_plan 表示资产规划任务回执。
 	TapCanvasReceiptKind string `json:"tapcanvas_receipt_kind,omitempty"`
+	// TapCanvasJobStatus 是资产规划回执结清时的任务终态（succeeded | failed | canceled）。
+	TapCanvasJobStatus string `json:"tapcanvas_job_status,omitempty"`
 }
 
 type OpenAIVideoResponse struct {

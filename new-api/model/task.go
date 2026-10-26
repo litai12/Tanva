@@ -422,7 +422,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
 		Where("submit_time < ?", cutoffUnix).
-		Where("platform != ?", constant.TaskPlatformTencentVod).
+		Where("platform NOT IN ?", []constant.TaskPlatform{constant.TaskPlatformTencentVod, constant.TaskPlatformTapCanvas}).
 		Order("submit_time").
 		Limit(limit).
 		Find(&tasks).Error
@@ -444,6 +444,7 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 		Where("status != ?", TaskStatusSuccess).
 		Where("platform != ? OR channel_id IN (SELECT id FROM channels WHERE type = ?)",
 			constant.TaskPlatformTencentVod, constant.ChannelTypeTencentVod).
+		Where("platform != ?", constant.TaskPlatformTapCanvas).
 		Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil

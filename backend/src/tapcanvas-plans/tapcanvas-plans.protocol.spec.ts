@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { consumptionCredits } from '../consumption-orders/gateway-consumption.protocol';
-import { FILM_GUIDE, buildAssetPlanRequest, compactProgress, parsePlanInput, readTapJob, upstreamErrorMessage } from './tapcanvas-plans.protocol';
+import { FILM_GUIDE, buildAssetPlanRequest, compactProgress, parsePlanInput, readTapJob, remakeClipPlan, upstreamErrorMessage } from './tapcanvas-plans.protocol';
 
 const base = { modelKey: 'deepseek-v4.1-flash', reasoningEffort: 'none', clientRequestId: 'req-1' };
 
@@ -24,8 +24,15 @@ const run = (): void => {
   assert.doesNotMatch(String(remake.prompt), /成片时长/, 'unknown source duration adds no constraint');
   const timed = parsePlanInput({ ...base, mode: 'remake', sourceDurationSeconds: 17.04, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] });
   assert.equal(timed.sourceDurationSeconds, 17);
-  assert.match(String(buildAssetPlanRequest(timed).prompt), /原片约 17 秒。全部 Clip 时长之和须与原片一致/);
-  assert.ok(!('sourceDurationSeconds' in buildAssetPlanRequest(timed)), 'duration only travels in the prompt (TapCanvas request is strict)');
+  // 线上实例（2026-10-25 项目 d0a35cb8）：17 秒快剪按 single_shot 被拆成 11 段共 45 秒；复刻改为按原片定段数与段长。
+  const timedRequest = buildAssetPlanRequest({ ...timed, clipPreference: 'single_shot', step: 15 });
+  assert.match(String(timedRequest.prompt), /原片约 17 秒，复刻为 2 个 Clip、每个 9 秒（合计 18 秒）/);
+  assert.equal(timedRequest.clipPreference, 'max_duration', 'remake with known duration overrides the node choice');
+  assert.equal(timedRequest.step, 9);
+  assert.ok(!('sourceDurationSeconds' in timedRequest), 'duration only travels in the prompt (TapCanvas request is strict)');
+  for (const [seconds, count, each] of [[3, 1, 4], [10, 1, 10], [17, 2, 9], [29, 2, 15], [31, 3, 10], [60, 4, 15], [100, 9, 11]]) {
+    assert.deepEqual(remakeClipPlan(seconds), { count, seconds: each }, `${seconds}s`);
+  }
   for (const sourceDurationSeconds of ['abc', -3, 0, 99999]) {
     assert.equal(parsePlanInput({ ...base, mode: 'remake', sourceDurationSeconds, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] }).sourceDurationSeconds, undefined);
   }

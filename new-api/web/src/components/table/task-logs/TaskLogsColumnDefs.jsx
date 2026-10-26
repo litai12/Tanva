@@ -40,6 +40,7 @@ import {
   TASK_ACTION_REFERENCE_GENERATE,
   TASK_ACTION_TEXT_GENERATE,
   TASK_ACTION_REMIX_GENERATE,
+  TASK_ACTION_ASSET_PLAN,
 } from '../../../constants/common.constant';
 import { CHANNEL_OPTIONS } from '../../../constants/channel.constants';
 import { stringToColor } from '../../../helpers/render';
@@ -134,6 +135,12 @@ const renderType = (type, t) => {
           {t('视频Remix')}
         </Tag>
       );
+    case TASK_ACTION_ASSET_PLAN:
+      return (
+        <Tag color='violet' shape='circle' prefixIcon={<Sparkles size={14} />}>
+          {t('资产规划')}
+        </Tag>
+      );
     default:
       return (
         <Tag color='white' shape='circle' prefixIcon={<HelpCircle size={14} />}>
@@ -159,6 +166,12 @@ const renderPlatform = (platform, t) => {
       return (
         <Tag color='green' shape='circle'>
           Suno
+        </Tag>
+      );
+    case 'tapcanvas':
+      return (
+        <Tag color='violet' shape='circle'>
+          TapCanvas
         </Tag>
       );
     default:

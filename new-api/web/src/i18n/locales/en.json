@@ -2560,6 +2560,7 @@
     "示例：{\"default\": [200, 100], \"vip\": [0, 1000]}。": "Example: {\"default\": [200, 100], \"vip\": [0, 1000]}.",
     "视频": "Video",
     "视频Remix": "Video remix",
+    "资产规划": "Asset plan",
     "视频无法在当前浏览器中播放，这可能是由于：": "The video cannot be played in this browser, possibly because:",
     "禁用": "Disable",
     "禁用 store 透传": "Disable store Pass-through",

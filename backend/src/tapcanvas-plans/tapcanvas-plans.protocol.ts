@@ -45,6 +45,8 @@ export interface PlanInput {
 const ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const MAX_TEXT = 200_000;
 const MAX_IMAGES = 12;
+/** TapCanvas 视频模型（Seedance 2.x / minimax-h3）合法单段时长。 */
+const CLIP_SECONDS = { min: 4, max: 15 };
 
 const pick = <T extends readonly string[]>(value: unknown, allowed: T, name: string, fallback?: T[number]): T[number] | undefined => {
   if (value === undefined || value === null || value === '') return fallback;
@@ -103,6 +105,28 @@ export function parsePlanInput(raw: any): PlanInput {
     projectId: optionalId(raw.projectId, 'projectId'), nodeId: optionalId(raw.nodeId, 'nodeId'), clientRequestId };
 }
 
+/**
+ * 复刻按原片时长分段：N 个等长 Clip（max_duration 下每段固定取 step），N×S 尽量贴合原片（±1 秒内取最少段数）。
+ * single_shot 会把原片每个镜头各拆成 ≥4 秒的 Clip（17 秒快剪出过 11 段共 45 秒），复刻不可用。
+ */
+export function remakeClipPlan(sourceSeconds: number): { count: number; seconds: number } {
+  const clamp = (n: number) => Math.min(CLIP_SECONDS.max, Math.max(CLIP_SECONDS.min, n));
+  let best = { count: 1, seconds: clamp(Math.round(sourceSeconds)) };
+  const error = (plan: { count: number; seconds: number }) => Math.abs(plan.count * plan.seconds - sourceSeconds);
+  for (let count = Math.max(1, Math.ceil(sourceSeconds / CLIP_SECONDS.max)); count <= Math.max(1, Math.floor(sourceSeconds / CLIP_SECONDS.min)); count += 1) {
+    const plan = { count, seconds: clamp(Math.round(sourceSeconds / count)) };
+    if (error(plan) <= 1) return plan;
+    if (error(plan) < error(best)) best = plan;
+  }
+  return best;
+}
+
+const remakeDurationLine = (sourceSeconds: number) => {
+  const { count, seconds } = remakeClipPlan(sourceSeconds);
+  return `成片时长：原片约 ${sourceSeconds} 秒，复刻为 ${count} 个 Clip、每个 ${seconds} 秒（合计 ${count * seconds} 秒）。`
+    + `按原片镜头切点把连续的若干镜头放进同一个 Clip（Clip 内多镜头切换），原片的每个镜头都要落到某个 Clip 中，不得删减，也不得为凑时长新增镜头。`;
+};
+
 /** 交给 TapCanvas 的创作原文。复刻模式沿用 TapCanvas 爆款复刻的边界：原视频只用于理解，不作为任何生成输入。 */
 export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds'>): string {
   if (input.mode === 'film') {
@@ -111,23 +135,26 @@ export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requir
   return [
     '爆款复刻：创作来源是参考视频（input 中的视频素材）的逐镜头理解，按它复刻节奏、镜头切点、景别、运镜与声音结构。原视频不得作为任何生成接口的输入，也不得直接引用原视频画面。',
     `复刻要求：${input.requirement || REMAKE_DEFAULT_REQUIREMENT}`,
-    // 资产规划接口没有总时长字段：不写明时，作者既可能把整片压进 1 个最长 Clip，也可能逐镜头展开到数倍原长。
-    input.sourceDurationSeconds
-      ? `成片时长：原片约 ${input.sourceDurationSeconds} 秒。全部 Clip 时长之和须与原片一致（误差不超过 1 秒），Clip 切分对齐原片镜头切点；原片的每个镜头都要落到某个 Clip 中，不得删减。`
-      : '',
+    // 资产规划接口没有总时长字段：段数与段长由 remakeClipPlan 定死（请求同时冻结 max_duration + step），这里写明给作者。
+    input.sourceDurationSeconds ? remakeDurationLine(input.sourceDurationSeconds) : '',
     input.text ? `\n补充原文/设定：\n${input.text}` : '',
   ].join('\n').trim();
 }
 
 /** TapCanvas AssetPlanRequest（strict：不得带未声明字段）。 */
 export function buildAssetPlanRequest(input: PlanInput): Record<string, unknown> {
+  // 复刻且读到原片时长：分段方式与段长由原片决定，覆盖节点上的选择。
+  const timed = input.mode === 'remake' && input.sourceDurationSeconds
+    ? { step: remakeClipPlan(input.sourceDurationSeconds).seconds, clipPreference: 'max_duration' as const } : null;
+  const step = timed?.step ?? input.step;
+  const clipPreference = timed?.clipPreference ?? input.clipPreference;
   return {
     prompt: buildPlanPrompt(input),
     modelKey: input.modelKey,
     reasoningEffort: input.reasoningEffort,
     assets: input.assets,
-    ...(input.step !== undefined ? { step: input.step } : {}),
-    ...(input.clipPreference ? { clipPreference: input.clipPreference } : {}),
+    ...(step !== undefined ? { step } : {}),
+    ...(clipPreference ? { clipPreference } : {}),
     ...(input.knowledgeTier ? { knowledgeTier: input.knowledgeTier } : {}),
   };
 }
