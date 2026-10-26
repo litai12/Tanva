@@ -35,6 +35,8 @@ export interface PlanInput {
   clipPreference?: (typeof CLIP_PREFERENCES)[number];
   knowledgeTier?: (typeof KNOWLEDGE_TIERS)[number];
   step?: number;
+  /** 爆款复刻：前端读到的参考视频时长（秒），写入提示词约束成片总长。 */
+  sourceDurationSeconds?: number;
   projectId?: string;
   nodeId?: string;
   clientRequestId: string;
@@ -91,20 +93,28 @@ export function parsePlanInput(raw: any): PlanInput {
     step = Number(raw.step);
     if (!Number.isFinite(step) || step <= 0 || step > 120) throw new BadRequestException('单段时长上限无效');
   }
+  // 读不到时长不阻塞提交；异常值视为没有。
+  const duration = Number(raw.sourceDurationSeconds);
+  const sourceDurationSeconds = mode === 'remake' && Number.isFinite(duration) && duration >= 1 && duration <= 3600
+    ? Math.round(duration) : undefined;
   const clientRequestId = optionalId(raw.clientRequestId, 'clientRequestId');
   if (!clientRequestId) throw new BadRequestException('缺少 clientRequestId');
-  return { mode, text, requirement, assets, modelKey: raw.modelKey, reasoningEffort, clipPreference, knowledgeTier, step,
+  return { mode, text, requirement, assets, modelKey: raw.modelKey, reasoningEffort, clipPreference, knowledgeTier, step, sourceDurationSeconds,
     projectId: optionalId(raw.projectId, 'projectId'), nodeId: optionalId(raw.nodeId, 'nodeId'), clientRequestId };
 }
 
 /** 交给 TapCanvas 的创作原文。复刻模式沿用 TapCanvas 爆款复刻的边界：原视频只用于理解，不作为任何生成输入。 */
-export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement'>): string {
+export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds'>): string {
   if (input.mode === 'film') {
     return [FILM_GUIDE, input.requirement ? `\n创作要求：${input.requirement}` : '', '\n章节原文：', input.text].join('\n').trim();
   }
   return [
     '爆款复刻：创作来源是参考视频（input 中的视频素材）的逐镜头理解，按它复刻节奏、镜头切点、景别、运镜与声音结构。原视频不得作为任何生成接口的输入，也不得直接引用原视频画面。',
     `复刻要求：${input.requirement || REMAKE_DEFAULT_REQUIREMENT}`,
+    // 资产规划接口没有总时长字段：不写明时，作者既可能把整片压进 1 个最长 Clip，也可能逐镜头展开到数倍原长。
+    input.sourceDurationSeconds
+      ? `成片时长：原片约 ${input.sourceDurationSeconds} 秒。全部 Clip 时长之和须与原片一致（误差不超过 1 秒），Clip 切分对齐原片镜头切点；原片的每个镜头都要落到某个 Clip 中，不得删减。`
+      : '',
     input.text ? `\n补充原文/设定：\n${input.text}` : '',
   ].join('\n').trim();
 }

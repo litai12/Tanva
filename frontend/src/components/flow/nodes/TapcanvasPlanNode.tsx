@@ -69,6 +69,23 @@ const videoUrlOf = (node?: Node): string | undefined => {
   return undefined;
 };
 
+const positiveSeconds = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined);
+/** 参考视频时长：优先取视频节点上传时记下的 duration，否则只读 URL 元数据；读不到返回 undefined，不阻塞提交。 */
+const probeVideoDuration = (url: string): Promise<number | undefined> => new Promise((resolve) => {
+  const video = document.createElement('video');
+  const finish = (value?: number) => {
+    window.clearTimeout(timer);
+    video.onloadedmetadata = null; video.onerror = null;
+    video.removeAttribute('src'); video.load();
+    resolve(positiveSeconds(value));
+  };
+  const timer = window.setTimeout(() => finish(), 8000);
+  video.preload = 'metadata';
+  video.onloadedmetadata = () => finish(video.duration);
+  video.onerror = () => finish();
+  video.src = url;
+});
+
 const newRequestId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 let optionsCache: Promise<TapcanvasPlanOptions> | null = null;
@@ -100,13 +117,15 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
     const text = textEdge ? resolveTextFromSourceNode(find(textEdge.source), textEdge.sourceHandle) : undefined;
     const images = incoming.filter((e) => e.targetHandle === 'img').map((e) => ({ nodeId: e.source, sourceHandle: e.sourceHandle || 'img', url: imageUrlOf(find(e.source)) }));
     const videoEdge = incoming.find((e) => e.targetHandle === 'video');
-    const video = videoEdge ? { nodeId: videoEdge.source, sourceHandle: videoEdge.sourceHandle || 'video', url: videoUrlOf(find(videoEdge.source)) } : null;
+    const videoNode = videoEdge ? find(videoEdge.source) : undefined;
+    const video = videoEdge ? { nodeId: videoEdge.source, sourceHandle: videoEdge.sourceHandle || 'video', url: videoUrlOf(videoNode),
+      duration: positiveSeconds(pick(videoNode?.data, 'duration')) } : null;
     const position = state.nodes.find((n) => n.id === id)?.position ?? { x: 0, y: 0 };
     return JSON.stringify({ hasText: Boolean(textEdge), text, images, video, position });
   }, [id]));
   const inputsNow = React.useMemo(() => JSON.parse(upstream) as {
     hasText: boolean; text?: string; images: Array<{ nodeId: string; sourceHandle: string; url?: string }>;
-    video: { nodeId: string; sourceHandle: string; url?: string } | null; position: { x: number; y: number };
+    video: { nodeId: string; sourceHandle: string; url?: string; duration?: number } | null; position: { x: number; y: number };
   }, [upstream]);
 
   React.useEffect(() => {
@@ -200,11 +219,13 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
         assets.push({ type: 'video', url: inputsNow.video.url });
         refs.push({ nodeId: inputsNow.video.nodeId, kind: 'video', sourceHandle: inputsNow.video.sourceHandle });
       }
+      const sourceDurationSeconds = mode === 'remake' && inputsNow.video?.url
+        ? inputsNow.video.duration ?? await probeVideoDuration(inputsNow.video.url) : undefined;
       const created = await tapcanvasPlanApi.create({
         mode, text: effectiveText, requirement: data.requirement?.trim() || undefined, assets, modelKey,
         reasoningEffort: data.reasoningEffort || 'none', clipPreference: data.clipPreference || undefined,
         knowledgeTier: data.knowledgeTier || undefined, step: typeof data.step === 'number' ? data.step : undefined,
-        projectId: projectId || undefined, nodeId: id, clientRequestId: newRequestId(),
+        sourceDurationSeconds, projectId: projectId || undefined, nodeId: id, clientRequestId: newRequestId(),
       });
       setTask(created);
       update({ taskId: created.id, taskStatus: created.status, inputs: refs, expandedTaskId: undefined });
@@ -322,6 +343,11 @@ function TapcanvasPlanNodeInner({ id, data, selected = false }: Props) {
           </select>
         </label>
       </div>
+      {mode === 'remake' && data.clipPreference === 'max_duration' && (
+        <div style={{ fontSize: 11, color: '#b45309' }}>
+          {lt('最大时长下每段固定取上限秒数，成片总长难以贴合原片；复刻建议用「单镜头」。', 'Max duration fixes every clip at the cap, so the total rarely matches the source; use Single shot for remakes.')}
+        </div>
+      )}
 
       <div style={{ fontSize: 11, color: '#6b7280' }}>
         {lt('按实际模型用量结算', 'Billed by actual usage')}

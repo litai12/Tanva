@@ -110,6 +110,50 @@ const sortImages = (images: AssetPlanNode[]) => {
     .map((k) => k.node);
 };
 
+const imageRefKeys = (node: AssetPlanNode) => {
+  const refKeys = Array.isArray(node.parameters?.referenceAssetKeys)
+    ? node.parameters.referenceAssetKeys.filter((k: unknown): k is string => typeof k === "string") : [];
+  return [...new Set([...(node.upstreamDependencies || []).map((d) => d.assetKey), ...refKeys])];
+};
+
+/** 视频 Clip 的参考图引用：首帧，或按 referenceBindings → referenceAssetKeys → reference_image 依赖顺序去重。 */
+const videoRefs = (node: AssetPlanNode) => {
+  const firstFrame = str(node.parameters?.firstFrameAssetKey)
+    ?? (node.upstreamDependencies || []).find((d) => d.role === "first_frame")?.assetKey;
+  const bindings: unknown[] = Array.isArray(node.parameters?.referenceBindings) ? node.parameters.referenceBindings
+    : Array.isArray(node.parameters?.referenceAssetKeys) ? node.parameters.referenceAssetKeys.map((assetKey: unknown) => ({ assetKey })) : [];
+  const bound = bindings.map((b) => (b && typeof b === "object" ? (b as { assetKey?: unknown }).assetKey : undefined))
+    .filter((k): k is string => typeof k === "string");
+  const deps = (node.upstreamDependencies || []).filter((d) => d.role === "reference_image").map((d) => d.assetKey);
+  return { firstFrame, bindings, keys: Array.from(new Set([...bound, ...deps])) };
+};
+
+const videoModel = (node: AssetPlanNode) => resolveVideoNode(str(node.parameters?.modelKey));
+const referenceLimit = (node: AssetPlanNode) => SEEDANCE_REFERENCE_IMAGE_MAX[videoModel(node)?.seedanceModel ?? "seedance-2.0"] ?? 9;
+
+/**
+ * 被视频实际连上的图片（首帧或上限内的参考图），及其身份依赖链上的图片。
+ * 规划常为没有 Clip 引用的道具/色板/特效也设计参考图（如单个 Clip 受参考图上限挤掉），
+ * 展开后它们只会被「运行组」白白生成扣费，故不建节点。无视频的规划保留全部图片。
+ */
+function consumedImageKeys(images: AssetPlanNode[], videos: AssetPlanNode[], available: (key: string) => boolean) {
+  const needed = new Set<string>();
+  for (const video of videos) {
+    const { firstFrame, keys } = videoRefs(video);
+    if (firstFrame && available(firstFrame)) { needed.add(firstFrame); continue; }
+    keys.filter(available).slice(0, referenceLimit(video)).forEach((key) => needed.add(key));
+  }
+  const byKey = new Map(images.map((n) => [n.assetKey, n]));
+  const stack = [...needed];
+  while (stack.length) {
+    const node = byKey.get(stack.pop()!);
+    for (const key of node ? imageRefKeys(node) : []) {
+      if (byKey.has(key) && !needed.has(key)) { needed.add(key); stack.push(key); }
+    }
+  }
+  return needed;
+}
+
 const offsets = (sizes: number[], gap: number) => {
   const out: number[] = [];
   let acc = 0;
@@ -186,10 +230,18 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
     if (binding.kind === "image") imageSources.set(key, { nodeId: binding.nodeId, sourceHandle: binding.sourceHandle });
   }
 
-  const images = sortImages(plan.filter((n) => n.type === "image"));
   const texts = plan.filter((n) => n.type === "text");
   const videos = plan.filter((n) => n.type === "video");
   const audios = plan.filter((n) => n.type === "audio");
+  const plannedImages = plan.filter((n) => n.type === "image");
+  const plannedKeys = new Set(plannedImages.map((n) => n.assetKey));
+  const consumed = consumedImageKeys(plannedImages, videos, (key) => plannedKeys.has(key) || imageSources.has(key));
+  const unused = videos.length ? plannedImages.filter((n) => !consumed.has(n.assetKey)) : [];
+  if (unused.length) {
+    warnings.push(`${unused.length} 张参考图未被任何 Clip 使用，已省略：${unused.map((n) => n.title).join("、")}`);
+  }
+  const unusedKeys = new Set(unused.map((n) => n.assetKey));
+  const images = sortImages(plannedImages.filter((n) => !unusedKeys.has(n.assetKey)));
   const typeOf = new Map<string, string>();
 
   images.forEach((node, index) => {
@@ -219,9 +271,7 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
   // 依赖可能只出现在 upstreamDependencies 或 parameters.referenceAssetKeys 之一，取并集。
   images.forEach((node) => {
     const genId = id("img", node.assetKey);
-    const refKeys = Array.isArray(node.parameters?.referenceAssetKeys)
-      ? node.parameters.referenceAssetKeys.filter((k: unknown): k is string => typeof k === "string") : [];
-    for (const key of new Set([...(node.upstreamDependencies || []).map((d) => d.assetKey), ...refKeys])) {
+    for (const key of imageRefKeys(node)) {
       const source = imageSources.get(key);
       if (source && source.nodeId !== genId) edge(source.nodeId, source.sourceHandle, genId, "img");
     }
@@ -250,7 +300,7 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
     typeOf.set(promptId, "textPrompt");
     const planned = str(node.parameters?.modelKey);
     // Tanva 无对应节点的视频模型统一回落 Seedance 2.0，保证分组可一键产出成片；回落以提示告知。
-    let resolved = resolveVideoNode(planned);
+    let resolved = videoModel(node);
     if (!resolved) {
       resolved = { type: "seedance20Video", seedanceModel: "seedance-2.0" };
       const label = planned ?? "未知";
@@ -259,8 +309,7 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
     const videoId = id("video", node.assetKey);
     const resolution = str(node.parameters?.resolution)?.toUpperCase();
     const aspectRatio = str(node.parameters?.aspectRatio);
-    const firstFrame = str(node.parameters?.firstFrameAssetKey)
-      ?? (node.upstreamDependencies || []).find((d) => d.role === "first_frame")?.assetKey;
+    const { firstFrame, bindings, keys } = videoRefs(node);
     const firstFrameSource = firstFrame ? imageSources.get(firstFrame) : undefined;
     place({ id: videoId, type: resolved.type, data: {
       title: node.title, seedanceModel: resolved.seedanceModel,
@@ -277,15 +326,10 @@ export function buildPlanExpansion(plan: AssetPlanNode[], options: {
       return;
     }
     // 引用顺序与规划一致：提示词中的 @引用 按 referenceBindings / referenceAssetKeys 顺序编号。
-    const bindings: unknown[] = Array.isArray(node.parameters?.referenceBindings) ? node.parameters.referenceBindings
-      : Array.isArray(node.parameters?.referenceAssetKeys) ? node.parameters.referenceAssetKeys.map((assetKey: unknown) => ({ assetKey })) : [];
-    const bound = bindings.map((b) => (b && typeof b === "object" ? (b as { assetKey?: unknown }).assetKey : undefined))
-      .filter((k): k is string => typeof k === "string");
-    const deps = (node.upstreamDependencies || []).filter((d) => d.role === "reference_image").map((d) => d.assetKey);
     const max = SEEDANCE_REFERENCE_IMAGE_MAX[resolved.seedanceModel] ?? 9;
-    const keys = Array.from(new Set([...bound, ...deps]));
     const connected = new Set<string>();
     for (const key of keys) {
+      if (unusedKeys.has(key)) continue;
       const source = imageSources.get(key);
       if (!source) { warnings.push(`${node.title}：参考资产 ${key} 未找到，请手动连接`); continue; }
       if (connected.size >= max) { warnings.push(`${node.title}：参考图超过 ${max} 张上限，已省略 ${key}`); continue; }

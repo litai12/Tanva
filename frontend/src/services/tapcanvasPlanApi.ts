@@ -80,7 +80,7 @@ export const tapcanvasPlanApi = {
   async create(payload: {
     mode: TapcanvasPlanMode; text: string; requirement?: string; assets: TapcanvasPlanAsset[];
     modelKey: string; reasoningEffort: string; clipPreference?: string; knowledgeTier?: string; step?: number;
-    projectId?: string; nodeId?: string; clientRequestId: string;
+    sourceDurationSeconds?: number; projectId?: string; nodeId?: string; clientRequestId: string;
   }): Promise<TapcanvasPlanTask> {
     return readJson(await fetchWithAuth(API_BASE, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload), timeoutMs: 90_000 }), "规划提交失败");

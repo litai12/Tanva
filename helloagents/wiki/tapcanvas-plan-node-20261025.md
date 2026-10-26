@@ -13,6 +13,10 @@
   - 生图节点沿用规划 `size`（1K/2K/4K → `resolution`）与 `quality`（gptImage2 的 low/medium/high）。
   - 镜头文本 `textNote` 与对应 Clip 同行仅作对照，不连入视频提示词（`textPrompt` 接入上游文本会覆盖规划提示词）；配音卡为 `textNote`（音频节点尚不支持分组运行）。
   - 布局为槽位网格：左区参考图每行 3 组「提示词 + 生图」，按角色 → 场景 → 道具 → 色板 → 特效分区、状态卡紧跟基础卡；右区每 Clip 一行「镜头文本 → 视频提示词 → Seedance」。节点 data 写入 `tapcanvasLayout`（planId/origin/slot），展开后 `flow:tapcanvas-plan-relayout` 按实测尺寸与估算高度取大重排，列宽/行高取最大节点，杜绝叠压。
+- 时长与孤立资产（2026-10-25 二次修订，起因：项目 d0a35cb8 的 17 秒参考视频，「最大时长」规划只出 1 个 15 秒 Clip，22 张参考图有 10 张无 Clip 引用）：
+  - 资产规划接口没有总时长字段，`max_duration` 且无目标总长时 TapCanvas 每段固定取模型上限；`single_shot` 又会逐镜头展开（同项目另一次出 8 段共 48 秒）。复刻提交时前端取参考视频时长（视频节点 `data.duration`，缺失则读 URL 元数据，读不到不阻塞），后端写入提示词「成片时长：原片约 N 秒，全部 Clip 时长之和须一致（±1 秒）」；字段只走提示词，不进 strict 请求体。复刻选「最大时长」时节点内提示改用单镜头。
+  - 规划常为无 Clip 引用的道具/色板/特效也设计参考图（单 Clip 被参考图上限挤掉）。展开时只建被视频实际连上（首帧或上限内参考）及其身份依赖链上的图片，其余不建节点，在展开提示中列出标题，避免「运行组」白生成扣费；无视频的规划保留全部图片。
+  - 根治需 TapCanvas 资产规划请求新增 `targetDurationSeconds` 并透传为 Workflow `triggerPayload.targetDurationSeconds`（执行层已支持精确总长），上线后 Tanva 再改为字段传递。
 - 节点内可停止、失败续跑（TapCanvas 子任务 + 新订单）、再展开一份；刷新后按节点 `taskId` 恢复轮询。
 
 当前「爆款复刻」是“参考视频作为资产规划输入素材”的方案；TapCanvas 自身复刻链路的逐秒拆解（`video-remakes`）尚未提供 plan-only 出口，后续可替换为该出口而节点与结算不变。

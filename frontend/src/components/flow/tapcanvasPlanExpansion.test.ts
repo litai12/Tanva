@@ -116,7 +116,33 @@ test('video references respect the Seedance image limit', () => {
   const video = result.nodes.find((n) => n.type === 'seedance20Video')!;
   assert.equal(result.edges.filter((e) => e.target === video.id && e.targetHandle === 'image').length, 9);
   assert.equal(video.data.resolution, '720P');
-  assert.equal(result.warnings.filter((w) => /上限/.test(w)).length, 2);
+  // 超出上限的两张没有任何 Clip 能用上，不建节点，只在提示中列出。
+  assert.equal(result.nodes.filter((n) => n.type === 'generatePro').length, 9);
+  assert.deepEqual(result.warnings.filter((w) => /已省略/.test(w)), ['2 张参考图未被任何 Clip 使用，已省略：p9、p10']);
+});
+
+test('images no Clip uses are dropped, identity chains of used images are kept', () => {
+  const img = (key: string, deps: string[] = []) => ({ nodeId: key, assetKey: key, title: key.split(':')[2] + (key.endsWith(':base') ? '' : '·态'),
+    type: 'image', prompt: key, upstreamDependencies: deps.map((d) => ({ assetKey: d, title: d, role: 'identity' })),
+    parameters: { modelKey: 'gpt-image-2.5-flare', referenceAssetKeys: deps } });
+  // 线上实例（2026-10-25 爆款复刻）：1 个 Clip 只引用角色与场景状态卡，道具/色板/特效无人引用。
+  const images = [
+    img('image:palette:色锚:base'), img('image:scene:台面:base'), img('image:scene:台面:chapter-state:s1', ['image:scene:台面:base']),
+    img('image:character:工人:base'), img('image:prop:膜卷:base'), img('image:prop:膜卷:chapter-state:s1', ['image:prop:膜卷:base']),
+    img('image:vfx:字卡:base'),
+  ];
+  const clip = { nodeId: 'video:1', assetKey: 'video:1', title: 'Clip 1', type: 'video', prompt: 'v',
+    upstreamDependencies: [{ assetKey: 'image:character:工人:base', title: '工人', role: 'reference_image' }],
+    parameters: { modelKey: 'minimax-h3', durationSeconds: 15,
+      referenceBindings: [{ assetKey: 'image:scene:台面:chapter-state:s1', mention: '台面' }] } };
+  const result = buildPlanExpansion([...images, clip] as unknown as AssetPlanNode[], { origin: { x: 0, y: 0 }, idPrefix: 'u' });
+  const kept = result.nodes.filter((n) => n.type === 'gptImage2').map((n) => n.data.tapcanvasAssetKey).sort();
+  assert.deepEqual(kept, ['image:character:工人:base', 'image:scene:台面:base', 'image:scene:台面:chapter-state:s1']);
+  assert.equal(result.nodes.filter((n) => n.type === 'textPrompt').length, 3 + 1, 'image prompts are dropped together with their image');
+  assert.deepEqual(result.warnings, ['4 张参考图未被任何 Clip 使用，已省略：色锚、膜卷、膜卷·态、字卡',
+    '规划视频模型 minimax-h3 在 Tanva 暂无对应节点，1 个 Clip 已改用 Seedance 2.0']);
+  const ids = new Set(result.nodes.map((n) => n.id));
+  assert.ok(result.edges.every((e) => ids.has(e.source) && ids.has(e.target)), 'no edge points at a dropped node');
 });
 
 test('first frame dependency switches Seedance to first_frame mode', () => {
