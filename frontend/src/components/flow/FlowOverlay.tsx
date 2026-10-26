@@ -64,7 +64,7 @@ import {
   createEmptyStoryboardPromptTable,
   serializeStoryboardPromptTable,
 } from "./storyboardPromptTable";
-import { startFlowProgressRun, startFlowImageRun, SINGLE_IMAGE_TASK_NODE_TYPES } from "./flowProgressRuntime";
+import { startFlowProgressRun, startFlowImageRun, SINGLE_IMAGE_TASK_NODE_TYPES, stripFlowRunStateForCollab } from "./flowProgressRuntime";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
@@ -5441,7 +5441,7 @@ function FlowInner() {
     collabSeenNodeIdsRef.current = curr;
     if (newNodes.length > 0) {
       try {
-        collab.sendPatch({ upsertNodes: newNodes });
+        collab.sendPatch({ upsertNodes: newNodes.map((n) => (n.data ? { ...n, data: stripFlowRunStateForCollab(n.data) } : n)) });
       } catch {}
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5476,8 +5476,9 @@ function FlowInner() {
                   ...existing,
                   ...incoming,
                   ...(incomingType ? { type: incomingType } : {}),
+                  // 运行态只认本端与 task_status；旧版对端仍可能在补丁里带上，一律忽略。
                   data: incoming.data
-                    ? { ...(existing.data || {}), ...incoming.data }
+                    ? { ...(existing.data || {}), ...stripFlowRunStateForCollab(incoming.data) }
                     : existing.data,
                   // collab: 合并 style(缩放=style.width/height),避免整体替换丢掉其它样式。
                   style: incoming.style
@@ -5489,7 +5490,11 @@ function FlowInner() {
                 // 位置/数据等局部补丁(无 type)若指向本端尚不存在的节点，贸然 push 会
                 // 合成一个无法渲染、且会被持久化的"未知节点"(空白小方框)。直接丢弃，
                 // 等待携带完整 type 的新增补丁(或下次整图水合)补上该节点。
-                result.push({ ...incoming, type: incomingType });
+                result.push({
+                  ...incoming,
+                  type: incomingType,
+                  ...(incoming.data ? { data: stripFlowRunStateForCollab(incoming.data) } : {}),
+                });
               }
             }
             return result;
@@ -15148,7 +15153,7 @@ function FlowInner() {
             c.sendPatch({
               upsertNodes: [{
                 id: nextNode.id,
-                data: nextNode.data,
+                data: stripFlowRunStateForCollab(nextNode.data),
                 ...(positionOffset ? { position: nextNode.position } : {}),
               }],
             });

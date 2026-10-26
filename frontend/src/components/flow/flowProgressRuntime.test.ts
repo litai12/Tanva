@@ -30,3 +30,12 @@ test("image reruns show activity immediately without recovering the previous res
   assert.equal(next.imageUrl, previous.imageUrl);
   assert.equal(previous.taskId, "old-paid-task");
 });
+
+test('collab patches never carry another client\'s run state', async () => {
+  const { stripFlowRunStateForCollab } = await import('./flowProgressRuntime.ts');
+  const running = { aspectRatio: '21:9', resolution: '4K', imageUrl: 'https://oss/a.jpg', status: 'running',
+    progressStartedAt: 1, taskPhase: 'processing', taskId: 't1', error: undefined };
+  assert.deepEqual(stripFlowRunStateForCollab(running), { aspectRatio: '21:9', resolution: '4K', imageUrl: 'https://oss/a.jpg' });
+  const settings = { aspectRatio: '1:1' };
+  assert.equal(stripFlowRunStateForCollab(settings), settings, 'no copy when nothing to strip');
+});

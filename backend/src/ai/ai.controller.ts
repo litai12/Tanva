@@ -3994,6 +3994,7 @@ export class AiController {
         ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
       }, dto.providerOptions);
 
+      this.publishSyncImageStatus(dto, generationTaskId, 'processing');
       const result = await this.withCredits(req, serviceType, model, async () => {
         {
           const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
@@ -4120,10 +4121,14 @@ export class AiController {
         receivedAt: new Date().toISOString(),
       });
 
+      this.publishSyncImageStatus(dto, generationTaskId, 'succeeded', {
+        resultPreview: result.imageUrl ? { url: result.imageUrl } : null,
+      });
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[generate-image] 失败: ${errorMessage}`);
+      this.publishSyncImageStatus(dto, generationTaskId, 'failed', { error: errorMessage.slice(0, 500) });
       void this.telemetryService.ingestGenerationTask({
         traceId,
         parentRequestId,
@@ -4144,6 +4149,29 @@ export class AiController {
       });
       throw error;
     }
+  }
+
+  /**
+   * 同步生图没有 ImageTask，协作成员原本收不到任何状态与结果：对端节点只能看到发起人广播的
+   * 「生成中」，永远等不到完成和图片（2026-10-26 项目 40993338 的 Nano Banana 节点）。
+   * 与异步任务一致地按 nodeId 广播 task_status，对端据此回填终态与结果。
+   */
+  private publishSyncImageStatus(
+    dto: { nodeId?: string; projectId?: string },
+    taskId: string,
+    status: 'processing' | 'succeeded' | 'failed',
+    extra: { resultPreview?: { url?: string } | null; error?: string } = {},
+  ): void {
+    if (!dto.nodeId || !dto.projectId || !this.generationTaskService) return;
+    void this.generationTaskService.publishTaskStatus(dto.projectId, {
+      taskId,
+      nodeId: dto.nodeId,
+      taskType: 'image-generate',
+      category: 'image',
+      status,
+      resultPreview: extra.resultPreview ?? null,
+      error: extra.error ?? null,
+    });
   }
 
   @Post('edit-image')
