@@ -16,6 +16,7 @@ import {
   sanitizeProjectContentForCloudSave,
 } from '@/utils/projectContentValidation';
 import { hasFlowNodesForAutosave } from '@/utils/projectAutosavePolicy';
+import { hasAutosaveUserIntent } from '@/utils/autosaveUserIntent';
 import type { ProjectContentSnapshot } from '@/types/project';
 
 const AUTOSAVE_INTERVAL = 60 * 1000;
@@ -72,6 +73,14 @@ export function useProjectAutosave(projectId: string | null) {
     attempt = 1
   ) => {
     if (useProjectContentStore.getState().staleContent) {
+      return;
+    }
+    // 本次加载后用户还没有任何真实操作：此时的改动全部来自系统加载/恢复，不写云端。
+    // 保持 dirty，用户一操作，定时器的下一次触发即正常保存。
+    if (!hasAutosaveUserIntent(currentProjectId)) {
+      if (attempt === 1) {
+        saveMonitor.push(currentProjectId, 'autosave_skipped_no_user_intent', { version: currentVersion });
+      }
       return;
     }
     if (useProjectContentStore.getState().cacheValidationPending) {

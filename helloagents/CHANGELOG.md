@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-25：修复画板（Paper.js 图层）图片整批丢失：项目 40993338 在 10-24 v148→v149 被另一台设备打开约 7 秒后的自动保存覆盖为空画板（Flow 60/73 不变，体积少约 56KB），原因是保存只检查 Paper 项目存在，不检查云端画板是否已恢复进运行时，Flow 自动保存前的画板刷新也会带上空画板与空 `assets.images`。`paperSaveService` 新增按项目的「画板已恢复」门禁（反序列化成功或内容无画板时放行，`clearProject` 关闭），未恢复时保存保留原 paperJson/assets，恢复失败给出提示；后端在画板图片清空或骤降过半时先把旧 project.json 复制到 `<prefix>backups/paper-v<版本>-<时间>.json`（`[ProjectPaperPlungeGuard]`，`npm run test:paper-plunge-guard`）。另加用户意图门禁 `utils/autosaveUserIntent.ts`：每次加载项目重新计时，用户产生真实输入（isTrusted 的指针/键盘/粘贴/拖放/输入）之前，Flow 自动保存、画板保存与关页提示都不触发，水合、图片解码、重排、协作补丁等系统改动不再写云端；手动保存显式标记（`npm run test:autosave-user-intent`）。本地测试与构建通过，未部署；已丢失的 40993338 画板不做恢复。
+
 - 2026-10-25：「爆款复刻」分段改由原片时长决定：项目 d0a35cb8 的 17 秒快剪在「单镜头」下被 TapCanvas 冻结为一镜一 Clip（每段 ≥4 秒），规划出 11 段共 45 秒，提示词里的总长约束无效。复刻读到原片时长时，后端改发 `max_duration` + `step`，按 N×S 贴合原片（17 秒 → 2 × 9 秒）并在提示词写明段数、段长与 Clip 内多镜头，节点在复刻模式下隐藏分段选项。展开不再创建没有节点消费的「镜头文本」（与视频提示词逐字相同，画布上多一份会与改过的提示词冲突）和配音卡文本。TapCanvas-pro 本地已为资产规划请求补 `targetDurationSeconds`（透传为 Workflow 精确总长）；Tanva 设 `TAPCANVAS_PLAN_EXACT_DURATION=true` 后复刻改发 `targetDurationSeconds=原片秒数` + `max_duration`、不带 step（17 秒精确命中），开关默认关闭，TapCanvas 上线前开启会被 strict 校验 400 拒绝。本地测试与构建通过，未部署；见 `wiki/tapcanvas-plan-node-20261025.md`。
 
 - 2026-10-25：「爆款复刻」时长与孤立参考图：提交时读取参考视频时长写入规划提示词，要求全部 Clip 总长与原片一致（此前 17 秒原片在「最大时长」下只规划出 1 个 15 秒 Clip，「单镜头」下展开到 48 秒），复刻选「最大时长」时给出提示；展开时不再创建没有任何 Clip 引用的参考图（及只服务于它们的基础卡），省略清单写入展开提示，避免分组运行白扣费。`cce3467b` 已部署 101（后端 build + PM2 reload、前端原位构建；内外网 health 200，服务器 `test:tapcanvas-plans` 通过）。见 `wiki/tapcanvas-plan-node-20261025.md`。

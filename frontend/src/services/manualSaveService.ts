@@ -19,6 +19,7 @@ import { setProjectCache } from '@/services/projectCacheStore';
 import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 import { projectVersionChannel } from '@/services/projectVersionChannel';
 import { writeLastGoodSnapshot } from '@/services/projectSnapshotBackup';
+import { markAutosaveUserIntent } from '@/utils/autosaveUserIntent';
 
 /** 触发来源，只用于区分埋点事件名，保存语义完全一致。 */
 export type ManualSaveOrigin = 'button' | 'keyboard' | 'history-restore';
@@ -77,6 +78,8 @@ export async function performManualSave(options: {
   // 必须在 flush 的 await 之前置位：否则这段窗口内 manualSaving 仍是 false，
   // 连按两次 Ctrl+S 会并发发出两份 baseVersion 相同的保存，第二份必被判 stale。
   storeBefore.setManualSaving(true);
+  // 手动保存本身就是用户明确操作（含无键鼠事件的程序入口）。
+  markAutosaveUserIntent(projectIdBefore);
 
   try {
     await paperSaveService.saveImmediately();

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 import { sanitizeDesignJson, dropGhostFlowNodes } from '../utils/designJsonSanitizer';
 import { mergeProjectSnapshots } from './merge-project-snapshots';
+import { countPaperImages, isPaperImagePlunge, paperBackupKey } from './paper-plunge-guard';
 
 @Injectable()
 export class ProjectsService {
@@ -20,7 +21,7 @@ export class ProjectsService {
   private readonly projectSaveQueue = new Map<string, Promise<void>>();
   private readonly projectContentFingerprint = new Map<
     string,
-    { hash: string; version: number; touchedAt: number; nodeCount?: number }
+    { hash: string; version: number; touchedAt: number; nodeCount?: number; paperImageCount?: number }
   >();
   private readonly projectContentFingerprintTtlMs = 30 * 60 * 1000;
   private readonly projectContentFingerprintMaxEntries = 1000;
@@ -390,7 +391,7 @@ export class ProjectsService {
       // Skip duplicate saves that would write exactly the same payload again.
       if (cachedFingerprint?.hash === contentHash) {
         const currentVersion = project.contentVersion ?? cachedFingerprint.version;
-        this.rememberProjectContentFingerprint(id, contentHash, currentVersion, cachedFingerprint.nodeCount);
+        this.rememberProjectContentFingerprint(id, contentHash, currentVersion, cachedFingerprint.nodeCount, cachedFingerprint.paperImageCount);
         this.logProjectSaveIfHot({
           projectId: id,
           userId,
@@ -464,6 +465,10 @@ export class ProjectsService {
       await timeStep('preOverwriteBackupMs', () =>
         this.tryBackupFlowBeforeOverwrite(project, mainKey, incomingNodeCount),
       );
+      const incomingPaperImages = countPaperImages(sanitizedContent);
+      await timeStep('paperPlungeBackupMs', () =>
+        this.tryBackupPaperBeforeOverwrite(project, prefix, mainKey, incomingPaperImages),
+      );
 
       try {
         await timeStep('ossPutMs', () => this.oss.putJSON(mainKey, sanitizedContent, { throwOnError: true }));
@@ -535,7 +540,7 @@ export class ProjectsService {
       }
 
       const persistedVersion = updated2.contentVersion ?? newVersion;
-      this.rememberProjectContentFingerprint(id, contentHash, persistedVersion, incomingNodeCount);
+      this.rememberProjectContentFingerprint(id, contentHash, persistedVersion, incomingNodeCount, incomingPaperImages);
       // 每次真实落盘都留一条简明日志:事故回查时能回答「白天到底有没有保存、存了什么规模」。
       // eslint-disable-next-line no-console
       console.log('[ProjectSave]', JSON.stringify({
@@ -806,12 +811,15 @@ export class ProjectsService {
     }));
   }
 
-  private rememberProjectContentFingerprint(projectId: string, hash: string, version: number, nodeCount?: number): void {
+  private rememberProjectContentFingerprint(
+    projectId: string, hash: string, version: number, nodeCount?: number, paperImageCount?: number,
+  ): void {
     this.projectContentFingerprint.set(projectId, {
       hash,
       version,
       touchedAt: Date.now(),
       nodeCount,
+      paperImageCount,
     });
     this.pruneProjectContentFingerprintCache();
   }
@@ -911,6 +919,50 @@ export class ProjectsService {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[ProjectPreOverwriteBackup] failed (ignored):', error);
+    }
+  }
+
+  /**
+   * 画板图片骤降时把旧 project.json 原样复制到 `<prefix>backups/`。WorkflowHistory 只存 flow，
+   * 画板此前没有任何历史，误覆盖后无法找回。全程 best-effort，不影响保存主链路。
+   */
+  private async tryBackupPaperBeforeOverwrite(
+    project: { id: string; contentVersion: number | null },
+    prefix: string,
+    mainKey: string,
+    incomingPaperImages: number,
+  ): Promise<void> {
+    try {
+      const previousVersion = project.contentVersion ?? 0;
+      if (previousVersion <= 0) return;
+      let previous = this.projectContentFingerprint.get(project.id)?.paperImageCount;
+      if (previous === undefined) {
+        // 冷启动：DB 副本与 OSS 同次写入，足以判定骤降。
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ count: number | null }>>(
+          `SELECT CASE WHEN jsonb_typeof("contentJson"->'assets'->'images') = 'array'
+                  THEN jsonb_array_length("contentJson"->'assets'->'images') END AS count
+           FROM "Project" WHERE id = $1`,
+          project.id,
+        );
+        previous = typeof rows?.[0]?.count === 'number' ? rows[0].count : undefined;
+      }
+      if (!isPaperImagePlunge(previous, incomingPaperImages)) return;
+
+      const previousContent = await this.oss.getJSON(mainKey);
+      if (!previousContent || countPaperImages(previousContent) === 0) return;
+      const backupKey = paperBackupKey(prefix, previousVersion);
+      await this.oss.putJSON(backupKey, previousContent, { throwOnError: true });
+      // eslint-disable-next-line no-console
+      console.warn('[ProjectPaperPlungeGuard]', JSON.stringify({
+        projectId: project.id,
+        previousVersion,
+        previousPaperImages: previous,
+        incomingPaperImages,
+        backupKey,
+      }));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[ProjectPaperPlungeGuard] backup failed (ignored):', error);
     }
   }
 

@@ -19,6 +19,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 import { projectVersionChannel } from '@/services/projectVersionChannel';
 import { useDesktopTaskContextStore } from '@/desktop/taskContextState';
+import { armAutosaveUserIntent, hasAutosaveUserIntent } from '@/utils/autosaveUserIntent';
 
 const CANVAS_VIEW_SYNC_DELAY_MS = 160;
 
@@ -183,6 +184,8 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
   const hydrationReadyRef = useRef(false);
 
   useEffect(() => {
+    // 每次加载都重新等待用户的真实操作，加载/恢复过程中的改动不触发自动保存。
+    armAutosaveUserIntent(projectId ?? null);
     if (!projectId) {
       paperSaveService.cancelPending();
       setCacheValidationPending(false);
@@ -342,7 +345,16 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
                 }, 500);
               });
             }
+            if (!cancelled && !paperSaveService.isPaperRestored(projectId)) {
+              // 画板保存会保持暂停（paperSaveService 门禁），云端画板不会被空画板覆盖。
+              setWarning('画板内容未能恢复，已暂停画板保存以免覆盖云端内容，请刷新页面重试');
+              saveMonitor.push(projectId, 'hydrate_paper_failed', {
+                source: options.source,
+                paperJsonLen: paperJson.length,
+              });
+            }
           } else {
+            paperSaveService.markPaperRestored(projectId);
             projectLoadDebug.mark(projectId, 'Paper deserialize skipped', {
               source: options.source,
               paperJsonLen: 0,
@@ -721,9 +733,11 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       // macOS sheet and strand the desktop process after its window closes.
       if (isDesktopTaskShell()) return;
       if (consumeBeforeUnloadPromptSkip()) return;
-      const { dirty } = useProjectContentStore.getState();
+      const { dirty, projectId: currentProjectId } = useProjectContentStore.getState();
       const pending = getPendingUploadSummary();
-      if (!dirty && !pending.hasRisk) return;
+      // 用户未操作过时的 dirty 只来自系统加载，不算未保存的修改。
+      const unsavedUserChanges = dirty && hasAutosaveUserIntent(currentProjectId);
+      if (!unsavedUserChanges && !pending.hasRisk) return;
       event.preventDefault();
        
       event.returnValue = '';

@@ -2,6 +2,7 @@
  * Paper.js persistence helpers for exporting, importing, and autosaving project content.
  */
 import paper from 'paper';
+import { hasAutosaveUserIntent } from '@/utils/autosaveUserIntent';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
@@ -39,6 +40,12 @@ class PaperSaveService {
   private pendingSaveReason: string | null = null;
   private rasterLoadHooked = new WeakSet<object>();
   private persistableImageRefMap: Map<string, string> | null = null;
+  /**
+   * 画板已从项目内容恢复到运行时的项目 ID。未恢复（加载中、恢复失败、切换中）时运行时画板是空的或属于
+   * 上一个项目，此时序列化会把空画板写回云端、永久覆盖全部图层图片（2026-10-24 项目 40993338）。
+   * 只有恢复完成后，保存才允许改写 paperJson / assets。
+   */
+  private paperRestoredFor: string | null = null;
   private imageObjectUrlMap = new Map<string, string>();
   private rasterCanvasBlobFallbackBlockedIds = new Set<string>();
   private rasterCanvasBlobFallbackLoggedIds = new Set<string>();
@@ -1166,6 +1173,17 @@ class PaperSaveService {
   /**
    * 检查 Paper.js 项目是否正常初始化
    */
+  /** 项目内容里没有画板可恢复（新项目 / 空画板）时，由加载方显式放行。 */
+  markPaperRestored(projectId?: string | null): void {
+    const id = projectId ?? useProjectContentStore.getState().projectId;
+    this.paperRestoredFor = id || null;
+  }
+
+  isPaperRestored(projectId?: string | null): boolean {
+    const id = projectId ?? useProjectContentStore.getState().projectId;
+    return !!id && this.paperRestoredFor === id;
+  }
+
   private isPaperProjectReady(): boolean {
     try {
       return !!(paper && paper.project && paper.view);
@@ -1477,6 +1495,7 @@ class PaperSaveService {
 
       if (!jsonString || jsonString.trim() === '') {
         console.log('📝 空的Paper.js内容，跳过反序列化');
+        this.markPaperRestored();
         return true;
       }
 
@@ -1602,6 +1621,7 @@ class PaperSaveService {
       }
 
       if (paper.view) (paper.view as any).update();
+      this.markPaperRestored();
       return true;
     } catch (error) {
       console.error('❌ Paper.js项目反序列化失败:', error);
@@ -1618,6 +1638,8 @@ class PaperSaveService {
    * 用于切换到“新建空项目”或在加载新项目前的画布重置
    */
   clearProject(): boolean {
+    // 清空后到下一次恢复完成前，运行时画板不代表项目内容。
+    this.paperRestoredFor = null;
     try {
       if (!this.isPaperProjectReady()) return false;
 
@@ -1781,6 +1803,20 @@ class PaperSaveService {
         return;
       }
 
+      // 本次加载后用户尚未操作：图片解码、重排等系统触发的保存不改写云端画板。
+      if (!hasAutosaveUserIntent(contentStore.projectId)) {
+        return;
+      }
+
+      // 画板尚未从项目内容恢复：运行时画板为空或属于上一个项目，不能改写 paperJson / assets。
+      if (!this.isPaperRestored(contentStore.projectId)) {
+        console.warn('⚠️ 画板尚未恢复，本次保存保留已有 paperJson 与图片资产', {
+          projectId: contentStore.projectId,
+          reason: this.pendingSaveReason,
+        });
+        return;
+      }
+
       const gatheredAssets = await this.gatherAssets();
       const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
       const normalizedAssets = await this.ensureRemoteAssets(sanitizedAssets);
@@ -1860,10 +1896,11 @@ class PaperSaveService {
       }
 
       const patch: Record<string, any> = {
-        assets: normalizedAssets,
         updatedAt: new Date().toISOString(),
       };
+      // assets 由画板运行时采集：画板未序列化时同样保留已有值，避免写入空图片列表。
       if (shouldUpdatePaperSnapshot) {
+        patch.assets = normalizedAssets;
         patch.paperJson = paperJson || undefined;
         patch.meta = paperJson ? { paperJsonLen: paperJson.length } : undefined;
       }
