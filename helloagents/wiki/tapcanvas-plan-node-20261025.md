@@ -17,7 +17,7 @@
   - 资产规划接口没有总时长字段，`max_duration` 且无目标总长时 TapCanvas 每段固定取模型上限；`single_shot` 又会逐镜头展开（同项目另一次出 8 段共 48 秒）。复刻提交时前端取参考视频时长（视频节点 `data.duration`，缺失则读 URL 元数据，读不到不阻塞），后端写入提示词「成片时长：原片约 N 秒，全部 Clip 时长之和须一致（±1 秒）」；字段只走提示词，不进 strict 请求体。（已被三次修订取代。）
   - 三次修订（同日，同项目 17 秒原片在「单镜头」下出 11 段共 45 秒）：TapCanvas `single_shot` 把每个 Clip 冻结为恰好一镜且 ≥4 秒，快剪原片必然被放大，提示词的总长约束压不住；`max_duration` + `step=S` 则每段固定 S 秒、段内可多镜头、段数由作者定。故复刻读到原片时长时，后端 `remakeClipPlan` 取等长 N 段（N×S 与原片差 ≤1 秒且段数最少，17 → 2×9），请求改发 `clipPreference=max_duration`、`step=S`，提示词写明段数/段长与“Clip 内按原片切点多镜头”；节点在复刻模式隐藏分段方式与单段上限。读不到时长时不带这两个字段（TapCanvas 默认 single_shot）。
   - 规划常为无 Clip 引用的道具/色板/特效也设计参考图（单 Clip 被参考图上限挤掉）。展开时只建被视频实际连上（首帧或上限内参考）及其身份依赖链上的图片，其余不建节点，在展开提示中列出标题，避免「运行组」白生成扣费；无视频的规划保留全部图片。
-  - 根治需 TapCanvas 资产规划请求新增 `targetDurationSeconds` 并透传为 Workflow `triggerPayload.targetDurationSeconds`（执行层已支持精确总长），上线后 Tanva 再改为字段传递。
+  - 根治：TapCanvas-pro 资产规划请求新增可选 `targetDurationSeconds`（整数 1–180），透传为 Workflow `triggerPayload.targetDurationSeconds` 与 request-only 上下文，执行层按精确总长冻结时长计划。Tanva 后端 `TAPCANVAS_PLAN_EXACT_DURATION=true` 时，原片 4–180 秒的复刻改发 `targetDurationSeconds` + `max_duration`、不带 `step`，提示词写“全部 Clip 合计恰好 N 秒”；开关关闭或时长越界时回落 N×S。**必须先部署 TapCanvas 再开开关**，否则 strict schema 会以 400 拒绝。
 - 节点内可停止、失败续跑（TapCanvas 子任务 + 新订单）、再展开一份；刷新后按节点 `taskId` 恢复轮询。
 
 当前「爆款复刻」是“参考视频作为资产规划输入素材”的方案；TapCanvas 自身复刻链路的逐秒拆解（`video-remakes`）尚未提供 plan-only 出口，后续可替换为该出口而节点与结算不变。

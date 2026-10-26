@@ -30,6 +30,20 @@ const run = (): void => {
   assert.equal(timedRequest.clipPreference, 'max_duration', 'remake with known duration overrides the node choice');
   assert.equal(timedRequest.step, 9);
   assert.ok(!('sourceDurationSeconds' in timedRequest), 'duration only travels in the prompt (TapCanvas request is strict)');
+  // 上游支持精确总长后：直接冻结 targetDurationSeconds，不再带 step（17 秒不再被凑成 18 秒）。
+  const exactRequest = buildAssetPlanRequest({ ...timed, clipPreference: 'single_shot', step: 15 }, true);
+  assert.equal(exactRequest.targetDurationSeconds, 17);
+  assert.equal(exactRequest.clipPreference, 'max_duration');
+  assert.ok(!('step' in exactRequest), 'exact total leaves clip lengths to TapCanvas');
+  assert.match(String(exactRequest.prompt), /全部 Clip 合计恰好 17 秒/);
+  assert.doesNotMatch(String(exactRequest.prompt), /每个 9 秒/);
+  // 超出上游 1–180 / 合法最短 4 秒范围的回落 N×S；一键成片从不带总长。
+  const long = parsePlanInput({ ...base, mode: 'remake', sourceDurationSeconds: 300, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] });
+  assert.ok(!('targetDurationSeconds' in buildAssetPlanRequest(long, true)));
+  assert.equal(buildAssetPlanRequest(long, true).step, 15);
+  const short = parsePlanInput({ ...base, mode: 'remake', sourceDurationSeconds: 3, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] });
+  assert.ok(!('targetDurationSeconds' in buildAssetPlanRequest(short, true)));
+  assert.ok(!('targetDurationSeconds' in buildAssetPlanRequest(parsePlanInput({ ...base, text: 'x' }), true)));
   for (const [seconds, count, each] of [[3, 1, 4], [10, 1, 10], [17, 2, 9], [29, 2, 15], [31, 3, 10], [60, 4, 15], [100, 9, 11]]) {
     assert.deepEqual(remakeClipPlan(seconds), { count, seconds: each }, `${seconds}s`);
   }

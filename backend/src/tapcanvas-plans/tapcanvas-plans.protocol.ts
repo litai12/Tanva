@@ -47,6 +47,8 @@ const MAX_TEXT = 200_000;
 const MAX_IMAGES = 12;
 /** TapCanvas 视频模型（Seedance 2.x / minimax-h3）合法单段时长。 */
 const CLIP_SECONDS = { min: 4, max: 15 };
+/** TapCanvas AssetPlanRequest.targetDurationSeconds 上限（2026-10-25 新增字段）。 */
+const MAX_TARGET_DURATION = 180;
 
 const pick = <T extends readonly string[]>(value: unknown, allowed: T, name: string, fallback?: T[number]): T[number] | undefined => {
   if (value === undefined || value === null || value === '') return fallback;
@@ -121,39 +123,52 @@ export function remakeClipPlan(sourceSeconds: number): { count: number; seconds:
   return best;
 }
 
-const remakeDurationLine = (sourceSeconds: number) => {
+/** 上游支持 targetDurationSeconds 且原片时长在合法范围内时，按精确总长下发。 */
+export const usesExactDuration = (input: Pick<PlanInput, 'mode' | 'sourceDurationSeconds'>, exactDuration: boolean) =>
+  exactDuration && input.mode === 'remake' && !!input.sourceDurationSeconds
+  && input.sourceDurationSeconds >= CLIP_SECONDS.min && input.sourceDurationSeconds <= MAX_TARGET_DURATION;
+
+const REMAKE_SHOT_RULE = '按原片镜头切点把连续的若干镜头放进同一个 Clip（Clip 内多镜头切换），原片的每个镜头都要落到某个 Clip 中，不得删减，也不得为凑时长新增镜头。';
+
+const remakeDurationLine = (sourceSeconds: number, exact: boolean) => {
+  if (exact) return `成片时长：与原片一致，全部 Clip 合计恰好 ${sourceSeconds} 秒。${REMAKE_SHOT_RULE}`;
   const { count, seconds } = remakeClipPlan(sourceSeconds);
-  return `成片时长：原片约 ${sourceSeconds} 秒，复刻为 ${count} 个 Clip、每个 ${seconds} 秒（合计 ${count * seconds} 秒）。`
-    + `按原片镜头切点把连续的若干镜头放进同一个 Clip（Clip 内多镜头切换），原片的每个镜头都要落到某个 Clip 中，不得删减，也不得为凑时长新增镜头。`;
+  return `成片时长：原片约 ${sourceSeconds} 秒，复刻为 ${count} 个 Clip、每个 ${seconds} 秒（合计 ${count * seconds} 秒）。${REMAKE_SHOT_RULE}`;
 };
 
 /** 交给 TapCanvas 的创作原文。复刻模式沿用 TapCanvas 爆款复刻的边界：原视频只用于理解，不作为任何生成输入。 */
-export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds'>): string {
+export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds'>, exactDuration = false): string {
   if (input.mode === 'film') {
     return [FILM_GUIDE, input.requirement ? `\n创作要求：${input.requirement}` : '', '\n章节原文：', input.text].join('\n').trim();
   }
   return [
     '爆款复刻：创作来源是参考视频（input 中的视频素材）的逐镜头理解，按它复刻节奏、镜头切点、景别、运镜与声音结构。原视频不得作为任何生成接口的输入，也不得直接引用原视频画面。',
     `复刻要求：${input.requirement || REMAKE_DEFAULT_REQUIREMENT}`,
-    // 资产规划接口没有总时长字段：段数与段长由 remakeClipPlan 定死（请求同时冻结 max_duration + step），这里写明给作者。
-    input.sourceDurationSeconds ? remakeDurationLine(input.sourceDurationSeconds) : '',
+    // 精确总长由 targetDurationSeconds 冻结；上游未上线该字段时，段数与段长由 remakeClipPlan 定死（max_duration + step）。
+    input.sourceDurationSeconds ? remakeDurationLine(input.sourceDurationSeconds, usesExactDuration(input, exactDuration)) : '',
     input.text ? `\n补充原文/设定：\n${input.text}` : '',
   ].join('\n').trim();
 }
 
-/** TapCanvas AssetPlanRequest（strict：不得带未声明字段）。 */
-export function buildAssetPlanRequest(input: PlanInput): Record<string, unknown> {
-  // 复刻且读到原片时长：分段方式与段长由原片决定，覆盖节点上的选择。
-  const timed = input.mode === 'remake' && input.sourceDurationSeconds
-    ? { step: remakeClipPlan(input.sourceDurationSeconds).seconds, clipPreference: 'max_duration' as const } : null;
-  const step = timed?.step ?? input.step;
+/**
+ * TapCanvas AssetPlanRequest（strict：不得带未声明字段）。
+ * @param exactDuration 上游已支持 targetDurationSeconds（TAPCANVAS_PLAN_EXACT_DURATION）；未上线时发送会被 400 拒绝。
+ */
+export function buildAssetPlanRequest(input: PlanInput, exactDuration = false): Record<string, unknown> {
+  // 复刻且读到原片时长：分段方式与总长由原片决定，覆盖节点上的选择。
+  const exact = usesExactDuration(input, exactDuration);
+  const timed = exact ? { step: undefined, clipPreference: 'max_duration' as const }
+    : input.mode === 'remake' && input.sourceDurationSeconds
+      ? { step: remakeClipPlan(input.sourceDurationSeconds).seconds, clipPreference: 'max_duration' as const } : null;
+  const step = timed ? timed.step : input.step;
   const clipPreference = timed?.clipPreference ?? input.clipPreference;
   return {
-    prompt: buildPlanPrompt(input),
+    prompt: buildPlanPrompt(input, exactDuration),
     modelKey: input.modelKey,
     reasoningEffort: input.reasoningEffort,
     assets: input.assets,
     ...(step !== undefined ? { step } : {}),
+    ...(exact ? { targetDurationSeconds: input.sourceDurationSeconds } : {}),
     ...(clipPreference ? { clipPreference } : {}),
     ...(input.knowledgeTier ? { knowledgeTier: input.knowledgeTier } : {}),
   };

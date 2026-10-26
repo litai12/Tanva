@@ -67,7 +67,7 @@ export class TapcanvasPlansService {
   async create(userId: string, raw: any, rawTeamId: unknown) {
     if (!this.orders.isEnabled()) throw new ServiceUnavailableException('网关签名消费结算未开启，暂不能提交规划');
     const input = parsePlanInput(raw);
-    const request = buildAssetPlanRequest(input);
+    const request = buildAssetPlanRequest(input, this.config.get<string>('TAPCANVAS_PLAN_EXACT_DURATION') === 'true');
     const identity = sha(`${userId}\n${input.clientRequestId}`);
     return this.admit(userId, rawTeamId, identity, {
       mode: input.mode, nodeId: input.nodeId, projectId: input.projectId,
