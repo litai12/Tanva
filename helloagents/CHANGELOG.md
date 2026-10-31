@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-31：101 数据库连接池扩容。PG `max_connections`=100 不是瓶颈，Prisma 默认池在 101 上实测只有 5 个连接（`pool_timeout` 10s），60 并发复刻出 40 个 `P2024`。服务器 `DATABASE_URL` 追加 `connection_limit=40&pool_timeout=20`，同步更新 PM2 保存的环境（`--update-env` + `pm2 save`），复测 60/60 成功；队列空闲时 reload，health 200。新增复刻脚本 `backend/scripts/db-pool-loadtest.cjs`。见 `wiki/db-connection-pool-20261031.md`。
+
 - 2026-10-26：修复协作下「卡在生成中」的僵尸节点：协作补丁（改参数/缩放时广播整份 node.data）会带上发起端的运行态（status=running、progressStartedAt 等），而 Nano Banana 等同步生图（`/ai/generate-image`）不建 ImageTask、后端从不广播状态与结果，对端节点永远停在模拟进度 95% 且看不到图（项目 40993338，云端数据其实已有图）。前端 `stripFlowRunStateForCollab` 在收发协作补丁时剔除运行态字段；后端同步生图按 nodeId 广播 `task_status`（processing → succeeded 带图 / failed），对端据此回填终态与结果。`npm run test:flow-progress-runtime`、`test:flow-image-submission` 通过。
 
 - 2026-10-25：修复画板（Paper.js 图层）图片整批丢失：项目 40993338 在 10-24 v148→v149 被另一台设备打开约 7 秒后的自动保存覆盖为空画板（Flow 60/73 不变，体积少约 56KB），原因是保存只检查 Paper 项目存在，不检查云端画板是否已恢复进运行时，Flow 自动保存前的画板刷新也会带上空画板与空 `assets.images`。`paperSaveService` 新增按项目的「画板已恢复」门禁（反序列化成功或内容无画板时放行，`clearProject` 关闭），未恢复时保存保留原 paperJson/assets，恢复失败给出提示；后端在画板图片清空或骤降过半时先把旧 project.json 复制到 `<prefix>backups/paper-v<版本>-<时间>.json`（`[ProjectPaperPlungeGuard]`，`npm run test:paper-plunge-guard`）。另加用户意图门禁 `utils/autosaveUserIntent.ts`：每次加载项目重新计时，用户产生真实输入（isTrusted 的指针/键盘/粘贴/拖放/输入）之前，Flow 自动保存、画板保存与关页提示都不触发，水合、图片解码、重排、协作补丁等系统改动不再写云端；手动保存显式标记（`npm run test:autosave-user-intent`）。本地测试与构建通过，未部署；已丢失的 40993338 画板不做恢复。
