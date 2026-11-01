@@ -14,33 +14,28 @@ const INSTRUCTIONS = `Tanva（tanvas.cn）是 AI 设计画布平台。本服务�
 // ------------------------------------------------------------ token check
 
 interface TokenInfo { userId: string; exp: number }
-const tokenCache = new Map<string, { info: TokenInfo; checkedAt: number }>();
 
 function decodeJwt(token: string): { sub?: string; exp?: number } | null {
   try { return JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')); } catch { return null; }
 }
 
 /**
- * Cheap local expiry check + upstream signature/ban check cached for 60s, so an
- * expired/revoked token yields HTTP 401 (which makes MCP clients refresh) rather
- * than a tool error.
+ * Local expiry pre-check, then a live upstream check on every request (no cache):
+ * a revoked / banned / expired grant yields HTTP 401 on the very next MCP request,
+ * which makes MCP clients refresh or re-authorize instead of seeing a tool error.
+ * The upstream call goes over loopback (TANVA_API_ORIGIN) and is cheap.
  */
 async function verifyToken(config: TanvaMcpConfig, token: string): Promise<TokenInfo | null> {
   const claims = decodeJwt(token);
   if (!claims?.exp || claims.exp * 1000 <= Date.now() + 5_000) return null;
-  const cached = tokenCache.get(token);
-  if (cached && Date.now() - cached.checkedAt < 60_000) return cached.info;
   const res = await fetch(new URL('/api/auth/me', config.apiOrigin), {
     headers: { authorization: `Bearer ${token}`, accept: 'application/json', 'user-agent': `tanva-mcp/${VERSION}` },
     signal: AbortSignal.timeout(10_000),
   });
-  if (res.status === 401 || res.status === 403) { tokenCache.delete(token); return null; }
+  if (res.status === 401 || res.status === 403) return null;
   if (!res.ok) throw new Error(`Tanva 鉴权服务异常（HTTP ${res.status}）`);
   const body = (await res.json()) as { user?: { id?: string } };
-  const info = { userId: body.user?.id || claims.sub || '', exp: claims.exp * 1000 };
-  if (tokenCache.size > 10_000) for (const [key, value] of tokenCache) if (value.info.exp < Date.now() || tokenCache.size > 5_000) tokenCache.delete(key);
-  tokenCache.set(token, { info, checkedAt: Date.now() });
-  return info;
+  return { userId: body.user?.id || claims.sub || '', exp: claims.exp * 1000 };
 }
 
 // ---------------------------------------------------------------- helpers

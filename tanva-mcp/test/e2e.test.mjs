@@ -12,6 +12,8 @@ const jwt = (claims) => `${Buffer.from('{"alg":"HS256"}').toString('base64url')}
 const VALID = jwt({ sub: 'u1', exp: Math.floor(Date.now() / 1000) + 3600 });
 const REVOKED = jwt({ sub: 'u1', exp: Math.floor(Date.now() / 1000) + 3600, jti: 'revoked' });
 const EXPIRED = jwt({ sub: 'u1', exp: Math.floor(Date.now() / 1000) - 10 });
+const LATE = jwt({ sub: 'u1', exp: Math.floor(Date.now() / 1000) + 3600, jti: 'late' });
+let lateRevoked = false;
 
 const seen = [];
 let taskPolls = 0;
@@ -28,7 +30,7 @@ const fakeApi = createServer(async (req, res) => {
     },
     components: { schemas: { CreateProjectDto: { type: 'object', properties: { name: { type: 'string' } } } } },
   });
-  if (req.headers.authorization !== `Bearer ${VALID}`) return send(401, { message: 'Unauthorized' });
+  if (req.headers.authorization !== `Bearer ${VALID}` && !(req.headers.authorization === `Bearer ${LATE}` && !lateRevoked)) return send(401, { message: 'Unauthorized' });
   if (url.pathname === '/api/auth/me') return send(200, { user: { id: 'u1', name: 'Fixture' } });
   if (url.pathname === '/api/credits/balance') return send(200, { balance: 123 });
   if (url.pathname === '/api/projects') return send(200, [{ id: 'p1', name: 'Demo' }]);
@@ -115,4 +117,14 @@ test('generic api_request: full access, readable errors, path guard', async () =
   const described = textOf(await client.callTool({ name: 'tanva_describe_endpoint', arguments: { method: 'POST', path: '/api/projects' } }));
   assert.match(described, /"name"/);
   await client.close();
+});
+
+test('revocation takes effect on the very next MCP request (no verification cache)', async () => {
+  const client = await connect(LATE);
+  assert.equal((await client.listTools()).tools.length, 9);
+  await client.close();
+  lateRevoked = true;
+  const res = await fetch(mcpUrl, { method: 'POST', headers: { authorization: `Bearer ${LATE}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
+  assert.equal(res.status, 401);
+  assert.match(res.headers.get('www-authenticate'), /invalid_token/);
 });

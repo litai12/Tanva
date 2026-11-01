@@ -23,7 +23,7 @@
 - **吊销立即生效**：`JwtStrategy` 遇到带 `gid` 的令牌时，查 `UsersService.hasActiveOAuthGrant`（走 grantId 索引）。`/api/oauth/revoke` 接受 refresh 或 access 令牌，带 Agent refresh 令牌调 `/api/auth/logout` 也会吊销整条授权（`AuthService.revokeOAuthGrant`）。
 - **redirect_uri**：允许 https、本机回环 http（端口可以不同）、私有 scheme（如 `workbuddy://`）；禁用 javascript/data/file 等。按字符串精确匹配。
 - **授权码**：存的是 sha256 哈希，10 分钟有效，单次使用（校验失败也会作废）；PKCE 只支持 S256；`resource` 只接受 `https://tanvas.cn/mcp` 或 issuer 本身。
-- **MCP 层鉴权**：先在本地检查 JWT 是否过期，再调 `/api/auth/me` 校验签名和封禁状态（结果缓存 60 秒）。校验失败返回 HTTP 401 并带上 `WWW-Authenticate resource_metadata`，客户端收到后会自动刷新或重新授权。
+- **MCP 层鉴权**：先在本地检查 JWT 是否过期，再实时调 `/api/auth/me` 校验签名、封禁与授权是否被吊销（不缓存，吊销后下一次请求即 401）。校验失败返回 HTTP 401 并带上 `WWW-Authenticate resource_metadata`，客户端收到后会自动刷新或重新授权。
 - **30 秒限制**：上游单次调用 25 秒超时；生图走 `generate-image-async`，等待不超过 20 秒，未完成就返回 taskId，交给 `tanva_get_image_task` 继续查。
 - **防止令牌被转用**：`tanva_api_request` 只能访问 `/api/*`，并且禁止调用 `/api/oauth/*` 和 `/api/auth/{desktop,refresh,logout,login,register}`。
 
