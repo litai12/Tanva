@@ -1,0 +1,24 @@
+{
+  "name": "Tanva",
+  "name_en": "Tanva",
+  "name_zh": "Tanva 画布",
+  "description": "连接 Tanva AI 设计画布：管理项目与素材、AI 生成图片、查询积分，并可调用 Tanva 全部开放接口。",
+  "description_zh": "连接 Tanva AI 设计画布：管理项目与素材、AI 生成图片、查询积分，并可调用 Tanva 全部开放接口。",
+  "description_en": "Connect Tanva AI design canvas: manage projects and assets, generate images with AI, check credits, and call any Tanva API.",
+  "source": "tanvas",
+  "type": "mcp",
+  "version": "1.0.0",
+  "examples_zh": [
+    "看看我的 Tanva 账号还剩多少积分",
+    "列出我在 Tanva 上最近的项目",
+    "用 Tanva 生成一张 16:9 的赛博朋克城市夜景海报",
+    "把 Tanva 里叫「新品发布」的项目详情给我看看"
+  ],
+  "examples_en": [
+    "How many credits are left on my Tanva account?",
+    "List my recent Tanva projects",
+    "Generate a 16:9 cyberpunk city night poster with Tanva",
+    "Show me the details of my Tanva project named \"Launch\""
+  ],
+  "minWorkbuddyVersion": "4.24.0"
+}

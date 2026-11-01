@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-31：新增远程 MCP 服务与 MCP OAuth 2.1 授权服务器，用于外部 Agent / WorkBuddy 连接器一键授权接入。后端 `/api/oauth/*`（公开客户端、PKCE S256、RFC 7591 无状态动态注册、consent 页、单次使用授权码，令牌即 Tanva 会话，支持 refresh 轮换与 revoke）；独立目录 `tanva-mcp/`（无状态 Streamable HTTP `/mcp` + `/.well-known/oauth-*`，提供账号 / 积分 / 项目 / 异步生图 / OpenAPI 检索 / 通用 `/api/*` 调用等工具）；前端登录回跳放行 `/api/oauth/consent`；WorkBuddy 连接器包在 `tanva-mcp/workbuddy/`。`npm run test:oauth`、`tanva-mcp npm test` 通过，未部署（需新增 PM2 进程和 Nginx 规则）。见 `wiki/mcp-oauth-workbuddy-20261031.md`。
+
 - 2026-10-31：101 数据库连接池扩容。PG `max_connections`=100 不是瓶颈，Prisma 默认池在 101 上实测只有 5 个连接（`pool_timeout` 10s），60 并发复刻出 40 个 `P2024`。服务器 `DATABASE_URL` 追加 `connection_limit=40&pool_timeout=20`，同步更新 PM2 保存的环境（`--update-env` + `pm2 save`），复测 60/60 成功；队列空闲时 reload，health 200。新增复刻脚本 `backend/scripts/db-pool-loadtest.cjs`。见 `wiki/db-connection-pool-20261031.md`。
 
 - 2026-10-26：修复协作下「卡在生成中」的僵尸节点：协作补丁（改参数/缩放时广播整份 node.data）会带上发起端的运行态（status=running、progressStartedAt 等），而 Nano Banana 等同步生图（`/ai/generate-image`）不建 ImageTask、后端从不广播状态与结果，对端节点永远停在模拟进度 95% 且看不到图（项目 40993338，云端数据其实已有图）。前端 `stripFlowRunStateForCollab` 在收发协作补丁时剔除运行态字段；后端同步生图按 nodeId 广播 `task_status`（processing → succeeded 带图 / failed），对端据此回填终态与结果。`npm run test:flow-progress-runtime`、`test:flow-image-submission` 通过。

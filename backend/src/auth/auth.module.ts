@@ -15,6 +15,8 @@ import { TeamCoreModule } from '../team-core/team-core.module';
 import { WechatLoginSessionRateLimitService } from './wechat-login-session-rate-limit.service';
 import { DesktopGrantService } from './desktop-grant.service';
 import { DesktopAuthController, OptionalDesktopJwtGuard } from './desktop-auth.controller';
+import { OAuthService } from './oauth/oauth.service';
+import { OAuthController } from './oauth/oauth.controller';
 
 @Module({
   imports: [
@@ -35,8 +37,9 @@ import { DesktopAuthController, OptionalDesktopJwtGuard } from './desktop-auth.c
     RefreshJwtStrategy,
     DesktopGrantService,
     OptionalDesktopJwtGuard,
+    OAuthService,
   ],
-  controllers: [AuthController, DesktopAuthController],
+  controllers: [AuthController, DesktopAuthController, OAuthController],
   exports: [AuthService],
 })
 export class AuthModule {}

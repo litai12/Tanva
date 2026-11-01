@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tanvas": {
+      "type": "streamableHttp",
+      "url": "https://tanvas.cn/mcp",
+      "timeout": 30000
+    }
+  }
+}

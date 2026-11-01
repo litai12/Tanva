@@ -1,0 +1,37 @@
+{
+  "name": "tanva-mcp",
+  "version": "0.1.0",
+  "description": "Remote MCP server (Streamable HTTP + OAuth 2.1) for Tanva — lets WorkBuddy, Claude, Cursor and other MCP agents act on a Tanva account after one-click browser authorization.",
+  "type": "module",
+  "bin": {
+    "tanva-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "workbuddy"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "npm run build && node --test test/"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "tanva",
+    "agent"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.6.0"
+  }
+}
