@@ -31,9 +31,16 @@
 - 前端：`node --experimental-strip-types --test src/services/desktopLoginReturnTo.test.ts`
 - MCP：`cd tanva-mcp && npm test`，用官方 SDK 客户端加模拟 API，覆盖 401 质询、服务发现文档、工具调用、异步生图、路径防护。
 
-## 上线步骤（未部署）
+## 101 发布（2026-11-01，`4524bdc6`）
 
-1. 后端 build，然后 `pm2 reload tanvas-api`。
-2. `tanva-mcp`：`npm ci && npm run build && pm2 start deploy/ecosystem.config.cjs`。
-3. Nginx：在 tanvas.cn 的 server 块加入 `deploy/nginx-tanvas.conf`（`/mcp` 和 `/.well-known/oauth-` 两条规则）。
-4. 用 MCP Inspector 对 `https://tanvas.cn/mcp` 实际走一遍授权，确认通过后，在 WorkBuddy 开放平台完成企业入驻并提交 `tanva-mcp/workbuddy/` 目录。
+- 后端：服务器 `git pull` → `npm run build` → `pm2 reload tanvas-api`（reload 前确认 `image-tasks` / `video-analysis-tasks` 队列 active=0、wait=0）。`/api/oauth/metadata` 内网返回正常。
+- MCP：`tanva-mcp/` 下 `npm ci && npm run build && pm2 start deploy/ecosystem.config.cjs && pm2 save`，进程 `tanvas-mcp` 监听 127.0.0.1:3920（服务器 Node v20.20.2）。
+- Nginx：`deploy/nginx-tanvas.conf` 复制为 `/www/server/panel/vhost/nginx/extension/tanvas.cn/mcp.conf`（宝塔主配置已 include 该目录，不改主配置），`nginx -t` 通过后 reload。回滚：删除该文件后 reload。
+- 前端：本机以 `GITHUB_SHA` 构建，发布目录 `/opt/tanva-releases/mcp-oauth-20261101-4524bdc6/`（含 48 文件 SHA-256 清单），旧版备份 `/opt/tanva-backups/mcp-oauth-20261101-4524bdc6/frontend-dist.tar.gz`。先同步资源，最后切换 `sw.js` / `version.json` / `index.html`，不删除旧 hash 资源。
+- 公网核验：`POST /mcp` 401 + `WWW-Authenticate resource_metadata`；两份 `/.well-known/oauth-*` 200；动态注册返回 `tmc_` client_id；`/api/oauth/authorize` 302 到 consent，未登录 302 到 `/auth/login?returnTo=/api/oauth/consent?...`；`version.json` commitSha=4524bdc6bfd7，入口 JS 哈希一致，旧 hash 资源仍 200；`/api/health` ok；PM2 三个进程 online。
+- 未完成：尚未用 MCP Inspector / Claude Code / WorkBuddy 真实走完浏览器授权与工具调用。
+
+## 后续
+
+1. 用 MCP Inspector 对 `https://tanvas.cn/mcp` 实际走一遍授权与工具调用。
+2. 在 WorkBuddy 开放平台完成企业入驻，提交 `tanva-mcp/workbuddy/` 目录。

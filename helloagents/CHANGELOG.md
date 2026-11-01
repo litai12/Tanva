@@ -1,6 +1,6 @@
 # Changelog
 
-- 2026-10-31：新增远程 MCP 服务与 MCP OAuth 2.1 授权服务器，用于外部 Agent / WorkBuddy 连接器一键授权接入。后端 `/api/oauth/*`（公开客户端、PKCE S256、RFC 7591 无状态动态注册、consent 页、单次使用授权码，令牌即 Tanva 会话，支持 refresh 轮换与 revoke）；独立目录 `tanva-mcp/`（无状态 Streamable HTTP `/mcp` + `/.well-known/oauth-*`，提供账号 / 积分 / 项目 / 异步生图 / OpenAPI 检索 / 通用 `/api/*` 调用等工具）；前端登录回跳放行 `/api/oauth/consent`；WorkBuddy 连接器包在 `tanva-mcp/workbuddy/`。`npm run test:oauth`、`tanva-mcp npm test` 通过，未部署（需新增 PM2 进程和 Nginx 规则）。见 `wiki/mcp-oauth-workbuddy-20261031.md`。
+- 2026-10-31：新增远程 MCP 服务与 MCP OAuth 2.1 授权服务器，用于外部 Agent / WorkBuddy 连接器一键授权接入。后端 `/api/oauth/*`（公开客户端、PKCE S256、RFC 7591 无状态动态注册、consent 页、单次使用授权码，令牌即 Tanva 会话，支持 refresh 轮换与 revoke）；独立目录 `tanva-mcp/`（无状态 Streamable HTTP `/mcp` + `/.well-known/oauth-*`，提供账号 / 积分 / 项目 / 异步生图 / OpenAPI 检索 / 通用 `/api/*` 调用等工具）；前端登录回跳放行 `/api/oauth/consent`；WorkBuddy 连接器包在 `tanva-mcp/workbuddy/`。`npm run test:oauth`、`tanva-mcp npm test` 通过。2026-11-01 `4524bdc6` 已部署 101：后端 build + PM2 reload（队列空闲），新增 PM2 进程 `tanvas-mcp`（127.0.0.1:3920），Nginx 规则放在 `extension/tanvas.cn/mcp.conf`，前端静态增量发布；公网 401 质询、发现文档、动态注册、authorize→consent→登录跳转链路与 health 均核验通过，尚未用真实客户端走完授权。见 `wiki/mcp-oauth-workbuddy-20261031.md`。
 
 - 2026-10-31：101 数据库连接池扩容。PG `max_connections`=100 不是瓶颈，Prisma 默认池在 101 上实测只有 5 个连接（`pool_timeout` 10s），60 并发复刻出 40 个 `P2024`。服务器 `DATABASE_URL` 追加 `connection_limit=40&pool_timeout=20`，同步更新 PM2 保存的环境（`--update-env` + `pm2 save`），复测 60/60 成功；队列空闲时 reload，health 200。新增复刻脚本 `backend/scripts/db-pool-loadtest.cjs`。见 `wiki/db-connection-pool-20261031.md`。
 
