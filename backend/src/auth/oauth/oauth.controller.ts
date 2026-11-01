@@ -62,7 +62,7 @@ export class OAuthController {
         const state = (error as OAuthError & { state?: string }).state;
         return reply.code(HttpStatus.FOUND).redirect(this.oauth.redirectWith(error.redirectUri, { error: error.error, error_description: error.description, state }));
       }
-      if (error instanceof OAuthError) return this.page(reply, error.status === 401 ? 400 : error.status, '无法授权', `<p>${escapeHtml(error.description)}</p><p>请回到 Agent 中重新连接 Tanva。</p>`);
+      if (error instanceof OAuthError) return this.page(reply, error.status === 401 ? 400 : error.status, '无法授权', `<p>${escapeHtml(error.description)}</p><p>请回到 Agent 中重新连接 Tanvas。</p>`);
       throw error;
     }
   }
@@ -70,13 +70,13 @@ export class OAuthController {
   @Get('consent') @UseGuards(OptionalDesktopJwtGuard)
   async consent(@Query('requestId') id: string, @Req() request: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const pending = await this.oauth.readRequest(id);
-    if (!pending) return this.page(reply, 410, '授权已过期', '<p>此授权请求已过期或已处理，请回到 Agent 中重新连接 Tanva。</p>');
+    if (!pending) return this.page(reply, 410, '授权已过期', '<p>此授权请求已过期或已处理，请回到 Agent 中重新连接 Tanvas。</p>');
     if (!request.user) return reply.code(HttpStatus.FOUND).redirect(`/auth/login?returnTo=${encodeURIComponent(`/api/oauth/consent?requestId=${pending.id}`)}`);
     const nonce = randomBytes(16).toString('base64');
     const account = escapeHtml(request.user.name || request.user.phone || request.user.id);
     const input = JSON.stringify({ requestId: pending.id, csrf: pending.csrf }).replace(/</g, '\\u003c');
-    return this.page(reply, 200, '授权 Agent 访问 Tanva', `<p>当前账号：${account}</p>
-<p>「<strong>${escapeHtml(pending.clientName)}</strong>」请求以你的身份访问 Tanva（授权完成后将返回：${escapeHtml(redirectTarget(pending.redirectUri))}）。</p>
+    return this.page(reply, 200, '授权 Agent 访问 Tanvas', `<p>当前账号：${account}</p>
+<p>「<strong>${escapeHtml(pending.clientName)}</strong>」请求以你的身份访问 Tanvas（授权完成后将返回：${escapeHtml(redirectTarget(pending.redirectUri))}）。</p>
 <p class="warn">允许后，该应用将获得与你网页登录相同的<strong>全部权限</strong>：读取 / 修改 / 删除项目与资产、调用 AI 生成并<strong>消耗你的积分</strong>等。只授权你信任、且是你本人刚刚发起连接的应用。</p>
 <button id="approve">授权</button><button id="deny">拒绝</button><p id="message"></p>
 <script nonce="${nonce}">const input=${input};const buttons=[document.getElementById('approve'),document.getElementById('deny')];for(const button of buttons)button.onclick=async()=>{buttons.forEach(x=>x.disabled=true);try{const response=await fetch('/api/oauth/decision',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,decision:button.id})});const result=await response.json().catch(()=>({}));if(!response.ok||!result.redirectUrl)throw new Error(result.error_description||'授权失败，请回到 Agent 重新连接。');document.getElementById('message').textContent=button.id==='approve'?'已授权，正在返回应用…（若未自动跳转，可关闭此页面）':'已拒绝授权。';window.location.href=result.redirectUrl;}catch(error){document.getElementById('message').textContent=error.message;buttons.forEach(x=>x.disabled=false);}};</script>`, nonce);
@@ -85,9 +85,9 @@ export class OAuthController {
   @Post('decision') @UseGuards(JwtAuthGuard)
   async decision(@Body() body: { requestId?: string; csrf?: string; decision?: string }, @Req() request: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
-      if (request.headers.origin !== this.oauth.issuer) throw new OAuthError('access_denied', '授权必须来自 Tanva 网站', 401);
+      if (request.headers.origin !== this.oauth.issuer) throw new OAuthError('access_denied', '授权必须来自 Tanvas 网站', 401);
       const userId = request.user?.id || request.user?.sub;
-      if (!userId) throw new OAuthError('access_denied', '请先登录 Tanva', 401);
+      if (!userId) throw new OAuthError('access_denied', '请先登录 Tanvas', 401);
       const redirectUrl = await this.oauth.decide(body?.requestId, body?.csrf, userId, body?.decision);
       return reply.code(HttpStatus.OK).header('Cache-Control', 'no-store').send({ redirectUrl });
     } catch (error) { return this.sendError(reply, error); }

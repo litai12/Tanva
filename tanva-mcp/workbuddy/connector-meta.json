@@ -1,26 +1,26 @@
 {
-  "name": "Tanva",
-  "name_en": "Tanva",
-  "name_zh": "Tanva 画布",
-  "description": "连接 Tanva：一键成片、爆款复刻、AI 生视频与生图，管理项目与积分，并可调用 Tanva 全部开放接口。",
-  "description_zh": "连接 Tanva：一键成片、爆款复刻、AI 生视频与生图，管理项目与积分，并可调用 Tanva 全部开放接口。",
-  "description_en": "Connect Tanva: one-click films, viral remakes, AI video and image generation, projects and credits, plus any Tanva API.",
+  "name": "Tanvas",
+  "name_en": "Tanvas",
+  "name_zh": "Tanvas",
+  "description": "连接 Tanvas：一键成片、爆款复刻、AI 生视频与生图，管理项目与积分，并可调用 Tanvas 全部开放接口。",
+  "description_zh": "连接 Tanvas：一键成片、爆款复刻、AI 生视频与生图，管理项目与积分，并可调用 Tanvas 全部开放接口。",
+  "description_en": "Connect Tanvas: one-click films, viral remakes, AI video and image generation, projects and credits, plus any Tanvas API.",
   "source": "tanvas",
   "type": "mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "examples_zh": [
-    "用 Tanva 把这段故事做成 30 秒竖屏短片",
-    "用 Tanva 复刻这个爆款视频 https://example.com/demo.mp4",
-    "列出我在 Tanva 上最近的项目",
-    "用 Tanva 生成一张 16:9 的赛博朋克城市夜景海报",
-    "把 Tanva 里叫「新品发布」的项目详情给我看看"
+    "用 Tanvas 把这段故事做成 30 秒竖屏短片",
+    "用 Tanvas 复刻这个爆款视频 https://example.com/demo.mp4",
+    "列出我在 Tanvas 上最近的项目",
+    "用 Tanvas 生成一张 16:9 的赛博朋克城市夜景海报",
+    "把 Tanvas 里叫「新品发布」的项目详情给我看看"
   ],
   "examples_en": [
-    "Turn this story into a 30-second vertical short film with Tanva",
-    "Remake this viral video with Tanva: https://example.com/demo.mp4",
-    "List my recent Tanva projects",
-    "Generate a 16:9 cyberpunk city night poster with Tanva",
-    "Show me the details of my Tanva project named \"Launch\""
+    "Turn this story into a 30-second vertical short film with Tanvas",
+    "Remake this viral video with Tanvas: https://example.com/demo.mp4",
+    "List my recent Tanvas projects",
+    "Generate a 16:9 cyberpunk city night poster with Tanvas",
+    "Show me the details of my Tanvas project named \"Launch\""
   ],
   "minWorkbuddyVersion": "4.24.0"
 }

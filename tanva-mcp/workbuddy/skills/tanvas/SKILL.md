@@ -1,28 +1,28 @@
 ---
 name: tanvas
-display_name: Tanva 画布
-display_name_en: Tanva Canvas
-description: 操作用户的 Tanva（tanvas.cn）账号：一键成片、爆款复刻、生成视频与图片、查询积分、管理项目，以及调用任意 Tanva 接口。触发词：Tanva、tanvas、一键成片、爆款复刻、生成视频、生成图片、画布项目、积分余额。
-description_zh: 在对话中直接使用 Tanva：一键成片、爆款复刻、AI 生视频与生图
-description_en: Use Tanva in chat — one-click films, viral remakes, AI video and image generation
-version: 1.1.0
-author: Tanva
+display_name: Tanvas
+display_name_en: Tanvas
+description: 操作用户的 Tanvas（tanvas.cn）账号：一键成片、爆款复刻、生成视频与图片、查询积分、管理项目，以及调用任意 Tanvas 接口。触发词：Tanvas、tanvas、一键成片、爆款复刻、生成视频、生成图片、画布项目、积分余额。
+description_zh: 在对话中直接使用 Tanvas：一键成片、爆款复刻、AI 生视频与生图
+description_en: Use Tanvas in chat — one-click films, viral remakes, AI video and image generation
+version: 1.1.1
+author: Tanvas
 examples_zh:
-  - "用 Tanva 把这段故事做成 30 秒竖屏短片"
-  - "用 Tanva 复刻这个爆款视频 https://…/demo.mp4"
-  - "用 Tanva 生成一张极简风格的咖啡品牌海报"
+  - "用 Tanvas 把这段故事做成 30 秒竖屏短片"
+  - "用 Tanvas 复刻这个爆款视频 https://…/demo.mp4"
+  - "用 Tanvas 生成一张极简风格的咖啡品牌海报"
 examples_en:
-  - "Check my Tanva credits"
-  - "Generate a minimalist coffee brand poster with Tanva"
+  - "Check my Tanvas credits"
+  - "Generate a minimalist coffee brand poster with Tanvas"
 ---
 
-# Tanva 画布
+# Tanvas
 
-Tanva 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanva 账号，权限与用户网页登录完全相同。
+Tanvas 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanvas 账号，权限与用户网页登录完全相同。
 
 ## 授权
 
-首次使用时 WorkBuddy 会自动打开 Tanva 授权页：用户登录 Tanva 后点击「授权」即可。若工具返回「需要授权 / 授权已失效」，请提示用户在连接器中重新点击「连接」。
+首次使用时 WorkBuddy 会自动打开 Tanvas 授权页：用户登录 Tanvas 后点击「授权」即可。若工具返回「需要授权 / 授权已失效」，请提示用户在连接器中重新点击「连接」。
 
 ## 工具
 
@@ -41,7 +41,7 @@ Tanva 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanva
 | `tanva_get_project` | 项目详情 | `projectId`（必填），`includeContent`（默认 false，画布 JSON 很大） |
 | `tanva_generate_image` | AI 生成图片（**消耗积分**） | `prompt`（必填），`aspectRatio` 如 1:1 / 16:9，`imageSize` 如 1K/2K/4K，`aiProvider`，`imageUrls` 参考图（公网 URL），`waitSeconds` ≤ 20 |
 | `tanva_get_image_task` | 查询生图任务 | `taskId`（必填），`waitSeconds` ≤ 20 |
-| `tanva_list_endpoints` | 搜索 Tanva 全部接口 | `keyword`，`method`，`limit` |
+| `tanva_list_endpoints` | 搜索 Tanvas 全部接口 | `keyword`，`method`，`limit` |
 | `tanva_describe_endpoint` | 查看接口参数 / 请求体 | `method`，`path`（如 `/api/projects/{id}`） |
 | `tanva_api_request` | 调用任意 `/api/*` 接口 | `method`，`path`（路径参数直接填入），`query`，`body`，`teamId` |
 
@@ -61,5 +61,5 @@ Tanva 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanva
 ## 错误处理
 
 - `isError: true` 且含 `status` / `message`：把 `message` 转述给用户；403 表示无权限，404 表示资源不存在，402/积分相关提示需引导用户充值。
-- 「授权已失效」：请用户在 WorkBuddy 连接器中重新连接 Tanva。
+- 「授权已失效」：请用户在 WorkBuddy 连接器中重新连接 Tanvas。
 - 超时：改用异步接口，或稍后用任务 ID 查询。

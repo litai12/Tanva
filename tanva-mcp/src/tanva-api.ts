@@ -22,13 +22,13 @@ export class UpstreamUnauthorizedError extends Error {}
 
 const USER_AGENT = `tanva-mcp/${VERSION}`;
 
-/** Normalizes an agent-supplied path to a Tanva `/api/*` URL pinned to `apiOrigin`. */
+/** Normalizes an agent-supplied path to a Tanvas `/api/*` URL pinned to `apiOrigin`. */
 export function resolveApiUrl(apiOrigin: string, path: string, query?: ApiRequest['query']): URL {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || path.includes('\\')) {
     throw new Error('path 必须是以 / 开头的站内路径，例如 /api/projects');
   }
   const url = new URL(path.startsWith('/api/') ? path : `/api${path}`, apiOrigin);
-  if (url.origin !== apiOrigin || !url.pathname.startsWith('/api/')) throw new Error('只允许访问 Tanva 的 /api/* 接口');
+  if (url.origin !== apiOrigin || !url.pathname.startsWith('/api/')) throw new Error('只允许访问 Tanvas 的 /api/* 接口');
   // The MCP token must never be used to mint further OAuth grants or sessions.
   if (/^\/api\/(oauth|auth\/(desktop|refresh|logout|login|register))(\/|$)/.test(url.pathname)) {
     throw new Error('该接口不允许通过 MCP 调用');
@@ -37,7 +37,7 @@ export function resolveApiUrl(apiOrigin: string, path: string, query?: ApiReques
   return url;
 }
 
-/** Thin client for the Tanva REST API acting as the OAuth-authorized user. */
+/** Thin client for the Tanvas REST API acting as the OAuth-authorized user. */
 export class TanvaApi {
   constructor(private readonly apiOrigin: string, private readonly accessToken: string, private readonly timeoutMs: number) {}
 
@@ -59,11 +59,11 @@ export class TanvaApi {
       response = await fetch(url, { method: input.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(this.timeoutMs) });
     } catch (error) {
       if ((error as Error).name === 'TimeoutError') {
-        throw new Error(`Tanva 接口 ${input.method} ${url.pathname} 超过 ${Math.round(this.timeoutMs / 1000)} 秒未响应。耗时操作请使用异步接口（如 *-async + 任务查询）。`);
+        throw new Error(`Tanvas 接口 ${input.method} ${url.pathname} 超过 ${Math.round(this.timeoutMs / 1000)} 秒未响应。耗时操作请使用异步接口（如 *-async + 任务查询）。`);
       }
-      throw new Error(`无法连接 Tanva 接口：${(error as Error).message}`);
+      throw new Error(`无法连接 Tanvas 接口：${(error as Error).message}`);
     }
-    if (response.status === 401) throw new UpstreamUnauthorizedError('Tanva 授权已失效，请重新连接 Tanva');
+    if (response.status === 401) throw new UpstreamUnauthorizedError('Tanvas 授权已失效，请重新连接 Tanvas');
     return parseResponse(response);
   }
 }

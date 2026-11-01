@@ -3,7 +3,7 @@ export const VERSION = '0.2.0';
 export interface TanvaMcpConfig {
   /** Public origin users/agents see, e.g. https://tanvas.cn. Used for OAuth metadata and the MCP resource id. */
   publicOrigin: string;
-  /** Origin this service calls the Tanva API on (on the same box: http://127.0.0.1:4000 to skip nginx). */
+  /** Origin this service calls the Tanvas API on (on the same box: http://127.0.0.1:4000 to skip nginx). */
   apiOrigin: string;
   /** Path the MCP endpoint is mounted at (behind nginx). */
   mcpPath: string;
@@ -45,12 +45,12 @@ export function protectedResourceMetadata(config: TanvaMcpConfig) {
     authorization_servers: [config.publicOrigin],
     bearer_methods_supported: ['header'],
     scopes_supported: ['tanva'],
-    resource_name: 'Tanva',
+    resource_name: 'Tanvas',
     resource_documentation: `${config.publicOrigin}/api/docs`,
   };
 }
 
-/** Mirrors backend OAuthService.metadata(); the authorization server lives in the Tanva backend. */
+/** Mirrors backend OAuthService.metadata(); the authorization server lives in the Tanvas backend. */
 export function authorizationServerMetadata(config: TanvaMcpConfig) {
   const o = config.publicOrigin;
   return {

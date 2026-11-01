@@ -6,7 +6,7 @@ import { TanvaApi, UpstreamUnauthorizedError } from './tanva-api.js';
 import { registerTools } from './tools.js';
 
 const MAX_BODY = 4 * 1024 * 1024;
-const INSTRUCTIONS = `Tanva（tanvas.cn）是 AI 设计画布平台。本服务以用户 OAuth 授权的身份访问其 Tanva 账号，拥有与网页登录相同的全部权限。
+const INSTRUCTIONS = `Tanvas（tanvas.cn）是 AI 设计画布平台。本服务以用户 OAuth 授权的身份访问其 Tanvas 账号，拥有与网页登录相同的全部权限。
 - 常用操作优先使用内置工具：tanva_whoami / tanva_credits_balance / tanva_list_projects / tanva_get_project / tanva_generate_image。
 - 视频：一键成片 / 爆款复刻用 tanva_make_video，单段视频用 tanva_generate_video，之后用 tanva_video_job 轮询直到出片；指定模型前先 tanva_list_models。整条片约 5–15 分钟，轮询即可，不要重复提交。
 - 其它能力：tanva_list_endpoints 搜索接口 → tanva_describe_endpoint 看参数 → tanva_api_request 调用。
@@ -34,7 +34,7 @@ async function verifyToken(config: TanvaMcpConfig, token: string): Promise<Token
     signal: AbortSignal.timeout(10_000),
   });
   if (res.status === 401 || res.status === 403) return null;
-  if (!res.ok) throw new Error(`Tanva 鉴权服务异常（HTTP ${res.status}）`);
+  if (!res.ok) throw new Error(`Tanvas 鉴权服务异常（HTTP ${res.status}）`);
   const body = (await res.json()) as { user?: { id?: string } };
   return { userId: body.user?.id || claims.sub || '', exp: claims.exp * 1000 };
 }
@@ -57,7 +57,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 function unauthorized(res: ServerResponse, config: TanvaMcpConfig, invalid: boolean) {
   const metadataUrl = `${config.publicOrigin}/.well-known/oauth-protected-resource${config.mcpPath}`;
   const challenge = `Bearer realm="tanva", resource_metadata="${metadataUrl}"${invalid ? ', error="invalid_token", error_description="token expired or revoked"' : ''}`;
-  json(res, 401, { jsonrpc: '2.0', error: { code: -32001, message: '需要授权 Tanva 账号' }, id: null }, { 'www-authenticate': challenge });
+  json(res, 401, { jsonrpc: '2.0', error: { code: -32001, message: '需要授权 Tanvas 账号' }, id: null }, { 'www-authenticate': challenge });
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -105,7 +105,7 @@ export function createMcpHttpServer(config: TanvaMcpConfig): Server {
       if (!info) return unauthorized(res, config, true);
 
       const body = await readJson(req);
-      const server = new McpServer({ name: 'tanva', title: 'Tanva', version: VERSION }, { instructions: INSTRUCTIONS });
+      const server = new McpServer({ name: 'tanva', title: 'Tanvas', version: VERSION }, { instructions: INSTRUCTIONS });
       registerTools(server, { api: new TanvaApi(config.apiOrigin, token, config.apiTimeoutMs), apiOrigin: config.apiOrigin, timeoutMs: config.apiTimeoutMs });
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       res.on('close', () => { void transport.close(); void server.close(); });

@@ -58,7 +58,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('tanva_whoami', {
     title: '当前账号',
-    description: '返回当前授权的 Tanva 账号信息（id、昵称、手机号、角色等）。用于确认以哪个账号在操作。',
+    description: '返回当前授权的 Tanvas 账号信息（id、昵称、手机号、角色等）。用于确认以哪个账号在操作。',
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => fromResponse(await api.request({ method: 'GET', path: '/api/auth/me' })));
 
@@ -70,7 +70,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('tanva_list_projects', {
     title: '项目列表',
-    description: '列出当前账号可访问的 Tanva 项目（画布）。scope=personal 仅个人；scope=team 需配合 teamId 仅团队；不传返回个人 + 团队可访问项目。',
+    description: '列出当前账号可访问的 Tanvas 项目（画布）。scope=personal 仅个人；scope=team 需配合 teamId 仅团队；不传返回个人 + 团队可访问项目。',
     inputSchema: {
       scope: z.enum(['personal', 'team']).optional().describe('personal | team；不传为全部可访问'),
       teamId: z.string().optional().describe('团队 ID（scope=team 时必填）'),
@@ -112,7 +112,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('tanva_generate_image', {
     title: 'AI 生成图片',
-    description: '用 Tanva 的 AI 生成图片（会消耗当前账号积分）。提交异步任务后最多等待 waitSeconds 秒；未完成会返回 taskId，再用 tanva_get_image_task 查询结果。参考图 imageUrls 必须是可公开访问的 http(s) 地址。',
+    description: '用 Tanvas 的 AI 生成图片（会消耗当前账号积分）。提交异步任务后最多等待 waitSeconds 秒；未完成会返回 taskId，再用 tanva_get_image_task 查询结果。参考图 imageUrls 必须是可公开访问的 http(s) 地址。',
     inputSchema: {
       prompt: z.string().min(1).max(8000).describe('图片描述提示词'),
       aiProvider: z.string().optional().describe('生图通道，如 gemini-pro、banana-3.1、nano2、seedream5、midjourney；不传用默认'),
@@ -173,7 +173,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('tanva_list_models', {
     title: '可用模型列表',
-    description: '列出当前账号在 Tanva 可用的模型：plan（一键成片/爆款复刻的规划模型）、image（参考图生图模型）、video（视频模型），含是否可用、适用场景、参考价格（积分）与可选参数。指定模型前先调用本工具。',
+    description: '列出当前账号在 Tanvas 可用的模型：plan（一键成片/爆款复刻的规划模型）、image（参考图生图模型）、video（视频模型），含是否可用、适用场景、参考价格（积分）与可选参数。指定模型前先调用本工具。',
     inputSchema: { category: z.enum(['plan', 'image', 'video']).optional().describe('只看某一类；不传返回全部') },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ category }) => {
@@ -273,8 +273,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   });
 
   server.registerTool('tanva_list_endpoints', {
-    title: '查找 Tanva 接口',
-    description: '搜索 Tanva 全部开放 REST 接口（来自线上 OpenAPI 文档）。当内置工具不够用时，先用本工具找到接口，再用 tanva_describe_endpoint 看参数，最后用 tanva_api_request 调用。',
+    title: '查找 Tanvas 接口',
+    description: '搜索 Tanvas 全部开放 REST 接口（来自线上 OpenAPI 文档）。当内置工具不够用时，先用本工具找到接口，再用 tanva_describe_endpoint 看参数，最后用 tanva_api_request 调用。',
     inputSchema: {
       keyword: z.string().optional().describe('按路径 / 摘要 / 标签模糊匹配，如 project、video、credits、template'),
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
@@ -300,7 +300,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('tanva_describe_endpoint', {
     title: '接口参数说明',
-    description: '查看某个 Tanva 接口的参数与请求体结构（OpenAPI）。',
+    description: '查看某个 Tanvas 接口的参数与请求体结构（OpenAPI）。',
     inputSchema: {
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
       path: z.string().describe('OpenAPI 中的路径，如 /api/projects/{id}'),
@@ -318,8 +318,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   });
 
   server.registerTool('tanva_api_request', {
-    title: '调用任意 Tanva 接口',
-    description: '以当前授权用户身份调用任意 Tanva /api/* 接口（拥有与网页登录相同的全部权限）。路径参数请直接填入 path（如 /api/projects/abc123）。删除、付费、消耗积分、分享等操作前务必先向用户确认。耗时的生成类接口请优先使用 *-async 版本并轮询任务状态。',
+    title: '调用任意 Tanvas 接口',
+    description: '以当前授权用户身份调用任意 Tanvas /api/* 接口（拥有与网页登录相同的全部权限）。路径参数请直接填入 path（如 /api/projects/abc123）。删除、付费、消耗积分、分享等操作前务必先向用户确认。耗时的生成类接口请优先使用 *-async 版本并轮询任务状态。',
     inputSchema: {
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
       path: z.string().min(1).describe('以 /api/ 开头的路径，可带查询串'),
