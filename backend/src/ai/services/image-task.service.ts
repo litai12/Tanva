@@ -600,6 +600,18 @@ export class ImageTaskService {
   /**
    * 创建图像生成任务
    */
+  /** 成片流水线预估：与 worker 实扣相同的报价入参（不建任务、不扣费）。 */
+  creditQuoteInput(taskType: ImageTaskType, requestData: Record<string, any>, aiProvider?: string) {
+    const model = requestData?.model as string | undefined;
+    return {
+      serviceType: resolveTaskServiceType(taskType, model, typeof requestData?.modelVersion === 'string' ? requestData.modelVersion : undefined),
+      model,
+      outputImageCount: this.resolveAsyncTaskOutputImageCount(taskType, requestData),
+      requestParams: this.buildAsyncTaskCreditRequestParams('quote', taskType, requestData,
+        this.resolveAsyncTaskProviderName(aiProvider, requestData?.aiProvider)),
+    };
+  }
+
   async createTask(
     userId: string,
     type: ImageTaskType,

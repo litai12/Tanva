@@ -40,6 +40,11 @@ Agent ──POST /mcp  Authorization: Bearer … ─▶ tanva-mcp ──以该�
 
 | 工具 | 说明 |
 |---|---|
+| `tanva_list_models` | 当前账号可用的规划 / 生图 / 视频模型、是否可用、参考价格 |
+| `tanva_make_video` | 一键成片（`story`）/ 爆款复刻（`referenceVideoUrl`）：服务端规划 → 参考图 → Seedance 视频 → ffmpeg 合成，可指定 `planModel` / `imageModel` / `videoModel` |
+| `tanva_generate_video` | 单段生视频（文生 / 首帧 / 多参考图） |
+| `tanva_video_job` / `tanva_list_video_jobs` | 查询进度、分镜、预估积分、成片地址 |
+| `tanva_video_produce` / `tanva_video_retry` / `tanva_video_cancel` | 余额补足后继续（可改分镜）/ 只重跑失败部分 / 取消 |
 | `tanva_whoami` | 当前授权账号 |
 | `tanva_credits_balance` | 积分余额 |
 | `tanva_list_projects` / `tanva_get_project` | 项目列表、详情（可附带画布 JSON） |

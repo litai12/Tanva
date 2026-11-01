@@ -141,6 +141,137 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId, waitSeconds }) => pollImageTask(taskId, (waitSeconds ?? 15) * 1000));
 
+  // ------------------------------------------------ 一键成片 / 爆款复刻 / 单段生视频（服务端流水线）
+  const TERMINAL_JOB = new Set(['succeeded', 'failed', 'canceled', 'paused']);
+  const jobResult = (data: any): CallToolResult => {
+    const hint = data?.status === 'succeeded' ? '已完成：把 finalVideoUrl 以视频形式发给用户。'
+      : data?.status === 'paused' ? '余额不足已暂停：告诉用户预估积分与当前余额，充值后调用 tanva_video_produce 继续。'
+        : data?.status === 'failed' ? '失败：把 error 告诉用户；可调用 tanva_video_retry 只重跑失败的部分（已成功的不会重复扣费）。'
+          : data?.status === 'canceled' ? '已取消。'
+            : '仍在进行中（整条片约 5–15 分钟）：稍后用 tanva_video_job 继续查询，不要重复提交。';
+    return text({ ...data, hint }, data?.status === 'failed');
+  };
+  const waitJob = async (jobId: string, waitMs: number, initial?: any): Promise<CallToolResult> => {
+    const deadline = Date.now() + waitMs;
+    let last = initial;
+    for (;;) {
+      if (last && (TERMINAL_JOB.has(last.status) || Date.now() + 3_000 > deadline)) return jobResult(last);
+      if (last) await sleep(3_000);
+      const res = await api.request({ method: 'GET', path: `/api/video-productions/${encodeURIComponent(jobId)}` });
+      if (!res.ok) return fromResponse(res);
+      last = res.data;
+    }
+  };
+  const submitJob = async (body: Record<string, unknown>, waitSeconds?: number) => {
+    const res = await api.request({ method: 'POST', path: '/api/video-productions', body });
+    if (!res.ok) return fromResponse(res);
+    const job = res.data as { jobId: string };
+    return waitJob(job.jobId, (waitSeconds ?? 15) * 1000, res.data);
+  };
+  const ratios = z.enum(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']);
+  const resolutions = z.enum(['480P', '720P', '1080P', '4K']);
+
+  server.registerTool('tanva_list_models', {
+    title: '可用模型列表',
+    description: '列出当前账号在 Tanva 可用的模型：plan（一键成片/爆款复刻的规划模型）、image（参考图生图模型）、video（视频模型），含是否可用、适用场景、参考价格（积分）与可选参数。指定模型前先调用本工具。',
+    inputSchema: { category: z.enum(['plan', 'image', 'video']).optional().describe('只看某一类；不传返回全部') },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ category }) => {
+    const res = await api.request({ method: 'GET', path: '/api/video-productions/models' });
+    if (!res.ok || !category) return fromResponse(res);
+    const data = res.data as Record<string, unknown>;
+    return text({ [category]: data[category], defaults: data.defaults, notSupportedYet: data.notSupportedYet });
+  });
+
+  server.registerTool('tanva_make_video', {
+    title: '一键成片 / 爆款复刻',
+    description: '服务端全自动出片（会消耗积分）：规划分镜 → 生成参考图 → 逐段生成视频 → 合成一条成片。mode=film：用 story（故事/章节原文）一键成片；mode=remake：用 referenceVideoUrl（公网视频地址）复刻爆款的节奏、镜头与运镜，人物场景重新原创。可用 planModel / imageModel / videoModel 指定模型（取值见 tanva_list_models）。提交后返回 jobId，用 tanva_video_job 查询进度，全程约 5–15 分钟；不要重复提交。',
+    inputSchema: {
+      mode: z.enum(['film', 'remake']).describe('film=一键成片，remake=爆款复刻'),
+      story: z.string().max(200_000).optional().describe('一键成片的故事/章节原文（film 必填；remake 可选，作为补充说明）'),
+      referenceVideoUrl: z.string().url().optional().describe('爆款复刻的参考视频公网地址（remake 必填）'),
+      referenceImageUrls: z.array(z.string().url()).max(12).optional().describe('参考图公网地址（角色/场景/画风），可选'),
+      requirements: z.string().max(20_000).optional().describe('额外要求，如风格、受众、台词保留等'),
+      planModel: z.string().optional().describe('规划模型（tanva_list_models 的 plan.models）'),
+      imageModel: z.string().optional().describe('参考图生图模型 modelKey；不传按规划'),
+      videoModel: z.string().optional().describe('视频模型 modelKey（目前 Seedance 系列）；默认 seedance-2.0'),
+      aspectRatio: ratios.optional().describe('画幅；一键成片默认 9:16，爆款复刻默认跟随规划'),
+      resolution: resolutions.optional().describe('视频分辨率，默认 720P'),
+      targetSeconds: z.number().int().min(4).max(600).optional().describe('一键成片的目标总时长（秒）；复刻自动按原片时长'),
+      waitSeconds: z.number().int().min(0).max(20).optional().describe('提交后同步等待秒数，默认 15'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ waitSeconds, ...body }) => submitJob(body, waitSeconds));
+
+  server.registerTool('tanva_generate_video', {
+    title: '单段生视频',
+    description: '直接生成一段视频（会消耗积分），不经过规划：文生视频，或用 firstFrameUrl（首帧）/ referenceImageUrls（多参考图）图生视频。model 取值见 tanva_list_models 的 video。返回 jobId，用 tanva_video_job 查询；完成后 finalVideoUrl 即视频地址。',
+    inputSchema: {
+      prompt: z.string().min(1).max(20_000).describe('视频描述'),
+      model: z.string().optional().describe('视频模型 modelKey，默认 seedance-2.0'),
+      durationSeconds: z.number().int().min(4).max(30).optional().describe('时长（秒），默认 5；seedance-2.5 最长 30，其余 15'),
+      aspectRatio: ratios.optional().describe('画幅，默认 16:9'),
+      resolution: resolutions.optional().describe('分辨率，默认 720P'),
+      firstFrameUrl: z.string().url().optional().describe('首帧图片公网地址（与 referenceImageUrls 二选一）'),
+      referenceImageUrls: z.array(z.string().url()).max(30).optional().describe('参考图公网地址；提示词里可用 @图1、@图2 指代'),
+      waitSeconds: z.number().int().min(0).max(20).optional().describe('提交后同步等待秒数，默认 15'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ waitSeconds, model, ...rest }) => submitJob({ mode: 'single', ...rest, ...(model ? { videoModel: model } : {}) }, waitSeconds));
+
+  server.registerTool('tanva_video_job', {
+    title: '查询成片进度',
+    description: '查询 tanva_make_video / tanva_generate_video 任务：stage（planning 规划中 / producing 生成中 / composing 合成中 / waiting_credits 余额不足 / succeeded / failed / cancelled）、分镜 storyboard、参考图与每段视频状态、预估积分 estimate、成片 finalVideoUrl。最多等待 waitSeconds 秒（状态结束会提前返回）。',
+    inputSchema: {
+      jobId: z.string().min(1),
+      waitSeconds: z.number().int().min(0).max(20).optional().describe('最多等待秒数，默认 15'),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ jobId, waitSeconds }) => waitJob(jobId, (waitSeconds ?? 15) * 1000));
+
+  server.registerTool('tanva_list_video_jobs', {
+    title: '成片任务列表',
+    description: '列出当前账号最近的成片 / 生视频任务（jobId、状态、成片地址）。',
+    inputSchema: { limit: z.number().int().min(1).max(50).optional() },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ limit }) => fromResponse(await api.request({ method: 'GET', path: '/api/video-productions', query: limit ? { limit } : undefined })));
+
+  server.registerTool('tanva_video_produce', {
+    title: '余额补足后继续成片',
+    description: '任务因余额不足停在 waiting_credits（status=paused）时，用户充值并同意后调用，继续生成。可选 clipEdits 修改尚未开始的分镜：[{ index: 2, prompt: "...", durationSeconds: 8 }] 或 [{ index: 3, remove: true }]（index 从 1 开始）。',
+    inputSchema: {
+      jobId: z.string().min(1),
+      clipEdits: z.array(z.object({
+        index: z.number().int().min(1).optional(), clipKey: z.string().optional(),
+        prompt: z.string().max(20_000).optional(), durationSeconds: z.number().int().min(4).max(30).optional(), remove: z.boolean().optional(),
+      })).optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ jobId, clipEdits }) => {
+    const res = await api.request({ method: 'POST', path: `/api/video-productions/${encodeURIComponent(jobId)}/produce`, body: { clipEdits } });
+    return res.ok ? jobResult(res.data) : fromResponse(res);
+  });
+
+  server.registerTool('tanva_video_retry', {
+    title: '重试失败部分',
+    description: '任务失败后只重跑失败的参考图 / 视频段（已成功的不重复生成、不重复扣费）。会消耗失败部分的积分。',
+    inputSchema: { jobId: z.string().min(1) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ jobId }) => {
+    const res = await api.request({ method: 'POST', path: `/api/video-productions/${encodeURIComponent(jobId)}/retry`, body: {} });
+    return res.ok ? jobResult(res.data) : fromResponse(res);
+  });
+
+  server.registerTool('tanva_video_cancel', {
+    title: '取消成片',
+    description: '停止尚未开始的步骤；已经提交的生成照常按实际结果结算。',
+    inputSchema: { jobId: z.string().min(1) },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, async ({ jobId }) => {
+    const res = await api.request({ method: 'POST', path: `/api/video-productions/${encodeURIComponent(jobId)}/cancel`, body: {} });
+    return res.ok ? jobResult(res.data) : fromResponse(res);
+  });
+
   server.registerTool('tanva_list_endpoints', {
     title: '查找 Tanva 接口',
     description: '搜索 Tanva 全部开放 REST 接口（来自线上 OpenAPI 文档）。当内置工具不够用时，先用本工具找到接口，再用 tanva_describe_endpoint 看参数，最后用 tanva_api_request 调用。',

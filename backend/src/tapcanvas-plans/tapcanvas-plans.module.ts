@@ -8,5 +8,5 @@ import { GatewayConsumptionOrdersModule } from '../consumption-orders/gateway-co
 import { TapcanvasPlansController } from './tapcanvas-plans.controller';
 import { TapcanvasPlansService } from './tapcanvas-plans.service';
 @Module({ imports: [ConfigModule, AuthModule, PrismaModule, CreditsModule, TeamCreditsModule, GatewayConsumptionOrdersModule],
-  controllers: [TapcanvasPlansController], providers: [TapcanvasPlansService] })
+  controllers: [TapcanvasPlansController], providers: [TapcanvasPlansService], exports: [TapcanvasPlansService] })
 export class TapcanvasPlansModule {}

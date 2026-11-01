@@ -2,13 +2,14 @@
 name: tanvas
 display_name: Tanva 画布
 display_name_en: Tanva Canvas
-description: 操作用户的 Tanva（tanvas.cn）AI 设计画布账号：查询积分、浏览/管理项目、AI 生成图片，以及调用任意 Tanva 接口。触发词：Tanva、tanvas、画布项目、生成图片、积分余额。
-description_zh: 在对话中直接使用 Tanva：查积分、管项目、AI 生图
-description_en: Use Tanva in chat — credits, projects and AI image generation
-version: 1.0.0
+description: 操作用户的 Tanva（tanvas.cn）账号：一键成片、爆款复刻、生成视频与图片、查询积分、管理项目，以及调用任意 Tanva 接口。触发词：Tanva、tanvas、一键成片、爆款复刻、生成视频、生成图片、画布项目、积分余额。
+description_zh: 在对话中直接使用 Tanva：一键成片、爆款复刻、AI 生视频与生图
+description_en: Use Tanva in chat — one-click films, viral remakes, AI video and image generation
+version: 1.1.0
 author: Tanva
 examples_zh:
-  - "看看我的 Tanva 积分"
+  - "用 Tanva 把这段故事做成 30 秒竖屏短片"
+  - "用 Tanva 复刻这个爆款视频 https://…/demo.mp4"
   - "用 Tanva 生成一张极简风格的咖啡品牌海报"
 examples_en:
   - "Check my Tanva credits"
@@ -27,6 +28,13 @@ Tanva 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanva
 
 | 工具 | 用途 | 关键参数 |
 |---|---|---|
+| `tanva_list_models` | 可用模型（规划 / 生图 / 视频）、是否可用、参考价格 | `category`：plan / image / video（可选） |
+| `tanva_make_video` | **一键成片 / 爆款复刻**（服务端全自动：规划 → 参考图 → 视频 → 合成，**消耗积分**） | `mode`：film（`story` 必填）/ remake（`referenceVideoUrl` 必填）；`referenceImageUrls`、`requirements`、`planModel` / `imageModel` / `videoModel`、`aspectRatio`、`resolution`、`targetSeconds` |
+| `tanva_generate_video` | 单段生视频（**消耗积分**） | `prompt` 必填；`model`、`durationSeconds`、`aspectRatio`、`resolution`、`firstFrameUrl` 或 `referenceImageUrls` |
+| `tanva_video_job` | 查询成片 / 视频进度与结果 | `jobId`，`waitSeconds` ≤ 20 |
+| `tanva_video_produce` | 余额不足暂停后继续（可改分镜） | `jobId`，`clipEdits` |
+| `tanva_video_retry` / `tanva_video_cancel` | 只重跑失败部分 / 取消 | `jobId` |
+| `tanva_list_video_jobs` | 最近的成片任务 | `limit` |
 | `tanva_whoami` | 当前授权账号 | 无 |
 | `tanva_credits_balance` | 积分余额与明细 | 无 |
 | `tanva_list_projects` | 项目列表 | `scope`: personal / team（可选），`teamId`（scope=team 时必填） |
@@ -39,11 +47,16 @@ Tanva 连接器以**用户在浏览器中 OAuth 授权的身份**访问其 Tanva
 
 ## 使用规则
 
-1. **生图**：调用 `tanva_generate_image` 后，若返回 `status` 不是 `succeeded` 而是带 `taskId` 的进行中结果，用 `tanva_get_image_task` 轮询，**不要重复提交**（每次提交都会扣积分）。成功后把 `imageUrl` 以图片形式展示给用户。
-2. **内置工具优先**；内置工具覆盖不到时：`tanva_list_endpoints` 搜索 → `tanva_describe_endpoint` 看参数 → `tanva_api_request` 调用。
-3. **高风险操作必须先向用户确认**：删除（DELETE）、覆盖保存项目内容、分享 / 转移到团队、支付 / 会员、批量或高价生成（视频、4K 等）。确认时说明操作对象和预计积分消耗（可先调用 `POST /api/credits/preview` 预估）。
-4. 生成类耗时接口优先用 `*-async` 版本并轮询任务，单次工具调用需在 30 秒内返回。
-5. 团队空间操作需传 `teamId`。
+1. **一键成片 / 爆款复刻 / 生视频**：调用 `tanva_make_video` 或 `tanva_generate_video` 后拿到 `jobId`，之后每次用 `tanva_video_job`（`waitSeconds: 20`）轮询，向用户简要汇报进度（规划完成后可用文字展示分镜 `storyboard` 和预估积分 `estimate`）。整条片约 5–15 分钟，**不要重复提交**。完成后把 `finalVideoUrl` 以视频形式发给用户。
+   - 用户要求指定模型时，先 `tanva_list_models` 再传 `planModel` / `imageModel` / `videoModel`；`available: false` 的模型不可用，把 `reason` 告诉用户。
+   - `status: paused`（余额不足）：告诉用户预估积分与当前余额，用户充值并同意后调用 `tanva_video_produce`。
+   - `status: failed`：转述 `error`；用户同意后调用 `tanva_video_retry` 只重跑失败部分。
+   - 素材只接受**公网 URL**（图片 / 视频），本地文件请让用户先上传到可公开访问的地址。
+2. **生图**：调用 `tanva_generate_image` 后，若返回 `status` 不是 `succeeded` 而是带 `taskId` 的进行中结果，用 `tanva_get_image_task` 轮询，**不要重复提交**（每次提交都会扣积分）。成功后把 `imageUrl` 以图片形式展示给用户。
+3. **内置工具优先**；内置工具覆盖不到时：`tanva_list_endpoints` 搜索 → `tanva_describe_endpoint` 看参数 → `tanva_api_request` 调用。
+4. **高风险操作必须先向用户确认**：删除（DELETE）、覆盖保存项目内容、分享 / 转移到团队、支付 / 会员、批量或高价生成（视频、4K 等）。确认时说明操作对象和预计积分消耗（可先调用 `POST /api/credits/preview` 预估）。
+5. 生成类耗时接口优先用 `*-async` 版本并轮询任务，单次工具调用需在 30 秒内返回。
+6. 团队空间操作需传 `teamId`。
 
 ## 错误处理
 

@@ -1,6 +1,6 @@
 {
   "name": "tanva-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote MCP server (Streamable HTTP + OAuth 2.1) for Tanva — lets WorkBuddy, Claude, Cursor and other MCP agents act on a Tanva account after one-click browser authorization.",
   "type": "module",
   "bin": {

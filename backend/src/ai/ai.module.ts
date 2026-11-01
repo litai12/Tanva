@@ -52,6 +52,7 @@ import { GlobalImageHistoryModule } from '../global-image-history/global-image-h
 import { ImageReferencePreparationService } from './services/image-reference-preparation.service';
 import { WatermarkEntitlementService } from './services/watermark-entitlement.service';
 import { VideoAnalysisTaskService } from './services/video-analysis-task.service';
+import { VideoProductionModule } from '../video-production/video-production.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { VideoAnalysisTaskService } from './services/video-analysis-task.service
     VolcAssetModule,
     TeamCollabModule,
     GlobalImageHistoryModule,
+    VideoProductionModule,
   ],
   providers: [
     AiService,

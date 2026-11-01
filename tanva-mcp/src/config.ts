@@ -1,4 +1,4 @@
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 export interface TanvaMcpConfig {
   /** Public origin users/agents see, e.g. https://tanvas.cn. Used for OAuth metadata and the MCP resource id. */

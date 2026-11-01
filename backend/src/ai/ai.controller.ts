@@ -2,6 +2,7 @@ import { isNanoBanana21Model, resolveNanoBanana21Model, resolveToapisImageRoute,
 import { imageExecutionContext, isImageGenerationService, needsImageReconciliation, ImageExecutionState } from './services/image-execution-state';
 import { VideoSubmissionUncertainError } from './services/video-submission-uncertain';
 import { VideoAnalysisTaskService } from './services/video-analysis-task.service';
+import { VideoProductionService } from '../video-production/video-production.service';
 import { DeepSeekChatBillingService, isDeepSeekChatModel, DeepSeekChatCharge } from './services/deepseek-chat-billing.service';
 import type { IAIProvider, AIProviderResponse, TextChatRequest, TextResult } from './providers/ai-provider.interface';
 import { assertVideoNodeEnabled } from './services/video-node-availability';
@@ -477,8 +478,49 @@ export class AiController {
     @Optional() private readonly referenceVideoDuration?: ReferenceVideoDurationService,
     @Optional() private readonly deepseekChatBilling?: DeepSeekChatBillingService,
     @Optional() private readonly videoAnalysisTasks?: VideoAnalysisTaskService,
+    @Optional() private readonly videoProductions?: VideoProductionService,
   ) {
     this.videoAnalysisTasks?.registerExecutor((dto, req, taskId) => this.executeVideoAnalysis(dto, req, taskId));
+    // 服务端成片流水线以用户身份调用画布节点所用的同一批方法：报价、预扣、结算、退款都在这些方法内闭环。
+    this.videoProductions?.registerExecutor({
+      submitImage: (kind, dto, req) => kind === 'edit' ? this.editImageAsync(dto as any, req)
+        : kind === 'blend' ? this.blendImagesAsync(dto as any, req) : this.generateImageAsync(dto as any, req),
+      getImageTask: (taskId, req) => this.getImageTaskStatus(taskId, req),
+      submitVideo: (dto, req) => this.generateVideoProvider(dto as any, req),
+      getVideoTask: (provider, taskId, req) => this.queryVideoTask(provider as any, taskId, req) as any,
+      seedanceAccess: req => this.getSeedance2Access(req),
+      quoteImage: (userId, kind, dto) => this.quoteImageTaskCredits(userId, kind, dto),
+      quoteVideo: (userId, dto) => this.quoteVideoProviderCredits(userId, dto),
+      probeDuration: url => {
+        if (!this.referenceVideoDuration) throw new Error('视频时长探测不可用');
+        return this.referenceVideoDuration.probeDuration(url, '参考视频');
+      },
+    });
+  }
+
+  /** 成片流水线预估：与异步生图 worker 实扣同一报价入参。 */
+  private async quoteImageTaskCredits(userId: string, kind: 'generate' | 'edit' | 'blend', dto: Record<string, any>): Promise<number | null> {
+    if (!this.imageTaskService) return null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model, dto.providerOptions);
+    const quote = this.imageTaskService.creditQuoteInput(kind, { ...dto, model }, providerName || 'gemini');
+    const preview = await this.creditsService.previewCredits({ userId, serviceType: quote.serviceType as any, model: quote.model,
+      requestParams: quote.requestParams, outputImageCount: quote.outputImageCount });
+    return typeof preview?.credits === 'number' ? preview.credits : null;
+  }
+
+  /** 成片流水线预估：与 generate-video-provider 预扣同一套归一化与报价参数。 */
+  private async quoteVideoProviderCredits(userId: string, raw: Record<string, any>): Promise<number | null> {
+    const dto = { ...raw } as VideoProviderRequestDto;
+    this.normalizeSeedanceModelAlias(dto);
+    this.normalizeSeedance25OmniReferenceTaskType(dto);
+    if (dto.provider === 'doubao' && this.isSeedance25Model(dto.seedanceModel)) {
+      dto.channelTier = 'default'; dto.vendorKey = 'seedance_api'; dto.platformKey = 'seedance_api';
+    }
+    const requestParams = await this.buildVideoProviderCreditParams(dto);
+    const model = dto.klingModel || dto.viduModelVariant || dto.viduModel || dto.seedanceModel || dto.provider;
+    const preview = await this.creditsService.previewCredits({ userId, serviceType: this.resolveVideoProviderServiceType(dto), model, requestParams });
+    return typeof preview?.credits === 'number' ? preview.credits : null;
   }
 
   private extractAccessToken(req: any): string | null {

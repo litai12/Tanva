@@ -8,6 +8,7 @@ import { registerTools } from './tools.js';
 const MAX_BODY = 4 * 1024 * 1024;
 const INSTRUCTIONS = `Tanva（tanvas.cn）是 AI 设计画布平台。本服务以用户 OAuth 授权的身份访问其 Tanva 账号，拥有与网页登录相同的全部权限。
 - 常用操作优先使用内置工具：tanva_whoami / tanva_credits_balance / tanva_list_projects / tanva_get_project / tanva_generate_image。
+- 视频：一键成片 / 爆款复刻用 tanva_make_video，单段视频用 tanva_generate_video，之后用 tanva_video_job 轮询直到出片；指定模型前先 tanva_list_models。整条片约 5–15 分钟，轮询即可，不要重复提交。
 - 其它能力：tanva_list_endpoints 搜索接口 → tanva_describe_endpoint 看参数 → tanva_api_request 调用。
 - 删除数据、付费、分享、批量消耗积分前必须先征得用户明确同意。生成类任务不要重复提交。`;
 

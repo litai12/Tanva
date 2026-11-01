@@ -17,6 +17,7 @@ let lateRevoked = false;
 
 const seen = [];
 let taskPolls = 0;
+let jobPolls = 0;
 const fakeApi = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   let body = '';
@@ -37,6 +38,14 @@ const fakeApi = createServer(async (req, res) => {
   if (url.pathname === '/api/ai/generate-image-async') return send(201, { taskId: 't1', status: 'queued' });
   if (url.pathname === '/api/ai/image-task/t1') { taskPolls += 1; return send(200, taskPolls >= 2 ? { status: 'succeeded', imageUrl: 'https://cdn.example/t1.png' } : { status: 'processing' }); }
   if (url.pathname === '/api/projects/p1' && req.method === 'DELETE') return send(403, { message: '无权限删除' });
+  if (url.pathname === '/api/video-productions/models') return send(200, { plan: { models: ['m1'] }, image: [{ modelKey: 'nano-banana-pro' }], video: [{ modelKey: 'seedance-2.0', available: true }], defaults: { videoModel: 'seedance-2.0' } });
+  if (url.pathname === '/api/video-productions' && req.method === 'POST') {
+    const b = JSON.parse(body || '{}');
+    if (b.mode === 'film' && !b.story) return send(400, { message: '一键成片需要提供 story（故事或章节原文）' });
+    return send(202, { jobId: 'job1', status: 'processing', stage: b.mode === 'single' ? 'producing' : 'planning' });
+  }
+  if (url.pathname === '/api/video-productions/job1') { jobPolls += 1; return send(200, jobPolls >= 2 ? { jobId: 'job1', status: 'succeeded', stage: 'succeeded', finalVideoUrl: 'https://cdn.example/final.mp4' } : { jobId: 'job1', status: 'processing', stage: 'producing' }); }
+  if (url.pathname === '/api/video-productions/job1/retry') return send(409, { message: '只有失败的任务可以重试' });
   return send(404, { message: 'not found' });
 });
 
@@ -84,7 +93,8 @@ test('tools list and curated tools act as the user', async () => {
   const client = await connect();
   const { tools } = await client.listTools();
   const names = tools.map(t => t.name).sort();
-  assert.deepEqual(names, ['tanva_api_request', 'tanva_credits_balance', 'tanva_describe_endpoint', 'tanva_generate_image', 'tanva_get_image_task', 'tanva_get_project', 'tanva_list_endpoints', 'tanva_list_projects', 'tanva_whoami']);
+  assert.deepEqual(names, ['tanva_api_request', 'tanva_credits_balance', 'tanva_describe_endpoint', 'tanva_generate_image', 'tanva_generate_video', 'tanva_get_image_task', 'tanva_get_project',
+    'tanva_list_endpoints', 'tanva_list_models', 'tanva_list_projects', 'tanva_list_video_jobs', 'tanva_make_video', 'tanva_video_cancel', 'tanva_video_job', 'tanva_video_produce', 'tanva_video_retry', 'tanva_whoami']);
   assert.equal(tools.find(t => t.name === 'tanva_api_request').annotations.destructiveHint, true);
   assert.match(textOf(await client.callTool({ name: 'tanva_whoami', arguments: {} })), /Fixture/);
   assert.match(textOf(await client.callTool({ name: 'tanva_credits_balance', arguments: {} })), /123/);
@@ -121,10 +131,30 @@ test('generic api_request: full access, readable errors, path guard', async () =
 
 test('revocation takes effect on the very next MCP request (no verification cache)', async () => {
   const client = await connect(LATE);
-  assert.equal((await client.listTools()).tools.length, 9);
+  assert.equal((await client.listTools()).tools.length, 17);
   await client.close();
   lateRevoked = true;
   const res = await fetch(mcpUrl, { method: 'POST', headers: { authorization: `Bearer ${LATE}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
   assert.equal(res.status, 401);
   assert.match(res.headers.get('www-authenticate'), /invalid_token/);
+});
+
+test('one-click video: models, submit, poll to final video, readable errors', async () => {
+  const client = await connect();
+  assert.match(textOf(await client.callTool({ name: 'tanva_list_models', arguments: { category: 'video' } })), /seedance-2\.0/);
+  const bad = await client.callTool({ name: 'tanva_make_video', arguments: { mode: 'film' } });
+  assert.equal(bad.isError, true); assert.match(textOf(bad), /story/);
+  jobPolls = 0;
+  const made = await client.callTool({ name: 'tanva_make_video', arguments: { mode: 'film', story: '故事', videoModel: 'seedance-2.0', waitSeconds: 10 } });
+  assert.equal(made.isError, false); assert.match(textOf(made), /final\.mp4/); assert.match(textOf(made), /以视频形式发给用户/);
+  const sent = JSON.parse(seen.filter(r => r.path === '/api/video-productions' && r.method === 'POST').at(-1).body);
+  assert.deepEqual([sent.mode, sent.videoModel, sent.waitSeconds], ['film', 'seedance-2.0', undefined]);
+  jobPolls = 0;
+  await client.callTool({ name: 'tanva_generate_video', arguments: { prompt: '海浪', model: 'seedance-2.5', durationSeconds: 20, waitSeconds: 0 } });
+  const single = JSON.parse(seen.filter(r => r.path === '/api/video-productions' && r.method === 'POST').at(-1).body);
+  assert.deepEqual([single.mode, single.videoModel, single.durationSeconds, single.model], ['single', 'seedance-2.5', 20, undefined]);
+  assert.match(textOf(await client.callTool({ name: 'tanva_video_job', arguments: { jobId: 'job1', waitSeconds: 0 } })), /不要重复提交/);
+  const retry = await client.callTool({ name: 'tanva_video_retry', arguments: { jobId: 'job1' } });
+  assert.equal(retry.isError, true); assert.match(textOf(retry), /只有失败/);
+  await client.close();
 });
