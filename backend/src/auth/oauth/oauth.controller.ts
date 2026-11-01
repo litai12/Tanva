@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
+/** 每次 OAuth 授权一个 grantId：同一授权的轮换会话共享，用于按授权查找与吊销。 */
+const newGrantId = () => `g_${randomBytes(18).toString('base64url')}`;
 import { AuthService } from '../auth.service';
 import { UsersService } from '../../users/users.service';
 import { JwtAuthGuard } from '../guards/jwt.guard';
@@ -101,7 +103,7 @@ export class OAuthController {
         if (!user) throw new OAuthError('invalid_grant', '账号不存在');
         const tokens = await this.loginOrInvalidGrant(() => this.auth.login(
           { id: user.id, email: user.email || '', role: user.role },
-          { ip: request.ip, ua: `oauth:${client.clientName} ${request.headers['user-agent'] || ''}`.trim().slice(0, 255) },
+          { ip: request.ip, ua: `oauth:${client.clientName} ${request.headers['user-agent'] || ''}`.trim().slice(0, 255), grantId: newGrantId() },
         ));
         return this.sendTokens(reply, tokens, scope);
       }
@@ -111,6 +113,8 @@ export class OAuthController {
         if (typeof refreshToken !== 'string' || !refreshToken) throw new OAuthError('invalid_request', '缺少 refresh_token');
         const payload = await this.jwt.verifyAsync(refreshToken, { secret: this.config.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh-secret' })
           .catch(() => { throw new OAuthError('invalid_grant', 'refresh_token 无效或已过期'); });
+        // 只接受 OAuth 授权签发的 refresh token；网页/桌面会话不能借此换成 Agent 令牌。
+        if (typeof payload?.gid !== 'string' || !payload.gid) throw new OAuthError('invalid_grant', 'refresh_token 不属于 OAuth 授权');
         const tokens = await this.loginOrInvalidGrant(() => this.auth.refresh(payload, refreshToken));
         return this.sendTokens(reply, tokens, OAUTH_SCOPE);
       }
@@ -118,14 +122,19 @@ export class OAuthController {
     } catch (error) { return this.sendError(reply, error); }
   }
 
-  /** RFC 7009: revokes the refresh session (always 200, even for unknown tokens). */
+  /**
+   * RFC 7009：refresh 或 access token 均可，吊销其所属的整条 OAuth 授权（refresh 与已签发 access 立即失效）。
+   * 未知 / 非 OAuth 令牌同样返回 200。
+   */
   @Post('revoke')
   async revoke(@Body() raw: unknown, @Res() reply: FastifyReply) {
     const body = formBody(raw);
     const value = body.token;
     if (typeof value === 'string' && value) {
-      const payload = await this.jwt.verifyAsync(value, { secret: this.config.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh-secret' }).catch(() => null);
-      if (payload?.sub) await this.auth.logout(payload.sub, value).catch(() => undefined);
+      const verify = (secret: string) => this.jwt.verifyAsync(value, { secret }).catch(() => null);
+      const payload = await verify(this.config.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh-secret')
+        ?? await verify(this.config.get<string>('JWT_ACCESS_SECRET') || 'dev-access-secret');
+      if (payload?.sub && typeof payload.gid === 'string' && payload.gid) await this.auth.revokeOAuthGrant(payload.sub, payload.gid);
     }
     return reply.code(HttpStatus.OK).header('Cache-Control', 'no-store').send({});
   }

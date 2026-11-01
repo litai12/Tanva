@@ -148,16 +148,34 @@ export class AuthService {
     });
   }
 
+  /**
+   * OAuth（MCP / 外部 Agent）授权：access 短效（默认 1h，可即时吊销），
+   * refresh 长效（默认 3650d）且每次刷新顺延——授权一次长期可用，直到用户吊销。
+   * 网页 / 桌面会话沿用 JWT_ACCESS_TTL / JWT_REFRESH_TTL。
+   */
+  private sessionTtls(grantId?: string | null) {
+    if (grantId) {
+      return {
+        accessTtl: this.config.get<string>("OAUTH_ACCESS_TTL") || "1h",
+        refreshTtl: this.config.get<string>("OAUTH_REFRESH_TTL") || "3650d",
+      };
+    }
+    return {
+      accessTtl: this.config.get<string>("JWT_ACCESS_TTL") || "900s",
+      refreshTtl: this.config.get<string>("JWT_REFRESH_TTL") || "30d",
+    };
+  }
+
   private async signTokens(user: {
     id: string;
     email: string;
     role: string;
-  }): Promise<TokenPair> {
+  }, grantId?: string | null): Promise<TokenPair> {
     // Keep per-session entropy first: bcrypt only considers the first 72 bytes
     // of a refresh JWT, so a trailing jti would still alias other devices.
-    const payload = { jti: randomBytes(16).toString('base64url'), sub: user.id, email: user.email, role: user.role };
-    const accessTtl = this.config.get<string>("JWT_ACCESS_TTL") || "900s";
-    const refreshTtl = this.config.get<string>("JWT_REFRESH_TTL") || "30d";
+    const payload: Record<string, string> = { jti: randomBytes(16).toString('base64url'), sub: user.id, email: user.email, role: user.role };
+    if (grantId) payload.gid = grantId;
+    const { accessTtl, refreshTtl } = this.sessionTtls(grantId);
 
     const accessToken = await this.jwt.signAsync(payload, {
       secret:
@@ -1468,17 +1486,17 @@ export class AuthService {
 
   async login(
     user: { id: string; email: string; role: string },
-    meta?: { ip?: string; ua?: string }
+    meta?: { ip?: string; ua?: string; grantId?: string }
   ) {
     const loginUser = await this.getLoginUser(user.id);
+    const grantId = meta?.grantId || null;
     const tokens = await this.signTokens({
       id: loginUser.id,
       email: loginUser.email || "",
       role: loginUser.role,
-    });
+    }, grantId);
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
-    const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
-    const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
+    const expiresAt = new Date(Date.now() + this.parseTtlMs(this.sessionTtls(grantId).refreshTtl));
     await this.prisma.refreshToken.create({
       data: {
         userId: loginUser.id,
@@ -1486,6 +1504,7 @@ export class AuthService {
         ip: meta?.ip,
         userAgent: meta?.ua,
         expiresAt,
+        ...(grantId ? { grantId } : {}),
       },
     });
     await this.touchUserLastLoginAt(loginUser.id);
@@ -1529,11 +1548,13 @@ export class AuthService {
     return { success: true };
   }
 
-  private async findPresentedRefreshToken(userId: string, presentedToken: string) {
+  private async findPresentedRefreshToken(userId: string, presentedToken: string, grantId?: string | null) {
     if (!presentedToken) return null;
     const candidates = await this.prisma.refreshToken.findMany({
       where: {
         userId,
+        // OAuth 授权按 grantId 精确定位，不受该账号网页/桌面登录次数影响（否则会被挤出最近 32 条）。
+        ...(grantId ? { grantId } : {}),
         isRevoked: false,
         expiresAt: { gt: new Date() },
       },
@@ -1552,43 +1573,74 @@ export class AuthService {
 
   async refresh(userPayload: any, presentedToken: string) {
     const loginUser = await this.getLoginUser(userPayload.sub);
+    const grantId = typeof userPayload?.gid === "string" && userPayload.gid ? userPayload.gid : null;
     const rt = await this.findPresentedRefreshToken(
       userPayload.sub,
       presentedToken,
+      grantId,
     );
     if (!rt) throw new UnauthorizedException("刷新令牌无效");
-    const revoked = await this.prisma.refreshToken.updateMany({
-      where: { id: rt.id, isRevoked: false },
-      data: { isRevoked: true },
-    });
-    if (revoked.count !== 1) {
-      throw new UnauthorizedException("刷新令牌已被使用");
-    }
     const tokens = await this.signTokens({
       id: loginUser.id,
       email: loginUser.email || "",
       role: loginUser.role,
-    });
+    }, grantId);
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
-    const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
-    const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
-    await this.prisma.refreshToken.create({
-      data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt },
-    });
+    const expiresAt = new Date(Date.now() + this.parseTtlMs(this.sessionTtls(grantId).refreshTtl));
+    if (grantId) {
+      // OAuth：先建新会话再删旧会话，授权在轮换过程中始终有一条有效会话，
+      // 已签发的 access token（按 grantId 校验）不会在并发刷新的间隙被误判失效。
+      const next = await this.prisma.refreshToken.create({
+        data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt, grantId, userAgent: rt.userAgent, ip: rt.ip },
+      });
+      const consumed = await this.prisma.refreshToken.deleteMany({
+        where: { id: rt.id, isRevoked: false },
+      });
+      if (consumed.count !== 1) {
+        await this.prisma.refreshToken.deleteMany({ where: { id: next.id } });
+        throw new UnauthorizedException("刷新令牌已被使用");
+      }
+    } else {
+      const revoked = await this.prisma.refreshToken.updateMany({
+        where: { id: rt.id, isRevoked: false },
+        data: { isRevoked: true },
+      });
+      if (revoked.count !== 1) {
+        throw new UnauthorizedException("刷新令牌已被使用");
+      }
+      await this.prisma.refreshToken.create({
+        data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt },
+      });
+    }
     await this.touchUserLastLoginAt(userPayload.sub);
     return tokens;
   }
 
-  async logout(userId: string, presentedToken: string) {
+  async logout(userId: string, presentedToken: string, grantId?: string | null) {
     const currentSession = await this.findPresentedRefreshToken(
       userId,
       presentedToken,
+      grantId,
     );
     if (!currentSession) return;
+    if (currentSession.grantId) {
+      await this.revokeOAuthGrant(userId, currentSession.grantId);
+      return;
+    }
     await this.prisma.refreshToken.updateMany({
       where: { id: currentSession.id, isRevoked: false },
       data: { isRevoked: true },
     });
+  }
+
+  /** 吊销整条 OAuth 授权：其 refresh 失效，已签发的 access token 也随即失效（见 JwtStrategy）。 */
+  async revokeOAuthGrant(userId: string, grantId: string) {
+    if (!grantId) return 0;
+    const result = await this.prisma.refreshToken.updateMany({
+      where: { userId, grantId, isRevoked: false },
+      data: { isRevoked: true },
+    });
+    return result.count;
   }
 
   setAuthCookies(reply: any, tokens: TokenPair, request?: any) {

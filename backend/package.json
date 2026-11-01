@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node -r ./dist/tracing.bootstrap.js dist/main.js",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.cjs",
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",

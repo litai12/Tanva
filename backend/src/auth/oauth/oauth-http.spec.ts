@@ -24,14 +24,26 @@ async function run() {
   const fixtureConfig = (values: Record<string, string>) => ({ get: (key: string) => values[key] }) as unknown as ConfigService;
   const config = fixtureConfig({ NODE_ENV: 'test', REDIS_URL: '', COOKIE_DOMAIN: '', COOKIE_SECURE: 'false', JWT_ACCESS_SECRET: 'isolated-test-access', JWT_REFRESH_SECRET: 'isolated-test-refresh', OAUTH_ISSUER: 'https://tanvas.cn' });
   const user = { id: 'fixture-user', name: 'Fixture', email: 'fixture@example.invalid', phone: 'fixture-phone', role: 'user', status: 'active' };
-  const users = { findById: async () => user, touchLastLoginAt: async () => {}, sanitize: (value: unknown) => value };
-  const rows: Array<{ id: string; tokenHash: string; isRevoked: boolean; userId: string; expiresAt: Date; createdAt: Date; userAgent?: string }> = [];
+  type Row = { id: string; tokenHash: string; isRevoked: boolean; userId: string; expiresAt: Date; createdAt: Date; userAgent?: string | null; ip?: string | null; grantId?: string | null };
+  const rows: Row[] = [];
+  const live = (row: Row) => !row.isRevoked && row.expiresAt.getTime() > Date.now();
+  // Mirrors UsersService.hasActiveOAuthGrant: the access-token side of revocation.
+  const users = { findById: async () => user, touchLastLoginAt: async () => {}, sanitize: (value: unknown) => value,
+    hasActiveOAuthGrant: async (userId: string, grantId: string) => rows.some(row => row.userId === userId && row.grantId === grantId && live(row)) };
   const prisma = {
     user: { findUnique: async () => user, update: async () => user },
     refreshToken: {
-      create: async ({ data }: { data: { userId: string; tokenHash: string; expiresAt: Date; userAgent?: string } }) => { const row = { ...data, id: randomBytes(12).toString('hex'), isRevoked: false, createdAt: new Date() }; rows.unshift(row); return row; },
-      findMany: async () => rows.filter(row => !row.isRevoked && row.expiresAt.getTime() > Date.now()),
-      updateMany: async ({ where }: { where: { id: string } }) => { const row = rows.find(item => item.id === where.id && !item.isRevoked); if (!row) return { count: 0 }; row.isRevoked = true; return { count: 1 }; },
+      create: async ({ data }: { data: Omit<Row, 'id' | 'isRevoked' | 'createdAt'> }) => { const row: Row = { ...data, id: randomBytes(12).toString('hex'), isRevoked: false, createdAt: new Date() }; rows.unshift(row); return row; },
+      // Newest first + `take`, like the real query (so the 32-session window is exercised).
+      findMany: async ({ where, take }: { where: { userId: string; grantId?: string }; take?: number }) => rows.filter(row => row.userId === where.userId && (where.grantId === undefined || row.grantId === where.grantId) && live(row)).slice(0, take ?? Infinity),
+      updateMany: async ({ where }: { where: { id?: string; grantId?: string; userId?: string } }) => {
+        const hit = rows.filter(row => !row.isRevoked && (where.id === undefined || row.id === where.id) && (where.grantId === undefined || row.grantId === where.grantId) && (where.userId === undefined || row.userId === where.userId));
+        hit.forEach(row => { row.isRevoked = true; }); return { count: hit.length };
+      },
+      deleteMany: async ({ where }: { where: { id: string; isRevoked?: boolean } }) => {
+        const index = rows.findIndex(row => row.id === where.id && (where.isRevoked === undefined || row.isRevoked === where.isRevoked));
+        if (index < 0) return { count: 0 }; rows.splice(index, 1); return { count: 1 };
+      },
     },
   };
   const auth = new AuthService(users as never, prisma as never, new JwtService(), config, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
@@ -119,7 +131,12 @@ async function run() {
     assert.equal(exchanged.statusCode, 200, exchanged.body); assert.equal(exchanged.headers['cache-control'], 'no-store');
     const tokens = exchanged.json();
     assert.equal(tokens.token_type, 'Bearer'); assert(tokens.expires_in > 0); assert(tokens.refresh_token); assert.equal(tokens.scope, 'tanva');
-    assert(rows[0].userAgent?.startsWith('oauth:WorkBuddy'));
+    assert(rows[0].userAgent?.startsWith('oauth:WorkBuddy')); assert(rows[0].grantId?.startsWith('g_'));
+    // Permanent-by-default grant: short access (1h), long sliding refresh (3650d).
+    assert(tokens.expires_in > 3500 && tokens.expires_in <= 3600, String(tokens.expires_in));
+    const jwtExp = (token: string) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp * 1000;
+    assert(jwtExp(tokens.refresh_token) - Date.now() > 3640 * 86_400_000);
+    assert(rows[0].expiresAt.getTime() - Date.now() > 3640 * 86_400_000);
     const reused = await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'authorization_code', code: code2, client_id: client.client_id, redirect_uri: redirectUri, code_verifier: verifier }) });
     assert.equal(reused.json().error, 'invalid_grant');
 
@@ -134,10 +151,57 @@ async function run() {
     assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: 'garbage' }) })).json().error, 'invalid_grant');
     assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'password' }) })).json().error, 'unsupported_grant_type');
 
-    // Revocation ends the agent session without touching the browser session.
-    assert.equal((await request({ method: 'POST', url: '/api/oauth/revoke', ...form({ token: rotated.refresh_token }) })).statusCode, 200);
-    assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: rotated.refresh_token }) })).json().error, 'invalid_grant');
+    // Rotation keeps the grant: the previous access token keeps working, and only one grant row exists.
+    assert.equal((await request({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${tokens.access_token}` } })).statusCode, 200);
+    const grantId = rows.find(row => row.grantId && live(row))!.grantId!;
+    assert.equal(rows.filter(row => row.grantId === grantId).length, 1, 'superseded grant sessions are deleted, not accumulated');
+    // Web/desktop refresh tokens cannot be traded for agent tokens.
+    assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: browserTokens.refreshToken }) })).json().error, 'invalid_grant');
+
+    // Heavy web usage must not push the agent grant out of the 32-session lookup window.
+    const crowdStart = Date.now();
+    for (let i = 0; i < 40; i += 1) await auth.login(user);
+    const afterCrowd = await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: rotated.refresh_token }) });
+    assert.equal(afterCrowd.statusCode, 200, afterCrowd.body); const crowded = afterCrowd.json();
+    // Drop the throwaway web sessions (they would also crowd out this fixture's own browser session).
+    rows.filter(row => !row.grantId && row.createdAt.getTime() >= crowdStart && row.tokenHash !== undefined).slice(0, 40).forEach(row => { row.isRevoked = true; });
+    // The cookie/Bearer /api/auth/refresh path keeps the token inside its OAuth grant (no escape to 24h web tokens).
+    const viaAuthRefresh = await request({ method: 'POST', url: '/api/auth/refresh', headers: { authorization: `Bearer ${crowded.refresh_token}` } });
+    assert.equal(viaAuthRefresh.statusCode, 201); const stillGrant = viaAuthRefresh.json().tokens;
+    assert.equal(JSON.parse(Buffer.from(stillGrant.accessToken.split('.')[1], 'base64url').toString()).gid, grantId);
+    assert(jwtExp(stillGrant.accessToken) - Date.now() <= 3_600_000);
+    // Concurrent refresh with the same token: exactly one wins, the grant survives.
+    const race = await Promise.all([0, 1].map(() => request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: stillGrant.refreshToken }) })));
+    assert.deepEqual(race.map(r => r.statusCode).sort(), [200, 400]);
+    const winner = race.find(r => r.statusCode === 200)!.json();
+    assert.equal(rows.filter(row => row.grantId === grantId && live(row)).length, 1);
+
+    // Revocation (by refresh token) ends refresh AND already-issued access tokens immediately.
+    assert.equal((await request({ method: 'POST', url: '/api/oauth/revoke', ...form({ token: winner.refresh_token }) })).statusCode, 200);
+    assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: winner.refresh_token }) })).json().error, 'invalid_grant');
+    for (const access of [winner.access_token, tokens.access_token]) {
+      assert.equal((await request({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${access}` } })).statusCode, 401);
+    }
     assert.equal((await request({ method: 'POST', url: '/api/auth/refresh', headers: { cookie: browserCookies } })).statusCode, 201);
+
+    // A full grant end-to-end, for the remaining revocation paths.
+    const authorize = async () => {
+      const started = await request({ method: 'GET', url: authorizeUrl() });
+      const consent = await request({ method: 'GET', url: started.headers.location!, headers: { cookie: browserCookies } });
+      const decided = await request({ method: 'POST', url: '/api/oauth/decision', headers: { cookie: browserCookies, origin: 'https://tanvas.cn' }, payload: { ...JSON.parse(consent.body.match(/const input=([^;]+);/)![1]), decision: 'approve' } });
+      const issued = await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'authorization_code', code: new URL(decided.json().redirectUrl).searchParams.get('code')!, client_id: client.client_id, redirect_uri: redirectUri, code_verifier: verifier }) });
+      assert.equal(issued.statusCode, 200, issued.body); return issued.json();
+    };
+    const meStatus = (access: string) => request({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${access}` } }).then(r => r.statusCode);
+    // Two grants are independent; revoking one by its ACCESS token leaves the other alive.
+    const grantA = await authorize(); const grantB = await authorize();
+    assert.equal((await request({ method: 'POST', url: '/api/oauth/revoke', ...form({ token: grantA.access_token }) })).statusCode, 200);
+    assert.equal(await meStatus(grantA.access_token), 401); assert.equal(await meStatus(grantB.access_token), 200);
+    assert.equal((await request({ method: 'POST', url: '/api/oauth/token', ...form({ grant_type: 'refresh_token', refresh_token: grantA.refresh_token }) })).json().error, 'invalid_grant');
+    // /api/auth/logout with an agent refresh token revokes that whole grant.
+    assert.equal((await request({ method: 'POST', url: '/api/auth/logout', headers: { authorization: `Bearer ${grantB.refresh_token}` } })).statusCode, 201);
+    assert.equal(await meStatus(grantB.access_token), 401);
+    assert.equal(await meStatus(browserTokens.accessToken), 200, 'web session untouched');
 
     // Deny path returns access_denied to the client.
     const begin3 = await request({ method: 'GET', url: authorizeUrl() });
@@ -154,7 +218,7 @@ async function run() {
     const productionClient = production.register({ redirect_uris: [redirectUri] });
     await assert.rejects(production.beginAuthorization({ client_id: productionClient.client_id, redirect_uri: redirectUri, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256' }), /REDIS_URL/);
     assert.throws(() => production.resolveClient(client.client_id), 'client_id signed by another deployment must be rejected');
-    console.log('MCP OAuth 2.1: DCR, PKCE S256, consent CSRF/origin, single-use code, form/JSON token, refresh rotation, revoke, deny, loopback, production store checks passed.');
+    console.log('MCP OAuth 2.1: DCR, PKCE S256, consent CSRF/origin, single-use code, form/JSON token, 1h access + 3650d sliding refresh, grant survives web-login crowding and rotation races, immediate access revocation (refresh/access/logout), deny, loopback, production store checks passed.');
   } finally { await app.close(); }
 }
 void run().catch(error => { console.error(error); process.exitCode = 1; });

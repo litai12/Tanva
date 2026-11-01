@@ -23,6 +23,15 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { phone } });
   }
 
+  /** OAuth access token 绑定的授权是否仍有效（未吊销、未过期）。 */
+  async hasActiveOAuthGrant(userId: string, grantId: string) {
+    const row = await this.prisma.refreshToken.findFirst({
+      where: { userId, grantId, isRevoked: false, expiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    return Boolean(row);
+  }
+
   async findById(id: string) {
     return this.prisma.user.findUnique({ where: { id } });
   }

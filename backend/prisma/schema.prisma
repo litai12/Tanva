@@ -153,6 +153,8 @@ model RefreshToken {
   tokenHash String
   userAgent String?
   ip        String?
+  /// OAuth（MCP / 外部 Agent）授权 ID：同一次授权的轮换会话共享，按它查找、吊销整条授权；网页/桌面会话为空
+  grantId   String?
   isRevoked Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
@@ -162,6 +164,7 @@ model RefreshToken {
   @@index([userId, isRevoked])           // 用户活跃token查询
   @@index([expiresAt])                   // 过期token清理
   @@index([userId, expiresAt, isRevoked]) // 复合索引：用户未过期未撤销token
+  @@index([grantId])                     // OAuth 授权查找/吊销
 }
 
 model Project {

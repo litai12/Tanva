@@ -30,7 +30,10 @@ Agent ──POST /mcp  Authorization: Bearer … ─▶ tanva-mcp ──以该�
 ```
 
 - 授权服务器在 Tanva 后端（`backend/src/auth/oauth/`）；本服务只负责 MCP 和服务发现文档。
-- 签发的令牌就是 Tanva 普通登录会话（access 令牌默认 15 分钟，refresh 令牌默认 30 天，每次刷新轮换）。每次授权都是一条独立会话，可以单独吊销（`POST /api/oauth/revoke`）。
+- **授权一次，长期有效**：签发的是 Tanva 登录会话，但单独标记一个授权 ID（`grantId`）。access 令牌 1 小时（`OAUTH_ACCESS_TTL`），客户端自动刷新，用户无感；refresh 令牌 3650 天（`OAUTH_REFRESH_TTL`），每次刷新都会轮换并顺延有效期。只有用户吊销时授权才会失效，不需要重复授权。
+- 按 `grantId` 查找授权会话，用户在网页、桌面登录多少次都不会把 Agent 授权挤掉；并发刷新时只有一个请求成功，授权本身不会丢。
+- **吊销立即生效**：`POST /api/oauth/revoke`（refresh 或 access 令牌都可以），或用 Agent 的 refresh 令牌调用 `/api/auth/logout`，会吊销整条授权。已签发的 access 令牌下一次请求就会返回 401，不用等到过期。每次授权互相独立，也不影响网页登录。
+- 网页、桌面的 refresh 令牌不能拿到 `/api/oauth/token` 换 Agent 令牌；Agent 的 refresh 令牌走 `/api/auth/refresh` 时，换出来的仍属于同一条授权（同样 1 小时、可吊销）。
 - `redirect_uri` 按字符串精确匹配；本机回环地址 `http://127.0.0.1:{port}` 允许端口不同（RFC 8252）。
 
 ## 工具

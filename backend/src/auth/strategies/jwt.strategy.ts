@@ -37,6 +37,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (user.status === 'banned') {
       throw new UnauthorizedException('\u6b64\u8d26\u53f7\u5df2\u88ab\u5c01\u63a7');
     }
+    // OAuth（MCP / 外部 Agent）令牌：授权被吊销后立即失效，不等 access token 自然过期。
+    if (typeof payload?.gid === 'string' && payload.gid) {
+      if (!await this.usersService.hasActiveOAuthGrant(user.id, payload.gid)) {
+        throw new UnauthorizedException('Agent 授权已被吊销或已过期');
+      }
+    }
     void this.usersService.touchLastLoginAt(user.id).catch(() => undefined);
     const result = {
       sub: user.id,  // 标准JWT字段
