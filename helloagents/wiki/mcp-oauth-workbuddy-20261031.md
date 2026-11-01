@@ -49,6 +49,7 @@
 2. `tanva_describe_endpoint` 查不到请求体字段：74 个 schema 里 34 个是空的。DTO 只写了 class-validator 装饰器，后端用纯 tsc 构建，没有 Swagger 插件。
 
 修复见上面「关键设计」，以及构建脚本 `backend/scripts/build.cjs`（官方 swagger 插件，`classValidatorShim`，`controllerFileNameSuffix: []`，`introspectComments: false`，因为部分 DTO 注释编码有问题）。验证方式：用 Nest preview 模式加载真实的 AppModule 生成完整文档，旧构建 303 个路径、34 个空 schema，新构建 0 个空 schema。
+插件不支持字符串字面量联合类型，会生成 `type: object`。`main.ts` 在 `createDocument` 之后调用 `applyClassValidatorTypes(doc)`，按同一属性上的 class-validator 装饰器补出 type 和 enum，只改这类空 object 占位，`@IsObject` 和显式 schema 不动。
 
 ## 后续
 

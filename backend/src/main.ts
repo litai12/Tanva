@@ -11,6 +11,7 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyCors from "@fastify/cors";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { applyClassValidatorTypes } from "./common/openapi/class-validator-schema";
 import { ConfigService } from "@nestjs/config";
 import { AppModule } from "./app.module";
 import { OpenObserveTelemetryService } from "./telemetry/openobserve-telemetry.service";
@@ -289,6 +290,8 @@ async function bootstrap() {
     .addCookieAuth("access_token")
     .build();
   const doc = SwaggerModule.createDocument(app, swaggerConfig);
+  // 字面量联合类型（如 aspectRatio）按 class-validator 装饰器补全真实类型与枚举值
+  applyClassValidatorTypes(doc);
   SwaggerModule.setup("api/docs", app, doc);
 
   // 实时协作：把 WS 网关挂到底层 http server 的 upgrade 事件（仅 /ws/collab）
