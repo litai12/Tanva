@@ -47,6 +47,8 @@ export function normalizeToapiImageResolution(value?: unknown): ToapiImageResolu
 
 export function normalizeToapiImageAspectRatio(model: string, value?: unknown): string | undefined {
   const ratio = String(value || "").trim();
+  // APIMart gpt-image-2.5-ext rejects 9:21; snap to the nearest portrait ratio.
+  if (GPT_IMAGE_25_STANDARD_MODELS.includes(model) && ratio === "9:21") return "9:16";
   const allowed = isGptImage25Vip(model) ? GPT_IMAGE_25_VIP_ASPECT_RATIOS : isNanoBanana21Model(model) ? NANO_BANANA_21_ASPECT_RATIOS : undefined;
   if (!allowed) return ratio || undefined;
   if (!ratio) return isGptImage25Vip(model) ? "1:1" : undefined;

@@ -152,7 +152,7 @@ function getDefaultConfigs(): NodeConfig[] {
           : {}),
         provider: "nano2",
         model,
-        aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9", "9:21"],
+        aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9"],
         resolutions: ["1K", "2K", "4K"],
         showResolutionSelector: true,
         showGoogleSearch: false,

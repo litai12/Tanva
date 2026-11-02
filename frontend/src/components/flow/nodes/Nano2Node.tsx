@@ -111,8 +111,9 @@ const GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS = [
   "2:1",
   "1:2",
   "21:9",
-  "9:21",
 ] as const;
+// GPT image upstreams (e.g. APIMart gpt-image-2.5-ext) reject 9:21.
+const GPT_IMAGE_UNSUPPORTED_ASPECT_RATIOS = new Set<string>(["9:21"]);
 const GPT_IMAGE_2_4K_ASPECT_RATIO_SET = new Set<string>(
   GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS
 );
@@ -244,8 +245,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     if (isVip) return GPT_IMAGE_25_VIP_ASPECT_RATIOS;
     if (isNano21) return NANO_BANANA_21_ASPECT_RATIOS;
     const fromMeta = toStringList(metadata?.aspectRatios);
-    return fromMeta.length > 0 ? fromMeta : DEFAULT_ASPECT_RATIOS;
-  }, [metadata?.aspectRatios, isVip, isNano21]);
+    const options = fromMeta.length > 0 ? fromMeta : DEFAULT_ASPECT_RATIOS;
+    return resolvedNodeType === "gptImage2"
+      ? options.filter((ratio) => !GPT_IMAGE_UNSUPPORTED_ASPECT_RATIOS.has(ratio))
+      : options;
+  }, [metadata?.aspectRatios, isVip, isNano21, resolvedNodeType]);
   const resolutionOptions = React.useMemo(() => {
     if (resolvedNodeType === "gptImage2" || isNano21) {
       return ["1K", "2K", "4K"];
@@ -496,8 +500,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     if (!isGptImage2Node) return;
     const currentAspectRatio =
       typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
-    if (currentAspectRatio) return;
-    const fallbackAspectRatio = resolvedAspectRatioOptions[0] || "1:1";
+    if (currentAspectRatio && !GPT_IMAGE_UNSUPPORTED_ASPECT_RATIOS.has(currentAspectRatio)) return;
+    const fallbackAspectRatio = currentAspectRatio === "9:21" && resolvedAspectRatioOptions.includes("9:16")
+      ? "9:16"
+      : resolvedAspectRatioOptions[0] || "1:1";
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: {
