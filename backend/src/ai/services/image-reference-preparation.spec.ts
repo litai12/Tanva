@@ -125,6 +125,25 @@ async function main(): Promise<void> {
   assert.equal(opaque.adjustments[0].format, 'jpeg');
   assert.ok(opaque.adjustments[0].preparedBytes <= TOAPIS_REFERENCE_MAX_BYTES);
 
+  // Production regression: a 9999x5005 (50MP) render was rejected by the old
+  // 40MP decode cap and surfaced as the generic "64MiB" error.
+  source = await sharp({ create: { width: 9999, height: 5005, channels: 3,
+    background: { r: 90, g: 90, b: 90 } } }).jpeg().toBuffer();
+  assert.deepEqual(await service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1-official'),
+    { urls: [SOURCE_URL], adjustments: [] });
+  source = await sharp({ create: { width: 10_001, height: 10_000, channels: 3,
+    background: { r: 90, g: 90, b: 90 } } }).jpeg().toBuffer();
+  await assert.rejects(service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1-official'), /像素过大/);
+
+  // Over-limit JPEG goes straight to JPEG/downscale (no lossless PNG attempt).
+  source = await sharp(randomBytes(3000 * 2000 * 3), { raw: { width: 3000, height: 2000, channels: 3 } })
+    .jpeg({ quality: 100, chromaSubsampling: '4:4:4' }).toBuffer();
+  assert.ok(source.length > TOAPIS_REFERENCE_MAX_BYTES);
+  const jpegSource = await service.prepare([SOURCE_URL], 'gemini-nano-banana-2.1-official');
+  assert.equal(jpegSource.adjustments[0].format, 'jpeg');
+  assert.equal(uploads.at(-1)!.mimeType, 'image/jpeg');
+  assert.ok(jpegSource.adjustments[0].preparedBytes <= TOAPIS_REFERENCE_MAX_BYTES);
+
   // Alpha must survive when random pixels require an actual proportional downsize.
   source = await sharp(randomBytes(3200 * 2000 * 4), {
     raw: { width: 3200, height: 2000, channels: 4 },

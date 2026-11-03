@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-11-03：101 远程参考图准备误报「64MiB」。真实原因是 9999×5005（50MP）参考图超过 40M 像素解码上限。现将参考图准备的像素上限提到 100M；超限时明确提示「像素过大」；超过字节限额的 JPEG 不再先做整幅 PNG（50MP 从 4.9s 降到 0.7s）。已单文件替换 dist，并在队列空闲时 reload `tanvas-api`，health 200。已用用户两张原图在线上复验，均可原尺寸压到 10 MB 内。同日 Prompt Optimizer 120 秒超时，原因是 DeepSeek 官方渠道 49 过载（503/147s），已自行恢复，网关未改。见 `wiki/ref-pixel-limit-deepseek-busy-20261103.md`。
+
 - 2026-11-02：GPT 生图节点移除 9:21 比例。APIMart `gpt-image-2.5-ext`（flare / sunburst 标准档）报错 `does not support size "9:21"`。`gptImage2` 节点比例选项过滤 9:21（含 4K 白名单）；已保存为 9:21 的节点自动改为 9:16；`normalizeToapiImageAspectRatio` 对标准档把 9:21 映射到 9:16；前后端默认节点元数据去掉 9:21（后端仅影响初始化/同步，未重载）。前端已原位发布 101：发布目录 `/opt/tanva-releases/gpt-ratio-921-20261102-b56d7165/`（含 `source.patch`、48 文件清单），旧版备份 `/opt/tanva-backups/gpt-ratio-921-20261102-b56d7165/frontend-dist.tar.gz`；公网 version.json、入口 JS 与本地一致，health 200。
 
 - 2026-11-01：新增服务端「一键成片 / 爆款复刻 / 单段生视频」流水线，并通过 MCP 开放给 WorkBuddy 等外部 Agent。规划结果直接驱动生成，不建画布节点：规划 → 参考图 → Seedance → ffmpeg 合成 → OSS。生图、生视频调用画布节点用的同一批控制器方法，计费与结算由后端闭环。用户可通过 `GET /api/video-productions/models` / `tanva_list_models` 查看模型并指定规划、生图、视频模型（视频目前为 Seedance 系列）。不设积分上限，余额不足时在生成前暂停。任务断点续跑、幂等提交、只重跑失败部分。见 `wiki/mcp-video-production-20261101.md`。

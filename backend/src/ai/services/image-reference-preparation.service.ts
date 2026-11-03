@@ -15,7 +15,11 @@ export const TOAPIS_REFERENCE_MAX_BYTES = 10_000_000;
 const DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 3;
-const MAX_INPUT_PIXELS = 40_000_000;
+// ~10000x10000. Oversized references are re-encoded/downscaled here, so this cap
+// must admit common large renders (e.g. 9999x5005 = 50MP). Measured on prod:
+// ~13 bytes/pixel peak RSS (50MP JPEG ≈ 660MiB), bounded by withSlot() concurrency 2.
+const MAX_INPUT_PIXELS = 100_000_000;
+const PIXEL_LIMIT_MESSAGE = `参考图像素过大（超过 ${MAX_INPUT_PIXELS / 1_000_000} MP），请缩小尺寸后重试`;
 
 /** Only apply verified contracts. Do not transfer one model's cap to other routes.
  * Gemini ordinary routes and Nano 2.1: official generation pages document
@@ -156,6 +160,9 @@ export class ImageReferencePreparationService {
       } };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
+      if (/pixel limit/i.test(String((error as any)?.message || ''))) {
+        throw new BadRequestException(PIXEL_LIMIT_MESSAGE);
+      }
       // Do not leak presigned URLs or storage credentials in native/fetch errors.
       throw new BadRequestException('无法准备远程参考图，请确认图片可访问、格式可解码且大小不超过 64MiB');
     } finally {
@@ -185,13 +192,14 @@ export class ImageReferencePreparationService {
         format, originalWidth, originalHeight };
     };
     // PNG recompression preserves alpha and source pixels. Never flatten transparency.
-    let candidate = await encode('png');
-    if (candidate.buffer.length <= limit) return candidate;
+    // An over-limit JPEG cannot shrink as lossless PNG; skip that full-size encode.
+    let candidate = metadata.format === 'jpeg' ? undefined : await encode('png');
+    if (candidate && candidate.buffer.length <= limit) return candidate;
     // Generated PNGs often contain an all-255 alpha channel. That is still
     // opaque and can use a same-size JPEG; actual transparent pixels stay PNG.
     const hasTransparency = metadata.hasAlpha && !(await open().stats()).isOpaque;
     const format = hasTransparency ? 'png' : 'jpeg';
-    if (format === 'jpeg') candidate = await encode(format);
+    if (format === 'jpeg' || !candidate) candidate = await encode(format);
     if (candidate.buffer.length <= limit) return candidate;
     let width = candidate.width;
     for (let step = 0; step < 12; step += 1) {
