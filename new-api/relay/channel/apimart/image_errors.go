@@ -1,8 +1,10 @@
 package apimart
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -84,6 +86,9 @@ func imageTaskDetailEvidence(body []byte, detail *taskapimart.DetailResponse, ta
 			Billing   struct {
 				Status string `json:"status"`
 			} `json:"billing"`
+			// APIMart documents these as the amount/credits charged for the task.
+			Cost        json.RawMessage `json:"cost"`
+			CreditsCost json.RawMessage `json:"credits_cost"`
 		} `json:"data"`
 	}
 	_ = common.Unmarshal(body, &extra)
@@ -132,8 +137,25 @@ func imageTaskDetailEvidence(body []byte, detail *taskapimart.DetailResponse, ta
 			evidence.Reason = extra.Data.Error.Reason
 			evidence.UpstreamCode = extra.Data.Error.UpstreamCode
 		}
+		// APIMart's wrapped envelope has no billing object. A terminal failure
+		// that explicitly reports zero cost and zero credits was not charged.
+		// Missing, null, malformed, or non-zero values keep billing unknown.
+		if provider == "apimart" && evidence.BillingStatus == "" && evidence.Terminal &&
+			(evidence.Status == taskapimart.StatusFailed || evidence.Status == taskapimart.StatusCancelled) &&
+			explicitZeroCharge(extra.Data.Cost) && explicitZeroCharge(extra.Data.CreditsCost) {
+			evidence.BillingStatus = "refunded"
+		}
 	}
 	return evidence
+}
+
+func explicitZeroCharge(raw json.RawMessage) bool {
+	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
+		return false
+	}
+	amount, err := strconv.ParseFloat(value, 64)
+	return err == nil && amount == 0
 }
 
 func imageTaskFailureHTTPStatus(evidence types.UpstreamImageTaskEvidence) int {

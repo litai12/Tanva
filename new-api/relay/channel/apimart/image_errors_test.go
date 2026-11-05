@@ -67,6 +67,15 @@ func TestImageTaskFailureRequiresCompleteRefundEvidence(t *testing.T) {
 		{"unknown status", `{"id":"task-123","object":"generation.task","status":"unrecognized","billing":{"status":"refunded"}}`, 502, false},
 		{"error envelope is not task failure", `{"code":400,"error":{"code":"invalid_parameter","message":"status unavailable"},"billing":{"status":"refunded"}}`, 502, false},
 		{"completed missing results", `{"id":"task-123","object":"generation.task","status":"completed","billing":{"status":"refunded"}}`, 502, true},
+		{"apimart failed zero cost", `{"code":200,"data":{"id":"task-123","status":"failed","cost":0,"credits_cost":0,"error":{"code":"task_failed","reason":"generation_timeout"}}}`, 422, true},
+		{"apimart cancelled zero cost", `{"code":200,"data":{"id":"task-123","status":"cancelled","cost":0.0,"credits_cost":0}}`, 422, true},
+		{"apimart failed charged cost", `{"code":200,"data":{"id":"task-123","status":"failed","cost":0.15,"credits_cost":1.5}}`, 502, true},
+		{"apimart failed partial cost", `{"code":200,"data":{"id":"task-123","status":"failed","cost":0}}`, 502, true},
+		{"apimart failed null cost", `{"code":200,"data":{"id":"task-123","status":"failed","cost":null,"credits_cost":0}}`, 502, true},
+		{"apimart failed string cost", `{"code":200,"data":{"id":"task-123","status":"failed","cost":"0","credits_cost":0}}`, 502, true},
+		{"apimart failed explicit charged billing", `{"code":200,"data":{"id":"task-123","status":"failed","cost":0,"credits_cost":0,"billing":{"status":"charged"}}}`, 502, true},
+		{"apimart processing zero cost", `{"code":200,"data":{"id":"task-123","status":"processing","cost":0,"credits_cost":0}}`, 502, false},
+		{"flat toapis zero cost ignored", `{"id":"task-123","object":"generation.task","status":"failed","cost":0,"credits_cost":0}`, 502, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
