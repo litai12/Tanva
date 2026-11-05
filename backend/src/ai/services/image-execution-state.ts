@@ -69,8 +69,11 @@ export function recordImageGatewayFailure(status: number, body: unknown): void {
     ...(safeIdentifier(receipt.upstream_code) ? { upstream_code: receipt.upstream_code } : {}),
   };
   state.upstreamImageTask = normalized;
+  // A terminal failed/cancelled task produced no image, so the user is not
+  // charged. Upstream billing (refunded/charged/absent) is platform cost only;
+  // requiring "refunded" left APIMart failures pending forever.
   state.rejected = normalized.accepted && normalized.terminal &&
-    ['failed', 'cancelled'].includes(normalized.status) && normalized.billing_status === 'refunded';
+    ['failed', 'cancelled'].includes(normalized.status);
 }
 export const needsImageReconciliation = (state: ImageExecutionState): boolean =>
   state.started && !state.rejected;

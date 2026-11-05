@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-11-05：APIMart 图片失败积分不退（根治 + 已部署 101 + 历史已退）。APIMart 任务详情没有 billing 字段，后端又只认 `billing_status=refunded`，所以 10-21 起所有终态失败（内容审核、超时等）都卡在 pending。网关在 failed/cancelled 且 `cost=0`、`credits_cost=0` 时回执写 refunded；后端对上游已受理且终态 failed/cancelled 的任务统一立即退款，上游少量审核费由平台承担。网关镜像 `apimart-zero-cost-20261105` 基于线上 `2b188c1a` 构建，后端单文件替换后 reload，两次都先排空图片队列。历史 224 笔、9,820 积分、29 户已按原批次退回，账本已复核（含 133****3001 的 255 积分）。当天的超时来自上游变慢（4K normal 成功均耗时 83s→315s，约 600s 判超时），代码修不了。见 `wiki/apimart-failure-refund-20261105.md`。
+
 - 2026-11-03：101 远程参考图准备误报「64MiB」。真实原因是 9999×5005（50MP）参考图超过 40M 像素解码上限。现将参考图准备的像素上限提到 100M；超限时明确提示「像素过大」；超过字节限额的 JPEG 不再先做整幅 PNG（50MP 从 4.9s 降到 0.7s）。已单文件替换 dist，并在队列空闲时 reload `tanvas-api`，health 200。已用用户两张原图在线上复验，均可原尺寸压到 10 MB 内。同日 Prompt Optimizer 120 秒超时，原因是 DeepSeek 官方渠道 49 过载（503/147s），已自行恢复，网关未改。见 `wiki/ref-pixel-limit-deepseek-busy-20261103.md`。
 
 - 2026-11-02：GPT 生图节点移除 9:21 比例。APIMart `gpt-image-2.5-ext`（flare / sunburst 标准档）报错 `does not support size "9:21"`。`gptImage2` 节点比例选项过滤 9:21（含 4K 白名单）；已保存为 9:21 的节点自动改为 9:16；`normalizeToapiImageAspectRatio` 对标准档把 9:21 映射到 9:16；前后端默认节点元数据去掉 9:21（后端仅影响初始化/同步，未重载）。前端已原位发布 101：发布目录 `/opt/tanva-releases/gpt-ratio-921-20261102-b56d7165/`（含 `source.patch`、48 文件清单），旧版备份 `/opt/tanva-backups/gpt-ratio-921-20261102-b56d7165/frontend-dist.tar.gz`；公网 version.json、入口 JS 与本地一致，health 200。

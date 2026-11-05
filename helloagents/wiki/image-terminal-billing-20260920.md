@@ -33,3 +33,5 @@ new-api 图片 Provider 在超时/断连后最多发三次 POST，控制器对�
 - 视频终态计费、图片 payload、文本终态计费回归及前后端构建。
 
 验证结果：图片/视频终态计费、图片请求格式、文本计费、前端轮询测试、前后端构建与改动轮询文件 ESLint 通过；new-api 图片尝试策略定向测试及 relay/apimart/tencent 三包通过。controller 全包存在两个模型目录测试失败（veo-3.1 / veo3.1-pro），使用 HEAD 原文件 overlay 单独复现同样失败，属于既有问题。
+
+> 2026-11-05 更新：上游已受理且终态 failed/cancelled 的回执不再要求 `billing_status=refunded`，统一按明确失败立即退款，见 `apimart-failure-refund-20261105.md`。

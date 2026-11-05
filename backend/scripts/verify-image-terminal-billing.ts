@@ -8,9 +8,11 @@ import { ConfigService } from '@nestjs/config';
 import { imageExecutionContext, recordImageGatewayFailure, recordImageRejection, recordRemoteImages } from '../src/ai/services/image-execution-state';
 
 const logger = { log() {}, debug() {}, warn() {}, error() {} };
-const failedReceipt = (billing = 'refunded') => ({ error: { message: 'upstream failed', upstream_image_task: {
+// "unconfirmed" = accepted but not terminal; a terminal failure always refunds
+// the user whatever the upstream billing status says.
+const failedReceipt = (billing = 'refunded', terminal = true) => ({ error: { message: 'upstream failed', upstream_image_task: {
   provider: 'toapis', task_id: 'tsk_img_failed', request_id: 'upstream-request',
-  status: 'failed', accepted: true, terminal: true, billing_status: billing, error_code: 'generation_failed',
+  status: terminal ? 'failed' : 'processing', accepted: true, terminal, billing_status: billing, error_code: 'generation_failed',
 } } });
 async function main() {
   // Same billing usage must never fund a second sync generation, including error paths.
@@ -30,7 +32,7 @@ async function main() {
       calls++;
       if (scenario === 'rejected') { recordImageRejection(400); throw new Error('rejected'); }
       if (scenario.startsWith('terminal-')) {
-        recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-refunded' ? 'refunded' : 'pending'));
+        recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-refunded' ? 'refunded' : 'pending', scenario === 'terminal-refunded'));
         throw new Error('upstream failed');
       }
       if (scenario === 'disconnect') throw new Error('socket disconnected');
@@ -90,7 +92,7 @@ async function main() {
         if (['unknown', 'metadata-error'].includes(scenario)) throw new Error('network timeout');
         if (scenario === 'rejected') { recordImageRejection(400); throw new Error('bad request'); }
         if (scenario.startsWith('terminal-')) {
-          recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-unconfirmed' ? 'pending' : 'refunded'));
+          recordImageGatewayFailure(422, failedReceipt(scenario === 'terminal-unconfirmed' ? 'pending' : 'refunded', scenario !== 'terminal-unconfirmed'));
           throw new Error('upstream failed');
         }
         return { imageUrl: 'https://upstream.test/result.png' };
