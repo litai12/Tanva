@@ -23,7 +23,7 @@ import (
 
 func TestAPIMartPublicImageTiersPreserveProviderAndBillableInputs(t *testing.T) {
 	for _, baseURL := range []string{"https://api.apimart.ai", "https://api.aishuch.com"} {
-		for _, publicModel := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip", constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
+		for _, publicModel := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip", constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
 			t.Run(baseURL+"/"+publicModel, func(t *testing.T) {
 				upstream, ok := constant.APIMartImageTierModel(publicModel)
 				require.True(t, ok)
@@ -50,8 +50,8 @@ func TestAPIMartPublicImageTiersPreserveProviderAndBillableInputs(t *testing.T) 
 				} else {
 					require.Equal(t, "16:9", got["size"])
 					require.Equal(t, "4K", got["resolution"])
-					if upstream == "gpt-image-2.5-ext" {
-						require.Equal(t, strings.TrimPrefix(publicModel, "gpt-image-2.5-"), got["version"])
+					if upstream == "gpt-image-2.5-ext" || upstream == "gpt-image-2.6-ext" {
+						require.Equal(t, publicModel[strings.LastIndex(publicModel, "-")+1:], got["version"])
 						require.NotContains(t, got, "quality")
 						require.NotContains(t, got, "official_fallback")
 					} else {

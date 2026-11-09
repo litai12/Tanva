@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   assert.equal(normalPayload.output_format, 'png');
   assert.equal('response_format' in normalPayload, false);
 
-  for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5']) {
+  for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst', 'gpt-image-2.5']) {
     const payload = await captureImagePayload((provider) => provider.generateImage({
       model, quality: 'max', prompt: '生成产品图', imageSize: '2K', aspectRatio: '3:2',
       imageUrls: ['https://assets.example.test/reference.png'],

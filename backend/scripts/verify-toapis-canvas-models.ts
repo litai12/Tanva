@@ -106,7 +106,7 @@ async function main() {
   savedModels = DEFAULT_MODEL_PROVIDER_MAPPING_V2.models!.filter(model => TOAPIS_NEW_IMAGE_MODELS.includes(model.modelKey)).map(model => ({ ...model, vendors: model.vendors!.map(vendor => ({ ...vendor, enabled: false })) }));
   assert.equal((await nodes.getAllNodeConfigs()).some(node => node.nodeKey === 'nano2'), false, '2.1 vendor disabled must hide only its independent entry');
   const vipNode = (await nodes.getAllNodeConfigs()).find(node => node.nodeKey === 'gptImage25')!;
-  assert.deepEqual(vipNode.metadata?.supportedModels, ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']);
+  assert.deepEqual(vipNode.metadata?.supportedModels, ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst']);
   for (const model of TOAPIS_NEW_IMAGE_MODELS) assert.equal((await routing.getParsedConfig()).models?.find(item => item.modelKey === model)?.vendors?.[0]?.enabled, false);
   const controller: any = Object.create(AiController.prototype);
   controller.modelRoutingService = routing;

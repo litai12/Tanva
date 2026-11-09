@@ -9,8 +9,8 @@ import (
 )
 
 func TestAPIMartImageTiersResolveOnceAndKeepBillingIdentity(t *testing.T) {
-	mapping := `{"gpt-image-2.5-flare":"gpt-image-2.5-ext","gpt-image-2.5-sunburst":"gpt-image-2.5-ext","gpt-image-2.5-flare-vip":"gpt-image-2.5-flare","gpt-image-2.5-sunburst-vip":"gpt-image-2.5-sunburst","gemini-nano-banana-2.1":"gemini-nano-banana-2.1-ext","gemini-nano-banana-2.1-official":"gemini-nano-banana-2.1"}`
-	for _, public := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip", constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
+	mapping := `{"gpt-image-2.5-flare":"gpt-image-2.5-ext","gpt-image-2.5-sunburst":"gpt-image-2.5-ext","gpt-image-2.6-flare":"gpt-image-2.6-ext","gpt-image-2.6-sunburst":"gpt-image-2.6-ext","gpt-image-2.5-flare-vip":"gpt-image-2.5-flare","gpt-image-2.5-sunburst-vip":"gpt-image-2.5-sunburst","gemini-nano-banana-2.1":"gemini-nano-banana-2.1-ext","gemini-nano-banana-2.1-official":"gemini-nano-banana-2.1"}`
+	for _, public := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip", constant.ToAPISNanoBanana21, constant.ToAPISNanoBanana21Official} {
 		for _, base := range []string{"https://api.apimart.ai", "https://api.aishuch.com"} {
 			t.Run(public+base, func(t *testing.T) {
 				info := imageTierRelayInfoWithChannelType(public, constant.ChannelTypeApimart)

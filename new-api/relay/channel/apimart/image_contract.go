@@ -32,7 +32,7 @@ func usesToAPISNestedImageMetadata(model, baseURL string) bool {
 // the upstream model itself remains the channel's explicit model mapping.
 func normalizeAPIMartImagePayload(payload *taskapimart.SubmitPayload, publicModel string) error {
 	upstream := strings.ToLower(strings.TrimSpace(payload.Model))
-	if upstream != "gpt-image-2.5-ext" && upstream != "gemini-nano-banana-2.1-ext" && upstream != "gemini-nano-banana-2.1" &&
+	if upstream != "gpt-image-2.5-ext" && upstream != "gpt-image-2.6-ext" && upstream != "gemini-nano-banana-2.1-ext" && upstream != "gemini-nano-banana-2.1" &&
 		!constant.IsToAPISImage25VIP(publicModel) {
 		return nil
 	}
@@ -62,18 +62,18 @@ func normalizeAPIMartImagePayload(payload *taskapimart.SubmitPayload, publicMode
 	if constant.IsToAPISImage25VIP(publicModel) {
 		return nil // precise pixels + quality already match the retail quote
 	}
-	if upstream == "gpt-image-2.5-ext" {
+	if upstream == "gpt-image-2.5-ext" || upstream == "gpt-image-2.6-ext" {
 		switch publicModel {
-		case "gpt-image-2.5-flare":
+		case "gpt-image-2.5-flare", "gpt-image-2.6-flare":
 			payload.Extras["version"] = "flare"
-		case "gpt-image-2.5-sunburst":
+		case "gpt-image-2.5-sunburst", "gpt-image-2.6-sunburst":
 			payload.Extras["version"] = "sunburst"
 		}
 		delete(payload.Extras, "quality") // Ext has a fixed version/tier contract
 		delete(payload.Extras, "official_fallback")
 		allowed := map[string]bool{"": true, "auto": true, "1:1": true, "16:9": true, "9:16": true, "4:3": true, "3:4": true, "3:2": true, "2:3": true, "5:4": true, "4:5": true, "21:9": true}
 		if !allowed[payload.Size] {
-			return fmt.Errorf("apimart gpt-image-2.5-ext does not support size %q", payload.Size)
+			return fmt.Errorf("apimart %s does not support size %q", upstream, payload.Size)
 		}
 	}
 	resolution := strings.ToUpper(strings.TrimSpace(payload.Resolution))
@@ -102,7 +102,7 @@ func isToAPISImageBaseURL(baseURL string) bool {
 }
 
 // These ToAPIs GPT models use size, not the generic APIMart aspect_ratio
-// duplicate. Ordinary 2.5 always runs at high quality. Provider options such
+// duplicate. Ordinary 2.5/2.6 always runs at high quality. Provider options such
 // as official_fallback retain their explicit values.
 func normalizeToAPISGPTImagePayload(payload *taskapimart.SubmitPayload, baseURL string) {
 	if !isToAPISImageBaseURL(baseURL) {
@@ -110,11 +110,13 @@ func normalizeToAPISGPTImagePayload(payload *taskapimart.SubmitPayload, baseURL 
 	}
 	model := strings.ToLower(strings.TrimSpace(payload.Model))
 	switch model {
-	case "gpt-image-2", "gpt-image-2-vip", "gpt-image-2-official", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip":
+	case "gpt-image-2", "gpt-image-2-vip", "gpt-image-2-official", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip",
+		"gpt-image-2.6-flare", "gpt-image-2.6-sunburst":
 		payload.AspectRatio = ""
 		delete(payload.Extras, "aspect_ratio")
 	}
-	if model == "gpt-image-2.5-flare" || model == "gpt-image-2.5-sunburst" {
+	switch model {
+	case "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst":
 		if payload.Extras == nil {
 			payload.Extras = map[string]any{}
 		}

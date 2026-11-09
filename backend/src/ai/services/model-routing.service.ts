@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, NANO_BANANA_21_OFFICIAL_MODEL, createToapisImagePricing, normalizeNano21ModelPricing } from './toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_GPT_IMAGE_STANDARD_MODELS, NANO_BANANA_21_OFFICIAL_MODEL, createToapisImagePricing, normalizeNano21ModelPricing } from './toapis-image-models';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ManagedPricingBook } from './model-pricing-resolver';
@@ -1213,7 +1213,7 @@ export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
-    ...['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5', ...TOAPIS_NEW_IMAGE_MODELS].map((modelKey) => ({
+    ...['gpt-image-2', ...TOAPIS_GPT_IMAGE_STANDARD_MODELS, 'gpt-image-2.5', ...TOAPIS_NEW_IMAGE_MODELS].map((modelKey) => ({
       modelKey,
       modelName: modelKey === 'gpt-image-2' ? 'GPT-Image-2' : modelKey,
       taskType: 'image' as const,
@@ -1381,8 +1381,7 @@ export class ModelRoutingService {
       ...TOAPIS_NEW_IMAGE_MODELS,
       'gemini-3.1-image',
       'gpt-image-2.5',
-      'gpt-image-2.5-flare',
-      'gpt-image-2.5-sunburst',
+      ...TOAPIS_GPT_IMAGE_STANDARD_MODELS,
       'omni-flash-ext',
       'doubao-seed-audio-1-0',
       'minimax-speech-2.6-hd',

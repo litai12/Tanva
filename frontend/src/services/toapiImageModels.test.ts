@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, resolveExistingNanoImageModel, resolveNanoImageModelForRoute, getToapiImageRoute, getToapiImageSettings, getToapiImageFallbackCredits } from "./toapiImageModels.ts";
+import { GPT_IMAGE_25_VIP_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, resolveExistingNanoImageModel, resolveNanoImageModelForRoute, getToapiImageRoute, getToapiImageSettings, getToapiImageFallbackCredits, normalizeToapiImageAspectRatio } from "./toapiImageModels.ts";
 import { buildImageNodeCreditsPreviewConfig } from "./imageNodeCreditsPreviewConfig.ts";
 import { expandNanoImageModelConfigs, buildGptImageModelSwitchPatch } from "./gptImage25.ts";
 
@@ -26,8 +26,8 @@ test("VIP missing and auto quality default to high in preview and execution", ()
   }
 });
 
-test("ordinary 2.5 variants keep quality omitted even with old saved quality", () => {
-  for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+test("ordinary 2.5/2.6 variants keep quality omitted even with old saved quality", () => {
+  for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"]) {
     const preview = buildImageNodeCreditsPreviewConfig({ nodeType: "gptImage2", model, imageSize: "4K", gptImage2Quality: "max", bananaImageRoute: "stable" });
     assert.equal(preview.requestParams.quality, undefined);
     assert.equal(preview.requestParams.providerOptions?.banana?.imageRoute, "normal");
@@ -96,4 +96,14 @@ test("missing historical Nano2 model stays old while explicit 2.1 follows global
     assert.equal(getToapiImageSettings(actual, "2K").providerOptions.banana.imageRoute, getToapiImageRoute(actual));
   }
   assert.equal(resolveExistingNanoImageModel(undefined), oldModel);
+});
+
+test("ordinary 2.6 variants use the same 20/30/40 fallback credits as ordinary 2.5", () => {
+  for (const model of ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst"]) {
+    for (const [size, credits] of Object.entries({ "1K": 20, "2K": 30, "4K": 40 })) {
+      assert.equal(getToapiImageFallbackCredits(model, size, "max"), credits);
+      assert.equal(getToapiImageFallbackCredits(model, size), getToapiImageFallbackCredits(model.replace("2.6", "2.5"), size));
+    }
+    assert.equal(normalizeToapiImageAspectRatio(model, "9:21"), "9:16");
+  }
 });

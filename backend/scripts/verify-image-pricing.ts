@@ -125,7 +125,7 @@ assert.deepEqual(CREDIT_PRICING_CONFIG['gemini-3.1-image'].resolutionPricing, {
 console.log('Tanvas normal/premium image pricing verification passed');
 
 // ToAPI variants keep GPT-Image-2 normal pricing even with stale global route hints.
-for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
+for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst']) {
   for (const route of ['normal', 'stable'] as const) {
     for (const [imageSize, expected] of Object.entries(gptNormal)) {
       assert.equal(resolveCredits('gpt-image-2', route, imageSize as ImageSize, {

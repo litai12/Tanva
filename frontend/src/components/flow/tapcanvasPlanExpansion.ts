@@ -56,7 +56,7 @@ const SEEDANCE_REFERENCE_IMAGE_MAX: Record<string, number> = { "seedance-2.0": 9
 const ASPECT_RATIOS = new Set(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]);
 const IMAGE_RESOLUTIONS = new Set(["1K", "2K", "4K"]);
 const GPT_IMAGE_QUALITIES = new Set(["low", "medium", "high"]);
-const GPT_IMAGE_MODELS = new Set(["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"]);
+const GPT_IMAGE_MODELS = new Set(["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"]);
 /** 参考图分区顺序：同一身份的状态卡紧跟基础卡。 */
 const REFERENCE_TYPE_ORDER = ["character", "scene", "prop", "palette", "vfx"];
 

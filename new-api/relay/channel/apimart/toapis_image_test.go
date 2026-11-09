@@ -1,6 +1,7 @@
 package apimart
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -188,7 +189,7 @@ func TestToAPISGemini25OfficialPreservesNativeMetadataWithoutInventingResolution
 }
 
 func TestToAPISGPTImagesUseSizeAndOrdinary25FixedQuality(t *testing.T) {
-	for _, model := range []string{"gpt-image-2", "gpt-image-2-official", "gpt-image-2-vip", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+	for _, model := range []string{"gpt-image-2", "gpt-image-2-official", "gpt-image-2-vip", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		for _, baseURL := range []string{"https://toapis.cn", "https://api.toapis.com", "https://api.apimart.ai"} {
 			payload := &taskapimart.SubmitPayload{Model: model, Size: "16:9", AspectRatio: "16:9", Resolution: "2K", Extras: map[string]any{"quality": "max", "aspect_ratio": "16:9", "official_fallback": false}}
 			normalizeToAPISGPTImagePayload(payload, baseURL)
@@ -204,7 +205,7 @@ func TestToAPISGPTImagesUseSizeAndOrdinary25FixedQuality(t *testing.T) {
 				require.Equal(t, "max", got["quality"])
 			} else {
 				require.NotContains(t, got, "aspect_ratio")
-				if model == "gpt-image-2.5-flare" || model == "gpt-image-2.5-sunburst" {
+				if strings.HasPrefix(model, "gpt-image-2.5-") || strings.HasPrefix(model, "gpt-image-2.6-") {
 					require.Equal(t, "high", got["quality"])
 				} else {
 					require.Equal(t, "max", got["quality"])

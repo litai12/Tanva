@@ -12,6 +12,8 @@ func APIMartImageTierModel(model string) (string, bool) {
 	switch model {
 	case "gpt-image-2.5-flare", "gpt-image-2.5-sunburst":
 		return "gpt-image-2.5-ext", true
+	case "gpt-image-2.6-flare", "gpt-image-2.6-sunburst":
+		return "gpt-image-2.6-ext", true
 	case "gpt-image-2.5-flare-vip":
 		return "gpt-image-2.5-flare", true
 	case "gpt-image-2.5-sunburst-vip":

@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_VIP_IMAGE_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, NANO_BANANA_21_MODELS, isNanoBanana21Model, NANO_BANANA_21_ASPECT_RATIOS, isToapisVipImageModel, normalizeNano21ModelPricing } from '../../ai/services/toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_VIP_IMAGE_MODELS, TOAPIS_GPT_IMAGE_STANDARD_MODELS, NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL, NANO_BANANA_21_MODELS, isNanoBanana21Model, NANO_BANANA_21_ASPECT_RATIOS, isToapisVipImageModel, normalizeNano21ModelPricing } from '../../ai/services/toapis-image-models';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -132,7 +132,7 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
-const GPT_IMAGE_25_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', ...TOAPIS_VIP_IMAGE_MODELS];
+const GPT_IMAGE_25_MODELS = [...TOAPIS_GPT_IMAGE_STANDARD_MODELS, ...TOAPIS_VIP_IMAGE_MODELS];
 const NANO2_MODELS = ['gemini-3.1-flash-image-preview', ...NANO_BANANA_21_MODELS];
 const nanoManagedKey = (model: string) => isNanoBanana21Model(model) ? model : 'gemini-3.1-image';
 const buildNano2Metadata = () => ({
@@ -278,7 +278,7 @@ export class NodeConfigService {
       );
       const missingDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
         (m) => m && (m.taskType === 'audio' ||
-          ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5', 'gemini-3.1-image', ...TOAPIS_NEW_IMAGE_MODELS].includes(m.modelKey)) &&
+          [...TOAPIS_GPT_IMAGE_STANDARD_MODELS, 'gpt-image-2.5', 'gemini-3.1-image', ...TOAPIS_NEW_IMAGE_MODELS].includes(m.modelKey)) &&
           !presentKeys.has(String(m.modelKey).trim()),
       );
       const models = [...savedModels, ...(missingDefaults as typeof savedModels)];

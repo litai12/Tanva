@@ -25,6 +25,8 @@ export const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
   { id: 'gpt-image-2', label: 'GPT Image 2', nodeType: 'gptImage2', model: 'gpt-image-2', description: 'GPT Image 2' },
   { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare', nodeType: 'gptImage2', model: 'gpt-image-2.5-flare', description: 'GPT Image 2.5 Flare' },
   { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', nodeType: 'gptImage2', model: 'gpt-image-2.5-sunburst', description: 'GPT Image 2.5 Sunburst' },
+  { id: 'gpt-image-2.6-flare', label: 'GPT Image 2.6 Flare', nodeType: 'gptImage2', model: 'gpt-image-2.6-flare', description: 'GPT Image 2.6 Flare' },
+  { id: 'gpt-image-2.6-sunburst', label: 'GPT Image 2.6 Sunburst', nodeType: 'gptImage2', model: 'gpt-image-2.6-sunburst', description: 'GPT Image 2.6 Sunburst' },
   { id: 'gpt-image-2.5-flare-vip', label: 'GPT Image 2.5 Flare VIP', nodeType: 'gptImage2', model: 'gpt-image-2.5-flare-vip', description: 'GPT Image 2.5 Flare VIP（可选质量档位）' },
   { id: 'gpt-image-2.5-sunburst-vip', label: 'GPT Image 2.5 Sunburst VIP', nodeType: 'gptImage2', model: 'gpt-image-2.5-sunburst-vip', description: 'GPT Image 2.5 Sunburst VIP（可选质量档位）' },
 ];
@@ -47,7 +49,7 @@ export const VIDEO_RESOLUTIONS = ['480P', '720P', '1080P', '4K'];
 export const VIDEO_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const GENERATE_PRO_REFERENCE_MAX = 11;
 const VIP_MODELS = new Set(['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip']);
-const TOAPI_MODELS = new Set(['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', ...VIP_MODELS, 'gemini-nano-banana-2.1', 'gemini-nano-banana-2.1-official']);
+const TOAPI_MODELS = new Set(['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst', ...VIP_MODELS, 'gemini-nano-banana-2.1', 'gemini-nano-banana-2.1-official']);
 const VIP_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '21:9'];
 const NANO21_RATIOS = [...VIP_RATIOS, '1:4', '4:1', '1:8', '8:1'];
 const VIP_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'];

@@ -334,7 +334,7 @@ func TestBuildParamPricingForSora2UsesFixedDurationPrices(t *testing.T) {
 }
 
 func TestGPTImage25ToapisPricingAndIdentity(t *testing.T) {
-	for _, name := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+	for _, name := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		if CanonicalModelKey(name) != name {
 			t.Fatalf("%s must remain an independent model", name)
 		}

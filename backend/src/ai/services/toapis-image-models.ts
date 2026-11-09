@@ -2,13 +2,15 @@ import type { ManagedPricingBook } from './model-pricing-resolver';
 import { BadRequestException } from '@nestjs/common';
 
 export const TOAPIS_VIP_IMAGE_MODELS = ['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip'];
+/** ToAPIs 普通版 GPT 生图：固定 high 质量，按 1K/2K/4K 计价（20/30/40 积分）。 */
+export const TOAPIS_GPT_IMAGE_STANDARD_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'];
 export const NANO_BANANA_21_MODEL = 'gemini-nano-banana-2.1';
 export const NANO_BANANA_21_OFFICIAL_MODEL = 'gemini-nano-banana-2.1-official';
 export const NANO_BANANA_21_CREDITS = { '1K': 20, '2K': 30, '4K': 40 };
 export const NANO_BANANA_21_OFFICIAL_CREDITS = { '1K': 30, '2K': 60, '4K': 90 };
 export const NANO_BANANA_21_MODELS = [NANO_BANANA_21_MODEL, NANO_BANANA_21_OFFICIAL_MODEL];
 export const TOAPIS_NEW_IMAGE_MODELS = [...TOAPIS_VIP_IMAGE_MODELS, ...NANO_BANANA_21_MODELS];
-export const TOAPIS_IMAGE_MODELS = ['gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', ...TOAPIS_NEW_IMAGE_MODELS];
+export const TOAPIS_IMAGE_MODELS = ['gpt-image-2.5', ...TOAPIS_GPT_IMAGE_STANDARD_MODELS, ...TOAPIS_NEW_IMAGE_MODELS];
 export const TOAPIS_VIP_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '21:9'];
 export const NANO_BANANA_21_ASPECT_RATIOS = [...TOAPIS_VIP_ASPECT_RATIOS, '1:4', '4:1', '1:8', '8:1'];
 export const TOAPIS_VIP_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'] as const;

@@ -1,4 +1,4 @@
-import { TOAPIS_NEW_IMAGE_MODELS, isNanoBanana21Model, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
+import { TOAPIS_NEW_IMAGE_MODELS, TOAPIS_GPT_IMAGE_STANDARD_MODELS, isNanoBanana21Model, isToapisImageModel, isToapisVipImageModel, normalizeToapisVipQuality, normalizeToapisImageRequest } from '../services/toapis-image-models';
 import { recordImageGatewayFailure, recordRemoteImages, setImageSubmissionStarted } from '../services/image-execution-state';
 import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -145,8 +145,7 @@ export class NewApiProvider implements IAIProvider {
         'xiaot-agent-deepseek-v4-flash',
         'gpt-image-2',
         'gpt-image-2.5',
-        'gpt-image-2.5-flare',
-        'gpt-image-2.5-sunburst',
+        ...TOAPIS_GPT_IMAGE_STANDARD_MODELS,
         ...TOAPIS_NEW_IMAGE_MODELS,
         'sora-2',
         'kling-v3',
@@ -180,7 +179,7 @@ export class NewApiProvider implements IAIProvider {
       ),
       // Flare/Sunburst do not accept the base 2.5 model's quality controls.
       quality: isToapisVipImageModel(model) ? normalizeToapisVipQuality(request.quality)
-        : ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) ? undefined
+        : TOAPIS_GPT_IMAGE_STANDARD_MODELS.includes(model) ? undefined
         : model === 'gpt-image-2'
           ? imageRoute === 'stable'
             ? request.quality === 'medium' || request.quality === 'high' ? request.quality : 'low'

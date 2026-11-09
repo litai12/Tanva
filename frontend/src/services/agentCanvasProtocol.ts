@@ -622,10 +622,10 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "gptImage2",
       label: "GPT Image 2 / 2.5",
-      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 可选 Flare、Sunburst 及其 VIP 版，默认普通 Flare，保留用户指定的可用型号",
+      purpose: "GPT 单图生成，需连 text 边供提示词；可接图片作为参考；GPT Image 2.5 节点可选 2.5 Flare/Sunburst、2.6 Flare/Sunburst 及 2.5 VIP 版，默认普通 2.5 Flare，保留用户指定的可用型号",
       params: {
-        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"] },
-        quality: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], description: "VIP quality defaults to high and always uses normal route; GPT Image 2 stable route accepts low/medium/high (default low); omit quality for ordinary Flare/Sunburst and GPT Image 2 normal route" },
+        model: { type: "string", enum: ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"] },
+        quality: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], description: "VIP quality defaults to high and always uses normal route; GPT Image 2 stable route accepts low/medium/high (default low); omit quality for ordinary 2.5/2.6 Flare/Sunburst and GPT Image 2 normal route" },
         aspectRatio: { type: "string" },
         resolution: { type: "string", enum: ["1K", "2K", "4K"] },
       },

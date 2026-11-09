@@ -1,5 +1,6 @@
 // Shared canvas contract: controls, credit preview and execution use the same settings.
-export const GPT_IMAGE_25_STANDARD_MODELS = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+// ToAPIs/APIMart 普通版（固定 high，1K/2K/4K = 20/30/40 积分）；2.6 与 2.5 普通版同合同同价。
+export const GPT_IMAGE_25_STANDARD_MODELS = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"];
 export const GPT_IMAGE_25_VIP_MODELS = ["gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"];
 export const NANO_BANANA_2_MODEL = "gemini-3.1-flash-image-preview";
 export const NANO_BANANA_21_MODEL = "gemini-nano-banana-2.1";
@@ -47,7 +48,7 @@ export function normalizeToapiImageResolution(value?: unknown): ToapiImageResolu
 
 export function normalizeToapiImageAspectRatio(model: string, value?: unknown): string | undefined {
   const ratio = String(value || "").trim();
-  // APIMart gpt-image-2.5-ext rejects 9:21; snap to the nearest portrait ratio.
+  // APIMart gpt-image-2.5-ext / 2.6-ext reject 9:21; snap to the nearest portrait ratio.
   if (GPT_IMAGE_25_STANDARD_MODELS.includes(model) && ratio === "9:21") return "9:16";
   const allowed = isGptImage25Vip(model) ? GPT_IMAGE_25_VIP_ASPECT_RATIOS : isNanoBanana21Model(model) ? NANO_BANANA_21_ASPECT_RATIOS : undefined;
   if (!allowed) return ratio || undefined;

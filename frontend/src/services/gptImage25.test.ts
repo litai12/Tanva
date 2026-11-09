@@ -37,7 +37,7 @@ test("disabled catalog options cannot produce a model switch", () => {
 });
 
 test("explicit variants survive switching and JSON persistence", () => {
-  for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+  for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"]) {
     const patch = buildGptImageModelSwitchPatch(option(model))!;
     const restored = JSON.parse(JSON.stringify(Object.assign({ quality: "max" }, patch)));
     assert.equal(normalizeCanvasGptImage25Model(restored.model, restored.nodeConfigKey), model);
@@ -56,7 +56,7 @@ test("legacy keys only fill missing model values", () => {
 test("catalog options expose exact model labels and isolated pricing routes", () => {
   const routes = Object.fromEntries(["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].map((modelKey, index) => [modelKey, { modelKey, vendors: [{ vendorKey: "new_api", creditsPerCall: 20 + index }] }]));
   const configs = expandGptImageModelConfigs([{ nodeKey: "gptImage25", nameZh: "GPT", nameEn: "GPT", category: "image", status: "normal", sortOrder: 1, creditsPerCall: 20, metadata: { supportedModels: ["gpt-image-2.5-flare"], managedRoutesByModel: routes } }]);
-  assert.deepEqual(configs.map(c => c.nameZh), ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"]);
+  assert.deepEqual(configs.map(c => c.nameZh), ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare-vip", "gpt-image-2.5-sunburst-vip"]);
   for (const config of configs) {
     if (config.metadata?.managedRoutes) assert.equal(config.metadata.managedRoutes.modelKey, config.metadata.model);
     assert.deepEqual(config.metadata?.supportedModels, ["gpt-image-2.5-flare"]);
