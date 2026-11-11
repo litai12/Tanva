@@ -149,7 +149,15 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     const row = await this.owned(id, userId);
     // 自愈：推进链条意外断掉（进程被杀、队列丢任务）时补一次。
     if ((row.status === 'processing' || row.status === 'queued') && Date.now() - row.updatedAt.getTime() > 90_000) await this.schedule(id, 0);
-    return this.view(row);
+    const view = this.view(row);
+    // 规划阶段附上 TapCanvas 规划节点进度（只读本地已落库的进度，不额外请求上游）。
+    const meta = row.metadata as unknown as JobMeta;
+    if (meta.stage === 'planning' && meta.planTaskId) {
+      const plan = await this.prisma.videoTask.findFirst({ where: { id: meta.planTaskId, userId }, select: { metadata: true, status: true } }).catch(() => null);
+      const progress = (plan?.metadata as any)?.progress;
+      if (progress) return { ...view, planProgress: { status: plan!.status, nodes: progress.nodes ?? [], nodeSummary: progress.nodeSummary ?? null, elapsedMs: progress.elapsedMs ?? null } };
+    }
+    return view;
   }
 
   async list(userId: string, limit = 20) {
@@ -669,13 +677,13 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       progress: { images: count(meta.images), clips: count(meta.clips) },
       estimate: meta.estimate ?? null,
       storyboard: graph ? graph.clips.map((clip, i) => ({
-        index: i + 1, title: clip.title, durationSeconds: clip.durationSeconds, model: clip.seedanceModel, resolution: clip.resolution, aspectRatio: clip.aspectRatio,
+        index: i + 1, key: clip.key, title: clip.title, durationSeconds: clip.durationSeconds, model: clip.seedanceModel, resolution: clip.resolution, aspectRatio: clip.aspectRatio,
         prompt: clip.prompt.length > 600 ? `${clip.prompt.slice(0, 600)}…` : clip.prompt,
         references: clip.mode === 'first_frame' ? [`首帧：${titleOf(clip.firstFrame!)}`] : clip.references.map(titleOf),
         status: meta.clips[clip.key]?.status, videoUrl: meta.clips[clip.key]?.url ?? null, error: meta.clips[clip.key]?.error ?? null,
       })) : null,
       totalSeconds: graph ? graph.clips.reduce((sum, c) => sum + c.durationSeconds, 0) : null,
-      images: graph ? graph.images.map(image => ({ title: image.title, model: image.model || image.nodeType, status: meta.images[image.key]?.status,
+      images: graph ? graph.images.map(image => ({ key: image.key, title: image.title, model: image.model || image.nodeType, status: meta.images[image.key]?.status,
         imageUrl: meta.images[image.key]?.url ?? null, error: meta.images[image.key]?.error ?? null })) : [],
       warnings: meta.warnings,
       planTaskId: meta.planTaskId ?? null,

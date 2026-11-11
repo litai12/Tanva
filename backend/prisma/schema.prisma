@@ -1114,3 +1114,33 @@ model EnterpriseKnowledgeRevision {
   createdAt DateTime @default(now())
   @@unique([documentId, version])
 }
+
+/// 移动端 /m 对话会话（对话经 TapCanvas，成片走 video-productions）。
+model MobileConversation {
+  id            String    @id @default(uuid())
+  userId        String
+  title         String    @default("新会话")
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([userId, lastMessageAt])
+}
+
+/// 移动端对话消息。kind: text / job（成片任务卡，jobId = VideoTask.id）/ error。
+model MobileMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  userId         String
+  role           String
+  kind           String   @default("text")
+  content        String   @default("") @db.Text
+  attachments    Json?
+  jobId          String?
+  status         String   @default("done")
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([jobId])
+}

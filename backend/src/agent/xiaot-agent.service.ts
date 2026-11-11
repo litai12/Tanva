@@ -33,6 +33,15 @@ import {
   resolveLocalGreeting,
 } from './xiaot-host-context';
 
+/**
+ * 可选的实时文本通道（移动端 /m 使用；画布不传，行为不变）。
+ * delta 为上游增量；reset 表示此前下发的文本作废（断线续接 / 物理窗口挂起回放会从头重放）。
+ */
+export interface XiaotTextStream {
+  delta(text: string): void;
+  reset(): void;
+}
+
 type XiaotEmit = (
   type: AgentEventType,
   payload: { title?: string; message?: string; data?: Record<string, unknown> },
@@ -191,6 +200,7 @@ export class XiaotAgentService {
     continuation?: RunContinuation,
     resolveCanvasQuery?: (args: Record<string, unknown>) => Promise<Record<string, unknown>>,
     rootRunId?: string,
+    textStream?: XiaotTextStream,
   ): Promise<void> {
     // 小T固定使用 DeepSeek；旧请求、环境配置和续跑参数均不能重新启用 GPT。
     const model = DEFAULT_XIAOT_CHAT_MODEL;
@@ -378,13 +388,13 @@ export class XiaotAgentService {
           // verified continuation. Discard its public placeholder/partial text;
           // replayXiaotTurn reconnects from this exact event id and waits for
           // the later logical terminal without resubmitting the prompt.
-          if (frame.event === 'result') fullText = '';
+          if (frame.event === 'result') { fullText = ''; textStream?.reset(); }
           doneReceived = false;
           return;
         }
         if (frame.event === 'content') {
           const delta = typeof data.delta === 'string' ? data.delta : '';
-          if (delta) fullText += delta;
+          if (delta) { fullText += delta; textStream?.delta(delta); }
           return;
         }
         if (frame.event === 'tool') {
@@ -547,6 +557,7 @@ export class XiaotAgentService {
         const delta = readRecord(choice?.delta);
         if (typeof delta?.content === 'string' && delta.content) {
           fullText += delta.content;
+          textStream?.delta(delta.content);
         }
 
         if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
@@ -664,6 +675,7 @@ export class XiaotAgentService {
         // protected by their stable toolCallId set.
         await reader.cancel().catch(() => {});
         fullText = '';
+        textStream?.reset();
         toolCallBuffers.clear();
         try {
           await replayXiaotTurn({
@@ -750,6 +762,7 @@ export class XiaotAgentService {
           },
           resolveCanvasQuery,
           rootRunId,
+          textStream,
         );
         return;
       }

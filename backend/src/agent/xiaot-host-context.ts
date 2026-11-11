@@ -228,7 +228,10 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
       ...(spec.outputs ? { outputs: safeValue(spec.outputs) } : {}),
       ...(spec.constraints ? { constraints: safeValue(spec.constraints) } : {}),
     })),
-    notes: [
+    // 移动端宿主没有画布：只保留它自带的说明，不注入画布/能力查询指引（未声明的 query_* 工具调用会被丢弃）。
+    notes: value.host === MOBILE_HOST_NAME
+      ? (Array.isArray(value.notes) ? value.notes.filter((n): n is string => typeof n === 'string').slice(0, 32) : [])
+      : [
       '默认只提供能力索引；需要节点参数、输入输出或规则时调用 query_capabilities。',
       '默认只提供画布摘要；需要节点正文、媒体 URL 或连线关系时调用 query_canvas。',
       "按需查询统一调用 host_tool；画布参数为 {name:'query_canvas',arguments:{scope,nodeIds?,query?}}，能力参数为 {name:'query_capabilities',arguments:{nodeTypes}}。",
@@ -237,6 +240,9 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
     ],
   };
 }
+
+/** 移动端 /m 的宿主名（无画布，只声明成片 / 复刻宿主工具）。 */
+export const MOBILE_HOST_NAME = 'tanva-mobile';
 
 export function queryDesktopTools(
   manifest: unknown,

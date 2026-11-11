@@ -18,6 +18,6 @@ import { XiaotAgentService } from './xiaot-agent.service';
     ApiKeyOrJwtGuard,
   ],
   controllers: [AgentController],
-  exports: [AgentRuntimeService],
+  exports: [AgentRuntimeService, XiaotAgentService],
 })
 export class AgentModule {}

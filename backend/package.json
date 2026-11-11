@@ -47,6 +47,7 @@
     "test:auth-session-persistence": "ts-node --transpile-only src/auth/auth-session-persistence.spec.ts",
     "test:oauth": "ts-node --transpile-only src/auth/oauth/oauth-http.spec.ts",
     "test:openapi-schema": "ts-node --transpile-only src/common/openapi/class-validator-schema.spec.ts",
+    "test:mobile-chat": "ts-node --transpile-only src/mobile-chat/mobile-chat.spec.ts",
     "test:video-production": "ts-node --transpile-only src/video-production/plan-graph.spec.ts && ts-node --transpile-only src/video-production/video-production.spec.ts",
     "test:admin-paid-orders": "ts-node --transpile-only src/admin/admin-paid-orders.spec.ts",
     "verify:gpt-image25-catalog": "ts-node --transpile-only scripts/verify-gpt-image25-catalog.ts",

@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-11-10：新增移动端网页 `/m`：对话经小T（TapCanvas，按轮网关订单计费），一键成片 / 一键复刻由宿主工具触发 Tanva `video-productions` 执行与计费。新增 `MobileConversation` / `MobileMessage`（迁移 `202611100001_mobile_chat`）和 `/api/mobile-chat/*`。前端 `/m` 独立分包，使用统一 Tanvas logo。11-11 补流式打字、并发与限流、余额前置校验、成片过程视图（单段重试），已部署 101，待真机验收。见 `wiki/mobile-web-20261110.md`。
 - 2026-11-08：新增 GPT-Image-2.6 普通版 `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst`，定价与 2.5 普通版一致（1K/2K/4K = 20/30/40 积分，固定 high）。ToAPIs 同名直连；APIMart 渠道 9 映射到 `gpt-image-2.6-ext` 并按型号补 `version`。画布 GPT-Image-2.5 节点下拉可选，小T协议、规划展开、服务端成片同步追加。网关数据补丁 `patches/2026-11-08/001-add-gpt-image-2-6.sql`。已部署 101（网关基于线上 `f963acbf` 叠加，后端 6 模块替换，前端整包），两型号经 APIMart 真实出图验收通过；toApi 渠道 31 生产当前为禁用，2.6 随之禁用。见 `wiki/gpt-image-26-20261108.md`。
 
 - 2026-11-05：APIMart 图片失败积分不退（根治 + 已部署 101 + 历史已退）。APIMart 任务详情没有 billing 字段，后端又只认 `billing_status=refunded`，所以 10-21 起所有终态失败（内容审核、超时等）都卡在 pending。网关在 failed/cancelled 且 `cost=0`、`credits_cost=0` 时回执写 refunded；后端对上游已受理且终态 failed/cancelled 的任务统一立即退款，上游少量审核费由平台承担。网关镜像 `apimart-zero-cost-20261105` 基于线上 `2b188c1a` 构建，后端单文件替换后 reload，两次都先排空图片队列。历史 224 笔、9,820 积分、29 户已按原批次退回，账本已复核（含 133****3001 的 255 积分）。当天的超时来自上游变慢（4K normal 成功均耗时 83s→315s，约 600s 判超时），代码修不了。见 `wiki/apimart-failure-refund-20261105.md`。

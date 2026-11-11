@@ -23,6 +23,9 @@ import Workspace from '@/pages/Workspace';
 const DirectorHarnessPage = lazy(() => import('@/pages/DirectorHarnessPage'));
 const ForcedRigTestPage = lazy(() => import('@/pages/ForcedRigTestPage'));
 const ForcedCameraTestPage = lazy(() => import('@/pages/ForcedCameraTestPage'));
+// 移动端 /m（对话 + 一键成片/复刻）：独立分包，不加载画布。
+const MobileApp = lazy(() => import('@/pages/mobile/MobileApp'));
+const isMobileRoute = () => /^\/m(\/|$)/.test(window.location.pathname);
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 import DesktopApp from '@/desktop/DesktopApp';
@@ -36,7 +39,7 @@ function RootRoutes() {
     new URLSearchParams(window.location.search).get('desktopPreview') === '1';
   // Lazy init is triggered by protected routes/login flow to avoid auto /api/auth/me on every load.
   useEffect(() => {
-    if (user) loadProjects();
+    if (user && !isMobileRoute()) loadProjects();
   }, [user, loadProjects]);
 
   if (window.tanvaDesktop?.isElectron || desktopPreview) {
@@ -58,6 +61,7 @@ function RootRoutes() {
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal/community" element={<CommunityGuidelines />} />
         <Route path="/oss" element={<OSSDemo />} />
+        <Route path="/m/*" element={<Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#141414' }} />}><MobileApp /></Suspense>} />
         <Route path="/director-harness" element={<Suspense fallback={null}><DirectorHarnessPage /></Suspense>} />
         <Route path="/forced-rig-test" element={<Suspense fallback={null}><ForcedRigTestPage /></Suspense>} />
         <Route path="/forced-camera-test" element={<Suspense fallback={null}><ForcedCameraTestPage /></Suspense>} />

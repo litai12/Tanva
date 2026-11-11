@@ -30,6 +30,7 @@ import { TeamCreditsModule } from './team-credits/team-credits.module';
 import { TeamCollabModule } from './team-collab/team-collab.module';
 import { CanvasCommentsModule } from './canvas-comments/canvas-comments.module';
 import { AgentModule } from './agent/agent.module';
+import { MobileChatModule } from './mobile-chat/mobile-chat.module';
 import { DirectorCaptureModule } from './director-capture/director-capture.module';
 import { MaterialLibraryModule } from './material-library/material-library.module';
 import { AsrModule } from './asr/asr.module';
@@ -69,6 +70,7 @@ import { PromptLibraryModule } from './prompt-library/prompt-library.module';
     TeamCollabModule,
     CanvasCommentsModule,
     AgentModule,
+    MobileChatModule,
     DirectorCaptureModule,
     MaterialLibraryModule,
     EnterpriseLibraryModule,
