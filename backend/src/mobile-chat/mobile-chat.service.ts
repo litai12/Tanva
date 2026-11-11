@@ -245,7 +245,9 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
     turn: PreparedTurn, idempotencyBase: string, sink: TurnSink): Promise<void> {
     let message: MobileMessage;
     try {
-      const req = toDetailRequest(args, userUrls, turn.attachments);
+      let req: ReturnType<typeof toDetailRequest>;
+      try { req = toDetailRequest(args, userUrls, turn.attachments); }
+      catch (error) { this.logger.warn(`detail page args rejected: ${JSON.stringify(args).slice(0, 1500)}`); throw error; }
       const sections = await Promise.all(req.sections.map(async (section, i) => {
         try {
           const { taskId } = await this.productions.submitUserImage(userId, { prompt: detailSectionPrompt(req, i),

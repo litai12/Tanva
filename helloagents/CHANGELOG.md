@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-11-11：修复小T宿主工具参数说明被 3 层深度上限截断（嵌套 items 被清空、enum 变 null），移动端详情页因此解析不到任何一屏；画布宿主工具同受益。详情页解析兼容常见字段写法。
 - 2026-11-11：移动端新增多屏详情页 / 长图（`tanva_detail_page`）：2–10 屏统一风格、内容各异，每屏一个生图任务（同单张计费），卡片内上下相接实时出图，全部完成后服务端 sharp 拼成一张长图并转存 OSS（`POST /api/mobile-chat/messages/:id/stitch`，幂等）。见 `wiki/mobile-web-20261110.md`。
 - 2026-11-11：移动端复刻穿帮根治：本条消息附件由宿主确定性带入工具（不再依赖模型转述，修复“用图中车替换”未生效）；不再强制 Seedance 2.0、沿用规划模型；复刻画幅按原片 ffprobe（含旋转）跟随；`remakeClipPlan` 改为段长约 6 秒（≤12 段，画布复刻节点同步）。移动端新增「生成图片」（gpt-image-2.6-sunburst 2K，image-tasks 计费），分镜卡显示每段生成用时。见 `wiki/mobile-web-20261110.md`。
 - 2026-11-10：新增移动端网页 `/m`：对话经小T（TapCanvas，按轮网关订单计费），一键成片 / 一键复刻由宿主工具触发 Tanva `video-productions` 执行与计费。新增 `MobileConversation` / `MobileMessage`（迁移 `202611100001_mobile_chat`）和 `/api/mobile-chat/*`。前端 `/m` 独立分包，使用统一 Tanvas logo。11-11 补流式打字、并发与限流、余额前置校验、成片过程视图（单段重试），已部署 101，待真机验收。见 `wiki/mobile-web-20261110.md`。

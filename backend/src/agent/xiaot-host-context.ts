@@ -211,7 +211,9 @@ export function buildCapabilityManifestSummary(manifest: unknown): UnknownRecord
     hostTools: hostTools.slice(0, 12).map((tool) => ({
       name: tool.name,
       ...(tool.description ? { description: safeValue(tool.description) } : {}),
-      ...(tool.parameters ? { parameters: safeValue(tool.parameters) } : {}),
+      // 参数是 JSON Schema，常见 4–6 层（properties → x → items → properties → y → enum）；
+      // 默认 3 层会把 items 裁空、enum 变成 null，模型只能猜字段名（2026-11-11 详情页 sections 全部解析为空）。
+      ...(tool.parameters ? { parameters: safeValue(tool.parameters, -6) } : {}),
     })),
     desktopConnectors: desktopConnectors.slice(0, 8).map((connector) => ({
       connectorId: connector.connectorId,

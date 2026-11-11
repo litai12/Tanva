@@ -25,6 +25,12 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.deepEqual(summary.hostTools.map((t: any) => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE, MOBILE_TOOL_DETAIL]);
   assert.deepEqual(summary.notes, manifest.notes, 'mobile keeps its own notes');
   assert.ok(!JSON.stringify(summary.notes).includes('query_canvas'), 'no canvas query guidance on mobile');
+  const detailParams = summary.hostTools.find((t: any) => t.name === MOBILE_TOOL_DETAIL).parameters;
+  assert.deepEqual(Object.keys(detailParams.properties.sections.items.properties), ['title', 'prompt'], 'nested item schema reaches the model');
+  assert.ok(detailParams.properties.aspectRatio.enum.includes('3:4'), 'enum values not nulled');
+  const filmParams = summary.hostTools.find((t: any) => t.name === MOBILE_TOOL_FILM).parameters;
+  assert.ok(filmParams.properties.aspectRatio.enum.includes('9:16'));
+  assert.equal(filmParams.properties.referenceImageUrls.items.type, 'string');
   const canvas = buildCapabilityManifestSummary({ ...manifest, host: 'tanva' }) as any;
   assert.ok(JSON.stringify(canvas.notes).includes('query_canvas'), 'canvas host unchanged');
 }
@@ -83,6 +89,11 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   const sp = detailSectionPrompt(detail, 1);
   assert.match(sp, /第 2\/2 屏/); assert.match(sp, /奶油白\+森林绿/); assert.match(sp, /本屏画面：卖点/); assert.match(sp, /严格以参考图为准/);
   throwsMsg(() => toDetailRequest({ sections: [{ title: 'a', prompt: 'x' }] }, turnUrls), /至少需要 2 屏/);
+  // 容错：字段名不同 / 字符串数组 / JSON 字符串
+  assert.deepEqual(toDetailRequest({ sections: [{ name: '首屏', content: 'a' }, { heading: '卖点', description: 'b' }] }, turnUrls).sections,
+    [{ title: '首屏', prompt: 'a' }, { title: '卖点', prompt: 'b' }]);
+  assert.equal(toDetailRequest({ sections: ['a', 'b', 'c'] }, turnUrls).sections.length, 3);
+  assert.equal(toDetailRequest({ sections: JSON.stringify([{ title: 'x', prompt: 'a' }, { title: 'y', prompt: 'b' }]) }, turnUrls).sections.length, 2);
   assert.equal(toDetailRequest({ sections: Array.from({ length: 15 }, (_, i) => ({ title: `${i}`, prompt: 'p' })) }, turnUrls).sections.length, 10);
 
   // 复刻画幅跟随原片

@@ -205,10 +205,15 @@ export type DetailRequest = {
 
 export function toDetailRequest(args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[] = []): DetailRequest {
   const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const raw = Array.isArray(args.sections) ? args.sections : [];
-  const sections = raw.slice(0, MAX_DETAIL_SECTIONS)
-    .map((s: any, i: number) => ({ title: str(s?.title, 40) || `第 ${i + 1} 屏`, prompt: str(s?.prompt, 4_000) }))
-    .filter(s => s.prompt);
+  let raw: unknown = args.sections ?? args.screens ?? args.pages;
+  if (typeof raw === 'string') { const text = raw; try { raw = JSON.parse(text); } catch { raw = text.split(/\n+/).filter(Boolean); } }
+  const list = Array.isArray(raw) ? raw : [];
+  // 兼容模型常见写法：字符串数组，或用 content/description/text/画面 等字段名。
+  const sections = list.slice(0, MAX_DETAIL_SECTIONS).map((s: any, i: number) => {
+    if (typeof s === 'string') return { title: `第 ${i + 1} 屏`, prompt: str(s, 4_000) };
+    const prompt = str(s?.prompt ?? s?.content ?? s?.description ?? s?.text ?? s?.desc ?? s?.detail ?? s?.copy, 4_000);
+    return { title: str(s?.title ?? s?.name ?? s?.heading ?? s?.section, 40) || `第 ${i + 1} 屏`, prompt };
+  }).filter(s => s.prompt);
   if (sections.length < 2) throw new BadRequestException('详情页至少需要 2 屏内容');
   const aspectRatio = typeof args.aspectRatio === 'string' && (MOBILE_IMAGE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : '3:4';
   return { title: str(args.title, 60) || '详情页', style: str(args.style, 2_000), aspectRatio, sections,
