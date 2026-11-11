@@ -106,7 +106,7 @@ function MobileShell() {
   useEffect(() => { if (drawerOpen) refresh(); }, [drawerOpen, refresh]);
 
   const go = (path: string, replace = false) => { setDrawerOpen(false); navigate(path, { replace }); };
-  const quick = (kind: 'film' | 'remake') => {
+  const quick = (kind: 'film' | 'remake' | 'image') => {
     go('/m');
     // 从「我的作品」进入时对话视图刚挂载，等一帧再预填。
     if (chatRef.current) chatRef.current.prefill(kind);

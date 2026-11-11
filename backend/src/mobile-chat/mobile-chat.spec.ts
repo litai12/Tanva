@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { buildCapabilityManifestSummary, MOBILE_HOST_NAME } from '../agent/xiaot-host-context';
 import {
-  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE,
+  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, toImageRequest,
   parseAttachments, titleFrom, toProductionRequest,
 } from './mobile-chat.protocol';
 import { MobileChatService } from './mobile-chat.service';
+import { nearestVideoRatio } from '../video-production/requests';
 import { TextPump, TurnGate, visibleText } from './mobile-chat.stream';
 import { XIAOT_DURABLE_CONTINUATION_PLACEHOLDER } from '../agent/xiaot-agent-recovery';
 
@@ -16,10 +17,10 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   const manifest = buildMobileManifest();
   assert.equal(manifest.host, MOBILE_HOST_NAME);
   assert.ok(manifest.patchOps.length >= 1 && manifest.nodeSpecs.length >= 1, 'TapCanvas schema requires both');
-  assert.deepEqual(manifest.hostTools.map(t => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE]);
+  assert.deepEqual(manifest.hostTools.map(t => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE]);
   assert.equal((manifest as any).generationMode, undefined, 'default host mode: TapCanvas never generates media itself');
   const summary = buildCapabilityManifestSummary(manifest) as any;
-  assert.deepEqual(summary.hostTools.map((t: any) => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE]);
+  assert.deepEqual(summary.hostTools.map((t: any) => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE]);
   assert.deepEqual(summary.notes, manifest.notes, 'mobile keeps its own notes');
   assert.ok(!JSON.stringify(summary.notes).includes('query_canvas'), 'no canvas query guidance on mobile');
   const canvas = buildCapabilityManifestSummary({ ...manifest, host: 'tanva' }) as any;
@@ -45,7 +46,7 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.ok(urls.has('https://cdn.example/v.mp4') && urls.has('https://oss.example/p.png'));
 
   const film = toProductionRequest(MOBILE_TOOL_FILM, { story: '  一只猫的冒险  ', targetSeconds: 30.4, referenceImageUrls: ['https://oss.example/p.png'] }, urls);
-  assert.deepEqual(film, { mode: 'film', story: '一只猫的冒险', aspectRatio: '9:16', resolution: '720P', videoModel: 'seedance-2.0',
+  assert.deepEqual(film, { mode: 'film', story: '一只猫的冒险', aspectRatio: '9:16', resolution: '720P',
     referenceImageUrls: ['https://oss.example/p.png'], targetSeconds: 30 });
   const filmRatio = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', aspectRatio: '16:9', targetSeconds: 999 }, urls);
   assert.equal(filmRatio.aspectRatio, '16:9'); assert.equal(filmRatio.targetSeconds, undefined, 'out-of-range target dropped');
@@ -53,7 +54,31 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   throwsMsg(() => toProductionRequest(MOBILE_TOOL_FILM, { story: 's', referenceImageUrls: ['https://evil.example/x.png'] }, urls), /本会话/);
 
   const remake = toProductionRequest(MOBILE_TOOL_REMAKE, { referenceVideoUrl: 'https://cdn.example/v.mp4', requirements: '换成古风' }, urls);
-  assert.deepEqual(remake, { mode: 'remake', referenceVideoUrl: 'https://cdn.example/v.mp4', resolution: '720P', videoModel: 'seedance-2.0', requirements: '换成古风' });
+  assert.deepEqual(remake, { mode: 'remake', referenceVideoUrl: 'https://cdn.example/v.mp4', resolution: '720P', requirements: '换成古风' });
+  assert.equal(remake.videoModel, undefined, 'video model follows the TapCanvas plan (e.g. Seedance 2.5), never forced');
+
+  // 线上 2026-11-11：用户附车图说“用图中车替换”，模型漏传 referenceImageUrls → 宿主必须自动补上本条附件。
+  const turn = [{ type: 'video' as const, url: 'https://oss.example/src.mov' }, { type: 'image' as const, url: 'https://oss.example/car.jpeg' }];
+  const turnUrls = collectUserUrls([{ content: '复刻这个视频，用图中车替换', attachments: turn }]);
+  const auto = toProductionRequest(MOBILE_TOOL_REMAKE, { referenceVideoUrl: 'https://oss.example/src.mov', requirements: '换车' }, turnUrls, turn);
+  assert.deepEqual(auto.referenceImageUrls, ['https://oss.example/car.jpeg']);
+  const noVideoArg = toProductionRequest(MOBILE_TOOL_REMAKE, {}, turnUrls, turn);
+  assert.equal(noVideoArg.referenceVideoUrl, 'https://oss.example/src.mov', 'single video attachment used when the model omits it');
+  const dedup = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', referenceImageUrls: ['https://oss.example/car.jpeg'] }, turnUrls, turn);
+  assert.deepEqual(dedup.referenceImageUrls, ['https://oss.example/car.jpeg']);
+
+  // 生图
+  const img = toImageRequest({ prompt: ' 一张海报 ', aspectRatio: '9:16', count: 9 }, turnUrls, turn);
+  assert.deepEqual(img, { prompt: '一张海报', referenceImageUrls: ['https://oss.example/car.jpeg'], aspectRatio: '9:16', count: 4 });
+  assert.equal(toImageRequest({ prompt: 'x', aspectRatio: '7:1' }, turnUrls).aspectRatio, '1:1');
+  throwsMsg(() => toImageRequest({}, turnUrls), /画面描述/);
+  throwsMsg(() => toImageRequest({ prompt: 'x', referenceImageUrls: ['https://evil.example/a.png'] }, turnUrls), /本会话/);
+
+  // 复刻画幅跟随原片
+  assert.equal(nearestVideoRatio(720, 1200), '9:16');
+  assert.equal(nearestVideoRatio(1920, 1080), '16:9');
+  assert.equal(nearestVideoRatio(1080, 1080), '1:1');
+  assert.equal(nearestVideoRatio(0, 1080), undefined);
   assert.equal(remake.aspectRatio, undefined, 'remake follows the source unless asked');
   throwsMsg(() => toProductionRequest(MOBILE_TOOL_REMAKE, { referenceVideoUrl: 'https://made-up.example/v.mp4' }, urls), /本会话/);
   throwsMsg(() => toProductionRequest('flow_patch', {}, urls), /未知/);
@@ -156,7 +181,7 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.equal(lastDto.sessionId, 'mobile:c1');
   assert.match(lastDto.prompt, /【用户附件】/);
   assert.equal(created.length, 1, 'only declared host tools execute; flow_patch / query_canvas ignored');
-  assert.deepEqual(created[0], { userId: 'u1', body: { mode: 'remake', referenceVideoUrl: 'https://oss.example/v.mp4', resolution: '720P', videoModel: 'seedance-2.0' } });
+  assert.deepEqual(created[0], { userId: 'u1', body: { mode: 'remake', referenceVideoUrl: 'https://oss.example/v.mp4', resolution: '720P' } });
   const job = messages.find(m => m.kind === 'job');
   assert.equal(job.jobId, 'vprod_1');
   assert.equal(messages.find(m => m.id === turn.assistantMessage.id).content, '已提交复刻任务');
@@ -181,6 +206,22 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   await service.runTurn(turn3, () => undefined);
   assert.equal(created.length, 1);
   assert.match(messages.filter(m => m.kind === 'error').pop().content, /同时最多进行 2 个/);
+
+  // 生图：每张一张卡片，幂等键按助手消息 + 序号；附件自动带上。
+  const images: any[] = [];
+  productions.submitUserImage = async (userId: string, body: any) => { images.push({ userId, body }); return { taskId: `img_${images.length}` }; };
+  xiaot.run = async (_dto: any, _u: string, emit: any) => {
+    emit('host_tool', { data: { name: MOBILE_TOOL_IMAGE, arguments: { prompt: '把这辆车做成海报', count: 2, aspectRatio: '3:4' } } });
+    emit('final', { message: '正在生成' });
+  };
+  const turnImg = await service.prepareTurn('u1', 'c1', { text: '做海报', attachments: [{ type: 'image', url: 'https://oss.example/car.png' }] });
+  await service.runTurn(turnImg, () => undefined);
+  assert.equal(images.length, 2);
+  assert.deepEqual(images[0].body.referenceImageUrls, ['https://oss.example/car.png']);
+  assert.equal(images[0].body.idempotencyKey, `${turnImg.assistantMessage.id}-1-1`);
+  assert.equal(images[1].body.idempotencyKey, `${turnImg.assistantMessage.id}-1-2`);
+  const imageCards = messages.filter(m => m.kind === 'image');
+  assert.deepEqual(imageCards.map(m => m.jobId), ['img_1', 'img_2']);
 
   // 余额不足：不进上游、不落库消息、不占并发位。
   prisma.creditAccount.findUnique = async () => ({ balance: 3 });

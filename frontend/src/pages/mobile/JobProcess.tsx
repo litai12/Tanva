@@ -1,5 +1,5 @@
 // 成片任务的过程视图：规划 → 参考图 → 分镜视频 → 合成，每个节点实时状态与产物，可点开查看。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, Clock, Film, Image as ImageIcon, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { StepStatus, VideoJob } from '@/services/mobileChatApi';
 
@@ -55,6 +55,20 @@ export default function JobProcess({ job, running, onRetryClip, acting }: {
   const [preview, setPreview] = useState<{ type: 'image' | 'video'; url: string; title: string } | null>(null);
   const [openPrompt, setOpenPrompt] = useState<string | null>(null);
 
+  // 有分镜在生成时每秒走表，让用户看到它在动。
+  const [now, setNow] = useState(Date.now());
+  const clipRunning = (job.storyboard ?? []).some((c) => c.status === 'submitted');
+  useEffect(() => {
+    if (!clipRunning) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [clipRunning]);
+  const since = (iso?: string | null) => {
+    if (!iso) return '';
+    const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+
   const images = job.images ?? [];
   const clips = job.storyboard ?? [];
   const planned = !!job.storyboard;
@@ -108,6 +122,9 @@ export default function JobProcess({ job, running, onRetryClip, acting }: {
           </Node>
 
           <Node state={clipState} running={running} title="分镜视频" meta={clips.length ? count(clips) : undefined}>
+            {clipRunning && (
+              <div className="mb-2 text-xs leading-5 text-white/40">视频生成是最耗时的一步，每段通常 2–6 分钟，多段同时进行；可以锁屏或离开，完成后回来查看。</div>
+            )}
             {clips.length > 0 && (
               <div className="space-y-2">
                 {clips.map((clip) => (
@@ -123,7 +140,8 @@ export default function JobProcess({ job, running, onRetryClip, acting }: {
                       <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpenPrompt(openPrompt === clip.key ? null : clip.key)}>
                         <div className="flex items-center gap-1.5 text-[13px] text-white/85">
                           分镜 {clip.index} · {clip.durationSeconds}s
-                          <span className="flex items-center gap-1 text-xs text-white/45"><StepBadge status={clip.status} />{clip.status ? STEP_TEXT[clip.status] : ''}</span>
+                          <span className="flex items-center gap-1 text-xs text-white/45"><StepBadge status={clip.status} />{clip.status ? STEP_TEXT[clip.status] : ''}
+                            {clip.status === 'submitted' && clip.startedAt && <span className="tabular-nums text-white/35">· {since(clip.startedAt)}</span>}</span>
                         </div>
                         <div className={`mt-0.5 text-xs leading-5 text-white/45 ${openPrompt === clip.key ? '' : 'line-clamp-2'}`}>{clip.prompt}</div>
                       </button>

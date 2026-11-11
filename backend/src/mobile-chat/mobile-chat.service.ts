@@ -7,7 +7,7 @@ import type { CreateAgentRunDto } from '../agent/dto/agent-run.dto';
 import { VideoProductionService, VIDEO_PRODUCTION_TASK_TYPE } from '../video-production/video-production.service';
 import {
   buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MAX_MESSAGE_CHARS, MAX_RUNNING_JOBS,
-  MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toProductionRequest,
+  MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toImageRequest, toProductionRequest,
   type JobBrief, type MobileAttachment,
 } from './mobile-chat.protocol';
 import { TextPump, TurnGate } from './mobile-chat.stream';
@@ -33,12 +33,15 @@ const friendlyError = (error: unknown) => {
   const raw = errText(error);
   if (/余额|积分|credits|402/i.test(raw)) return '积分余额不足，请充值后再试';
   if (/超时|timeout|aborted/i.test(raw)) return '回复超时，请稍后重试';
+  if (/model_not_found|No available channel/i.test(raw)) return '对话模型渠道暂不可用，请联系客服处理';
   if (/inflight|进行中|turn_in_progress|409|429/i.test(raw)) return '当前排队较多，请稍后再试';
   return '对话服务暂时不可用，请稍后重试';
 };
 
 export const messageView = (m: MobileMessage) => ({
-  id: m.id, role: m.role, kind: m.kind, content: m.content, attachments: (m.attachments as unknown as MobileAttachment[] | null) ?? [],
+  id: m.id, role: m.role, kind: m.kind, content: m.content,
+  attachments: Array.isArray(m.attachments) ? (m.attachments as unknown as MobileAttachment[]) : [],
+  ...(m.kind === 'image' ? { aspectRatio: (m.attachments as any)?.aspectRatio ?? '1:1' } : {}),
   jobId: m.jobId, status: m.status, createdAt: m.createdAt.toISOString(),
 });
 
@@ -166,10 +169,12 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         if (type === 'host_tool') {
           const name = String(payload.data?.name || '');
           const args = (payload.data?.arguments as Record<string, unknown>) || {};
-          if (name !== MOBILE_TOOL_FILM && name !== MOBILE_TOOL_REMAKE) return;
+          if (name !== MOBILE_TOOL_FILM && name !== MOBILE_TOOL_REMAKE && name !== MOBILE_TOOL_IMAGE) return;
           jobCount += 1;
-          sink('status', { text: name === MOBILE_TOOL_REMAKE ? '正在提交一键复刻…' : '正在提交一键成片…' });
-          toolRuns.push(this.executeTool(userId, conversationId, name, args, userUrls, sink));
+          sink('status', { text: name === MOBILE_TOOL_REMAKE ? '正在提交一键复刻…' : name === MOBILE_TOOL_IMAGE ? '正在提交生图…' : '正在提交一键成片…' });
+          toolRuns.push(name === MOBILE_TOOL_IMAGE
+            ? this.executeImageTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink)
+            : this.executeTool(userId, conversationId, name, args, userUrls, turn.attachments, sink));
         } else if (type === 'final') {
           finalText = typeof payload.message === 'string' ? payload.message : '';
         } else if (type === 'step_started' || type === 'run_started') {
@@ -199,11 +204,36 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 生图：每张一个图片任务、一张卡片；计费在 image-tasks 内闭环（预扣、失败退款）。 */
+  private async executeImageTool(userId: string, conversationId: string, args: Record<string, unknown>, userUrls: Set<string>,
+    turn: PreparedTurn, idempotencyBase: string, sink: TurnSink): Promise<void> {
+    let request: ReturnType<typeof toImageRequest>;
+    try { request = toImageRequest(args, userUrls, turn.attachments); }
+    catch (error) {
+      const m = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'error', content: `生成图片未提交：${errText(error)}` } });
+      sink('message', { message: messageView(m) });
+      return;
+    }
+    for (let i = 0; i < request.count; i += 1) {
+      let message: MobileMessage;
+      try {
+        const { taskId } = await this.productions.submitUserImage(userId, { prompt: request.prompt, referenceImageUrls: request.referenceImageUrls,
+          aspectRatio: request.aspectRatio, idempotencyKey: `${idempotencyBase}-${i + 1}` });
+        message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image',
+          content: request.prompt.slice(0, 500), jobId: taskId, attachments: { aspectRatio: request.aspectRatio } as any } });
+      } catch (error) {
+        message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'error',
+          content: `生成图片未提交：${errText(error)}` } });
+      }
+      sink('message', { message: messageView(message) });
+    }
+  }
+
   private async executeTool(userId: string, conversationId: string, name: string, args: Record<string, unknown>,
-    userUrls: Set<string>, sink: TurnSink): Promise<void> {
+    userUrls: Set<string>, turnAttachments: MobileAttachment[], sink: TurnSink): Promise<void> {
     let message: MobileMessage;
     try {
-      const request = toProductionRequest(name, args, userUrls);
+      const request = toProductionRequest(name, args, userUrls, turnAttachments);
       const running = await this.prisma.videoTask.count({ where: { userId, taskType: VIDEO_PRODUCTION_TASK_TYPE, status: { in: ['queued', 'processing'] } } });
       if (running >= MAX_RUNNING_JOBS) throw new ConflictException(`同时最多进行 ${MAX_RUNNING_JOBS} 个成片任务，请等当前任务完成后再提交`);
       // 全站在跑的成片任务上限：保护合成（ffmpeg）、下载与上游并发。

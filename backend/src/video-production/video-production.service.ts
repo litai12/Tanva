@@ -17,7 +17,7 @@ import { CreditsService } from '../credits/credits.service';
 import { TapcanvasPlansService } from '../tapcanvas-plans/tapcanvas-plans.service';
 import { REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
 import { buildProductionGraph, clampSeedanceDuration, imageWaves, type AssetPlanNode, type GraphClip, type GraphImage, type ProductionGraph } from './plan-graph';
-import { applyImageModel, buildImageCall, buildVideoCall, findImageModel, findVideoModel, IMAGE_MODEL_OPTIONS, VIDEO_MODEL_OPTIONS, VIDEO_RATIOS, VIDEO_RESOLUTIONS } from './requests';
+import { applyImageModel, buildImageCall, buildVideoCall, findImageModel, findVideoModel, IMAGE_MODEL_OPTIONS, nearestVideoRatio, VIDEO_MODEL_OPTIONS, VIDEO_RATIOS, VIDEO_RESOLUTIONS } from './requests';
 
 export const VIDEO_PRODUCTION_TASK_TYPE = 'video-production';
 const QUEUE = 'video-productions';
@@ -201,6 +201,18 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       meta.stage = 'cancelled';
       return { status: 'canceled', meta, error: '已取消（已提交的生成照常按实际结果结算）' };
     });
+  }
+
+  /**
+   * 单张生图（移动端「生成图片」）：与画布 GPT Image 节点同一套报价、预扣、结算与失败退款（image-tasks worker 闭环）。
+   * 返回上游图片任务 ID，前端经 GET /api/ai/image-task/:id 轮询。
+   */
+  async submitUserImage(userId: string, input: { prompt: string; referenceImageUrls: string[]; aspectRatio?: string; idempotencyKey: string }) {
+    const call = buildImageCall({ nodeType: 'gptImage2', model: 'gpt-image-2.6-sunburst', prompt: input.prompt, resolution: '2K',
+      ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}) }, input.referenceImageUrls.slice(0, 10), `mimg-${input.idempotencyKey}`);
+    const res = await this.exec().submitImage(call.kind, call.dto, sleepReq(userId, undefined, input.idempotencyKey));
+    if (!res?.taskId) throw new ServiceUnavailableException('生图任务未受理，请稍后重试');
+    return { taskId: res.taskId };
   }
 
   async models(userId: string, rawTeamId: unknown) {
@@ -394,6 +406,11 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     if (!meta.planTaskId) {
       if (input.kind === 'remake' && meta.sourceSeconds === undefined) {
         meta.sourceSeconds = await this.exec().probeDuration(input.referenceVideoUrl!).catch(() => 0);
+      }
+      // 复刻未指定画幅时跟随原片：规划缺省会给 16:9，竖屏原片被重新构图是穿帮的主要来源之一。
+      if (input.kind === 'remake' && !input.aspectRatio) {
+        const ratio = await this.sourceAspectRatio(input.referenceVideoUrl!);
+        if (ratio) { input.aspectRatio = ratio; meta.warnings.push(`画幅跟随原片：${ratio}`); }
       }
       const requirement = [input.kind === 'remake' ? (input.requirements || REMAKE_DEFAULT_REQUIREMENT) : input.requirements,
         input.kind === 'film' && input.targetSeconds ? `成片总时长约 ${input.targetSeconds} 秒。` : undefined,
@@ -592,6 +609,26 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       child.on('close', () => resolve(out.trim()));
     });
   }
+  /** 原片显示画幅：读首个视频流宽高与旋转（iPhone .mov 常以横向编码 + 旋转 90° 存竖屏）。 */
+  private sourceAspectRatio(url: string): Promise<string | undefined> {
+    return new Promise(resolve => {
+      const child = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:stream_tags=rotate:stream_side_data=rotation', '-of', 'json', url]);
+      let out = '';
+      const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+      child.stdout.on('data', chunk => { out += chunk; });
+      child.on('error', () => { clearTimeout(timer); resolve(undefined); });
+      child.on('close', () => {
+        clearTimeout(timer);
+        try {
+          const stream = JSON.parse(out).streams?.[0] ?? {};
+          const rotation = Number(stream.side_data_list?.find((d: any) => d.rotation !== undefined)?.rotation ?? stream.tags?.rotate ?? 0);
+          const swap = Math.abs(rotation) % 180 === 90;
+          resolve(nearestVideoRatio(swap ? stream.height : stream.width, swap ? stream.width : stream.height));
+        } catch { resolve(undefined); }
+      });
+    });
+  }
+
   private async hasAudio(file: string) { return (await this.probe(file, ['-select_streams', 'a', '-show_entries', 'stream=index'])).length > 0; }
   /** 直接拼接（-c copy）要求各段编码参数完全一致，否则静默产出坏文件。 */
   private streamSignature(file: string) {
@@ -680,7 +717,7 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
         index: i + 1, key: clip.key, title: clip.title, durationSeconds: clip.durationSeconds, model: clip.seedanceModel, resolution: clip.resolution, aspectRatio: clip.aspectRatio,
         prompt: clip.prompt.length > 600 ? `${clip.prompt.slice(0, 600)}…` : clip.prompt,
         references: clip.mode === 'first_frame' ? [`首帧：${titleOf(clip.firstFrame!)}`] : clip.references.map(titleOf),
-        status: meta.clips[clip.key]?.status, videoUrl: meta.clips[clip.key]?.url ?? null, error: meta.clips[clip.key]?.error ?? null,
+        status: meta.clips[clip.key]?.status, startedAt: meta.clips[clip.key]?.submittedAt ? new Date(meta.clips[clip.key]!.submittedAt!).toISOString() : null, videoUrl: meta.clips[clip.key]?.url ?? null, error: meta.clips[clip.key]?.error ?? null,
       })) : null,
       totalSeconds: graph ? graph.clips.reduce((sum, c) => sum + c.durationSeconds, 0) : null,
       images: graph ? graph.images.map(image => ({ key: image.key, title: image.title, model: image.model || image.nodeType, status: meta.images[image.key]?.status,

@@ -10,13 +10,16 @@ export type MobileAttachment = { type: "image" | "video"; url: string; name?: st
 export type MobileMessage = {
   id: string;
   role: "user" | "assistant";
-  kind: "text" | "job" | "error";
+  kind: "text" | "job" | "image" | "error";
   content: string;
   attachments: MobileAttachment[];
   jobId: string | null;
   status: "done" | "streaming" | "error";
   createdAt: string;
+  /** kind=image 时的目标画幅。 */
+  aspectRatio?: string;
 };
+export type ImageTask = { status: "queued" | "processing" | "succeeded" | "failed"; imageUrl: string | null; error: string | null };
 export type MobileConversation = { id: string; title: string; lastMessageAt: string };
 export type StepStatus = "pending" | "submitted" | "succeeded" | "failed";
 export type StepCount = { total: number; succeeded: number; running: number; failed: number };
@@ -31,7 +34,7 @@ export type VideoJob = {
   estimate: { credits: number | null; balance?: number | null; partial?: boolean } | null;
   storyboard: Array<{
     index: number; key: string; title: string; durationSeconds: number; prompt: string; references: string[];
-    aspectRatio?: string; status?: StepStatus; videoUrl: string | null; error: string | null;
+    aspectRatio?: string; status?: StepStatus; startedAt?: string | null; videoUrl: string | null; error: string | null;
   }> | null;
   images: Array<{ key: string; title: string; status?: StepStatus; imageUrl: string | null; error: string | null }>;
   /** 规划阶段 TapCanvas 节点进度（nodeSummary 为各状态计数）。 */
@@ -74,6 +77,7 @@ export const mobileChatApi = {
     call<VideoJob>(`/video-productions/${id}/retry`, { method: "POST", body: JSON.stringify(clipKeys ? { clipKeys } : {}) }),
   cancel: (id: string) => call<VideoJob>(`/video-productions/${id}/cancel`, { method: "POST", body: "{}" }),
   balance: () => call<{ balance: number }>("/credits/balance"),
+  imageTask: (id: string) => call<ImageTask>(`/ai/image-task/${encodeURIComponent(id)}`),
 
   /** 发送一条消息，按 SSE 事件回调；网络断开时服务端仍会跑完本轮。 */
   async send(

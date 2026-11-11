@@ -1,10 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Clapperboard, Loader2, Plus, Repeat2, Video, X } from 'lucide-react';
+import { ArrowUp, Clapperboard, ImagePlus, Loader2, Plus, Repeat2, Video, X } from 'lucide-react';
 import { mobileChatApi, type MobileAttachment, type MobileMessage } from '@/services/mobileChatApi';
 import { MAX_MEDIA_UPLOAD_BYTES, uploadToOSS } from '@/services/ossUploadService';
 import JobCard from './JobCard';
+import ImageCard from './ImageCard';
 import TanvasMark from './TanvasMark';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
@@ -14,12 +15,13 @@ const MAX_ATTACHMENTS = 9;
 const SYNC_POLL_MS = 3000;
 const FILM_PREFILL = '帮我把这个故事做成竖屏短片：\n';
 const REMAKE_PREFILL = '复刻这条视频，保留节奏和镜头，人物和场景换成原创';
+const IMAGE_PREFILL = '帮我生成一张图片：';
 
 type Draft = { localId: string; type: 'image' | 'video'; name: string; preview: string; url?: string; uploading: boolean; error?: string };
 /** clientKey：本地占位消息的渲染 key，服务端回写后保持不变，打字动画不会被重新挂载打断。 */
 type ViewMessage = MobileMessage & { statusText?: string; clientKey?: string };
 
-export type MobileChatHandle = { prefill: (kind: 'film' | 'remake') => void };
+export type MobileChatHandle = { prefill: (kind: 'film' | 'remake' | 'image') => void };
 type Props = {
   conversationId: string | null;
   userName: string;
@@ -92,7 +94,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
 
   useImperativeHandle(ref, () => ({
     prefill: (kind) => {
-      setText(kind === 'film' ? FILM_PREFILL : REMAKE_PREFILL);
+      setText(kind === 'film' ? FILM_PREFILL : kind === 'image' ? IMAGE_PREFILL : REMAKE_PREFILL);
       setHint(kind === 'remake' ? '点左侧 + 上传要复刻的视频' : '');
       setTimeout(() => { textRef.current?.focus(); autosize(); }, 320);
     },
@@ -194,7 +196,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
             <div className="text-center font-serif text-[30px] font-medium tracking-tight text-[#D8D4CC]">
               嗨，{firstName || '欢迎来到 Tanvas'}
             </div>
-            <div className="text-sm text-white/40">说一个故事，或上传一条爆款视频</div>
+            <div className="text-sm text-white/40">讲个故事、复刻爆款视频，或生成图片</div>
           </div>
         ) : (
           <div className="mx-auto max-w-[640px] space-y-5 pb-6 pt-2">
@@ -216,6 +218,10 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
               <button type="button" onClick={() => { setText(REMAKE_PREFILL); pickFiles('video/*'); }}
                 className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm text-white/80">
                 <Repeat2 className="h-4 w-4" />一键复刻
+              </button>
+              <button type="button" onClick={() => { setText(IMAGE_PREFILL); setTimeout(() => textRef.current?.focus(), 0); }}
+                className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm text-white/80">
+                <ImagePlus className="h-4 w-4" />生成图片
               </button>
             </div>
           )}
@@ -248,7 +254,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
                 <Plus className="h-5 w-5" />
               </button>
               <textarea ref={textRef} rows={1} value={text} onChange={(e) => setText(e.target.value)}
-                placeholder={empty ? '讲个故事，或上传视频来复刻' : '继续说…'}
+                placeholder={empty ? '讲个故事、上传视频复刻，或描述想要的图片' : '继续说…'}
                 className="max-h-[132px] min-h-[44px] flex-1 resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/35 outline-none" />
               <button type="button" aria-label="发送" onClick={send} disabled={!canSend}
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${canSend ? 'bg-[#F4F2EE] text-[#141414]' : 'bg-white/10 text-white/30'}`}>
@@ -290,6 +296,7 @@ function MessageRow({ message: m }: { message: ViewMessage }) {
     );
   }
   if (m.kind === 'job' && m.jobId) return <JobCard jobId={m.jobId} title={m.content || '成片任务'} />;
+  if (m.kind === 'image' && m.jobId) return <ImageCard taskId={m.jobId} prompt={m.content} aspectRatio={m.aspectRatio || '1:1'} createdAt={m.createdAt} />;
   if (m.kind === 'error') {
     return <div className="rounded-2xl border border-[#FF7A6B]/25 bg-[#FF7A6B]/[0.08] px-4 py-3 text-sm leading-6 text-[#FFB3A8]">{m.content}</div>;
   }

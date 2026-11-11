@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-11-11：移动端复刻穿帮根治：本条消息附件由宿主确定性带入工具（不再依赖模型转述，修复“用图中车替换”未生效）；不再强制 Seedance 2.0、沿用规划模型；复刻画幅按原片 ffprobe（含旋转）跟随；`remakeClipPlan` 改为段长约 6 秒（≤12 段，画布复刻节点同步）。移动端新增「生成图片」（gpt-image-2.6-sunburst 2K，image-tasks 计费），分镜卡显示每段生成用时。见 `wiki/mobile-web-20261110.md`。
 - 2026-11-10：新增移动端网页 `/m`：对话经小T（TapCanvas，按轮网关订单计费），一键成片 / 一键复刻由宿主工具触发 Tanva `video-productions` 执行与计费。新增 `MobileConversation` / `MobileMessage`（迁移 `202611100001_mobile_chat`）和 `/api/mobile-chat/*`。前端 `/m` 独立分包，使用统一 Tanvas logo。11-11 补流式打字、并发与限流、余额前置校验、成片过程视图（单段重试），已部署 101，待真机验收。见 `wiki/mobile-web-20261110.md`。
 - 2026-11-08：新增 GPT-Image-2.6 普通版 `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst`，定价与 2.5 普通版一致（1K/2K/4K = 20/30/40 积分，固定 high）。ToAPIs 同名直连；APIMart 渠道 9 映射到 `gpt-image-2.6-ext` 并按型号补 `version`。画布 GPT-Image-2.5 节点下拉可选，小T协议、规划展开、服务端成片同步追加。网关数据补丁 `patches/2026-11-08/001-add-gpt-image-2-6.sql`。已部署 101（网关基于线上 `f963acbf` 叠加，后端 6 模块替换，前端整包），两型号经 APIMart 真实出图验收通过；toApi 渠道 31 生产当前为禁用，2.6 随之禁用。见 `wiki/gpt-image-26-20261108.md`。
 

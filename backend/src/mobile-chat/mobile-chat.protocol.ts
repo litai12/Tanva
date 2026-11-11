@@ -6,7 +6,10 @@ import { MOBILE_HOST_NAME } from '../agent/xiaot-host-context';
 
 export const MOBILE_TOOL_FILM = 'tanva_make_video';
 export const MOBILE_TOOL_REMAKE = 'tanva_remake_video';
+export const MOBILE_TOOL_IMAGE = 'tanva_generate_image';
+export const MAX_IMAGES_PER_CALL = 4;
 export const MOBILE_RATIOS = ['9:16', '16:9', '1:1', '3:4', '4:3', '21:9'] as const;
+export const MOBILE_IMAGE_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9', '2:3', '3:2'] as const;
 export const MAX_MESSAGE_CHARS = 8_000;
 export const MAX_ATTACHMENTS = 9;
 export const MAX_RUNNING_JOBS = 2;
@@ -51,12 +54,26 @@ export function buildMobileManifest() {
           required: ['referenceVideoUrl'],
         },
       },
+      {
+        name: MOBILE_TOOL_IMAGE,
+        description: '生成图片：按描述生成图片（海报、插画、产品图、头像、长图等），可参考用户上传的图片做改图/换风格/融合。',
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: '完整的画面描述（主体、场景、构图、风格、光线、文字内容等），用户描述简短时自行补全' },
+            referenceImageUrls: { type: 'array', items: { type: 'string' }, description: '用户提供的参考图 URL，只能用用户消息里出现过的地址' },
+            aspectRatio: { type: 'string', enum: [...MOBILE_IMAGE_RATIOS], description: '画幅，默认 1:1；长图用 9:16，横幅用 16:9' },
+            count: { type: 'integer', minimum: 1, maximum: MAX_IMAGES_PER_CALL, description: '张数，默认 1' },
+          },
+          required: ['prompt'],
+        },
+      },
     ],
     notes: [
-      '你是 Tanvas 移动端的视频创作助手，只提供两项能力：一键成片（故事/文案 → 成片）和一键复刻（参考视频 → 复刻成片）。单独生图、画布编辑、文档制作等其它请求，礼貌说明移动端暂不支持，并引导使用这两项能力。',
+      `你是 Tanvas 移动端的创作助手，提供三项能力：一键成片（故事/文案 → 成片）、一键复刻（参考视频 → 复刻成片）和生成图片。用户要图片（海报、插画、长图、改图等）时调用 host_tool ${MOBILE_TOOL_IMAGE}。画布编辑、文档制作等其它请求，礼貌说明移动端暂不支持。`,
       `用户给出故事、文案或题材并想要成片时，调用 host_tool ${MOBILE_TOOL_FILM}；信息足够就直接调用，不要反复追问。只有一句题材时自行扩写成完整故事后调用。`,
       `用户提供参考视频（附件或视频直链）并要求复刻时，调用 host_tool ${MOBILE_TOOL_REMAKE}。抖音/小红书等分享链接暂不支持，请用户下载后上传视频文件。`,
-      '工具参数中的 URL 只能取自用户消息中的【用户附件】或用户正文里的地址，禁止编造或改写。',
+      '工具参数中的 URL 只能取自用户消息中的【用户附件】或用户正文里的地址，禁止编造或改写。用户本条消息附带的图片会由宿主自动交给工具（复刻时作为替换主体/新角色/产品参考），你仍应在 requirements 里写清每张图的用途。',
       '调用工具后用一两句话告诉用户：任务已提交，进度会在下方卡片实时更新，积分按实际用量扣除，余额不足会暂停等待充值。不要输出 flow_patch，不要创建节点。',
       '【本会话成片任务】列出了已提交任务的最新状态，用户询问进度时据此回答；用户要求同类新片时可再次调用工具。',
       '回答使用简体中文，简洁友好，适合手机阅读。',
@@ -110,34 +127,58 @@ const allowed = (value: unknown, urls: Set<string>, name: string): string => {
   return url;
 };
 
-/** 把模型的 host_tool 参数转成 /api/video-productions 请求体；URL 必须是用户给过的。 */
-export function toProductionRequest(name: string, args: Record<string, unknown>, userUrls: Set<string>): Record<string, unknown> {
+/**
+ * 合并参考图：模型给的（须是本会话用户给过的地址）∪ 用户本条消息附带的图片。
+ * 2026-11-11 线上：用户附图说“用图中车替换”，模型调用工具时漏传了图，复刻照抄了原片车辆——附件不能依赖模型转述。
+ */
+function mergedImages(args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[], max: number): string[] {
+  const fromModel = Array.isArray(args.referenceImageUrls)
+    ? args.referenceImageUrls.slice(0, max).map((u, i) => allowed(u, userUrls, `参考图 ${i + 1}`)) : [];
+  return [...new Set([...turn.filter(a => a.type === 'image').map(a => a.url), ...fromModel])].slice(0, max);
+}
+
+/** 把模型的 host_tool 参数转成 /api/video-productions 请求体；URL 必须是用户给过的，本条消息的附件由宿主直接补入。 */
+export function toProductionRequest(name: string, args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[] = []): Record<string, unknown> {
   const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
   const ratio = typeof args.aspectRatio === 'string' && (MOBILE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : undefined;
-  const images = Array.isArray(args.referenceImageUrls)
-    ? args.referenceImageUrls.slice(0, 12).map((u, i) => allowed(u, userUrls, `参考图 ${i + 1}`)) : [];
+  const images = mergedImages(args, userUrls, turn, 12);
   const requirements = str(args.requirements, 20_000);
+  // 不指定 videoModel：沿用 TapCanvas 规划给的模型（如 Seedance 2.5），提示词与参考图数量都是按它写的。
   if (name === MOBILE_TOOL_FILM) {
     const story = str(args.story, 200_000);
     if (!story) throw new BadRequestException('一键成片缺少故事内容');
     const seconds = Number(args.targetSeconds);
     return {
-      mode: 'film', story, aspectRatio: ratio || '9:16', resolution: '720P', videoModel: 'seedance-2.0',
+      mode: 'film', story, aspectRatio: ratio || '9:16', resolution: '720P',
       ...(images.length ? { referenceImageUrls: images } : {}),
       ...(Number.isFinite(seconds) && seconds >= 4 && seconds <= 180 ? { targetSeconds: Math.round(seconds) } : {}),
       ...(requirements ? { requirements } : {}),
     };
   }
   if (name === MOBILE_TOOL_REMAKE) {
+    const turnVideos = turn.filter(a => a.type === 'video');
+    const given = httpUrl(args.referenceVideoUrl);
+    const video = given && userUrls.has(given) ? given
+      : turnVideos.length === 1 ? turnVideos[0].url : allowed(args.referenceVideoUrl, userUrls, '参考视频');
     return {
-      mode: 'remake', referenceVideoUrl: allowed(args.referenceVideoUrl, userUrls, '参考视频'),
-      resolution: '720P', videoModel: 'seedance-2.0',
+      mode: 'remake', referenceVideoUrl: video, resolution: '720P',
       ...(ratio ? { aspectRatio: ratio } : {}),
       ...(images.length ? { referenceImageUrls: images } : {}),
       ...(requirements ? { requirements } : {}),
     };
   }
   throw new BadRequestException(`未知的宿主工具：${name}`);
+}
+
+export type ImageRequest = { prompt: string; referenceImageUrls: string[]; aspectRatio: string; count: number };
+
+export function toImageRequest(args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[] = []): ImageRequest {
+  const prompt = typeof args.prompt === 'string' ? args.prompt.trim().slice(0, 8_000) : '';
+  if (!prompt) throw new BadRequestException('生成图片缺少画面描述');
+  const aspectRatio = typeof args.aspectRatio === 'string' && (MOBILE_IMAGE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : '1:1';
+  const n = Math.round(Number(args.count));
+  const count = Number.isFinite(n) ? Math.min(MAX_IMAGES_PER_CALL, Math.max(1, n)) : 1;
+  return { prompt, referenceImageUrls: mergedImages(args, userUrls, turn, 10), aspectRatio, count };
 }
 
 const STAGE_TEXT: Record<string, string> = {

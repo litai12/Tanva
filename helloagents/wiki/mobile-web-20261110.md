@@ -34,3 +34,15 @@
 - 第一次运行：迁移 `202611100001_mobile_chat` 成功；`prisma generate` 写入的是 pnpm 实际路径 `node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client`（脚本误以为是 `node_modules/.prisma/client`，后者是 8 月的旧副本、未被使用），校验失败后按脚本停止，后端/前端未动，进程无影响。新客户端是旧模型的超集。随后修正了生成文件属主与权限（root/600 → www/644，与原来一致）。
 - 续跑 `deploy-resume.py`：10 个后端文件（5 改 5 新）替换后 `pm2 reload tanvas-api`，`/api/health` 200、`/api/mobile-chat/conversations` 未登录 401；前端 49 文件，入口最后切换，`version.json` commitSha `f3db845b+mob`，`/m` 200。启动日志 `MobileChatModule` 6 条路由已映射。
 - 服务器 checkout 新增了未提交的 `backend/prisma/migrations/202611100001_mobile_chat/` 与改过的 `schema.prisma`；本地改动提交推送后再同步，即可恢复干净。
+
+## 2026-11-11 复刻穿帮根因与修复、移动端生图
+
+线上首个真实复刻（20 秒竖屏停车设备视频，用户附车图要求“用图中车替换”）成片有穿帮、车辆未替换。逐项核对任务数据后的根因（TapCanvas 的视频理解不是主因：规划正确复述了 GiAnD 标识、卷帘门、两台车等细节，且 TapCanvas 原生复刻与工作流共用同一份 `REFERENCE_VIDEO_ANALYSIS_PROMPT` 5fps 拆解）：
+
+1. **用户附图丢失**：模型调用 `tanva_remake_video` 时漏传 `referenceImageUrls`，规划没拿到新车，照搬原片的 G 级 / 库里南。修复：本条消息的图片（及唯一视频）由宿主确定性并入工具参数，不依赖模型转述。
+2. **视频模型被降级**：TapCanvas 规划按 Seedance 2.5（`suanli-sd2.5`）写的提示词与参考图，移动端却强制 `seedance-2.0`。修复：不再指定 `videoModel`，沿用规划模型（Seedance 2.5 刊例为 2.0 的 1.5 倍）。
+3. **画幅错**：原片 720×1200 竖屏，未指定画幅时规划缺省 16:9，重新构图。修复：复刻未指定画幅时 ffprobe 原片（含旋转元数据）取最接近的画幅，写入规划要求与生成参数。
+4. **单段镜头过密**：`remakeClipPlan` 原取“段数最少”，20 秒被拆 2×10 秒、每段 4–5 个镜头，且同一段绑定互斥的状态卡（卷帘门闭合/升起、托盘空/承车），Seedance 在一段内混淆状态。修复：在总长误差 ≤1 秒的方案里取段长最接近 6 秒的（20 秒 → 3×7，17 秒 → 3×6），段数上限 12，超出回落原策略；按秒计费，总价不变。**画布「爆款复刻」节点共用此函数，同步生效。**
+5. 未改：规划仍用 `deepseek-v4.1-flash` + `reasoningEffort=none`（与画布节点缺省一致）；TapCanvas 原生的“尾帧续写”（上一段末帧作下一段首帧）只在其工作流内，资产规划出口不提供；101 上的 TapCanvas Pro 仍是 9 月版本（规划走 www.lluban.cn 渠道 55，对话走 101 渠道 43）。
+
+**移动端生图**：新增宿主工具 `tanva_generate_image`（prompt、参考图、画幅 1:1/3:4/4:3/9:16/16:9/2:3/3:2、1–4 张）。后端 `VideoProductionService.submitUserImage` 以用户身份走画布同一套 `gpt-image-2.6-sunburst` 2K 生图（image-tasks 预扣、失败退款），每张一张 `kind=image` 消息卡，前端 `ImageCard` 轮询 `/api/ai/image-task/:id`，生成中按画幅占位 + 走秒，完成可全屏、下载。分镜卡在生成中显示每段已用时长和“视频生成最耗时”的说明。

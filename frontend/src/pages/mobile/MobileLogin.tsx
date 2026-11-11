@@ -49,7 +49,7 @@ export default function MobileLogin() {
       <div className="mt-10 flex flex-col items-center gap-4">
         <TanvasMark size={64} />
         <TanvasWordmark height={24} className="mt-2" />
-        <div className="text-sm text-white/50">一句话成片 · 一键复刻爆款</div>
+        <div className="text-sm text-white/50">一句话成片 · 一键复刻 · 生成图片</div>
       </div>
 
       <div className="mt-12 flex flex-col gap-3">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronRight, Clapperboard, Coins, Film, LogOut, MoreHorizontal, Plus, Repeat2, Search, X } from 'lucide-react';
+import { ChevronRight, Clapperboard, Coins, Film, ImagePlus, LogOut, MoreHorizontal, Plus, Repeat2, Search, X } from 'lucide-react';
 import type { MobileConversation } from '@/services/mobileChatApi';
 import { TanvasWordmark } from './TanvasMark';
 
@@ -12,7 +12,7 @@ type Props = {
   balance: number | null;
   onOpenConversation: (id: string) => void;
   onNewChat: () => void;
-  onQuick: (kind: 'film' | 'remake') => void;
+  onQuick: (kind: 'film' | 'remake' | 'image') => void;
   onWorks: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -69,6 +69,9 @@ export default function MobileDrawer(props: Props) {
               </button>
               <button type="button" className={navItem} onClick={() => props.onQuick('remake')}>
                 <Repeat2 className="h-6 w-6 text-white/80" />一键复刻
+              </button>
+              <button type="button" className={navItem} onClick={() => props.onQuick('image')}>
+                <ImagePlus className="h-6 w-6 text-white/80" />生成图片
               </button>
               <button type="button" className={navItem} onClick={props.onWorks}>
                 <Film className="h-6 w-6 text-white/80" />我的作品

@@ -47,6 +47,19 @@ export const VIDEO_MODEL_OPTIONS: VideoModelOption[] = [
 
 export const VIDEO_RESOLUTIONS = ['480P', '720P', '1080P', '4K'];
 export const VIDEO_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+
+/** 按显示宽高（已考虑旋转）取最接近的成片画幅，比较对数比值，横竖对称。 */
+export function nearestVideoRatio(width: number, height: number): string | undefined {
+  if (!(width > 0 && height > 0)) return undefined;
+  const target = Math.log(width / height);
+  let best: string | undefined; let bestDiff = Infinity;
+  for (const ratio of VIDEO_RATIOS) {
+    const [w, h] = ratio.split(':').map(Number);
+    const diff = Math.abs(Math.log(w / h) - target);
+    if (diff < bestDiff) { bestDiff = diff; best = ratio; }
+  }
+  return best;
+}
 const GENERATE_PRO_REFERENCE_MAX = 11;
 const VIP_MODELS = new Set(['gpt-image-2.5-flare-vip', 'gpt-image-2.5-sunburst-vip']);
 const TOAPI_MODELS = new Set(['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst', ...VIP_MODELS, 'gemini-nano-banana-2.1', 'gemini-nano-banana-2.1-official']);

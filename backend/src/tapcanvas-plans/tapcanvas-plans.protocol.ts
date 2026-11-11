@@ -111,16 +111,32 @@ export function parsePlanInput(raw: any): PlanInput {
  * 复刻按原片时长分段：N 个等长 Clip（max_duration 下每段固定取 step），N×S 尽量贴合原片（±1 秒内取最少段数）。
  * single_shot 会把原片每个镜头各拆成 ≥4 秒的 Clip（17 秒快剪出过 11 段共 45 秒），复刻不可用。
  */
+/**
+ * 复刻的段数与段长：总长与原片差 ≤1 秒的方案里，取段长最接近 REMAKE_TARGET_CLIP_SECONDS 的（并列取段数少的）。
+ * 2026-11-11：原先取“段数最少”，20 秒快剪被塞成 2×10 秒、每段 4–5 个镜头，Seedance 在一段里连续换镜、
+ * 状态卡互相打架，穿帮明显；按约 6 秒一段，每段 2–3 个镜头。视频按秒计费，总费用不变。
+ */
+export const REMAKE_TARGET_CLIP_SECONDS = 6;
+/** 段数上限：长原片先拉长段长；12 段都放不下时回落“段数最少”。 */
+export const REMAKE_MAX_CLIPS = 12;
 export function remakeClipPlan(sourceSeconds: number): { count: number; seconds: number } {
   const clamp = (n: number) => Math.min(CLIP_SECONDS.max, Math.max(CLIP_SECONDS.min, n));
-  let best = { count: 1, seconds: clamp(Math.round(sourceSeconds)) };
   const error = (plan: { count: number; seconds: number }) => Math.abs(plan.count * plan.seconds - sourceSeconds);
+  const better = (a: { count: number; seconds: number }, b: { count: number; seconds: number }) => {
+    const da = Math.abs(a.seconds - REMAKE_TARGET_CLIP_SECONDS), db = Math.abs(b.seconds - REMAKE_TARGET_CLIP_SECONDS);
+    return da < db || (da === db && a.count < b.count);
+  };
+  let fallback = { count: 1, seconds: clamp(Math.round(sourceSeconds)) };
+  let best: { count: number; seconds: number } | null = null;
   for (let count = Math.max(1, Math.ceil(sourceSeconds / CLIP_SECONDS.max)); count <= Math.max(1, Math.floor(sourceSeconds / CLIP_SECONDS.min)); count += 1) {
     const plan = { count, seconds: clamp(Math.round(sourceSeconds / count)) };
-    if (error(plan) <= 1) return plan;
-    if (error(plan) < error(best)) best = plan;
+    if (error(plan) <= 1) {
+      if (!best) best = plan;
+      else if (count <= REMAKE_MAX_CLIPS && (best.count > REMAKE_MAX_CLIPS || better(plan, best))) best = plan;
+    }
+    else if (error(plan) < error(fallback)) fallback = plan;
   }
-  return best;
+  return best ?? fallback;
 }
 
 /** 上游支持 targetDurationSeconds 且原片时长在合法范围内时，按精确总长下发。 */
