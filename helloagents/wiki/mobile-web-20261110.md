@@ -46,3 +46,7 @@
 5. 未改：规划仍用 `deepseek-v4.1-flash` + `reasoningEffort=none`（与画布节点缺省一致）；TapCanvas 原生的“尾帧续写”（上一段末帧作下一段首帧）只在其工作流内，资产规划出口不提供；101 上的 TapCanvas Pro 仍是 9 月版本（规划走 www.lluban.cn 渠道 55，对话走 101 渠道 43）。
 
 **移动端生图**：新增宿主工具 `tanva_generate_image`（prompt、参考图、画幅 1:1/3:4/4:3/9:16/16:9/2:3/3:2、1–4 张）。后端 `VideoProductionService.submitUserImage` 以用户身份走画布同一套 `gpt-image-2.6-sunburst` 2K 生图（image-tasks 预扣、失败退款），每张一张 `kind=image` 消息卡，前端 `ImageCard` 轮询 `/api/ai/image-task/:id`，生成中按画幅占位 + 走秒，完成可全屏、下载。分镜卡在生成中显示每段已用时长和“视频生成最耗时”的说明。
+
+## 2026-11-11 多屏详情页 / 长图
+
+原「生成图片」的长图只是单张 9:16，`count` 只出同一描述的多个版本，做不了详情页。新增宿主工具 `tanva_detail_page`：`title`、`style`（整套统一风格）、`sections[2–10]`（每屏标题 + 画面描述，含文案）、`aspectRatio`（默认 3:4）、参考图（本条附件自动带入）。每屏用 `detailSectionPrompt` 拼“统一风格 + 本屏内容 + 第 i/N 屏”提交一个 gpt-image-2.6-sunburst 2K 任务（计费同单张，失败退款），合为一张 `kind=image_set` 消息（attachments 存各屏 taskId 与 `longImageUrl`）。前端 `ImageSetCard` 各屏上下无缝相接、逐屏实时出图；全部成功后「拼成一张长图」→ `POST /api/mobile-chat/messages/:id/stitch`：后端按顺序下载各屏，sharp 统一宽度（≤1242）纵向拼接为 JPEG（高 ≤60000），转存 OSS `mobile-chat/<userId>/<messageId>/detail-long.jpg`，幂等。长图全屏可上下滚动查看。快捷入口新增「详情页」。

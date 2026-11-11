@@ -2,11 +2,13 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { buildCapabilityManifestSummary, MOBILE_HOST_NAME } from '../agent/xiaot-host-context';
 import {
-  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, toImageRequest,
+  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, MOBILE_TOOL_DETAIL, toImageRequest, toDetailRequest, detailSectionPrompt,
   parseAttachments, titleFrom, toProductionRequest,
 } from './mobile-chat.protocol';
 import { MobileChatService } from './mobile-chat.service';
 import { nearestVideoRatio } from '../video-production/requests';
+import sharp from 'sharp';
+import { stitchVertical } from './mobile-chat.stitch';
 import { TextPump, TurnGate, visibleText } from './mobile-chat.stream';
 import { XIAOT_DURABLE_CONTINUATION_PLACEHOLDER } from '../agent/xiaot-agent-recovery';
 
@@ -17,10 +19,10 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   const manifest = buildMobileManifest();
   assert.equal(manifest.host, MOBILE_HOST_NAME);
   assert.ok(manifest.patchOps.length >= 1 && manifest.nodeSpecs.length >= 1, 'TapCanvas schema requires both');
-  assert.deepEqual(manifest.hostTools.map(t => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE]);
+  assert.deepEqual(manifest.hostTools.map(t => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE, MOBILE_TOOL_DETAIL]);
   assert.equal((manifest as any).generationMode, undefined, 'default host mode: TapCanvas never generates media itself');
   const summary = buildCapabilityManifestSummary(manifest) as any;
-  assert.deepEqual(summary.hostTools.map((t: any) => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE]);
+  assert.deepEqual(summary.hostTools.map((t: any) => t.name), [MOBILE_TOOL_FILM, MOBILE_TOOL_REMAKE, MOBILE_TOOL_IMAGE, MOBILE_TOOL_DETAIL]);
   assert.deepEqual(summary.notes, manifest.notes, 'mobile keeps its own notes');
   assert.ok(!JSON.stringify(summary.notes).includes('query_canvas'), 'no canvas query guidance on mobile');
   const canvas = buildCapabilityManifestSummary({ ...manifest, host: 'tanva' }) as any;
@@ -73,6 +75,15 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.equal(toImageRequest({ prompt: 'x', aspectRatio: '7:1' }, turnUrls).aspectRatio, '1:1');
   throwsMsg(() => toImageRequest({}, turnUrls), /画面描述/);
   throwsMsg(() => toImageRequest({ prompt: 'x', referenceImageUrls: ['https://evil.example/a.png'] }, turnUrls), /本会话/);
+
+  // 详情页
+  const detail = toDetailRequest({ title: '保温杯', style: '奶油白+森林绿', sections: [{ title: '首屏', prompt: '主图' }, { title: '', prompt: '卖点' }, { title: '空', prompt: '' }] }, turnUrls, turn);
+  assert.deepEqual(detail.sections, [{ title: '首屏', prompt: '主图' }, { title: '第 2 屏', prompt: '卖点' }], 'empty prompts dropped, missing titles numbered');
+  assert.equal(detail.aspectRatio, '3:4'); assert.deepEqual(detail.referenceImageUrls, ['https://oss.example/car.jpeg']);
+  const sp = detailSectionPrompt(detail, 1);
+  assert.match(sp, /第 2\/2 屏/); assert.match(sp, /奶油白\+森林绿/); assert.match(sp, /本屏画面：卖点/); assert.match(sp, /严格以参考图为准/);
+  throwsMsg(() => toDetailRequest({ sections: [{ title: 'a', prompt: 'x' }] }, turnUrls), /至少需要 2 屏/);
+  assert.equal(toDetailRequest({ sections: Array.from({ length: 15 }, (_, i) => ({ title: `${i}`, prompt: 'p' })) }, turnUrls).sections.length, 10);
 
   // 复刻画幅跟随原片
   assert.equal(nearestVideoRatio(720, 1200), '9:16');
@@ -222,6 +233,42 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.equal(images[1].body.idempotencyKey, `${turnImg.assistantMessage.id}-1-2`);
   const imageCards = messages.filter(m => m.kind === 'image');
   assert.deepEqual(imageCards.map(m => m.jobId), ['img_1', 'img_2']);
+
+  // 详情页：一张 image_set 卡，每屏一个任务；拼长图须全部完成、拼过后幂等。
+  images.length = 0;
+  xiaot.run = async (_dto: any, _u: string, emit: any) => {
+    emit('host_tool', { data: { name: MOBILE_TOOL_DETAIL, arguments: { title: '杯子详情页', sections: [{ title: '首屏', prompt: 'a' }, { title: '卖点', prompt: 'b' }, { title: '参数', prompt: 'c' }] } } });
+    emit('final', { message: '' });
+  };
+  const turnDetail = await service.prepareTurn('u1', 'c1', { text: '做个详情页' });
+  await service.runTurn(turnDetail, () => undefined);
+  assert.equal(images.length, 3);
+  assert.deepEqual(images.map(i => i.body.aspectRatio), ['3:4', '3:4', '3:4']);
+  assert.equal(images[2].body.idempotencyKey, `${turnDetail.assistantMessage.id}-1-s3`);
+  const setMsg = messages.find(m => m.kind === 'image_set');
+  assert.deepEqual(setMsg.attachments.sections.map((x: any) => x.taskId), ['img_1', 'img_2', 'img_3']);
+  prisma.mobileMessage.findFirst = async ({ where }: any) => messages.find(m => m.id === where.id && m.userId === where.userId && m.kind === where.kind) ?? null;
+  const png = (h: number, color: string) => sharp({ create: { width: 300, height: h, channels: 3, background: color } }).png().toBuffer();
+  const pngs: Record<string, Buffer> = { img_1: await png(400, '#ff0000'), img_2: await png(400, '#00ff00'), img_3: await png(200, '#0000ff') };
+  let done = false;
+  productions.imageTaskStatus = async (_u: string, id: string) => ({ status: done ? 'succeeded' : 'processing', imageUrl: done ? `https://oss.example/${id}.png` : null });
+  const puts: any[] = [];
+  (service as any).oss = { isEnabled: () => true, putBuffer: async (key: string, buf: Buffer) => { puts.push({ key, buf }); return { key, url: `https://oss.example/${key}` }; } };
+  const realFetch = global.fetch;
+  (global as any).fetch = async (url: URL) => ({ ok: true, status: 200, headers: new Map(), arrayBuffer: async () => pngs[String(url).match(/(img_\d)/)![1]] });
+  await assert.rejects(service.stitch('u1', setMsg.id), /还没生成完/);
+  done = true;
+  const stitched: any = await service.stitch('u1', setMsg.id);
+  assert.equal(stitched.imageSet.longImageUrl, `https://oss.example/mobile-chat/u1/${setMsg.id}/detail-long.jpg`);
+  const meta = await sharp(puts[0].buf).metadata();
+  assert.deepEqual([meta.width, meta.height, meta.format], [300, 1000, 'jpeg']);
+  const { data } = await sharp(puts[0].buf).raw().toBuffer({ resolveWithObject: true });
+  const px = (y: number) => [...data.subarray((y * 300 + 150) * 3, (y * 300 + 150) * 3 + 3)].map(v => Math.round(v / 255));
+  assert.deepEqual([px(100), px(600), px(900)], [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 'sections stacked top to bottom in order');
+  await service.stitch('u1', setMsg.id);
+  assert.equal(puts.length, 1, 'stitch is idempotent');
+  await assert.rejects(service.stitch('u2', setMsg.id), /不存在/);
+  (global as any).fetch = realFetch;
 
   // 余额不足：不进上游、不落库消息、不占并发位。
   prisma.creditAccount.findUnique = async () => ({ balance: 3 });

@@ -7,16 +7,24 @@ import type { CreateAgentRunDto } from '../agent/dto/agent-run.dto';
 import { VideoProductionService, VIDEO_PRODUCTION_TASK_TYPE } from '../video-production/video-production.service';
 import {
   buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MAX_MESSAGE_CHARS, MAX_RUNNING_JOBS,
-  MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toImageRequest, toProductionRequest,
+  detailSectionPrompt, MOBILE_TOOL_DETAIL, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toDetailRequest, toImageRequest, toProductionRequest,
   type JobBrief, type MobileAttachment,
 } from './mobile-chat.protocol';
 import { TextPump, TurnGate } from './mobile-chat.stream';
+import { fetchImage, stitchVertical } from './mobile-chat.stitch';
+import { OssService } from '../oss/oss.service';
 
 export type TurnSink = (event: string, data: Record<string, unknown>) => void;
 export interface PreparedTurn {
   userId: string; conversationId: string; text: string; attachments: MobileAttachment[];
   userMessage: MobileMessage; assistantMessage: MobileMessage; release: () => void;
 }
+
+export type ImageSetMeta = {
+  title: string; aspectRatio: string;
+  sections: Array<{ title: string; taskId: string | null; error?: string }>;
+  longImageUrl?: string | null;
+};
 
 const insufficient = (message: string) => new HttpException({ statusCode: 402, code: 'INSUFFICIENT_CREDITS', message }, HttpStatus.PAYMENT_REQUIRED);
 
@@ -42,6 +50,7 @@ export const messageView = (m: MobileMessage) => ({
   id: m.id, role: m.role, kind: m.kind, content: m.content,
   attachments: Array.isArray(m.attachments) ? (m.attachments as unknown as MobileAttachment[]) : [],
   ...(m.kind === 'image' ? { aspectRatio: (m.attachments as any)?.aspectRatio ?? '1:1' } : {}),
+  ...(m.kind === 'image_set' ? { imageSet: m.attachments as unknown as ImageSetMeta } : {}),
   jobId: m.jobId, status: m.status, createdAt: m.createdAt.toISOString(),
 });
 
@@ -54,7 +63,7 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
   private sweepTimer?: ReturnType<typeof setInterval>;
 
   constructor(private readonly prisma: PrismaService, private readonly xiaot: XiaotAgentService,
-    private readonly productions: VideoProductionService, @Optional() config?: ConfigService) {
+    private readonly productions: VideoProductionService, @Optional() config?: ConfigService, @Optional() private readonly oss?: OssService) {
     const num = (key: string, fallback: number) => {
       const n = Number(config?.get<string>(key) ?? process.env[key]);
       return Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -169,10 +178,12 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         if (type === 'host_tool') {
           const name = String(payload.data?.name || '');
           const args = (payload.data?.arguments as Record<string, unknown>) || {};
-          if (name !== MOBILE_TOOL_FILM && name !== MOBILE_TOOL_REMAKE && name !== MOBILE_TOOL_IMAGE) return;
+          if (name !== MOBILE_TOOL_FILM && name !== MOBILE_TOOL_REMAKE && name !== MOBILE_TOOL_IMAGE && name !== MOBILE_TOOL_DETAIL) return;
           jobCount += 1;
-          sink('status', { text: name === MOBILE_TOOL_REMAKE ? '正在提交一键复刻…' : name === MOBILE_TOOL_IMAGE ? '正在提交生图…' : '正在提交一键成片…' });
-          toolRuns.push(name === MOBILE_TOOL_IMAGE
+          sink('status', { text: name === MOBILE_TOOL_REMAKE ? '正在提交一键复刻…' : name === MOBILE_TOOL_IMAGE ? '正在提交生图…' : name === MOBILE_TOOL_DETAIL ? '正在提交详情页…' : '正在提交一键成片…' });
+          toolRuns.push(name === MOBILE_TOOL_DETAIL
+            ? this.executeDetailTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink)
+            : name === MOBILE_TOOL_IMAGE
             ? this.executeImageTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink)
             : this.executeTool(userId, conversationId, name, args, userUrls, turn.attachments, sink));
         } else if (type === 'final') {
@@ -227,6 +238,52 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
       }
       sink('message', { message: messageView(message) });
     }
+  }
+
+  /** 详情页：每屏一个生图任务，合为一张 image_set 卡片；计费同单张生图。 */
+  private async executeDetailTool(userId: string, conversationId: string, args: Record<string, unknown>, userUrls: Set<string>,
+    turn: PreparedTurn, idempotencyBase: string, sink: TurnSink): Promise<void> {
+    let message: MobileMessage;
+    try {
+      const req = toDetailRequest(args, userUrls, turn.attachments);
+      const sections = await Promise.all(req.sections.map(async (section, i) => {
+        try {
+          const { taskId } = await this.productions.submitUserImage(userId, { prompt: detailSectionPrompt(req, i),
+            referenceImageUrls: req.referenceImageUrls, aspectRatio: req.aspectRatio, idempotencyKey: `${idempotencyBase}-s${i + 1}` });
+          return { title: section.title, taskId };
+        } catch (error) { return { title: section.title, taskId: null, error: errText(error) }; }
+      }));
+      if (sections.every(s => !s.taskId)) throw new Error(sections[0]?.error || '详情页任务未受理');
+      const meta: ImageSetMeta = { title: req.title, aspectRatio: req.aspectRatio, sections, longImageUrl: null };
+      message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image_set',
+        content: req.title, attachments: meta as any } });
+    } catch (error) {
+      message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'error',
+        content: `详情页未提交：${errText(error)}` } });
+    }
+    sink('message', { message: messageView(message) });
+  }
+
+  /** 把详情页各屏按顺序拼成一张长图并转存；已拼过直接返回。 */
+  async stitch(userId: string, messageId: string) {
+    const message = await this.prisma.mobileMessage.findFirst({ where: { id: messageId, userId, kind: 'image_set' } });
+    if (!message) throw new NotFoundException('详情页不存在');
+    const meta = message.attachments as unknown as ImageSetMeta;
+    if (meta.longImageUrl) return messageView(message);
+    if (!this.oss?.isEnabled()) throw new ConflictException('存储未启用，无法保存长图');
+    const urls: string[] = [];
+    for (const section of meta.sections) {
+      if (!section.taskId) throw new ConflictException(`「${section.title}」未生成，无法拼接`);
+      const task = await this.productions.imageTaskStatus(userId, section.taskId);
+      if (task.status !== 'succeeded' || !task.imageUrl) throw new ConflictException(`「${section.title}」还没生成完`);
+      urls.push(task.imageUrl);
+    }
+    const buffers = await Promise.all(urls.map(fetchImage));
+    const { buffer } = await stitchVertical(buffers);
+    const { url } = await this.oss.putBuffer(`mobile-chat/${userId}/${messageId}/detail-long.jpg`, buffer, 'image/jpeg');
+    if (!url) throw new ConflictException('长图保存失败');
+    const saved = await this.prisma.mobileMessage.update({ where: { id: messageId }, data: { attachments: { ...meta, longImageUrl: url } as any } });
+    return messageView(saved);
   }
 
   private async executeTool(userId: string, conversationId: string, name: string, args: Record<string, unknown>,

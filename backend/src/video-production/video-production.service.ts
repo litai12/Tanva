@@ -215,6 +215,11 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     return { taskId: res.taskId };
   }
 
+  /** 以用户身份查询生图任务（只能查到本人的）。 */
+  imageTaskStatus(userId: string, taskId: string) {
+    return this.exec().getImageTask(taskId, sleepReq(userId));
+  }
+
   async models(userId: string, rawTeamId: unknown) {
     const exec = this.exec();
     const teamId = typeof rawTeamId === 'string' && rawTeamId ? rawTeamId : undefined;

@@ -1,5 +1,5 @@
 // 移动端 /m：会话（/api/mobile-chat）与成片任务（/api/video-productions）。
-import { fetchWithAuth } from "./authFetch";
+import { fetchWithAuth, type AuthFetchInit } from "./authFetch";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
@@ -10,7 +10,7 @@ export type MobileAttachment = { type: "image" | "video"; url: string; name?: st
 export type MobileMessage = {
   id: string;
   role: "user" | "assistant";
-  kind: "text" | "job" | "image" | "error";
+  kind: "text" | "job" | "image" | "image_set" | "error";
   content: string;
   attachments: MobileAttachment[];
   jobId: string | null;
@@ -18,6 +18,13 @@ export type MobileMessage = {
   createdAt: string;
   /** kind=image 时的目标画幅。 */
   aspectRatio?: string;
+  /** kind=image_set：详情页各屏与拼好的长图。 */
+  imageSet?: ImageSetMeta;
+};
+export type ImageSetMeta = {
+  title: string; aspectRatio: string;
+  sections: Array<{ title: string; taskId: string | null; error?: string }>;
+  longImageUrl?: string | null;
 };
 export type ImageTask = { status: "queued" | "processing" | "succeeded" | "failed"; imageUrl: string | null; error: string | null };
 export type MobileConversation = { id: string; title: string; lastMessageAt: string };
@@ -49,7 +56,7 @@ export type VideoJobSummary = {
   jobId: string; kind: string; status: string; stage: string; finalVideoUrl: string | null; prompt: string; createdAt: string;
 };
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
+async function call<T>(path: string, init?: AuthFetchInit): Promise<T> {
   const res = await fetchWithAuth(`${API_BASE}/api${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
@@ -77,6 +84,7 @@ export const mobileChatApi = {
     call<VideoJob>(`/video-productions/${id}/retry`, { method: "POST", body: JSON.stringify(clipKeys ? { clipKeys } : {}) }),
   cancel: (id: string) => call<VideoJob>(`/video-productions/${id}/cancel`, { method: "POST", body: "{}" }),
   balance: () => call<{ balance: number }>("/credits/balance"),
+  stitch: (messageId: string) => call<MobileMessage>(`/mobile-chat/messages/${messageId}/stitch`, { method: "POST", body: "{}", timeoutMs: 180_000 }),
   imageTask: (id: string) => call<ImageTask>(`/ai/image-task/${encodeURIComponent(id)}`),
 
   /** 发送一条消息，按 SSE 事件回调；网络断开时服务端仍会跑完本轮。 */

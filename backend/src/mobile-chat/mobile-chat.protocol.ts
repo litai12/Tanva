@@ -8,6 +8,8 @@ export const MOBILE_TOOL_FILM = 'tanva_make_video';
 export const MOBILE_TOOL_REMAKE = 'tanva_remake_video';
 export const MOBILE_TOOL_IMAGE = 'tanva_generate_image';
 export const MAX_IMAGES_PER_CALL = 4;
+export const MOBILE_TOOL_DETAIL = 'tanva_detail_page';
+export const MAX_DETAIL_SECTIONS = 10;
 export const MOBILE_RATIOS = ['9:16', '16:9', '1:1', '3:4', '4:3', '21:9'] as const;
 export const MOBILE_IMAGE_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9', '2:3', '3:2'] as const;
 export const MAX_MESSAGE_CHARS = 8_000;
@@ -68,9 +70,35 @@ export function buildMobileManifest() {
           required: ['prompt'],
         },
       },
+      {
+        name: MOBILE_TOOL_DETAIL,
+        description: '多图详情页 / 多屏长图：把一个商品或主题拆成多屏（首屏主图、卖点、细节、场景、参数、售后等），每屏内容不同、整套风格统一，可再拼成一张长图。',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: '这套详情页的名称，如「XX 保温杯详情页」' },
+            style: { type: 'string', description: '整套统一的视觉风格：主色/辅色、字体气质、版式、背景、光线、品牌元素，每屏都会套用' },
+            sections: {
+              type: 'array', minItems: 2, maxItems: MAX_DETAIL_SECTIONS,
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: '本屏名称，如「首屏主图」「核心卖点」「细节特写」「规格参数」' },
+                  prompt: { type: 'string', description: '本屏完整画面描述，含要出现的中文文案（标题、卖点短句），文字要少而大' },
+                },
+                required: ['title', 'prompt'],
+              },
+              description: `按从上到下的顺序，2–${MAX_DETAIL_SECTIONS} 屏`,
+            },
+            aspectRatio: { type: 'string', enum: [...MOBILE_IMAGE_RATIOS], description: '每屏画幅，默认 3:4（手机详情页常用）；需要更长的单屏用 9:16' },
+            referenceImageUrls: { type: 'array', items: { type: 'string' }, description: '用户提供的商品/品牌参考图 URL，每屏都会参考' },
+          },
+          required: ['sections'],
+        },
+      },
     ],
     notes: [
-      `你是 Tanvas 移动端的创作助手，提供三项能力：一键成片（故事/文案 → 成片）、一键复刻（参考视频 → 复刻成片）和生成图片。用户要图片（海报、插画、长图、改图等）时调用 host_tool ${MOBILE_TOOL_IMAGE}。画布编辑、文档制作等其它请求，礼貌说明移动端暂不支持。`,
+      `你是 Tanvas 移动端的创作助手，提供三项能力：一键成片（故事/文案 → 成片）、一键复刻（参考视频 → 复刻成片）和生成图片。用户要单张图片（海报、插画、头像、改图等）时调用 host_tool ${MOBILE_TOOL_IMAGE}；要详情页、多屏长图、一套多张内容不同的图时调用 host_tool ${MOBILE_TOOL_DETAIL}，按内容拆成多屏，不要用 ${MOBILE_TOOL_IMAGE} 的 count 代替（count 只出同一描述的多个版本）。画布编辑、文档制作等其它请求，礼貌说明移动端暂不支持。`,
       `用户给出故事、文案或题材并想要成片时，调用 host_tool ${MOBILE_TOOL_FILM}；信息足够就直接调用，不要反复追问。只有一句题材时自行扩写成完整故事后调用。`,
       `用户提供参考视频（附件或视频直链）并要求复刻时，调用 host_tool ${MOBILE_TOOL_REMAKE}。抖音/小红书等分享链接暂不支持，请用户下载后上传视频文件。`,
       '工具参数中的 URL 只能取自用户消息中的【用户附件】或用户正文里的地址，禁止编造或改写。用户本条消息附带的图片会由宿主自动交给工具（复刻时作为替换主体/新角色/产品参考），你仍应在 requirements 里写清每张图的用途。',
@@ -168,6 +196,35 @@ export function toProductionRequest(name: string, args: Record<string, unknown>,
     };
   }
   throw new BadRequestException(`未知的宿主工具：${name}`);
+}
+
+export type DetailRequest = {
+  title: string; style: string; aspectRatio: string; referenceImageUrls: string[];
+  sections: Array<{ title: string; prompt: string }>;
+};
+
+export function toDetailRequest(args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[] = []): DetailRequest {
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const raw = Array.isArray(args.sections) ? args.sections : [];
+  const sections = raw.slice(0, MAX_DETAIL_SECTIONS)
+    .map((s: any, i: number) => ({ title: str(s?.title, 40) || `第 ${i + 1} 屏`, prompt: str(s?.prompt, 4_000) }))
+    .filter(s => s.prompt);
+  if (sections.length < 2) throw new BadRequestException('详情页至少需要 2 屏内容');
+  const aspectRatio = typeof args.aspectRatio === 'string' && (MOBILE_IMAGE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : '3:4';
+  return { title: str(args.title, 60) || '详情页', style: str(args.style, 2_000), aspectRatio, sections,
+    referenceImageUrls: mergedImages(args, userUrls, turn, 10) };
+}
+
+/** 每屏实际提交的提示词：统一风格 + 本屏内容 + 位置，保证整套看起来是同一张详情页。 */
+export function detailSectionPrompt(req: DetailRequest, index: number): string {
+  const s = req.sections[index];
+  return [
+    `电商详情页「${req.title}」第 ${index + 1}/${req.sections.length} 屏：${s.title}。`,
+    req.style ? `整套统一风格：${req.style}` : '',
+    `本屏画面：${s.prompt}`,
+    '要求：与同一套详情页其它屏保持完全一致的配色、字体、版式与光线；画面完整居中，上下边缘留出与相邻屏衔接的空间；文字清晰可读、不出现乱码。',
+    req.referenceImageUrls.length ? '商品外观、颜色与标识严格以参考图为准。' : '',
+  ].filter(Boolean).join('\n');
 }
 
 export type ImageRequest = { prompt: string; referenceImageUrls: string[]; aspectRatio: string; count: number };

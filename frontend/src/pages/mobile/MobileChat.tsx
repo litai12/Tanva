@@ -1,11 +1,12 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Clapperboard, ImagePlus, Loader2, Plus, Repeat2, Video, X } from 'lucide-react';
+import { ArrowUp, Clapperboard, ImagePlus, Loader2, Plus, Repeat2, Rows3, Video, X } from 'lucide-react';
 import { mobileChatApi, type MobileAttachment, type MobileMessage } from '@/services/mobileChatApi';
 import { MAX_MEDIA_UPLOAD_BYTES, uploadToOSS } from '@/services/ossUploadService';
 import JobCard from './JobCard';
 import ImageCard from './ImageCard';
+import ImageSetCard from './ImageSetCard';
 import TanvasMark from './TanvasMark';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
@@ -16,6 +17,7 @@ const SYNC_POLL_MS = 3000;
 const FILM_PREFILL = '帮我把这个故事做成竖屏短片：\n';
 const REMAKE_PREFILL = '复刻这条视频，保留节奏和镜头，人物和场景换成原创';
 const IMAGE_PREFILL = '帮我生成一张图片：';
+const DETAIL_PREFILL = '帮我做一套商品详情页（多屏，可拼成长图），商品是：';
 
 type Draft = { localId: string; type: 'image' | 'video'; name: string; preview: string; url?: string; uploading: boolean; error?: string };
 /** clientKey：本地占位消息的渲染 key，服务端回写后保持不变，打字动画不会被重新挂载打断。 */
@@ -223,6 +225,10 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
                 className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm text-white/80">
                 <ImagePlus className="h-4 w-4" />生成图片
               </button>
+              <button type="button" onClick={() => { setText(DETAIL_PREFILL); setTimeout(() => textRef.current?.focus(), 0); }}
+                className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm text-white/80">
+                <Rows3 className="h-4 w-4" />详情页
+              </button>
             </div>
           )}
           {hint && <div className="mb-2 px-2 text-xs text-[#F5B85B]">{hint}</div>}
@@ -296,6 +302,7 @@ function MessageRow({ message: m }: { message: ViewMessage }) {
     );
   }
   if (m.kind === 'job' && m.jobId) return <JobCard jobId={m.jobId} title={m.content || '成片任务'} />;
+  if (m.kind === 'image_set' && m.imageSet) return <ImageSetCard message={m} />;
   if (m.kind === 'image' && m.jobId) return <ImageCard taskId={m.jobId} prompt={m.content} aspectRatio={m.aspectRatio || '1:1'} createdAt={m.createdAt} />;
   if (m.kind === 'error') {
     return <div className="rounded-2xl border border-[#FF7A6B]/25 bg-[#FF7A6B]/[0.08] px-4 py-3 text-sm leading-6 text-[#FFB3A8]">{m.content}</div>;

@@ -25,6 +25,10 @@ export class MobileChatController {
 
   @Delete('conversations/:id') remove(@Req() req: any, @Param('id') id: string) { return this.chat.remove(id, this.userId(req)); }
 
+  /** 详情页各屏拼成一张长图（已拼过直接返回）。 */
+  @Post('messages/:id/stitch')
+  stitch(@Req() req: any, @Param('id') id: string) { return this.chat.stitch(this.userId(req), id); }
+
   @Post('conversations/:id/messages')
   async send(@Req() req: any, @Res({ passthrough: false }) res: any, @Param('id') id: string, @Body() body: any) {
     // 校验失败在进入 SSE 前抛出，按普通 JSON 错误返回。
