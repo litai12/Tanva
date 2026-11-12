@@ -3,7 +3,7 @@
 ## 2026-11-11 Wan 节点报价与 Midjourney 价格
 
 - 画布节点查价参数中的 `vendorKey` 必须与后端实际扣费所用线路一致。Wan2.7 / Wan2.6 / Wan2.6 R2V / 快乐马多图参考在托管配置中只有 `new_api` 线路，实际扣费也以 `new_api` 查价；节点曾发 `dashscope`，`resolveManagedModelPricingV2` 返回 `none`，报价落到 `credits.config.ts` 静态兜底（600），表现为不随时长变化。
-- Midjourney 生图（`midjourney-imagine`）成本 0.6 元/次，定价 100 积分。实际价格来源是 `model_provider_mapping_v2` 中 midjourney 线路的 `creditsPerCall`（`legacy_default`），修改价格需改该配置；`credits.config.ts` 仅为兜底。变体/放大（25）当前没有扣费入口。
+- Midjourney 生图（`midjourney-imagine`）成本 0.6 元/次，定价 100 积分。实际扣费请求不带 `modelKey`/`nodeConfigKey`，托管线路价不生效（无 `pricingSnapshot`），实扣取 `credits.config.ts` 静态价；预览带 `modelKey=midjourney`，取 `model_provider_mapping_v2` 中 midjourney 线路价；`nodeConfig` 表的 `midjourney` / `midjourney v7` 行在请求带 nodeConfigKey 时覆盖静态价。三处必须同时调整，均已为 100。变体/放大（25）当前没有扣费入口。
 
 ## 2026-09-30 旧注册与签到来源矫正
 
