@@ -282,7 +282,7 @@ export const CREDIT_PRICING_CONFIG = {
   'midjourney-imagine': {
     serviceName: 'Midjourney 生图',
     provider: 'midjourney',
-    creditsPerCall: 50,
+    creditsPerCall: 100, // 成本 0.6 元/次
     description: '使用 Midjourney 生成图像',
   },
   'midjourney-variation': {

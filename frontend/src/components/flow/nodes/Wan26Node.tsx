@@ -316,9 +316,9 @@ function Wan26Node({ id, data, selected }: Props) {
     requestParams: {
       managedModelKey: "wan-2.6",
       modelKey: "wan-2.6",
-      vendorKey: "dashscope",
-      platformKey: "dashscope",
-      aiProvider: "dashscope",
+      vendorKey: "new_api",
+      platformKey: "new_api",
+      aiProvider: "new-api",
       ...previewRequestParams,
     },
     enabled: true,

@@ -169,9 +169,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     requestParams: {
       managedModelKey: model,
       modelKey: model,
-      vendorKey: "dashscope",
-      platformKey: "dashscope",
-      aiProvider: "dashscope",
+      vendorKey: "new_api",
+      platformKey: "new_api",
+      aiProvider: "new-api",
       ...previewRequestParams,
     },
     enabled: true,

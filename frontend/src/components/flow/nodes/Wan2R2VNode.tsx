@@ -84,9 +84,9 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
     requestParams: {
       managedModelKey: "wan-2.6-r2v",
       modelKey: "wan-2.6-r2v",
-      vendorKey: "dashscope",
-      platformKey: "dashscope",
-      aiProvider: "dashscope",
+      vendorKey: "new_api",
+      platformKey: "new_api",
+      aiProvider: "new-api",
       ...previewRequestParams,
     },
     enabled: true,

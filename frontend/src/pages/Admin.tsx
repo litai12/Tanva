@@ -3741,14 +3741,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "midjourney",
           taskType: "image",
-          vendors: [{ vendorKey: "midjourney", creditsPerCall: 50 }],
+          vendors: [{ vendorKey: "midjourney", creditsPerCall: 100 }],
           defaultVendor: "midjourney",
         },
         {
           flowNodeType: "midjourney",
           nodeKey: "midjourney",
           category: "image",
-          creditsPerCall: 50,
+          creditsPerCall: 100,
           description: "Midjourney 生图",
         }
       ),

@@ -180,9 +180,9 @@ function Wan27VideoNode({ id, data, selected }: Props) {
     requestParams: {
       managedModelKey: "wan-2.7",
       modelKey: "wan-2.7",
-      vendorKey: "dashscope",
-      platformKey: "dashscope",
-      aiProvider: "dashscope",
+      vendorKey: "new_api",
+      platformKey: "new_api",
+      aiProvider: "new-api",
       ...previewRequestParams,
     },
     enabled: true,
