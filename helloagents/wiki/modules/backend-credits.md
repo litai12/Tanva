@@ -1,5 +1,10 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-11-11 Wan 节点报价与 Midjourney 价格
+
+- 画布节点查价参数中的 `vendorKey` 必须与后端实际扣费所用线路一致。Wan2.7 / Wan2.6 / Wan2.6 R2V / 快乐马多图参考在托管配置中只有 `new_api` 线路，实际扣费也以 `new_api` 查价；节点曾发 `dashscope`，`resolveManagedModelPricingV2` 返回 `none`，报价落到 `credits.config.ts` 静态兜底（600），表现为不随时长变化。
+- Midjourney 生图（`midjourney-imagine`）成本 0.6 元/次，定价 100 积分。实际价格来源是 `model_provider_mapping_v2` 中 midjourney 线路的 `creditsPerCall`（`legacy_default`），修改价格需改该配置；`credits.config.ts` 仅为兜底。变体/放大（25）当前没有扣费入口。
+
 ## 2026-09-30 旧注册与签到来源矫正
 
 - 有支付历史但缺少批次的注册赠送/旧 `CHECK_IN` 不能通过删除混合余额保护来修复。已核验的未消费来源从现有余额补为 promo/gift/recharge 批次，关联原流水；签到独立清理，普通免费批次执行当日衰减。
