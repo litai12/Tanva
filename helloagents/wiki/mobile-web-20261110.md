@@ -167,4 +167,6 @@
 - 现象：iPhone 微信内点“保存成片”一直显示“正在准备视频…”。日志：40.8MB 成片两次经 `/api/assets/proxy` 只传出 3.3MB、35.6MB（均 200，客户端提前断开）。
 - 根因：保存面板强制走 101 代理把整份文件读成 Blob，期间无进度；且微信内置浏览器既不支持 `navigator.share` 文件也不能下载 blob，即使下完也保存不了。
 - 修复（`MediaSaveButton`）：自家桶（`VITE_ASSET_PUBLIC_BASE_URL` 主机）只直连 TOS（`cache: no-store`，避免复用 `<video>` 的非 CORS 缓存），不回退代理；第三方地址直连失败才回退代理。流式读取显示百分比 + MB 进度条，30 秒无新数据中止并提示重试。微信内不预下载：视频引导“···→在默认浏览器中打开”并提供复制视频链接，图片长按保存。
+- 部署（2026-11-13 21:30 前后，UTC+8）：`996059a4`（文档 `e93bbce8`）推送 main，101 fast-forward。后端：本地对线上版本构建的两个 dist 与生产 SHA-256 一致后，单文件替换 `dist/tapcanvas-plans/tapcanvas-plans.protocol.js`（`bef3ab1b…`）、`dist/video-production/video-production.service.js`（`06183b18…`），旧文件备份 `/opt/tanva-backups/film-duration-media-save-20261113-996059a4/backend-dist/`；三个队列 active=0 时 `pm2 reload tanvas-api`，内外网 health 200；线上模块实测 film 60 秒 → `step=10`、`max_duration`、“6 个 Clip、每个 10 秒”。前端：`/opt/tanva-releases/film-duration-media-save-20261113-996059a4/dist` 隔离构建，旧 dist 备份同名目录 `frontend-dist/`，增量发布后原子切换入口，公网 commitSha `e93bbce80921`。真机（iPhone 微信 / Safari）保存与新成片时长尚未验收。
+- 回退：后端把备份的两个 JS 拷回 `backend/dist/` 对应目录后 `pm2 reload tanvas-api`；前端把备份 `index.html`、`version.json` 拷回 `frontend/dist/`。
 
