@@ -7,7 +7,7 @@ import type { CreateAgentRunDto } from '../agent/dto/agent-run.dto';
 import { VideoProductionService, VIDEO_PRODUCTION_TASK_TYPE } from '../video-production/video-production.service';
 import {
   buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MAX_MESSAGE_CHARS, MAX_RUNNING_JOBS,
-  detailSectionPrompt, MOBILE_TOOL_DETAIL, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toDetailRequest, toImageRequest, toProductionRequest,
+  detailAnchorPrompt, detailSectionPrompt, MOBILE_TOOL_DETAIL, previousProductReferences, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, parseAttachments, titleFrom, toDetailRequest, toImageRequest, toProductionRequest,
   type JobBrief, type MobileAttachment,
 } from './mobile-chat.protocol';
 import { TextPump, TurnGate } from './mobile-chat.stream';
@@ -24,6 +24,11 @@ export type ImageSetMeta = {
   title: string; aspectRatio: string;
   sections: Array<{ title: string; taskId: string | null; error?: string }>;
   longImageUrl?: string | null;
+  /** 各屏实际参考的商品图（用户商品图或宿主定妆图）；同会话下一套详情页据此沿用同一件商品。 */
+  productReferenceUrls?: string[];
+  product?: string;
+  /** 没有商品图时宿主先出的定妆图；只作参考，不拼进长图。 */
+  anchor?: { taskId: string; imageUrl: string } | null;
 };
 
 const insufficient = (message: string) => new HttpException({ statusCode: 402, code: 'INSUFFICIENT_CREDITS', message }, HttpStatus.PAYMENT_REQUIRED);
@@ -182,7 +187,7 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
           jobCount += 1;
           sink('status', { text: name === MOBILE_TOOL_REMAKE ? '正在提交一键复刻…' : name === MOBILE_TOOL_IMAGE ? '正在提交生图…' : name === MOBILE_TOOL_DETAIL ? '正在提交详情页…' : '正在提交一键成片…' });
           toolRuns.push(name === MOBILE_TOOL_DETAIL
-            ? this.executeDetailTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink)
+            ? this.executeDetailTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink, previousProductReferences(history))
             : name === MOBILE_TOOL_IMAGE
             ? this.executeImageTool(userId, conversationId, args, userUrls, turn, `${assistantMessage.id}-${jobCount}`, sink)
             : this.executeTool(userId, conversationId, name, args, userUrls, turn.attachments, sink));
@@ -240,14 +245,22 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** 详情页：每屏一个生图任务，合为一张 image_set 卡片；计费同单张生图。 */
+  /**
+   * 详情页：每屏一个生图任务，合为一张 image_set 卡片；计费同单张生图。
+   * 同一套图只有一件商品：参考图 = 用户商品图 → 同会话上一套详情页的商品参考 → 宿主先出并等到的定妆图。
+   * 没有参考图时各屏独立文生图，盖型/配件/logo 每屏都会被重新设计（2026-11-12 保温杯案）。
+   */
   private async executeDetailTool(userId: string, conversationId: string, args: Record<string, unknown>, userUrls: Set<string>,
-    turn: PreparedTurn, idempotencyBase: string, sink: TurnSink): Promise<void> {
+    turn: PreparedTurn, idempotencyBase: string, sink: TurnSink, previousRefs: string[] = []): Promise<void> {
     let message: MobileMessage;
     try {
       let req: ReturnType<typeof toDetailRequest>;
       try { req = toDetailRequest(args, userUrls, turn.attachments); }
       catch (error) { this.logger.warn(`detail page args rejected: ${JSON.stringify(args).slice(0, 1500)}`); throw error; }
+      if (!req.referenceImageUrls.length && !req.productChanged) req.referenceImageUrls = previousRefs;
+      const anchor = req.referenceImageUrls.length ? null : await this.productAnchor(userId, req, idempotencyBase, sink);
+      if (anchor) req.referenceImageUrls = [anchor.imageUrl];
+      sink('status', { text: '正在提交详情页…' });
       const sections = await Promise.all(req.sections.map(async (section, i) => {
         try {
           const { taskId } = await this.productions.submitUserImage(userId, { prompt: detailSectionPrompt(req, i),
@@ -256,7 +269,8 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         } catch (error) { return { title: section.title, taskId: null, error: errText(error) }; }
       }));
       if (sections.every(s => !s.taskId)) throw new Error(sections[0]?.error || '详情页任务未受理');
-      const meta: ImageSetMeta = { title: req.title, aspectRatio: req.aspectRatio, sections, longImageUrl: null };
+      const meta: ImageSetMeta = { title: req.title, aspectRatio: req.aspectRatio, sections, longImageUrl: null,
+        productReferenceUrls: req.referenceImageUrls, ...(req.product ? { product: req.product } : {}), anchor };
       message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image_set',
         content: req.title, attachments: meta as any } });
     } catch (error) {
@@ -264,6 +278,26 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         content: `详情页未提交：${errText(error)}` } });
     }
     sink('message', { message: messageView(message) });
+  }
+
+  /** 定妆图轮询间隔与上限（测试可改小）。 */
+  private anchorPollMs = 3_000;
+  private anchorTimeoutMs = 300_000;
+
+  /** 先出商品定妆图并等到真实图片；失败就整套不提交，不退回成各屏各自文生图。 */
+  private async productAnchor(userId: string, req: ReturnType<typeof toDetailRequest>, idempotencyBase: string, sink: TurnSink) {
+    const { taskId } = await this.productions.submitUserImage(userId, { prompt: detailAnchorPrompt(req), referenceImageUrls: [],
+      aspectRatio: '3:2', idempotencyKey: `${idempotencyBase}-anchor` });
+    const started = Date.now();
+    for (;;) {
+      const task = await this.productions.imageTaskStatus(userId, taskId).catch(() => null);
+      if (task?.status === 'succeeded' && task.imageUrl) return { taskId, imageUrl: task.imageUrl as string };
+      if (task?.status === 'failed') throw new Error(`商品定妆图生成失败${task.error ? `：${task.error}` : ''}，详情页未提交`);
+      const seconds = Math.round((Date.now() - started) / 1000);
+      if (Date.now() - started >= this.anchorTimeoutMs) throw new Error(`商品定妆图 ${seconds} 秒仍未完成，详情页未提交，请稍后重试`);
+      sink('status', { text: `正在生成商品定妆图（${seconds}s），出完后每屏都以它为准…` });
+      await new Promise(resolve => setTimeout(resolve, this.anchorPollMs));
+    }
   }
 
   /** 把详情页各屏按顺序拼成一张长图并转存；已拼过直接返回。 */

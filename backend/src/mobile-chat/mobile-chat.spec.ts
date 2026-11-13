@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { buildCapabilityManifestSummary, MOBILE_HOST_NAME } from '../agent/xiaot-host-context';
 import {
-  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, MOBILE_TOOL_DETAIL, toImageRequest, toDetailRequest, detailSectionPrompt,
+  buildMobileManifest, collectUserUrls, composeUpstreamPrompt, MOBILE_TOOL_FILM, MOBILE_TOOL_IMAGE, MOBILE_TOOL_REMAKE, MOBILE_TOOL_DETAIL, toImageRequest, toDetailRequest, detailSectionPrompt, detailAnchorPrompt, previousProductReferences,
   parseAttachments, titleFrom, toProductionRequest,
 } from './mobile-chat.protocol';
 import { MobileChatService } from './mobile-chat.service';
@@ -88,6 +88,19 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.equal(detail.aspectRatio, '3:4'); assert.deepEqual(detail.referenceImageUrls, ['https://oss.example/car.jpeg']);
   const sp = detailSectionPrompt(detail, 1);
   assert.match(sp, /第 2\/2 屏/); assert.match(sp, /奶油白\+森林绿/); assert.match(sp, /本屏画面：卖点/); assert.match(sp, /严格以参考图为准/);
+  // 商品锁定：每屏逐字带同一段商品结构；定妆图只要商品、不要文字
+  const locked = toDetailRequest({ title: '保温杯详情页', product: '雾蓝直筒杯身，同色弹盖+金色按键，无提绳', productChanged: true,
+    sections: [{ title: 'a', prompt: 'x' }, { title: 'b', prompt: 'y' }] }, turnUrls);
+  assert.equal(locked.productChanged, true);
+  assert.ok([0, 1].every(i => detailSectionPrompt(locked, i).includes('商品（每屏都是同一件，结构不得改变）：雾蓝直筒杯身，同色弹盖+金色按键，无提绳')));
+  assert.match(detailAnchorPrompt(locked), /#FFFFFF[\s\S]*正面、侧面[\s\S]*不要：任何文字/);
+  assert.equal(toDetailRequest({ sections: ['a', 'b'] }, turnUrls).productChanged, false);
+  assert.deepEqual(previousProductReferences([
+    { kind: 'image_set', attachments: { productReferenceUrls: ['https://oss.example/old.png'] } },
+    { kind: 'text', attachments: null },
+    { kind: 'image_set', attachments: { productReferenceUrls: ['https://oss.example/new.png', 'javascript:x'] } },
+    { kind: 'image_set', attachments: { sections: [] } },
+  ]), ['https://oss.example/new.png'], 'latest image_set that recorded references wins');
   throwsMsg(() => toDetailRequest({ sections: [{ title: 'a', prompt: 'x' }] }, turnUrls), /至少需要 2 屏/);
   // 容错：字段名不同 / 字符串数组 / JSON 字符串
   assert.deepEqual(toDetailRequest({ sections: [{ name: '首屏', content: 'a' }, { heading: '卖点', description: 'b' }] }, turnUrls).sections,
@@ -245,22 +258,37 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   const imageCards = messages.filter(m => m.kind === 'image');
   assert.deepEqual(imageCards.map(m => m.jobId), ['img_1', 'img_2']);
 
-  // 详情页：一张 image_set 卡，每屏一个任务；拼长图须全部完成、拼过后幂等。
+  // 详情页：没有商品图时先出定妆图并等到图，再每屏都参考它；一张 image_set 卡，拼长图须全部完成、拼过后幂等。
   images.length = 0;
+  (service as any).anchorPollMs = 1;
+  const anchorStatus: Record<string, any> = { img_1: { status: 'processing', imageUrl: null } };
+  let anchorPolls = 0;
+  productions.imageTaskStatus = async (_u: string, id: string) => {
+    if (id === 'img_1' && ++anchorPolls >= 2) anchorStatus.img_1 = { status: 'succeeded', imageUrl: 'https://oss.example/anchor.png' };
+    return anchorStatus[id] ?? { status: 'processing', imageUrl: null };
+  };
   xiaot.run = async (_dto: any, _u: string, emit: any) => {
     emit('host_tool', { data: { name: MOBILE_TOOL_DETAIL, arguments: { title: '杯子详情页', sections: [{ title: '首屏', prompt: 'a' }, { title: '卖点', prompt: 'b' }, { title: '参数', prompt: 'c' }] } } });
     emit('final', { message: '' });
   };
   const turnDetail = await service.prepareTurn('u1', 'c1', { text: '做个详情页' });
-  await service.runTurn(turnDetail, () => undefined);
-  assert.equal(images.length, 3);
-  assert.deepEqual(images.map(i => i.body.aspectRatio), ['3:4', '3:4', '3:4']);
-  assert.equal(images[2].body.idempotencyKey, `${turnDetail.assistantMessage.id}-1-s3`);
+  const detailEvents: Array<[string, any]> = [];
+  await service.runTurn(turnDetail, (e, d) => detailEvents.push([e, d]));
+  assert.equal(images.length, 4, 'anchor first, then one task per section');
+  assert.deepEqual([images[0].body.aspectRatio, images[0].body.referenceImageUrls, images[0].body.idempotencyKey],
+    ['3:2', [], `${turnDetail.assistantMessage.id}-1-anchor`]);
+  assert.ok(detailEvents.some(([e, d]) => e === 'status' && /商品定妆图/.test(d.text)), 'user sees the anchor wait');
+  assert.deepEqual(images.slice(1).map(i => i.body.aspectRatio), ['3:4', '3:4', '3:4']);
+  assert.ok(images.slice(1).every(i => i.body.referenceImageUrls.join() === 'https://oss.example/anchor.png'), 'every section references the anchor');
+  assert.ok(images.slice(1).every(i => /严格以参考图为准/.test(i.body.prompt)));
+  assert.equal(images[3].body.idempotencyKey, `${turnDetail.assistantMessage.id}-1-s3`);
   const setMsg = messages.find(m => m.kind === 'image_set');
-  assert.deepEqual(setMsg.attachments.sections.map((x: any) => x.taskId), ['img_1', 'img_2', 'img_3']);
+  assert.deepEqual(setMsg.attachments.sections.map((x: any) => x.taskId), ['img_2', 'img_3', 'img_4']);
+  assert.deepEqual(setMsg.attachments.productReferenceUrls, ['https://oss.example/anchor.png']);
+  assert.deepEqual(setMsg.attachments.anchor, { taskId: 'img_1', imageUrl: 'https://oss.example/anchor.png' });
   prisma.mobileMessage.findFirst = async ({ where }: any) => messages.find(m => m.id === where.id && m.userId === where.userId && m.kind === where.kind) ?? null;
   const png = (h: number, color: string) => sharp({ create: { width: 300, height: h, channels: 3, background: color } }).png().toBuffer();
-  const pngs: Record<string, Buffer> = { img_1: await png(400, '#ff0000'), img_2: await png(400, '#00ff00'), img_3: await png(200, '#0000ff') };
+  const pngs: Record<string, Buffer> = { img_2: await png(400, '#ff0000'), img_3: await png(400, '#00ff00'), img_4: await png(200, '#0000ff') };
   let done = false;
   productions.imageTaskStatus = async (_u: string, id: string) => ({ status: done ? 'succeeded' : 'processing', imageUrl: done ? `https://oss.example/${id}.png` : null });
   const puts: any[] = [];
@@ -280,6 +308,33 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.equal(puts.length, 1, 'stitch is idempotent');
   await assert.rejects(service.stitch('u2', setMsg.id), /不存在/);
   (global as any).fetch = realFetch;
+
+  // 同会话补规格重做：本轮没附图也沿用上一套的商品参考，不再出定妆图（茶月山案）。
+  images.length = 0;
+  const detailArgs = (extra: Record<string, unknown> = {}) => ({ title: '杯子详情页', sections: [{ title: '首屏', prompt: 'a' }, { title: '参数', prompt: '高 135mm' }], ...extra });
+  xiaot.run = async (_dto: any, _u: string, emit: any) => { emit('host_tool', { data: { name: MOBILE_TOOL_DETAIL, arguments: detailArgs() } }); emit('final', { message: '' }); };
+  const turnRedo = await service.prepareTurn('u1', 'c1', { text: '规格是高135mm' });
+  await service.runTurn(turnRedo, () => undefined);
+  assert.equal(images.length, 2, 'no second anchor');
+  assert.ok(images.every(i => i.body.referenceImageUrls.join() === 'https://oss.example/anchor.png'));
+  assert.deepEqual(messages.filter(m => m.kind === 'image_set').pop().attachments.productReferenceUrls, ['https://oss.example/anchor.png']);
+
+  // 本轮附了商品图：直接用它，不出定妆图，也不混入上一套的参考。
+  images.length = 0;
+  const turnPhoto = await service.prepareTurn('u1', 'c1', { text: '换成这张图', attachments: [{ type: 'image', url: 'https://oss.example/cup.png' }] });
+  await service.runTurn(turnPhoto, () => undefined);
+  assert.equal(images.length, 2);
+  assert.ok(images.every(i => i.body.referenceImageUrls.join() === 'https://oss.example/cup.png'));
+
+  // 换了另一件商品且没图：重新出定妆图；定妆图失败则整套不提交、报错卡，不退回成各屏文生图。
+  images.length = 0;
+  productions.imageTaskStatus = async () => ({ status: 'failed', imageUrl: null, error: '内容审核未通过' });
+  xiaot.run = async (_dto: any, _u: string, emit: any) => { emit('host_tool', { data: { name: MOBILE_TOOL_DETAIL, arguments: detailArgs({ productChanged: true, product: '黑色电动牙刷' }) } }); emit('final', { message: '' }); };
+  const turnNew = await service.prepareTurn('u1', 'c1', { text: '再做个牙刷的' });
+  await service.runTurn(turnNew, () => undefined);
+  assert.equal(images.length, 1, 'only the anchor was submitted');
+  assert.match(images[0].body.prompt, /黑色电动牙刷/);
+  assert.match(messages.filter(m => m.kind === 'error').pop().content, /商品定妆图生成失败：内容审核未通过，详情页未提交/);
 
   // 余额不足：不进上游、不落库消息、不占并发位。
   prisma.creditAccount.findUnique = async () => ({ balance: 3 });

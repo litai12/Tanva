@@ -91,7 +91,9 @@ export function buildMobileManifest() {
               description: `按从上到下的顺序，2–${MAX_DETAIL_SECTIONS} 屏`,
             },
             aspectRatio: { type: 'string', enum: [...MOBILE_IMAGE_RATIOS], description: '每屏画幅，默认 3:4（手机详情页常用）；需要更长的单屏用 9:16' },
-            referenceImageUrls: { type: 'array', items: { type: 'string' }, description: '用户提供的商品/品牌参考图 URL，每屏都会参考' },
+            product: { type: 'string', description: '商品外观锁定（每屏逐字套用）：这套图里只有这一件商品，每屏都画它。只写看得见的结构：外形与高宽比、主色、盖/口/按键/开合方式、配件有或无（提绳、吸管、挂扣等，没有就写“无”）、logo 文字与位置、表面工艺。用户给了商品图就照图写；没给图就由你定下，卖点里提到的结构必须写进来' },
+            referenceImageUrls: { type: 'array', items: { type: 'string' }, description: '用户提供的商品/品牌参考图 URL，每屏都会参考；本会话之前给过的商品图也要带上' },
+            productChanged: { type: 'boolean', description: '只有这次换成了另一件商品（和本会话之前的详情页不是同一件）才填 true；补充规格、改文案、重做都不填' },
           },
           required: ['sections'],
         },
@@ -99,6 +101,7 @@ export function buildMobileManifest() {
     ],
     notes: [
       `你是 Tanvas 移动端的创作助手，提供三项能力：一键成片（故事/文案 → 成片）、一键复刻（参考视频 → 复刻成片）和生成图片。用户要单张图片（海报、插画、头像、改图等）时调用 host_tool ${MOBILE_TOOL_IMAGE}；要详情页、多屏长图、一套多张内容不同的图时调用 host_tool ${MOBILE_TOOL_DETAIL}，按内容拆成多屏，不要用 ${MOBILE_TOOL_IMAGE} 的 count 代替（count 只出同一描述的多个版本）。画布编辑、文档制作等其它请求，礼貌说明移动端暂不支持。`,
+      `同一个详情页任务里所有屏画的是同一件商品：用户给了商品图，每屏都以它为准；没给图，宿主会先按 product 生成一张商品定妆图，再让每屏都参考它。同一会话里补充规格、改文案、重做详情页仍是同一件商品，宿主会自动沿用上一套详情页的商品参考图，不要另编一件；换成另一件商品时才填 productChanged=true。`,
       `用户给出故事、文案或题材并想要成片时，调用 host_tool ${MOBILE_TOOL_FILM}；信息足够就直接调用，不要反复追问。只有一句题材时自行扩写成完整故事后调用。`,
       `用户提供参考视频（附件或视频直链）并要求复刻时，调用 host_tool ${MOBILE_TOOL_REMAKE}。抖音/小红书等分享链接暂不支持，请用户下载后上传视频文件。`,
       '工具参数中的 URL 只能取自用户消息中的【用户附件】或用户正文里的地址，禁止编造或改写。用户本条消息附带的图片会由宿主自动交给工具（复刻时作为替换主体/新角色/产品参考），你仍应在 requirements 里写清每张图的用途。',
@@ -199,7 +202,7 @@ export function toProductionRequest(name: string, args: Record<string, unknown>,
 }
 
 export type DetailRequest = {
-  title: string; style: string; aspectRatio: string; referenceImageUrls: string[];
+  title: string; style: string; product: string; productChanged: boolean; aspectRatio: string; referenceImageUrls: string[];
   sections: Array<{ title: string; prompt: string }>;
 };
 
@@ -216,8 +219,34 @@ export function toDetailRequest(args: Record<string, unknown>, userUrls: Set<str
   }).filter(s => s.prompt);
   if (sections.length < 2) throw new BadRequestException('详情页至少需要 2 屏内容');
   const aspectRatio = typeof args.aspectRatio === 'string' && (MOBILE_IMAGE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : '3:4';
-  return { title: str(args.title, 60) || '详情页', style: str(args.style, 2_000), aspectRatio, sections,
+  return { title: str(args.title, 60) || '详情页', style: str(args.style, 2_000), product: str(args.product, 2_000),
+    productChanged: args.productChanged === true, aspectRatio, sections,
     referenceImageUrls: mergedImages(args, userUrls, turn, 10) };
+}
+
+/**
+ * 同一会话的详情页沿用同一件商品：本轮既没附图、模型也没传图，且没声明换商品时，
+ * 取最近一套详情页实际用过的商品参考图（用户商品图或宿主生成的定妆图）。
+ * 2026-11-12 线上：首轮附了商品图，次轮补规格重做详情页没再附图，7 屏画成了 7 种杯子。
+ */
+export function previousProductReferences(history: Array<{ kind?: string | null; attachments?: unknown }>): string[] {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.kind !== 'image_set') continue;
+    const refs = (m.attachments as { productReferenceUrls?: unknown } | null)?.productReferenceUrls;
+    if (Array.isArray(refs) && refs.length) return refs.filter((u): u is string => typeof u === 'string' && !!httpUrl(u)).slice(0, 10);
+  }
+  return [];
+}
+
+/** 没有商品图时先出的商品定妆图：只给各屏当外观参考，不进详情页、不拼长图。 */
+export function detailAnchorPrompt(req: DetailRequest): string {
+  return [
+    `商品定妆图（电商详情页「${req.title}」的商品外观参考，不是详情页中的一屏）。`,
+    req.product ? `商品：${req.product}` : `商品：${req.title.replace(/详情页$/, '')}`,
+    '画面：纯白 #FFFFFF 背景上并排三视图——同一件商品的正面、侧面、关键结构特写（如盖子开合、按键、接口）；商品占画面 60–70%，柔和棚拍光，材质、颜色、logo 清晰。',
+    '不要：任何文字、标题、标签、道具、手、人物、场景、阴影以外的装饰。',
+  ].join('\n');
 }
 
 /** 每屏实际提交的提示词：统一风格 + 本屏内容 + 位置，保证整套看起来是同一张详情页。 */
@@ -226,9 +255,10 @@ export function detailSectionPrompt(req: DetailRequest, index: number): string {
   return [
     `电商详情页「${req.title}」第 ${index + 1}/${req.sections.length} 屏：${s.title}。`,
     req.style ? `整套统一风格：${req.style}` : '',
+    req.product ? `商品（每屏都是同一件，结构不得改变）：${req.product}` : '',
     `本屏画面：${s.prompt}`,
     '要求：与同一套详情页其它屏保持完全一致的配色、字体、版式与光线；画面完整居中，上下边缘留出与相邻屏衔接的空间；文字清晰可读、不出现乱码。',
-    req.referenceImageUrls.length ? '商品外观、颜色与标识严格以参考图为准。' : '',
+    req.referenceImageUrls.length ? '商品外观、颜色、结构与标识严格以参考图为准：参考图就是这件商品本身，不得改变外形、盖型、配件、logo 与颜色；文字描述与参考图冲突时以参考图为准。' : '',
   ].filter(Boolean).join('\n');
 }
 
