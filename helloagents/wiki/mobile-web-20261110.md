@@ -154,3 +154,17 @@
 - 视频上限：移动端前端 200MB、签名 200MB、nginx `/api/` 200m、`/api/uploads/video` 500MB、复刻下载 512MB。
 - 部署（2026-11-13 20:50 前后，UTC+8）：`0665f6dd` 推送 main，101 `/www/wwwroot/tanvas.cn` 已在该版本。后端：本地对线上版本构建的两个 dist 文件与生产 SHA-256 一致后，单文件替换 `dist/oss/oss.service.js`（`736b8a56…`）与 `dist/oss/uploads.controller.js`（`cd1aa13d…`），旧文件备份 `/opt/tanva-backups/mobile-upload-direct-20261113-0665f6dd/backend-dist-oss/`；image-tasks / video-productions / video-analysis-tasks 均空闲时 `pm2 reload tanvas-api`，内外网 `/api/health` 200。前端：在 `/opt/tanva-releases/mobile-upload-direct-20261113-0665f6dd/dist` 隔离构建（`GITHUB_SHA` 写入 commitSha），旧 dist 全量备份到同目录 `frontend-dist/`，rsync 增量发布并保留旧 hash 资源，最后原子替换 `index.html`、`version.json`；公网 `version.json` commitSha `0665f6dd633f`。真机（iPhone 微信）上传尚未验收。
 - 回退：后端把备份的两个 JS 拷回 `backend/dist/oss/` 后 `pm2 reload tanvas-api`（前端直传失败会自动回退中转，后端可单独回退）；前端把备份 `index.html`、`version.json` 拷回 `frontend/dist/`。
+
+## 2026-11-13 一键成片时长锁定
+
+- 现象：移动端“围绕这张图生成 1 分钟别墅售楼大片”，成片 1 分 45 秒。线上 `vprod_mwezbew44c94fe9edec2`：`targetSeconds=60`，规划 8 段（12+13+10+15+14+12+14+15）= 105 秒。
+- 根因：`targetSeconds` 只拼成“成片总时长约 N 秒”放进 requirement；TapCanvas 规划不受约束，Tanva 也不校验。复刻早已用 `remakeClipPlan`（N×S + `step` + `max_duration`）锁定总长，成片没有。线上 `TAPCANVAS_PLAN_EXACT_DURATION` 未开启。
+- 修复：`tapcanvas-plans.protocol` 新增 film 专用 `targetDurationSeconds`；`clipPlan` 通用化，`filmClipPlan` 段长约 10 秒、≤18 段（15→2×8，30→3×10，60→6×10，90→9×10，180→18×10）；提示词写“规划为 N 个 Clip、每个 S 秒”，请求带 `step=S`、`clipPreference=max_duration`；开启精确总长时改发 `targetDurationSeconds`。`video-production` 改传该字段，去掉“约 N 秒”软提示。
+- 兜底：规划总长与要求相差超过 max(5 秒, 20%) 时，在生成图片/视频前丢弃规划、换 clientRequestId 重规划一次（`meta.durationReplanned`，多一次规划费）；仍不达标则写警告继续。分镜提示词带逐镜头时间码，不能事后按比例缩放 Clip 时长。
+
+## 2026-11-13 保存成片直连 TOS + 下载进度
+
+- 现象：iPhone 微信内点“保存成片”一直显示“正在准备视频…”。日志：40.8MB 成片两次经 `/api/assets/proxy` 只传出 3.3MB、35.6MB（均 200，客户端提前断开）。
+- 根因：保存面板强制走 101 代理把整份文件读成 Blob，期间无进度；且微信内置浏览器既不支持 `navigator.share` 文件也不能下载 blob，即使下完也保存不了。
+- 修复（`MediaSaveButton`）：自家桶（`VITE_ASSET_PUBLIC_BASE_URL` 主机）只直连 TOS（`cache: no-store`，避免复用 `<video>` 的非 CORS 缓存），不回退代理；第三方地址直连失败才回退代理。流式读取显示百分比 + MB 进度条，30 秒无新数据中止并提示重试。微信内不预下载：视频引导“···→在默认浏览器中打开”并提供复制视频链接，图片长按保存。
+

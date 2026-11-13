@@ -1,3 +1,7 @@
+## 2026-11-13 一键成片时长锁定 + 移动端保存直连 TOS
+
+- 2026-11-13：① “1 分钟别墅大片”出了 1 分 45 秒（`vprod_mwezbew44c94fe9edec2`：8 段 12–15 秒共 105 秒）。根因：成片总时长只以“成片总时长约 N 秒”写进创作要求，规划不受约束、事后也不校验。改为与复刻相同的 N 段 × S 秒锁定：`PlanInput.targetDurationSeconds`（仅 film，4–600），`filmClipPlan` 约 10 秒一段、最多 18 段（60 秒 = 6×10），下发 `step` + `max_duration` 并写入时长行；开启 `TAPCANVAS_PLAN_EXACT_DURATION` 时直接下发 `targetDurationSeconds`。规划仍偏离 max(5 秒, 20%) 时，在生成任何画面前重规划一次（多一次规划费），仍不达标带警告继续。未指定时长的提示词逐字不变。② 移动端保存视频一直“正在准备视频…”：40.8MB 成片整份经 101 `/api/assets/proxy` 读入内存、无进度，微信内两次只传出 3.3MB / 35.6MB。改为自家 TOS 桶直连下载（桶 CORS 已放行 tanvas.cn，不占 101 带宽；第三方地址才回退代理），显示百分比 / MB 进度条，30 秒无数据中止并提示重试；微信内置浏览器无法分享或下载文件，不再预下载，视频引导“在默认浏览器中打开”并可复制视频链接，图片长按保存。见 `wiki/mobile-web-20261110.md`。
+
 ## 2026-11-13 移动端附件直传 TOS（上传失败根治）
 
 - 2026-11-13：修复移动端附件「一直上传后失败」。线上 nginx 日志：iPhone 微信内的图片上传在选图后正好 3 分钟 499（客户端中止）。根因两层：① 所有图片/视频都经 101 中转（nginx 缓冲 → Nest 读入内存 → 再传 TOS），上传速度受 101 带宽限制；浏览器直传路径其实一直失败——TOS 签名策略缺 `bucket` 条件，返回 `Extra input fields: bucket`，被静默回退到中转（并非代码注释所说的 CORS，桶 CORS 已放行）。② `ossUploadService.fetchWithTimeout` 没把超时传给 `fetchWithAuth`，其 3 分钟默认超时让 10 分钟上传窗口从未生效。修复：后端 TOS POST 策略加 `bucket`，允许 `Content-Type`/`Cache-Control`（对象头与中转一致），`/api/uploads/presign` 签名上限钳到 200MB；前端新增 `direct` 选项，移动端图片/视频直传 TOS（101 只签名），失败再回退中转；直传/中转超时按文件大小放宽（10–60 分钟）；移动端附件最多 2 个并发、失败提示原因。视频上限保持 200MB。101 上用生产签名代码实测：直传 204、CORS 正确、对象头正确，上传耗时超过策略有效期仍成功。`0665f6dd` 已部署 101：后端单文件替换 `dist/oss/{oss.service,uploads.controller}.js`（队列空闲时 PM2 reload，内外网 health 200），前端隔离构建后增量发布（保留旧 hash 资源，最后切换入口）；真机上传未验收。见 `wiki/mobile-web-20261110.md`。
