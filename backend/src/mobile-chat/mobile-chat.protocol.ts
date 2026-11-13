@@ -29,17 +29,18 @@ export function buildMobileManifest() {
     hostTools: [
       {
         name: MOBILE_TOOL_FILM,
-        description: '一键成片：把故事/文案/题材做成一条完整短片（服务端自动规划分镜→生参考图→生视频→合成）。',
+        description: '一键成片：把故事/文案/题材做成一条完整短片（服务端自动规划分镜→生参考图→生视频→合成）。调用前先当导演：想清楚整条片子的结构、节奏和镜头对比，写进 direction。',
         parameters: {
           type: 'object',
           properties: {
-            story: { type: 'string', description: '完整的故事或文案原文（用户只给题材时，先扩写成 200–800 字的故事再填入）' },
+            story: { type: 'string', description: '完整的故事或文案原文。用户只给题材时，先扩写成 200–800 字、按“开场钩子→铺陈→转折/高潮→收束”推进的故事，每段都要有事件或情绪的变化；不要写成按空间或时间逐一罗列的流水账（如一个房间接一个房间地参观）' },
+            direction: { type: 'string', description: '导演设计（必填，100–400 字）：类型与调性；按目标时长分几幕、每幕约几秒、情绪怎么起伏（开场 3 秒内的钩子是什么，高潮落在哪）；镜头语言要有对比（景别大小、运镜快慢、静与动交替，不要全片同一种缓推）；光影与色彩的变化线；音乐与声音的节点（起、推、爆、收）；结尾落版画面与字幕' },
             referenceImageUrls: { type: 'array', items: { type: 'string' }, description: '用户提供的角色/场景/画风参考图 URL，只能用用户消息里出现过的地址' },
             aspectRatio: { type: 'string', enum: [...MOBILE_RATIOS], description: '画幅，默认 9:16' },
             targetSeconds: { type: 'integer', minimum: 4, maximum: 180, description: '目标总时长（秒），用户没说就不填' },
             requirements: { type: 'string', description: '风格、节奏、语言等额外要求' },
           },
-          required: ['story'],
+          required: ['story', 'direction'],
         },
       },
       {
@@ -179,11 +180,14 @@ export function toProductionRequest(name: string, args: Record<string, unknown>,
     const story = str(args.story, 200_000);
     if (!story) throw new BadRequestException('一键成片缺少故事内容');
     const seconds = Number(args.targetSeconds);
+    // 导演设计放在创作要求最前面，规划作者按它分幕、定节奏与镜头对比，而不是把原文平铺成一串缓推镜头。
+    const direction = str(args.direction, 4_000);
+    const brief = [direction ? `导演设计：\n${direction}` : undefined, requirements].filter(Boolean).join('\n\n');
     return {
       mode: 'film', story, aspectRatio: ratio || '9:16', resolution: '720P',
       ...(images.length ? { referenceImageUrls: images } : {}),
       ...(Number.isFinite(seconds) && seconds >= 4 && seconds <= 180 ? { targetSeconds: Math.round(seconds) } : {}),
-      ...(requirements ? { requirements } : {}),
+      ...(brief ? { requirements: brief } : {}),
     };
   }
   if (name === MOBILE_TOOL_REMAKE) {

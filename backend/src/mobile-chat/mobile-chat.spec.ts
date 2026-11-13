@@ -56,6 +56,11 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   const film = toProductionRequest(MOBILE_TOOL_FILM, { story: '  一只猫的冒险  ', targetSeconds: 30.4, referenceImageUrls: ['https://oss.example/p.png'] }, urls);
   assert.deepEqual(film, { mode: 'film', story: '一只猫的冒险', aspectRatio: '9:16', resolution: '720P',
     referenceImageUrls: ['https://oss.example/p.png'], targetSeconds: 30 });
+  // 导演设计放在创作要求最前，额外要求接在后面；工具要求模型必填。
+  assert.deepEqual((buildMobileManifest().hostTools.find(t => t.name === MOBILE_TOOL_FILM) as any).parameters.required, ['story', 'direction']);
+  const directed = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', direction: ' 三幕：钩子 3 秒→铺陈→高潮 ', requirements: '中文字幕' }, urls);
+  assert.equal(directed.requirements, '导演设计：\n三幕：钩子 3 秒→铺陈→高潮\n\n中文字幕');
+  assert.equal(toProductionRequest(MOBILE_TOOL_FILM, { story: 's', direction: '只有导演设计' }, urls).requirements, '导演设计：\n只有导演设计');
   const filmRatio = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', aspectRatio: '16:9', targetSeconds: 999 }, urls);
   assert.equal(filmRatio.aspectRatio, '16:9'); assert.equal(filmRatio.targetSeconds, undefined, 'out-of-range target dropped');
   throwsMsg(() => toProductionRequest(MOBILE_TOOL_FILM, {}, urls), /故事/);

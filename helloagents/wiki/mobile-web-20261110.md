@@ -170,3 +170,11 @@
 - 部署（2026-11-13 21:30 前后，UTC+8）：`996059a4`（文档 `e93bbce8`）推送 main，101 fast-forward。后端：本地对线上版本构建的两个 dist 与生产 SHA-256 一致后，单文件替换 `dist/tapcanvas-plans/tapcanvas-plans.protocol.js`（`bef3ab1b…`）、`dist/video-production/video-production.service.js`（`06183b18…`），旧文件备份 `/opt/tanva-backups/film-duration-media-save-20261113-996059a4/backend-dist/`；三个队列 active=0 时 `pm2 reload tanvas-api`，内外网 health 200；线上模块实测 film 60 秒 → `step=10`、`max_duration`、“6 个 Clip、每个 10 秒”。前端：`/opt/tanva-releases/film-duration-media-save-20261113-996059a4/dist` 隔离构建，旧 dist 备份同名目录 `frontend-dist/`，增量发布后原子切换入口，公网 commitSha `e93bbce80921`。真机（iPhone 微信 / Safari）保存与新成片时长尚未验收。
 - 回退：后端把备份的两个 JS 拷回 `backend/dist/` 对应目录后 `pm2 reload tanvas-api`；前端把备份 `index.html`、`version.json` 拷回 `frontend/dist/`。
 
+## 2026-11-13 一键成片导演设计
+
+- 现象：“1 分钟别墅售楼电影大片”成片平，像逐个空间的展示，没有起承转合与镜头对比。
+- 根因（线上 `vprod_mwezbew44c94fe9edec2` 与规划 `tcp-bfb2fbaa…`）：① 对话模型交给 `tanva_make_video` 的故事是清晨→黄昏→夜晚、一个空间接一个空间的流水账，requirements 只有“浅景深、缓慢运镜”，没有任何结构与节奏设计；② 规划请求不带 `knowledgeTier`，TapCanvas 缺省 low——只预载各演出类型核心卡，作者拿不到发现卡与 Skill 方法、也不能自行检索；`reasoningEffort` 写死 `none`。
+- 不改 TapCanvas Pro：pageIndex 只是 AB 实验里的知识选卡方式（`knowledgeSelection=pageindex`），Skill/知识卡都已存在，问题是档位没打开。TapCanvas 11-13（`cddba345`）撤掉的是章节级“本章导演/影调”；项目级导演人格需要 TapCanvas 项目，公开 asset-plans（nodes-only、无项目）带不进去，要用需 TapCanvas 侧新增字段。
+- 修复：`mobile-chat.protocol` 成片工具新增必填 `direction`，`toProductionRequest` 拼成“导演设计：…”置于 requirements 最前（其后接 requirements）；`story` 描述改为按“开场钩子→铺陈→转折/高潮→收束”推进、禁止空间/时间罗列。`video-production` 成片规划带 `knowledgeTier=medium`、`reasoningEffort=low`（`filmPlanTuning`，环境变量 `VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER`、`VIDEO_PRODUCTION_FILM_REASONING_EFFORT` 可覆盖，非法值回落缺省）；复刻仍 `none`、不带档位。
+- 代价与风险：medium 档预载更多知识，规划 token、耗时与规划费上升。线上 10-25～10-27 的 medium 规划 6 次中 2 次超 30 分钟期限（均早于 TapCanvas 10-28 档位改为宿主预载），成功的 4–10 分钟。若再出现超时，把 `VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER=low` 写入 `.env` 后 `pm2 reload tanvas-api --update-env` 即可回退，不需改代码。
+

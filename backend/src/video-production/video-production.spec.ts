@@ -111,7 +111,9 @@ async function pipelineRun() {
     assert.equal(job.stage, 'planning');
     await drive(job.jobId);
     assert.equal(plans.lastBody.modelKey, 'm2'); assert.equal(plans.lastBody.targetDurationSeconds, 20);
-    assert.equal(plans.bodies.length, 1, '21 秒对 20 秒在容差内，不重规划'); assert.doesNotMatch(String(plans.lastBody.requirement ?? ''), /成片总时长/);
+    assert.equal(plans.bodies.length, 1, '21 秒对 20 秒在容差内，不重规划');
+    // 一键成片：作者带知识档位与思考做导演取舍（缺省 low 档 + 不思考会规划出同质平铺镜头）。
+    assert.deepEqual([plans.lastBody.knowledgeTier, plans.lastBody.reasoningEffort], ['medium', 'low']); assert.doesNotMatch(String(plans.lastBody.requirement ?? ''), /成片总时长/);
     assert.deepEqual(plans.lastBody.assets, [{ type: 'image', imageType: 'normal', url: 'https://in/style.png' }]);
     const view = await service.get(job.jobId, userId);
     assert.equal(view.status, 'succeeded', JSON.stringify(view));
@@ -174,6 +176,10 @@ async function pipelineRun() {
     await (service as any).advancePlanning({ id: 'off', userId }, offMeta);
     assert.deepEqual([offMeta.stage, offMeta.planTaskId, offMeta.planAttempts, offMeta.durationReplanned, offMeta.graph], ['planning', undefined, 1, true, undefined]);
     assert.match(offMeta.warnings[0], /规划时长 21 秒与要求的 60 秒相差过大/);
+    // 复刻按原片逐镜头还原：规划档位保持不变。
+    const remakeMeta: any = { input: { kind: 'remake', referenceVideoUrl: 'https://in/v.mp4', referenceImageUrls: [], aspectRatio: '9:16' }, sourceSeconds: 12, stage: 'planning', images: {}, clips: {}, warnings: [] };
+    await (service as any).advancePlanning({ id: 'rm', userId }, remakeMeta);
+    assert.equal(plans.lastBody.reasoningEffort, 'none'); assert.ok(!('knowledgeTier' in plans.lastBody));
     // 各段尺寸不一致：不能直接拼接，统一编码到 Clip 画幅。
     store.set('/up/odd.mp4', (() => { const f = join(dir, 'odd.mp4'); execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=640x360:d=1:r=30', '-f', 'lavfi', '-i', 'sine=d=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); return readFileSync(f); })());
     const mixedMeta: any = { input: { kind: 'film' }, graph: { clips: [{ key: 'a', resolution: '480P', aspectRatio: '9:16' }, { key: 'b', resolution: '480P', aspectRatio: '9:16' }] },

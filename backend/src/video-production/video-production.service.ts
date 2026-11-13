@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 import { CreditsService } from '../credits/credits.service';
 import { TapcanvasPlansService } from '../tapcanvas-plans/tapcanvas-plans.service';
-import { REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
+import { KNOWLEDGE_TIERS, REASONING_EFFORTS, REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
 import { buildProductionGraph, clampSeedanceDuration, imageWaves, type AssetPlanNode, type GraphClip, type GraphImage, type ProductionGraph } from './plan-graph';
 import { applyImageModel, buildImageCall, buildVideoCall, findImageModel, findVideoModel, IMAGE_MODEL_OPTIONS, nearestVideoRatio, VIDEO_MODEL_OPTIONS, VIDEO_RATIOS, VIDEO_RESOLUTIONS } from './requests';
 
@@ -95,6 +95,22 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     private readonly credits: CreditsService, private readonly plans: TapcanvasPlansService) {}
 
   registerExecutor(executor: VideoProductionExecutor) { this.executor = executor; }
+
+  /**
+   * 一键成片的规划档位。缺省 low 档作者拿不到任何知识卡与 Skill 方法、思考也关着，
+   * 2026-11-13 线上“1 分钟别墅大片”被规划成一串同质缓推镜头；改为 medium（按演出类型预载
+   * 发现卡与对口 Skill 方法）+ low 思考，与 TapCanvas 自家成片面板缺省思考一致。可用环境变量覆盖。
+   */
+  private filmPlanTuning(): { knowledgeTier: (typeof KNOWLEDGE_TIERS)[number]; reasoningEffort: (typeof REASONING_EFFORTS)[number] } {
+    const pick = <T extends readonly string[]>(key: string, allowed: T, fallback: T[number]): T[number] => {
+      const raw = String(this.config?.get<string>(key) ?? process.env[key] ?? '').trim();
+      return (allowed as readonly string[]).includes(raw) ? raw as T[number] : fallback;
+    };
+    return {
+      knowledgeTier: pick('VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER', KNOWLEDGE_TIERS, 'medium'),
+      reasoningEffort: pick('VIDEO_PRODUCTION_FILM_REASONING_EFFORT', REASONING_EFFORTS, 'low'),
+    };
+  }
 
   onModuleInit() {
     const url = this.config.get<string>('REDIS_URL');
@@ -430,7 +446,8 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
         assets: [...input.referenceImageUrls.map(url => ({ type: 'image', imageType: 'normal', url })),
           ...(input.referenceVideoUrl ? [{ type: 'video', url: input.referenceVideoUrl }] : [])],
         modelKey: input.planModel || options.defaultModel,
-        reasoningEffort: 'none',
+        // 复刻按原片逐镜头还原，维持原档位；一键成片需要作者做导演取舍。
+        ...(input.kind === 'film' ? this.filmPlanTuning() : { reasoningEffort: 'none' }),
         ...(meta.sourceSeconds ? { sourceDurationSeconds: meta.sourceSeconds } : {}),
         ...(input.kind === 'film' && input.targetSeconds ? { targetDurationSeconds: input.targetSeconds } : {}),
         clientRequestId: `${row.id}-plan-${meta.planAttempts ?? 0}`,
