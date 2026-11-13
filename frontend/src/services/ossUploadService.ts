@@ -17,6 +17,11 @@ export type OssUploadOptions = {
   key?: string;
   /** Optional explicit access token for worker usage */
   authToken?: string;
+  /**
+   * 图片/视频优先浏览器直传对象存储（101 只签名，不中转文件），直传失败再回退后端中转。
+   * 不传时沿用 VITE_*_UPLOAD_BACKEND_RELAY 开关（默认中转）。
+   */
+  direct?: boolean;
 };
 
 export type OssUploadResult = {
@@ -48,8 +53,15 @@ type PresignCacheEntry = {
 const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
 const PRESIGN_CACHE_SAFETY_MS = 10_000;
 const DEFAULT_UPLOAD_TIMEOUT_MS = 60_000;
-// 大文件（图片/视频）中转上传的超时窗口。
+// 大文件（图片/视频）中转上传的超时窗口：至少 10 分钟，并按约 100KB/s 的弱网下限随文件大小放宽，
+// 保证 200MB 视频在移动网络 / 跨境链路下也能传完，最长 60 分钟。
 const LARGE_UPLOAD_TIMEOUT_MS = 10 * 60_000;
+const MAX_UPLOAD_TIMEOUT_MS = 60 * 60_000;
+const SLOW_UPLOAD_BYTES_PER_SEC = 100 * 1024;
+function largeUploadTimeoutMs(bytes: number): number {
+  const bySize = Math.ceil(bytes / SLOW_UPLOAD_BYTES_PER_SEC) * 1000;
+  return Math.min(MAX_UPLOAD_TIMEOUT_MS, Math.max(LARGE_UPLOAD_TIMEOUT_MS, bySize));
+}
 /** 图片/视频单文件上传上限，需与后端 uploads.controller 及 nginx client_max_body_size 保持一致 */
 export const MAX_MEDIA_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
 
@@ -66,16 +78,9 @@ async function fetchWithTimeout(
   init: Parameters<typeof fetchWithAuth>[1],
   timeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS
 ) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchWithAuth(input, {
-      ...(init || {}),
-      signal: controller.signal,
-    } as any);
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  // 超时必须交给 fetchWithAuth：它自带 3 分钟默认超时，只在外层另挂 signal 时
+  // 内层仍会在 3 分钟中止请求，大文件 / 弱网上传会被提前掐断（nginx 记 499）。
+  return fetchWithAuth(input, { ...(init || {}), timeoutMs });
 }
 
 function getApiBaseUrl(): string {
@@ -335,7 +340,7 @@ async function uploadImageViaBackend(
         credentials: options.authToken ? "omit" : "include",
       },
       // 图片最大 200MB，给足超时窗口。
-      LARGE_UPLOAD_TIMEOUT_MS
+      largeUploadTimeoutMs(file.size)
     );
     const dataJson = await res.json().catch(() => null);
     if (!res.ok) {
@@ -398,7 +403,7 @@ async function uploadVideoViaBackend(
         credentials: options.authToken ? "omit" : "include",
       },
       // 视频最大 200MB，上传耗时远超默认 60s，给足超时窗口。
-      LARGE_UPLOAD_TIMEOUT_MS
+      largeUploadTimeoutMs(file.size)
     );
     const dataJson = await res.json().catch(() => null);
     if (!res.ok) {
@@ -737,7 +742,7 @@ export async function uploadToOSS(
     const isDocument = isLikelyDocumentUpload(data, options);
     const isModel = isLikelyModelUpload(data, options);
 
-    if (isImage && isBackendImageRelayEnabled()) {
+    if (isImage && !options.direct && isBackendImageRelayEnabled()) {
       const extension = inferExtension(
         options.fileName,
         options.contentType || (data as File).type
@@ -767,8 +772,8 @@ export async function uploadToOSS(
       };
     }
 
-    // 视频必须走后端中转：浏览器直传 TOS 桶的 POST 没有 CORS，会直接 Failed to fetch。
-    if (isVideo && isBackendVideoRelayEnabled()) {
+    // 视频默认走后端中转；options.direct 时直传 TOS（桶 CORS 已放行 tanvas.cn，签名策略已声明 bucket）。
+    if (isVideo && !options.direct && isBackendVideoRelayEnabled()) {
       const extension = inferExtension(
         options.fileName,
         options.contentType || (data as File).type
@@ -904,6 +909,12 @@ export async function uploadToOSS(
         formData.append("x-tos-security-token", presign.securityToken);
       }
       formData.append("x-tos-signature", presign.signature);
+      // 签名策略要求这两个字段（必须在 file 之前），对象头与中转上传一致；缺 Content-Type 的视频在 iOS 无法播放。
+      formData.append(
+        "Content-Type",
+        options.contentType || (data as File).type || "application/octet-stream"
+      );
+      formData.append("Cache-Control", "public, max-age=31536000, immutable");
     } else {
       formData.append("OSSAccessKeyId", presign.accessId || "");
       formData.append("signature", presign.signature);
@@ -920,13 +931,17 @@ export async function uploadToOSS(
           })
     );
 
-    const uploadResp = await fetchWithTimeout(presign.host, {
-      method: "POST",
-      body: formData,
-      auth: "omit",
-      allowRefresh: false,
-      credentials: "omit",
-    });
+    const uploadResp = await fetchWithTimeout(
+      presign.host,
+      {
+        method: "POST",
+        body: formData,
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
+      },
+      largeUploadTimeoutMs(data.size)
+    );
 
     if (!uploadResp.ok) {
       const text = await uploadResp.text();

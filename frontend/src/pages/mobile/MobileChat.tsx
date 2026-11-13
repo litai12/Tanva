@@ -20,6 +20,26 @@ const FILM_PREFILL = '帮我把这个故事做成竖屏短片：\n';
 const REMAKE_PREFILL = '复刻这条视频，保留节奏和镜头，人物和场景换成原创';
 const IMAGE_PREFILL = '帮我生成一张图片：';
 const DETAIL_PREFILL = '帮我做一套商品详情页（多屏，可拼成长图），商品是：';
+/** 同时上传的附件数：一次选多张时不再并发抢带宽，弱网下逐个完成而不是一起超时。 */
+const UPLOAD_CONCURRENCY = 2;
+
+let activeUploads = 0;
+const uploadQueue: Array<() => void> = [];
+/** 排队占用上传名额；释放时直接把名额交给下一个等待者，避免并发数被插队超出。 */
+const withUploadSlot = async <T,>(task: () => Promise<T>): Promise<T> => {
+  if (activeUploads < UPLOAD_CONCURRENCY) activeUploads += 1;
+  else await new Promise<void>((resolve) => uploadQueue.push(resolve));
+  try {
+    return await task();
+  } finally {
+    const next = uploadQueue.shift();
+    if (next) next(); else activeUploads -= 1;
+  }
+};
+
+const uploadErrorHint = (error: string) => (/timeout|abort/i.test(error)
+  ? '上传超时：网络较慢，请移除后重试或换个网络'
+  : `上传失败：${error}`);
 
 type Draft = { localId: string; type: 'image' | 'video'; name: string; preview: string; url?: string; uploading: boolean; error?: string };
 /** clientKey：本地占位消息的渲染 key，服务端回写后保持不变，打字动画不会被重新挂载打断。 */
@@ -153,10 +173,14 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
       // 预览走 objectURL（运行时临时态），提交的只有上传后的远程地址。
       const draft: Draft = { localId: localId(), type, name: file.name, preview: URL.createObjectURL(file), uploading: true };
       setDrafts((d) => [...d, draft]);
-      uploadToOSS(file, { dir: 'mobile-chat/', fileName: file.name, contentType: file.type, maxSize: type === 'video' ? MAX_MEDIA_UPLOAD_BYTES : MAX_IMAGE_BYTES })
-        .then((res) => setDrafts((d) => d.map((x) => x.localId === draft.localId
-          ? { ...x, uploading: false, url: res.success ? res.url : undefined, error: res.success && res.url ? undefined : (res.error || '上传失败') } : x)))
-        .catch((e) => setDrafts((d) => d.map((x) => x.localId === draft.localId ? { ...x, uploading: false, error: e?.message || '上传失败' } : x)));
+      const settle = (url: string | undefined, error: string | undefined) => {
+        setDrafts((d) => d.map((x) => x.localId === draft.localId ? { ...x, uploading: false, url, error } : x));
+        if (error) setHint(uploadErrorHint(error));
+      };
+      // direct：浏览器直传 TOS，101 只签名，不再经服务器中转整份文件；直传失败才回退中转。
+      withUploadSlot(() => uploadToOSS(file, { dir: 'mobile-chat/', fileName: file.name, contentType: file.type, maxSize: type === 'video' ? MAX_MEDIA_UPLOAD_BYTES : MAX_IMAGE_BYTES, direct: true }))
+        .then((res) => (res.success && res.url ? settle(res.url, undefined) : settle(undefined, res.error || '上传失败')))
+        .catch((e) => settle(undefined, errMsg(e, '上传失败')));
     }
   };
 

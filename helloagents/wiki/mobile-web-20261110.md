@@ -142,3 +142,13 @@
 - 账号菜单「积分与充值」改为「积分详情」，「会员」改为「会员与充值」。会员链接以 `returnTo` 保存当前移动端路径及查询参数。
 - `/membership` 页新增独立的「返回 / Back」按钮（44px 高），在会员数据加载和失败时均可用。合法 `/m` 来源优先，其余使用应用路由历史或 `/m` 兜底。支付成功进入积分详情页时透传合法来源，继续支持回到产品。
 - 验证通过 TypeScript、两个修改文件 ESLint、生产构建和 Chrome mock，覆盖首页、对话与作品页往返，直接访问/无效来源兜底、会员接口失败返回、320/390/768/1194px 返回栏。未执行真实支付，未部署生产。
+
+## 2026-11-13 附件直传 TOS（上传失败根治）
+
+- 现象：iPhone 微信内选图后缩略图一直转圈，最终上传失败。线上 `tanvas.cn.log` 中 `POST /api/uploads/image` 均为 499，且都在选图返回后正好 3 分钟中止；nginx/Nest 均无错误。
+- 根因 1（架构）：图片/视频全部经 101 中转（nginx 缓冲整份 body → Nest `toBuffer` → `putStream` 到 TOS → 才响应），速度被 101 带宽和处理卡住。浏览器直传路径本应分流，但 TOS POST 策略未声明 `bucket`，TOS 返回 `Invalid according to Policy: Extra input fields: bucket`，前端静默回退中转。桶 CORS 实测已放行 `https://tanvas.cn` 的 POST/PUT 与任意请求头，旧注释“直传无 CORS”已过时。
+- 根因 2（超时）：`fetchWithTimeout` 未把 `timeoutMs` 传给 `fetchWithAuth`，后者 3 分钟默认超时先触发，`LARGE_UPLOAD_TIMEOUT_MS`（10 分钟）从未生效。
+- 后端：`buildTosPresignPost` 条件加 `{ bucket }`、`starts-with $Content-Type`、`starts-with $Cache-Control`；声明后这两个字段为必填（缺失返回 Policy Condition failed），前端直传始终携带。`/api/uploads/presign` 的 `maxSize` 钳到 200MB。Admin/OSSDemo 的旧 OSS 字段直传此前即不可用，不受影响。
+- 前端：`OssUploadOptions.direct`——图片/视频跳过中转、直传 TOS，失败回退中转；直传表单在 file 前写入 `Content-Type`、`Cache-Control: public, max-age=31536000, immutable`。上传超时 = max(10 分钟, 文件大小 ÷ 100KB/s)，上限 60 分钟（200MB ≈ 34 分钟）。移动端附件 `direct: true`，最多 2 个并发排队，失败在输入框上方提示原因（超时单独提示）。原图上传，不做压缩/转码。桌面端暂沿用中转默认值，可按需改用 `direct`。
+- 验证：101 上用新编译的签名代码对生产桶实测（测试对象已删除）：带字段直传 204，`Access-Control-Allow-Origin: https://tanvas.cn`，对象 `Content-Type`/`Cache-Control` 正确；策略 5 秒过期、限速上传 21 秒仍 204（有效期只在请求开始时校验）。
+- 视频上限：移动端前端 200MB、签名 200MB、nginx `/api/` 200m、`/api/uploads/video` 500MB、复刻下载 512MB。

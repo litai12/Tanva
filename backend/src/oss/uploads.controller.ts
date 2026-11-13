@@ -25,6 +25,7 @@ const SUPPORTED_VIDEO_TYPES = [
 ];
 
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
+const MAX_DIRECT_UPLOAD_SIZE = 200 * 1024 * 1024; // 浏览器直传 TOS 的签名上限
 const MAX_IMAGE_SIZE = 200 * 1024 * 1024; // 200MB（与 nginx client_max_body_size 一致）
 const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB（与前端 AudioNode 一致）
 const MAX_DOCUMENT_SIZE = 15 * 1024 * 1024; // 15MB
@@ -223,7 +224,11 @@ export class UploadsController {
   @UseGuards(JwtAuthGuard)
   presign(@Body() body: { dir?: string; maxSize?: number }) {
     const dir = body?.dir ?? 'uploads/';
-    const max = body?.maxSize ?? 32 * 1024 * 1024; // 增加默认最大文件大小到32MB，支持更大的模板JSON文件
+    const requested = Number(body?.maxSize);
+    // 默认 32MB（模板 JSON 等）；直传上限与中转一致取 200MB，不接受客户端放大到更多。
+    const max = Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, MAX_DIRECT_UPLOAD_SIZE)
+      : 32 * 1024 * 1024;
     const data = this.oss.presignPost(dir, 300, max);
     return data;
   }

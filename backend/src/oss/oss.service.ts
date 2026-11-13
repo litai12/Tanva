@@ -357,11 +357,17 @@ export class OssService {
     const algorithm = 'TOS4-HMAC-SHA256';
     const credential = `${accessKeyId}/${short}/${region}/tos/request`;
 
+    // TOS 把 bucket 当作表单字段校验，策略里不声明会被拒（Extra input fields: bucket），
+    // 浏览器直传因此一直失败并回退到 101 中转。Content-Type / Cache-Control 允许前端写入，
+    // 与中转上传落库的对象头保持一致（视频缺少正确 Content-Type 在 iOS 上无法播放）。
     const policyText = {
       expiration: new Date(expire * 1000).toISOString(),
       conditions: [
+        { bucket: this.conf.bucket },
         ['content-length-range', 0, maxSize],
         ['starts-with', '$key', dir],
+        ['starts-with', '$Content-Type', ''],
+        ['starts-with', '$Cache-Control', ''],
         { 'x-tos-algorithm': algorithm },
         { 'x-tos-credential': credential },
         { 'x-tos-date': full },
