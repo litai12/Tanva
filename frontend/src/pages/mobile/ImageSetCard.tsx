@@ -1,9 +1,10 @@
 // 详情页卡片：各屏按顺序上下相接（看起来就是一张详情页），逐屏实时出图；全部完成后可拼成一张长图。
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Download, Layers, Loader2, Rows3 } from 'lucide-react';
+import { AlertCircle, Layers, Loader2, Rows3 } from 'lucide-react';
 import { mobileChatApi, type ImageSetMeta, type ImageTask, type MobileMessage } from '@/services/mobileChatApi';
 import { isImageDone, ratioStyle, useElapsedSeconds, useImageTask } from './useImageTask';
 import ImageViewer from './ImageViewer';
+import MediaSaveButton from './MediaSaveButton';
 import ImageRetryButton from './ImageRetryButton';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
@@ -94,8 +95,8 @@ export default function ImageSetCard({ message }: { message: MobileMessage }) {
           <div className="flex gap-2">
             <button type="button" onClick={() => setViewer({ url: meta.longImageUrl!, title: meta.title, tall: true })}
               className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-white/10 text-sm"><Layers className="h-4 w-4" />查看长图</button>
-            <a href={meta.longImageUrl} download target="_blank" rel="noreferrer"
-              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#F4F2EE] text-sm font-medium text-[#141414]"><Download className="h-4 w-4" />下载长图</a>
+            <MediaSaveButton url={meta.longImageUrl} kind="image" label="保存长图"
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#F4F2EE] text-sm font-medium text-[#141414]" />
           </div>
         ) : (
           <button type="button" disabled={!allOk || stitching} onClick={stitch}

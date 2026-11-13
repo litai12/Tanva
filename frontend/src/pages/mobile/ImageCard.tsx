@@ -1,8 +1,9 @@
 // 单张生图卡：生成中按目标画幅占位 + 扫光 + 走秒，完成后可全屏查看、下载。
 import { useEffect, useState } from 'react';
-import { AlertCircle, Download } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { isImageDone, ratioStyle, useElapsedSeconds, useImageTask } from './useImageTask';
 import ImageViewer from './ImageViewer';
+import MediaSaveButton from './MediaSaveButton';
 import ImageRetryButton from './ImageRetryButton';
 import { mobileChatApi } from '@/services/mobileChatApi';
 
@@ -46,8 +47,8 @@ export default function ImageCard({ messageId, taskId, prompt, aspectRatio, crea
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="line-clamp-1 min-w-0 flex-1 text-xs text-white/50">{prompt}</div>
         {url && (
-          <a href={url} download target="_blank" rel="noreferrer" aria-label="下载"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10"><Download className="h-4 w-4" /></a>
+          <MediaSaveButton url={url} kind="image" iconOnly
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10" />
         )}
       </div>
       {error && !done && <div className="px-3 pb-2 text-xs text-[#FF7A6B]">{error}</div>}

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
 import { loadMobileWorks, type MobileImageWork, type MobileWork } from '@/services/mobileWorks';
 import { useImageTask } from './useImageTask';
 import ImageViewer from './ImageViewer';
+import MediaSaveButton from './MediaSaveButton';
+import VideoViewer from './VideoViewer';
 
 const WORK_STAGE: Record<string, string> = {
   planning: '规划中', waiting_credits: '余额不足', producing: '生成中', composing: '合成中',
@@ -35,6 +37,7 @@ function ImageWork({ work }: { work: MobileImageWork }) {
 }
 
 export default function MobileWorks() {
+  const [video, setVideo] = useState<{ url: string; title: string } | null>(null);
   const [works, setWorks] = useState<MobileWork[] | null>(null);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
@@ -66,19 +69,30 @@ export default function MobileWorks() {
             <article key={work.id} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-[#1C1C1C]">
               {work.type === 'image' ? <ImageWork work={work} /> : <>
                 {work.job.finalVideoUrl ? (
-                  <video src={work.job.finalVideoUrl} controls playsInline preload="metadata" className="aspect-[3/4] w-full bg-black object-cover" />
+                  <button type="button" aria-label={`查看视频 ${work.job.prompt || (work.job.kind === 'remake' ? '一键复刻' : '一键成片')}`}
+                    onClick={() => setVideo({ url: work.job.finalVideoUrl!, title: work.job.prompt || (work.job.kind === 'remake' ? '一键复刻' : '一键成片') })}
+                    className="relative block aspect-[3/4] w-full overflow-hidden bg-black">
+                    <video src={work.job.finalVideoUrl} muted playsInline preload="metadata" aria-hidden="true" tabIndex={-1}
+                      className="pointer-events-none h-full w-full object-cover" />
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-white"><Play className="h-6 w-6 fill-current" /></span>
+                    </span>
+                  </button>
                 ) : (
                   <div className="flex aspect-[3/4] items-center justify-center bg-white/[0.03] text-xs text-white/60">{WORK_STAGE[work.job.stage] || work.job.stage}</div>
                 )}
                 <div className="space-y-1 p-2.5">
                   <div className="line-clamp-2 break-words text-[13px] leading-5 text-white/85">{work.job.prompt || (work.job.kind === 'remake' ? '一键复刻' : '一键成片')}</div>
                   <div className="text-[11px] text-white/40">{work.job.kind === 'remake' ? '复刻' : '成片'} · {new Date(work.createdAt).toLocaleDateString('zh-CN')}</div>
+                  {work.job.finalVideoUrl && <MediaSaveButton url={work.job.finalVideoUrl} kind="video"
+                    className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full bg-white/10 text-xs" />}
                 </div>
               </>}
             </article>
           ))}
         </div>
       )}
+      {video && <VideoViewer url={video.url} title={video.title} onClose={() => setVideo(null)} />}
     </div>
   );
 }

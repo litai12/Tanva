@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Coins, Download, Loader2, Play, RotateCcw, Square } from 'lucide-react';
+import { Coins, Loader2, Play, RotateCcw, Square } from 'lucide-react';
 import { mobileChatApi, type VideoJob } from '@/services/mobileChatApi';
 import JobProcess from './JobProcess';
+import MediaSaveButton from './MediaSaveButton';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -131,10 +132,8 @@ export default function JobCard({ jobId, title }: { jobId: string; title: string
 
         <div className="flex flex-wrap gap-2">
           {job?.finalVideoUrl && (
-            <a href={job.finalVideoUrl} download target="_blank" rel="noreferrer"
-              className="flex h-9 items-center gap-1.5 rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]">
-              <Download className="h-4 w-4" />下载成片
-            </a>
+            <MediaSaveButton url={job.finalVideoUrl} kind="video" label="保存成片"
+              className="ml-auto flex h-9 items-center gap-1.5 rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]" />
           )}
           {job?.stage === 'waiting_credits' && (
             <>

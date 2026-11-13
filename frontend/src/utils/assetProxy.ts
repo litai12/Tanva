@@ -166,7 +166,7 @@ export function proxifyRemoteAssetUrl(
       const isAllowed = allowedHosts.some(
         (host) => url.hostname === host || url.hostname.endsWith(host)
       );
-      if (isAllowed) {
+      if (isAllowed && !forceProxy) {
         return value;
       }
     } catch {
