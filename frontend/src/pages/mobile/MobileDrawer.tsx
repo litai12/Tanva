@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronRight, Coins, Film, LogOut, MoreHorizontal, Plus, Search, X } from 'lucide-react';
+import { ChevronRight, Coins, Film, FolderOpen, LogOut, MoreHorizontal, Plus, Search, X } from 'lucide-react';
 import type { MobileConversation } from '@/services/mobileChatApi';
 import { TanvasWordmark } from './TanvasMark';
 
@@ -13,6 +13,7 @@ type Props = {
   onOpenConversation: (id: string) => void;
   onNewChat: () => void;
   onWorks: () => void;
+  onMaterials: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onLogout: () => void;
@@ -69,6 +70,9 @@ export default function MobileDrawer(props: Props) {
             <nav className="space-y-1">
               <button type="button" className={navItem} onClick={props.onWorks}>
                 <Film className="h-6 w-6 text-white/80" />我的作品
+              </button>
+              <button type="button" className={navItem} onClick={props.onMaterials}>
+                <FolderOpen className="h-6 w-6 text-white/80" />我的素材
               </button>
             </nav>
           )}

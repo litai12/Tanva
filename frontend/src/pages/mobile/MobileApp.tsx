@@ -128,6 +128,7 @@ function MobileShell() {
   const match = location.pathname.match(/^\/m\/c\/([^/]+)/);
   const conversationId = match ? decodeURIComponent(match[1]) : null;
   const inWorks = /^\/m\/works\/?$/.test(location.pathname);
+  const inMaterials = /^\/m\/materials\/?$/.test(location.pathname);
   const userName = user.name || (user.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : '');
 
   const refresh = useCallback(() => {
@@ -147,7 +148,7 @@ function MobileShell() {
           <Menu className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1 truncate px-3 text-center text-[15px] text-white/70">
-          {inWorks ? '我的作品' : conversationId ? conversations.find((c) => c.id === conversationId)?.title ?? '' : ''}
+          {inWorks ? '我的作品' : inMaterials ? '我的素材' : conversationId ? conversations.find((c) => c.id === conversationId)?.title ?? '' : ''}
         </div>
         {conversationId ? (
           <button type="button" aria-label="新建会话" onClick={() => go('/m')}
@@ -161,7 +162,7 @@ function MobileShell() {
         )}
       </header>
 
-      {inWorks ? <MobileWorks /> : (
+      {inWorks || inMaterials ? <MobileWorks key={inMaterials ? 'materials' : 'works'} collection={inMaterials ? 'materials' : 'works'} /> : (
         <MobileChat conversationId={conversationId} userName={userName}
           onCreated={(id) => navigate(`/m/c/${id}`, { replace: !conversationId })}
           onTurnDone={refresh} />
@@ -172,6 +173,7 @@ function MobileShell() {
         onOpenConversation={(id) => go(`/m/c/${id}`)}
         onNewChat={() => go('/m')}
         onWorks={() => go('/m/works')}
+        onMaterials={() => go('/m/materials')}
         onRename={(id, title) => { void mobileChatApi.rename(id, title).then(refresh); }}
         onDelete={(id) => { void mobileChatApi.remove(id).then(() => { refresh(); if (id === conversationId) go('/m', true); }); }}
         onLogout={() => { setDrawerOpen(false); void logout(); }} />
