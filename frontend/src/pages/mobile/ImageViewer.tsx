@@ -38,13 +38,13 @@ export default function ImageViewer({ url, alt, onClose }: { url: string; alt: s
 
   return (
     <div role="dialog" aria-modal="true" aria-label={alt || '查看图片'}
-      className="fixed inset-0 z-[60] flex flex-col bg-[#F4F2EE] text-[#141414]"
+      className="fixed inset-0 z-[60] flex flex-col bg-[#141414] text-white"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !document.querySelector('dialog[open]')) onClose();
       }}>
       <div className="flex shrink-0 justify-end px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
         <button ref={closeRef} type="button" aria-label="关闭" onClick={onClose}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.06]"><X className="h-5 w-5" /></button>
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       </div>
       <div ref={viewportRef} className="relative mx-3 min-h-0 flex-1 overflow-hidden">
         {viewport.width > 0 && viewport.height > 0 && (
@@ -63,7 +63,7 @@ export default function ImageViewer({ url, alt, onClose }: { url: string; alt: s
         )}
       </div>
       <div className="shrink-0 px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
-        <MediaSaveButton url={url} kind="image" className="mx-auto flex min-h-11 items-center justify-center gap-2 rounded-full bg-black/[0.06] px-5 text-sm" />
+        <MediaSaveButton url={url} kind="image" className="mx-auto flex min-h-11 items-center justify-center gap-2 rounded-full bg-white/10 px-5 text-sm" />
       </div>
     </div>
   );

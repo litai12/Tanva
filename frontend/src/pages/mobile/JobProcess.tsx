@@ -86,9 +86,9 @@ export default function JobProcess({ job, running, onRetryClip, acting }: {
 
   return (
     <div>
-      <button type="button" onClick={() => setOpen(!expanded)} className="flex w-full items-center justify-between py-1 text-[13px] text-white/60">
+      <button type="button" onClick={() => setOpen(!expanded)} aria-expanded={expanded} className="flex w-full items-center gap-1.5 py-1 text-[13px] text-white/60">
         <span className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" />制作过程</span>
-        <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
 
       {expanded && (

@@ -122,19 +122,24 @@ export default function JobCard({ jobId, title }: { jobId: string; title: string
           <JobProcess job={job} running={running} acting={acting}
             onRetryClip={(key) => act(() => mobileChatApi.retry(jobId, [key]))} />
         )}
-        {job?.estimate?.credits != null && (
-          <div className="flex items-center gap-1.5 text-xs text-white/50">
-            <Coins className="h-3.5 w-3.5" />预估 {job.estimate.credits} 积分{job.estimate.partial ? '起' : ''}（按实际用量扣除）
+        {(job?.estimate?.credits != null || job?.finalVideoUrl) && (
+          <div className="flex items-center gap-3">
+            {job?.estimate?.credits != null && (
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-white/50">
+                <Coins className="h-3.5 w-3.5 shrink-0" />
+                <span>预估 {job.estimate.credits} 积分{job.estimate.partial ? '起' : ''}（按实际用量扣除）</span>
+              </div>
+            )}
+            {job?.finalVideoUrl && (
+              <MediaSaveButton url={job.finalVideoUrl} kind="video" label="保存成片"
+                className="ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]" />
+            )}
           </div>
         )}
         {job?.error && job.stage !== 'succeeded' && <div className="text-xs leading-5 text-[#FF7A6B]">{job.error}</div>}
         {error && <div className="text-xs text-[#FF7A6B]">{error}</div>}
 
         <div className="flex flex-wrap gap-2">
-          {job?.finalVideoUrl && (
-            <MediaSaveButton url={job.finalVideoUrl} kind="video" label="保存成片"
-              className="ml-auto flex h-9 items-center gap-1.5 rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]" />
-          )}
           {job?.stage === 'waiting_credits' && (
             <>
               <a href={`/my-credits?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="flex h-9 items-center rounded-full bg-white/10 px-4 text-sm">去充值</a>

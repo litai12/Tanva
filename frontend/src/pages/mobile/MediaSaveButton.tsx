@@ -75,7 +75,7 @@ function SavePanel({ url, kind, onClose }: Pick<Props, 'url' | 'kind'> & { onClo
     try { await navigator.share({ files: [file] }); }
     catch (e: unknown) {
       if (!(e instanceof Error && e.name === 'AbortError')) {
-        setError('系统保存菜单未能打开，请重试或使用下方保存方式');
+        setError('系统分享未能打开，请重试或保存为文件');
       }
     } finally { setSharing(false); }
   };
@@ -87,18 +87,21 @@ function SavePanel({ url, kind, onClose }: Pick<Props, 'url' | 'kind'> & { onClo
         <h2 className="text-base font-medium">保存{name}</h2>
         <button type="button" aria-label="关闭保存面板" disabled={sharing} onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 disabled:opacity-50"><X className="h-5 w-5" /></button>
       </div>
-      {kind === 'image' && <img src={url} alt="待保存图片" className="mb-4 max-h-[45dvh] w-full object-contain" />}
+      {kind === 'image'
+        ? <img src={url} alt="待保存图片" className="mb-4 max-h-[45dvh] w-full object-contain" />
+        : <video src={`${url}#t=0.1`} aria-label="待保存视频" controls playsInline preload="metadata"
+            className="mb-4 max-h-[40dvh] w-full rounded-xl bg-black object-contain" />}
       {loading ? <p role="status" className="flex items-center gap-2 text-sm text-white/70"><Loader2 className="h-4 w-4 animate-spin" />正在准备{name}…</p> : <>
         {canShare && <>
-          <p className="mb-3 text-sm leading-6 text-white/70">打开系统菜单后，选择“存储{kind === 'image' ? '图像' : '视频'}”或“保存到相册”。可用选项由手机系统和浏览器提供。</p>
+          <p className="mb-3 text-sm leading-6 text-white/70">保存到相册，或分享给他人。</p>
           <button type="button" disabled={sharing} onClick={() => void share()} className="mb-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414] disabled:opacity-50">
-            {sharing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}打开系统保存菜单
+            {sharing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}系统分享
           </button>
         </>}
         {kind === 'image'
-          ? <p className="text-sm leading-6 text-white/65">也可长按上方图片，选择“保存图片”。微信内可尝试右上角菜单中的“在浏览器打开”。</p>
-          : <p className="text-sm leading-6 text-white/65">{canShare ? '也可' : '当前浏览器未提供相册保存菜单，可'}下载到手机文件，再从文件管理中将视频保存到相册。</p>}
-        {file && downloadUrl && <a href={downloadUrl} download={file.name} className="mt-3 flex min-h-11 items-center justify-center rounded-full bg-white/10 px-4 text-sm">下载到手机文件</a>}
+          ? <p className="text-sm leading-6 text-white/65">长按图片保存。</p>
+          : <p className="text-sm leading-6 text-white/65">下载后在“文件”中查看。</p>}
+        {file && downloadUrl && <a href={downloadUrl} download={file.name} className="mt-3 flex min-h-11 items-center justify-center rounded-full bg-white/10 px-4 text-sm">保存为文件</a>}
       </>}
       {error && <p role="alert" className="mt-3 text-sm text-[#FF7A6B]">{error}</p>}
       {!loading && !file && <button type="button" onClick={() => setAttempt((value) => value + 1)} className="mt-3 min-h-11 rounded-full bg-white/10 px-5 text-sm">重新准备文件</button>}
