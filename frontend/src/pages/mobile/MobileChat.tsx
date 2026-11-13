@@ -363,7 +363,7 @@ function MessageRow({ message: m }: { message: ViewMessage }) {
       <div className="space-y-2">
         <div className="text-[15px] leading-7 text-[#FFB3A8]">{m.content}</div>
         {/余额|积分/.test(m.content) && (
-          <a href="/my-credits" className="inline-flex h-9 items-center rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]">去充值</a>
+          <a href={`/my-credits?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="inline-flex h-9 items-center rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414]">去充值</a>
         )}
       </div>
     );

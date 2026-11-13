@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Activity, RefreshCw, AlertTriangle, Crown } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, RefreshCw, AlertTriangle, Crown, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { formatCreditBillingRemark } from '@/utils/creditBillingRemark';
@@ -110,6 +111,21 @@ const SimpleLineChart: React.FC<{
 
 const MyCredits: React.FC = () => {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const handleBack = () => {
+    const returnTo = searchParams.get('returnTo');
+    if (returnTo && /^\/m(?:\/|\?|$)/.test(returnTo)) {
+      navigate(returnTo, { replace: true });
+      return;
+    }
+    if (window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate('/m', { replace: true });
+  };
   const [credits, setCredits] = useState<UserCreditsInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [membershipOrders, setMembershipOrders] = useState<MembershipOrderRecord[]>([]);
@@ -471,20 +487,22 @@ const MyCredits: React.FC = () => {
     return latestSpendTx?.createdAt ?? null;
   }, [transactions]);
 
-  if (loading) {
-    return (
-        <div className="flex h-screen items-center justify-center overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="text-slate-500">{t('creditsPage.loading')}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
         <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
-          <div className="flex items-center">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleBack}
+              className="h-11 shrink-0 gap-1 rounded-full px-3"
+            >
+              <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+              <span>{t('common.actions.back')}</span>
+            </Button>
             <h1 className="text-lg font-semibold text-slate-800">
               {t('creditsPage.title')}
             </h1>
@@ -503,7 +521,10 @@ const MyCredits: React.FC = () => {
         </div>
       </div>
 
-      <div className="max-w-4xl px-4 py-5 mx-auto space-y-4">
+      {loading && (
+        <div className="py-16 text-center text-slate-500">{t('creditsPage.loading')}</div>
+      )}
+      <div hidden={loading} className="max-w-4xl px-4 py-5 mx-auto space-y-4">
         {/* 绉垎姒傝鍗＄墖 */}
         <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
           <div>
@@ -776,7 +797,6 @@ const MyCredits: React.FC = () => {
           </div>
         )}
       </div>
-
     </div>
   );
 };

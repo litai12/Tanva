@@ -138,7 +138,7 @@ export default function JobCard({ jobId, title }: { jobId: string; title: string
           )}
           {job?.stage === 'waiting_credits' && (
             <>
-              <a href="/my-credits" className="flex h-9 items-center rounded-full bg-white/10 px-4 text-sm">去充值</a>
+              <a href={`/my-credits?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="flex h-9 items-center rounded-full bg-white/10 px-4 text-sm">去充值</a>
               <button type="button" disabled={acting} onClick={() => act(() => mobileChatApi.produce(jobId))}
                 className="flex h-9 items-center rounded-full bg-[#F4F2EE] px-4 text-sm font-medium text-[#141414] disabled:opacity-50">继续生成</button>
             </>

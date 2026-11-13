@@ -155,7 +155,7 @@ function MobileShell() {
             <SquarePen className="h-5 w-5" />
           </button>
         ) : (
-          <a href="/my-credits" className="flex h-12 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm text-white/80">
+          <a href={`/my-credits?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="flex h-12 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm text-white/80">
             <Coins className="h-4 w-4" />{balance == null ? '—' : balance}
           </a>
         )}

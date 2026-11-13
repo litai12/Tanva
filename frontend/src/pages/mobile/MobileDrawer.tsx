@@ -120,7 +120,7 @@ export default function MobileDrawer(props: Props) {
                   <Coins className="h-3.5 w-3.5" />{props.balance == null ? '—' : `${props.balance} 积分`}
                 </div>
               </div>
-              <a href="/my-credits" className="block px-4 py-3 active:bg-white/5">积分与充值</a>
+              <a href={`/my-credits?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="block px-4 py-3 active:bg-white/5">积分与充值</a>
               <a href="/membership" className="block px-4 py-3 active:bg-white/5">会员</a>
               <button type="button" onClick={props.onLogout} className="flex w-full items-center gap-2 px-4 py-3 text-left text-white/70 active:bg-white/5">
                 <LogOut className="h-4 w-4" />退出登录
