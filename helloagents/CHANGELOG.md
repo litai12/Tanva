@@ -1,6 +1,6 @@
 ## 2026-11-13 移动端附件直传 TOS（上传失败根治）
 
-- 2026-11-13：修复移动端附件「一直上传后失败」。线上 nginx 日志：iPhone 微信内的图片上传在选图后正好 3 分钟 499（客户端中止）。根因两层：① 所有图片/视频都经 101 中转（nginx 缓冲 → Nest 读入内存 → 再传 TOS），上传速度受 101 带宽限制；浏览器直传路径其实一直失败——TOS 签名策略缺 `bucket` 条件，返回 `Extra input fields: bucket`，被静默回退到中转（并非代码注释所说的 CORS，桶 CORS 已放行）。② `ossUploadService.fetchWithTimeout` 没把超时传给 `fetchWithAuth`，其 3 分钟默认超时让 10 分钟上传窗口从未生效。修复：后端 TOS POST 策略加 `bucket`，允许 `Content-Type`/`Cache-Control`（对象头与中转一致），`/api/uploads/presign` 签名上限钳到 200MB；前端新增 `direct` 选项，移动端图片/视频直传 TOS（101 只签名），失败再回退中转；直传/中转超时按文件大小放宽（10–60 分钟）；移动端附件最多 2 个并发、失败提示原因。视频上限保持 200MB。101 上用生产签名代码实测：直传 204、CORS 正确、对象头正确，上传耗时超过策略有效期仍成功。见 `wiki/mobile-web-20261110.md`。
+- 2026-11-13：修复移动端附件「一直上传后失败」。线上 nginx 日志：iPhone 微信内的图片上传在选图后正好 3 分钟 499（客户端中止）。根因两层：① 所有图片/视频都经 101 中转（nginx 缓冲 → Nest 读入内存 → 再传 TOS），上传速度受 101 带宽限制；浏览器直传路径其实一直失败——TOS 签名策略缺 `bucket` 条件，返回 `Extra input fields: bucket`，被静默回退到中转（并非代码注释所说的 CORS，桶 CORS 已放行）。② `ossUploadService.fetchWithTimeout` 没把超时传给 `fetchWithAuth`，其 3 分钟默认超时让 10 分钟上传窗口从未生效。修复：后端 TOS POST 策略加 `bucket`，允许 `Content-Type`/`Cache-Control`（对象头与中转一致），`/api/uploads/presign` 签名上限钳到 200MB；前端新增 `direct` 选项，移动端图片/视频直传 TOS（101 只签名），失败再回退中转；直传/中转超时按文件大小放宽（10–60 分钟）；移动端附件最多 2 个并发、失败提示原因。视频上限保持 200MB。101 上用生产签名代码实测：直传 204、CORS 正确、对象头正确，上传耗时超过策略有效期仍成功。`0665f6dd` 已部署 101：后端单文件替换 `dist/oss/{oss.service,uploads.controller}.js`（队列空闲时 PM2 reload，内外网 health 200），前端隔离构建后增量发布（保留旧 hash 资源，最后切换入口）；真机上传未验收。见 `wiki/mobile-web-20261110.md`。
 
 ## 2026-11-13 我的作品与我的素材
 
