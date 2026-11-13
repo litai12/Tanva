@@ -1,0 +1,485 @@
+--- a/frontend/src/pages/mobile/MobileChat.tsx
++++ b/frontend/src/pages/mobile/MobileChat.tsx
+@@ -8,6 +8,8 @@
+ import ImageCard from './ImageCard';
+ import ImageSetCard from './ImageSetCard';
+ import TanvasMark from './TanvasMark';
++import WelcomePrompt from './WelcomePrompt';
++import whiteLogo from '@/assets/tanvas-mark-white.svg';
+ 
+ const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
+ 
+@@ -38,6 +40,7 @@
+   const [loading, setLoading] = useState(false);
+   const [loadError, setLoadError] = useState('');
+   const [text, setText] = useState('');
++  const [multiline, setMultiline] = useState(false);
+   const [drafts, setDrafts] = useState<Draft[]>([]);
+   const [sending, setSending] = useState(false);
+   const [hint, setHint] = useState('');
+@@ -89,10 +92,37 @@
+   const autosize = () => {
+     const el = textRef.current;
+     if (!el) return;
+-    el.style.height = 'auto';
+-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
++    const composer = el.closest('.tanva-mobile-composer');
++    if (!composer) return;
++    // Measure at the single-line width even when the expanded layout is active,
++    // so changing layouts cannot repeatedly trigger a different measurement.
++    const measure = el.cloneNode() as HTMLTextAreaElement;
++    measure.value = el.value;
++    measure.placeholder = '';
++    measure.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;box-sizing:border-box;padding-left:0;padding-right:0;width:${Math.max(0, composer.clientWidth - 122)}px;height:auto;`;
++    composer.appendChild(measure);
++    const nextMultiline = measure.scrollHeight > 44;
++    setMultiline(nextMultiline);
++    // Measure the final text width without resetting the visible textarea height,
++    // allowing its current height to transition smoothly to the new value.
++    measure.style.width = `${Math.max(0, composer.clientWidth - 18 - (nextMultiline ? 20 : 104))}px`;
++    const nextHeight = el.value ? Math.min(measure.scrollHeight, 132) : 44;
++    measure.remove();
++    el.style.height = `${nextHeight}px`;
+   };
+-  useEffect(autosize, [text]);
++  useEffect(autosize, [text, multiline]);
++  useEffect(() => {
++    const composer = textRef.current?.closest('.tanva-mobile-composer');
++    if (!composer) return;
++    let width = composer.clientWidth;
++    const observer = new ResizeObserver(() => {
++      if (composer.clientWidth === width) return;
++      width = composer.clientWidth;
++      autosize();
++    });
++    observer.observe(composer);
++    return () => observer.disconnect();
++  }, []);
+ 
+   useImperativeHandle(ref, () => ({
+     prefill: (kind) => {
+@@ -193,12 +223,14 @@
+     <div className="flex min-h-0 flex-1 flex-col">
+       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4">
+         {empty ? (
+-          <div className="flex h-full flex-col items-center justify-center gap-5 pb-10">
+-            <TanvasMark size={56} />
+-            <div className="text-center font-serif text-[30px] font-medium tracking-tight text-[#D8D4CC]">
+-              嗨，{firstName || '欢迎来到 Tanvas'}
++          <div className="flex h-full flex-col items-center justify-center px-3 pb-10">
++            <div className="flex max-w-full items-center justify-center">
++              <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[50px] w-[50px] shrink-0 select-none" />
++              <div className="min-w-0 break-words text-center font-sans text-[24px] font-bold leading-tight tracking-tight text-[#ECEAE6]">
++                嗨，{firstName || '欢迎来到 Tanvas'}
++              </div>
+             </div>
+-            <div className="text-sm text-white/40">讲个故事、复刻爆款视频，或生成图片</div>
++            <div className="mt-3"><WelcomePrompt /></div>
+           </div>
+         ) : (
+           <div className="mx-auto max-w-[640px] space-y-5 pb-6 pt-2">
+@@ -210,7 +242,7 @@
+       </div>
+ 
+       <div className="px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2">
+-        <div className="mx-auto max-w-[640px]">
++        <div className="mx-auto w-full max-w-[900px]">
+           {empty && drafts.length === 0 && (
+             <div className="mb-3 flex gap-2 overflow-x-auto">
+               <button type="button" onClick={() => { setText(FILM_PREFILL); setTimeout(() => textRef.current?.focus(), 0); }}
+@@ -232,7 +264,7 @@
+             </div>
+           )}
+           {hint && <div className="mb-2 px-2 text-xs text-[#F5B85B]">{hint}</div>}
+-          <div className="rounded-[30px] border border-white/10 bg-[#1C1C1C] p-2">
++          <div className="tanva-mobile-composer rounded-[32px] border border-white/[0.12] bg-[#1B1D1B] p-[9px]">
+             {drafts.length > 0 && (
+               <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1">
+                 {drafts.map((d) => (
+@@ -254,17 +286,19 @@
+                 ))}
+               </div>
+             )}
+-            <div className="flex items-end gap-2">
++            <div className={`tanva-mobile-composer-layout relative ${multiline ? 'is-multiline' : ''}`}
++              onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === 'padding-left') autosize(); }}>
+               <button type="button" aria-label="添加图片或视频" onClick={() => pickFiles('image/*,video/*')}
+-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08]">
+-                <Plus className="h-5 w-5" />
++                className="tanva-mobile-composer-action absolute bottom-0 left-0 flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/[0.08]">
++                <Plus className="h-6 w-6" strokeWidth={2.8} />
+               </button>
+               <textarea ref={textRef} rows={1} value={text} onChange={(e) => setText(e.target.value)}
+-                placeholder={empty ? '讲个故事、上传视频复刻，或描述想要的图片' : '继续说…'}
+-                className="max-h-[132px] min-h-[44px] flex-1 resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/35 outline-none" />
++                placeholder={empty ? '描述你想创作的内容…' : '继续说…'}
++                aria-label="消息"
++                className="tanva-mobile-composer-input block min-w-0 max-h-[132px] min-h-[44px] w-full resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/40 outline-none" />
+               <button type="button" aria-label="发送" onClick={send} disabled={!canSend}
+-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${canSend ? 'bg-[#F4F2EE] text-[#141414]' : 'bg-white/10 text-white/30'}`}>
+-                {sending || uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
++                className={`tanva-mobile-send absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center rounded-full transition-colors ${canSend ? 'bg-white text-[#1B1D1B] hover:bg-[#E8E8E8]' : 'bg-white/20 text-white/65'}`}>
++                {sending || uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-6 w-6" strokeWidth={2.5} />}
+               </button>
+             </div>
+           </div>
+--- a/frontend/src/pages/mobile/MobileApp.tsx
++++ b/frontend/src/pages/mobile/MobileApp.tsx
+@@ -1,12 +1,12 @@
+ // 移动端 /m：对话（经小T / TapCanvas）+ 一键成片 / 一键复刻（Tanva video-productions 执行与计费）。
+ import { useCallback, useEffect, useRef, useState } from 'react';
+ import { useLocation, useNavigate } from 'react-router-dom';
+-import { ChevronLeft, Coins, Loader2, Menu, SquarePen } from 'lucide-react';
++import { Coins, Loader2, Menu, SquarePen } from 'lucide-react';
+ import { useAuthStore } from '@/stores/authStore';
+ import { mobileChatApi, type MobileConversation, type VideoJobSummary } from '@/services/mobileChatApi';
+ import MobileLogin from './MobileLogin';
+ import MobileDrawer from './MobileDrawer';
+-import MobileChat, { type MobileChatHandle } from './MobileChat';
++import MobileChat from './MobileChat';
+ import TanvasMark from './TanvasMark';
+ 
+ /** iOS 软键盘弹出时按可视区域收缩，输入栏始终贴在键盘上方。 */
+@@ -29,7 +29,7 @@
+   useEffect(() => {
+     const meta = document.querySelector('meta[name="viewport"]');
+     const theme = document.createElement('meta');
+-    theme.name = 'theme-color'; theme.content = '#141414';
++    theme.name = 'theme-color'; theme.content = '#000000';
+     document.head.appendChild(theme);
+     const previous = meta?.getAttribute('content');
+     meta?.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
+@@ -43,8 +43,37 @@
+   }, []);
+ }
+ 
+-/** /m 专用动效：骨架扫光、进度条流光、提示淡入、打字光标。 */
++/** /m 专用输入框样式与动效：骨架扫光、进度条流光、提示淡入、打字光标。 */
+ const MOBILE_CSS = `
++.tanva-mobile-shell { background: #000; color-scheme: dark; }
++.tanva-mobile-shell .overflow-x-auto,
++.tanva-mobile-shell .overflow-x-scroll { scrollbar-width: none !important; }
++.tanva-mobile-shell .overflow-x-auto::-webkit-scrollbar:horizontal,
++.tanva-mobile-shell .overflow-x-scroll::-webkit-scrollbar:horizontal { display: none !important; }
++.tanva-mobile-composer {
++  box-shadow:
++    inset 0 1px 0 rgba(255, 255, 255, 0.035),
++    0 2px 8px rgba(0, 0, 0, 0.16);
++  transition: border-color .2s ease, box-shadow .2s ease;
++}
++.tanva-mobile-composer:focus-within {
++  border-color: rgba(255, 255, 255, 0.24);
++  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.025);
++}
++.tanva-mobile-composer-layout {
++  padding: 0 52px;
++  transition: padding .24s cubic-bezier(.2, .8, .2, 1);
++}
++.tanva-mobile-composer-layout.is-multiline { padding: 0 10px 44px; }
++.tanva-mobile-composer-input { caret-color: #fff; transition: height .24s cubic-bezier(.2, .8, .2, 1); }
++.tanva-mobile-composer-input::-webkit-scrollbar { display: none; }
++.tanva-mobile-composer-action,
++.tanva-mobile-send { touch-action: manipulation; }
++.tanva-mobile-composer-action:focus-visible,
++.tanva-mobile-send:focus-visible {
++  outline: 2px solid #fff;
++  outline-offset: 3px;
++}
+ @keyframes tanva-sweep { 0% { background-position: -150% 0 } 100% { background-position: 250% 0 } }
+ .tanva-shimmer { background-image: linear-gradient(110deg, #18181c 30%, #26262c 50%, #18181c 70%); background-size: 200% 100%; animation: tanva-sweep 2.2s ease-in-out infinite; }
+ .tanva-bar { background-image: linear-gradient(90deg, rgba(255,255,255,.55) 0%, #fff 50%, rgba(255,255,255,.55) 100%); background-size: 200% 100%; animation: tanva-sweep 1.6s linear infinite; }
+@@ -54,7 +83,10 @@
+ .tanva-caret { display: inline-block; width: .5em; height: 1.05em; margin-left: 2px; vertical-align: -0.15em; border-radius: 2px; background: #ECEAE6; animation: tanva-blink 1s step-end infinite; }
+ @keyframes tanva-dots { 0%, 20% { content: '' } 40% { content: '.' } 60% { content: '..' } 80%, 100% { content: '...' } }
+ .tanva-dots::after { content: ''; animation: tanva-dots 1.4s infinite; }
+-@media (prefers-reduced-motion: reduce) { .tanva-shimmer, .tanva-bar, .tanva-fade-in, .tanva-caret, .tanva-dots::after { animation: none; } }
++@media (prefers-reduced-motion: reduce) {
++  .tanva-shimmer, .tanva-bar, .tanva-fade-in, .tanva-caret, .tanva-dots::after { animation: none; }
++  .tanva-mobile-composer-layout, .tanva-mobile-composer-input { transition: none; }
++}
+ `;
+ 
+ export default function MobileApp() {
+@@ -73,7 +105,7 @@
+   }, [init, user]);
+ 
+   return (
+-    <div className="fixed inset-x-0 top-0 flex flex-col overflow-hidden bg-[#141414] text-[#ECEAE6] antialiased"
++    <div className="tanva-mobile-shell fixed inset-x-0 top-0 flex flex-col overflow-hidden bg-black text-[#ECEAE6] antialiased"
+       style={{ height: height ? `${height}px` : '100dvh', WebkitTapHighlightColor: 'transparent' }}>
+       <style>{MOBILE_CSS}</style>
+       {!ready || initializing ? (
+@@ -91,7 +123,6 @@
+   const [drawerOpen, setDrawerOpen] = useState(false);
+   const [conversations, setConversations] = useState<MobileConversation[]>([]);
+   const [balance, setBalance] = useState<number | null>(null);
+-  const chatRef = useRef<MobileChatHandle>(null);
+ 
+   const match = location.pathname.match(/^\/m\/c\/([^/]+)/);
+   const conversationId = match ? decodeURIComponent(match[1]) : null;
+@@ -106,27 +137,14 @@
+   useEffect(() => { if (drawerOpen) refresh(); }, [drawerOpen, refresh]);
+ 
+   const go = (path: string, replace = false) => { setDrawerOpen(false); navigate(path, { replace }); };
+-  const quick = (kind: 'film' | 'remake' | 'image') => {
+-    go('/m');
+-    // 从「我的作品」进入时对话视图刚挂载，等一帧再预填。
+-    if (chatRef.current) chatRef.current.prefill(kind);
+-    else setTimeout(() => chatRef.current?.prefill(kind), 60);
+-  };
+ 
+   return (
+     <>
+       <header className="flex shrink-0 items-center justify-between px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
+-        {inWorks ? (
+-          <button type="button" aria-label="返回" onClick={() => go('/m')}
+-            className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
+-            <ChevronLeft className="h-5 w-5" />
+-          </button>
+-        ) : (
+-          <button type="button" aria-label="菜单" onClick={() => setDrawerOpen(true)}
+-            className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
+-            <Menu className="h-5 w-5" />
+-          </button>
+-        )}
++        <button type="button" aria-label="菜单" onClick={() => setDrawerOpen(true)}
++          className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
++          <Menu className="h-5 w-5" />
++        </button>
+         <div className="min-w-0 flex-1 truncate px-3 text-center text-[15px] text-white/70">
+           {inWorks ? '我的作品' : conversationId ? conversations.find((c) => c.id === conversationId)?.title ?? '' : ''}
+         </div>
+@@ -143,7 +161,7 @@
+       </header>
+ 
+       {inWorks ? <MobileWorks /> : (
+-        <MobileChat ref={chatRef} conversationId={conversationId} userName={userName}
++        <MobileChat conversationId={conversationId} userName={userName}
+           onCreated={(id) => navigate(`/m/c/${id}`, { replace: !conversationId })}
+           onTurnDone={refresh} />
+       )}
+@@ -152,7 +170,6 @@
+         activeId={conversationId} userName={userName} balance={balance}
+         onOpenConversation={(id) => go(`/m/c/${id}`)}
+         onNewChat={() => go('/m')}
+-        onQuick={quick}
+         onWorks={() => go('/m/works')}
+         onRename={(id, title) => { void mobileChatApi.rename(id, title).then(refresh); }}
+         onDelete={(id) => { void mobileChatApi.remove(id).then(() => { refresh(); if (id === conversationId) go('/m', true); }); }}
+--- a/frontend/src/pages/mobile/MobileDrawer.tsx
++++ b/frontend/src/pages/mobile/MobileDrawer.tsx
+@@ -1,5 +1,5 @@
+ import { useMemo, useState } from 'react';
+-import { ChevronRight, Clapperboard, Coins, Film, ImagePlus, LogOut, MoreHorizontal, Plus, Repeat2, Search, X } from 'lucide-react';
++import { ChevronRight, Coins, Film, LogOut, MoreHorizontal, Plus, Search, X } from 'lucide-react';
+ import type { MobileConversation } from '@/services/mobileChatApi';
+ import { TanvasWordmark } from './TanvasMark';
+ 
+@@ -12,7 +12,6 @@
+   balance: number | null;
+   onOpenConversation: (id: string) => void;
+   onNewChat: () => void;
+-  onQuick: (kind: 'film' | 'remake' | 'image') => void;
+   onWorks: () => void;
+   onRename: (id: string, title: string) => void;
+   onDelete: (id: string) => void;
+@@ -52,7 +51,7 @@
+             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索会话"
+               className="mr-3 h-11 flex-1 rounded-full border border-white/10 bg-white/[0.06] px-4 text-[16px] outline-none" />
+           ) : (
+-            <TanvasWordmark height={24} />
++            <TanvasWordmark height={21} className="-translate-y-px" />
+           )}
+           <button type="button" aria-label={searching ? '关闭搜索' : '搜索'}
+             onClick={() => { setSearching((s) => !s); setQuery(''); }}
+@@ -62,24 +61,19 @@
+         </div>
+ 
+         <div className="flex-1 overflow-y-auto px-3 pb-4">
++          <button type="button" onClick={props.onNewChat}
++            className="mb-3 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#F4F2EE] px-5 text-[17px] font-medium text-[#141414] active:bg-white/80">
++            <Plus className="h-5 w-5" />新建会话
++          </button>
+           {!searching && (
+             <nav className="space-y-1">
+-              <button type="button" className={navItem} onClick={() => props.onQuick('film')}>
+-                <Clapperboard className="h-6 w-6 text-white/80" />一键成片
+-              </button>
+-              <button type="button" className={navItem} onClick={() => props.onQuick('remake')}>
+-                <Repeat2 className="h-6 w-6 text-white/80" />一键复刻
+-              </button>
+-              <button type="button" className={navItem} onClick={() => props.onQuick('image')}>
+-                <ImagePlus className="h-6 w-6 text-white/80" />生成图片
+-              </button>
+               <button type="button" className={navItem} onClick={props.onWorks}>
+                 <Film className="h-6 w-6 text-white/80" />我的作品
+               </button>
+             </nav>
+           )}
+ 
+-          <div className="mt-6 px-3 text-sm text-white/45">{query ? '搜索结果' : '最近'}</div>
++          <div className="mt-6 px-3 text-sm text-white/45">{query ? '搜索结果' : '最近对话'}</div>
+           <div className="mt-2 space-y-0.5">
+             {filtered.map((c) => (
+               <div key={c.id} className={`relative flex items-center rounded-2xl ${c.id === activeId ? 'bg-white/[0.07]' : ''}`}>
+@@ -133,10 +127,6 @@
+               </button>
+             </div>
+           )}
+-          <button type="button" onClick={props.onNewChat}
+-            className="flex h-14 items-center gap-2 rounded-full bg-[#F4F2EE] px-7 text-[17px] font-medium text-[#141414]">
+-            <Plus className="h-5 w-5" />新建会话
+-          </button>
+         </div>
+       </aside>
+     </>
+--- a/frontend/src/pages/mobile/MobileLogin.tsx
++++ b/frontend/src/pages/mobile/MobileLogin.tsx
+@@ -2,7 +2,8 @@
+ import { Loader2 } from 'lucide-react';
+ import { authApi } from '@/services/authApi';
+ import { useAuthStore } from '@/stores/authStore';
+-import TanvasMark, { TanvasWordmark } from './TanvasMark';
++import whiteLogo from '@/assets/tanvas-mark-white.svg';
++import WelcomePrompt from './WelcomePrompt';
+ 
+ const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
+ 
+@@ -42,17 +43,17 @@
+     finally { setSubmitting(false); }
+   };
+ 
+-  const field = 'h-12 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-[16px] text-white placeholder:text-white/35 outline-none focus:border-[#4C7DFF]';
++  const field = 'h-12 min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-[16px] text-white placeholder:text-white/35 outline-none focus:border-[#4C7DFF]';
+ 
+   return (
+-    <div className="flex h-full flex-col px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
+-      <div className="mt-10 flex flex-col items-center gap-4">
+-        <TanvasMark size={64} />
+-        <TanvasWordmark height={24} className="mt-2" />
+-        <div className="text-sm text-white/50">一句话成片 · 一键复刻 · 生成图片</div>
+-      </div>
++    <div className="h-full overflow-y-auto overscroll-contain">
++      <div className="flex min-h-full flex-col px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))]">
++      <main className="flex flex-1 flex-col items-center justify-center py-8">
++        <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[72px] w-[72px] select-none" />
++        <h1 className="mt-3 text-center text-[26px] font-bold tracking-tight text-[#ECEAE6]">欢迎使用 Tanvas</h1>
++        <div className="mt-2"><WelcomePrompt /></div>
+ 
+-      <div className="mt-12 flex flex-col gap-3">
++      <div className="mt-8 flex w-full min-w-[min(272px,100%)] max-w-[400px] flex-col gap-3">
+         <input className={field} inputMode="numeric" autoComplete="tel" maxLength={11} placeholder="手机号"
+           value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} />
+         <div className="flex gap-3">
+@@ -76,9 +77,11 @@
+           </span>
+         </label>
+       </div>
++      </main>
+ 
+-      <div className="mt-auto text-center text-xs text-white/40">
++      <div className="pt-4 text-center text-xs text-white/40">
+         还没有账号？<a className="text-white/70 underline" href="/auth/register">注册 Tanvas</a>
++      </div>
+       </div>
+     </div>
+   );
+--- a/helloagents/CHANGELOG.md
++++ b/helloagents/CHANGELOG.md
+@@ -1,5 +1,23 @@
++## 2026-11-13 移动端登录页
++
++- 隐藏移动端横向滚动条，保留横向滑动。
++- 登录页复用首页轮播文案，展示可用的创作场景。
++- 提高发送按钮不可用状态下的图标对比度。
++
++## 2026-11-12 移动端欢迎区与输入框细节
++
++- “我的作品”页面统一使用菜单按钮打开侧边栏。
++- 输入框在单行和多行之间切换时平滑过渡，并遵循减少动态效果设置。
++- 首页使用用户提供的纯白 SVG 品牌标、Bold 问候语和 Medium 提示文字；扩充创作场景提示，并将轮播提示整句居中。
++
+ # Changelog
+ 
++- 2026-11-12：优化移动端首页欢迎区，将品牌标与问候语并排，收紧间距并提高轮播引导文字的可读性。
++- 2026-11-12：移动端首页 Logo 略微缩小，欢迎提示轮流显示“讲个故事”“复刻爆款视频”“做一版详情页”。
++- 2026-11-12：移动端首页问候语改为无衬线字体。
++- 2026-11-12：精简移动端侧边栏，将新建会话大按钮移到顶部，仅保留我的作品与最近对话导航，账号入口和会话管理保留。
++- 2026-11-12：调整移动端多行输入布局：文字位于上方，添加与发送按钮独占底部一行；恢复单行时按钮回到文字两侧。
++- 2026-11-12：移动端 `/m` 输入框按参考视频调整为黑色页面、炭灰胶囊、白色加号与白底上箭头发送按钮；保留上传、发送、多行输入和底部安全区处理。已通过 TypeScript、生产构建、修改文件 ESLint 和 320/390/430/768px 浏览器布局检查，未部署。见 `wiki/mobile-web-20261110.md`。
+ - 2026-11-11：Wan2.7 / Wan2.6 / Wan2.6 R2V / 快乐马多图参考节点报价不随时长变化：节点查价发 `vendorKey=dashscope`，生产托管配置只有 `new_api` 线路，匹配不到按秒规则而落到静态兜底 600；实际扣费走 `new_api`，一直是按时长扣的。四个节点查价改为 `new_api`。Midjourney 生图成本 0.6 元/次，由 50 调为 100 积分：生产 `model_provider_mapping_v2` 中 midjourney 线路价与 nodeConfig 价已改（备份 `/opt/tanva-backups/mj-price-20261111/`），代码静态价与后台默认目录同步。前端 `60f2a851` 已部署 101（回退备份 `/opt/tanva-backups/wan-mj-pricing-20261111-60f2a851/`）。11-12 补充：MJ 实扣实际走代码静态价（请求不带 modelKey），后端 `dist/credits/credits.config.js` 单文件替换，排空图片队列后于 UTC 08:45 reload `tanvas-api`，health 正常、队列已恢复；`nodeConfig` 表 `midjourney`(50)/`midjourney v7`(60) 同步改为 100。备份均在 `/opt/tanva-backups/mj-price-20261111/`。
+ - 2026-11-11：修复小T宿主工具参数说明被 3 层深度上限截断（嵌套 items 被清空、enum 变 null），移动端详情页因此解析不到任何一屏；画布宿主工具同受益。详情页解析兼容常见字段写法。
+ - 2026-11-11：移动端新增多屏详情页 / 长图（`tanva_detail_page`）：2–10 屏统一风格、内容各异，每屏一个生图任务（同单张计费），卡片内上下相接实时出图，全部完成后服务端 sharp 拼成一张长图并转存 OSS（`POST /api/mobile-chat/messages/:id/stitch`，幂等）。见 `wiki/mobile-web-20261110.md`。
+--- a/helloagents/wiki/mobile-web-20261110.md
++++ b/helloagents/wiki/mobile-web-20261110.md
+@@ -2,6 +2,16 @@
+ 
+ 设计见 `helloagents/plan/202611101200_mobile_chat_web/proposal.md`。
+ 
++## 2026-11-12 输入框视觉调整（本地，未部署）
++
++- 首页问候语使用无衬线字体，与移动端界面文字统一。
++- 首页欢迎区使用用户提供的纯白 SVG 品牌标，搭配 Bold 无衬线问候语和 Medium 提示文字；提示轮播时整句居中，欢迎提示以“今天想 …？”为句式，每 3 秒轮流显示涵盖视频、图像、文案和品牌视觉等场景的 12 条提示，切换使用淡入动效，遵循减少动态效果设置。
++- 侧边栏在品牌栏下方显示全宽「新建会话」按钮，导航仅保留「我的作品」与最近对话；底部保留账号入口，搜索和会话管理不变。主页输入框上方的快捷入口仍可使用。
++- 参考用户提供的视频：页面黑底，输入框为 `#1B1D1B` 炭灰胶囊与细灰边框，左侧白色加号，右侧白底上箭头圆按钮。
++- 修改 `MobileChat.tsx` 与 `MobileApp.tsx`；输入框继续停靠移动端底部，保留附件、快捷入口、多行自适应、发送/上传状态、键盘视口与安全区逻辑。空内容发送按钮仍禁用。
++- 输入框单行高 64px，操作触摸区 44px，文字 16px；窄屏输入可收缩，长文本最多 132px 后内部滚动。焦点具有边框和按钮描边反馈。
++- 输入超过单行时，文本扩展到输入框上方的整行，添加与发送按钮移到下方两端；删除文字回到单行后恢复胶囊排列，窗口宽度变化时重新判断。
++- 验证：全量 TypeScript 检查、Vite 生产构建与两个修改文件的 ESLint 通过；Chrome 移动端模拟 320/390/430/768px 无横向溢出，空内容禁用和长文本滚动正常，无页面运行错误。布局检查使用 mock 接口，未调用真实对话或媒体生成服务。
+ ## 链路
+ 
+ - **对话**：`MobileChatService` 复用 `XiaotAgentService.run()`（new-api → TapCanvas `/public/v1/chat/completions`，按轮走网关签名订单，与小T同一计费）。manifest `host=tanva-mobile`，用 v1.3 `hostTools` 声明 `tanva_make_video` / `tanva_remake_video`；`generationMode` 默认 host，TapCanvas 不生成媒体。`buildCapabilityManifestSummary` 对 `tanva-mobile` 只保留自带 notes，不注入画布查询说明。
+@@ -52,3 +62,13 @@
+ 原「生成图片」的长图只是单张 9:16，`count` 只出同一描述的多个版本，做不了详情页。新增宿主工具 `tanva_detail_page`：`title`、`style`（整套统一风格）、`sections[2–10]`（每屏标题 + 画面描述，含文案）、`aspectRatio`（默认 3:4）、参考图（本条附件自动带入）。每屏用 `detailSectionPrompt` 拼“统一风格 + 本屏内容 + 第 i/N 屏”提交一个 gpt-image-2.6-sunburst 2K 任务（计费同单张，失败退款），合为一张 `kind=image_set` 消息（attachments 存各屏 taskId 与 `longImageUrl`）。前端 `ImageSetCard` 各屏上下无缝相接、逐屏实时出图；全部成功后「拼成一张长图」→ `POST /api/mobile-chat/messages/:id/stitch`：后端按顺序下载各屏，sharp 统一宽度（≤1242）纵向拼接为 JPEG（高 ≤60000），转存 OSS `mobile-chat/<userId>/<messageId>/detail-long.jpg`，幂等。长图全屏可上下滚动查看。快捷入口新增「详情页」。
+ 
+ - 2026-11-11 修复：首次线上详情页（“保温杯详情页，5 屏”）报“至少需要 2 屏”。根因是 `buildCapabilityManifestSummary` 用 3 层上限的 `safeValue` 处理 hostTools 参数，JSON Schema 第 4 层起被裁：`sections.items` 变成 `{}`、所有 `enum` 变成 `null`，模型看不到每屏字段名只能猜（画布宿主工具同样受影响）。参数改为放宽 6 层；`toDetailRequest` 兼容字符串数组、`content/description/name/heading` 等字段名与 JSON 字符串；被拒参数写日志。
++
++- 输入框在单行与多行布局之间平滑展开或收起；减少动态效果时关闭过渡。
++
++- “我的作品”页左上角与首页统一使用菜单按钮，可打开侧边栏切换页面。
++
++- 登录页复用对话首页的创作提示轮播，登录前展示多种创作场景。
++
++- 发送按钮在不可用时保持低强调，同时提高箭头图标对比度。
++
++- 移动端横向列表隐藏滚动条，同时保留横向滑动。
+--- /dev/null
++++ b/frontend/src/assets/tanvas-mark-white.svg
+@@ -0,0 +1,3 @@
++<svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
++<path d="M14.7826 13H19.0234L19.0246 16.6092L19.0252 17.7361C19.0254 17.9133 19.0341 18.1924 19.0184 18.3592L30.4181 18.3606L33.4774 18.3606C34.3509 18.3605 35.1985 18.3123 36.0559 18.4844C37.3151 18.7372 38.3946 19.2663 39.3049 20.1755C40.0342 20.9046 40.5544 21.8141 40.8113 22.81C41.018 23.6099 40.9995 24.2922 40.9996 25.1013V26.6054L40.999 30.8822C40.993 32.4762 40.335 34.1823 39.1893 35.3128C38.4065 36.0859 37.4184 36.6213 36.3405 36.8563C36.1696 36.8931 35.9973 36.9225 35.8239 36.9443C35.7016 36.9586 35.5001 36.9717 35.3876 37H26.3137C26.2133 36.9718 26.0188 36.9514 25.9088 36.935C25.7061 36.906 25.5047 36.8687 25.305 36.8231C24.1208 36.5559 23.0118 35.9909 22.1898 35.0981C20.9656 33.7685 20.5421 32.3327 20.5987 30.5636C20.6532 28.8878 21.3688 27.3005 22.5907 26.1447C23.2599 25.5231 24.145 25.0421 25.0353 24.8222C25.9729 24.5907 26.8709 24.6351 27.8255 24.6352L30.182 24.6355L33.2101 24.6349C33.7424 24.6347 34.3249 24.6214 34.851 24.6386C34.8276 25.0626 34.8457 25.5636 34.842 25.9937C34.8335 26.965 34.8537 27.9442 34.8406 28.9153C34.1868 28.9388 33.4097 28.9188 32.7481 28.9188L28.7009 28.9185L27.3052 28.9177C26.9847 28.9175 26.6604 28.902 26.3454 28.9487C25.4303 29.0846 24.8708 29.8977 24.8545 30.7833C24.8453 31.2715 24.96 31.7736 25.3118 32.1366C25.6868 32.5237 26.2349 32.7181 26.7687 32.7209C27.4071 32.7229 28.0482 32.7218 28.6871 32.7215L32.3178 32.7214L34.0739 32.722C34.4632 32.7223 34.8567 32.7429 35.2422 32.6847C36.2285 32.5356 36.7317 31.7211 36.7377 30.7801L36.7374 26.3194L36.7375 25.0352C36.7372 24.3215 36.7814 23.7252 36.2222 23.1681C35.9375 22.8792 35.5637 22.6929 35.1604 22.639C34.9761 22.6146 34.7058 22.6216 34.5146 22.6217L33.5394 22.6225L30.2562 22.6226L19.0172 22.6238C19.0329 22.8246 19.0254 23.08 19.0251 23.2854L19.0248 24.3654L19.0244 27.1788C19.0244 27.7124 19.0151 28.2739 19.0305 28.8049L14.7919 28.8056C14.7616 28.1754 14.7819 27.4013 14.7819 26.7631L14.7782 22.6215C14.1422 22.6332 13.4684 22.6223 12.8298 22.6223L9 22.6232V18.3607L14.7849 18.3601C14.7591 17.8181 14.7819 17.0786 14.7819 16.5243L14.7826 13Z" fill="white"/>
++</svg>
+--- /dev/null
++++ b/frontend/src/pages/mobile/WelcomePrompt.tsx
+@@ -0,0 +1,31 @@
++import { useEffect, useState } from 'react';
++
++const WELCOME_PROMPTS = [
++  '讲个故事',
++  '复刻爆款视频',
++  '做一版详情页',
++  '把灵感拍成片',
++  '制作产品海报',
++  '设计一组配图',
++  '记录生活片刻',
++  '为新品写文案',
++  '打造品牌视觉',
++  '制作一条广告',
++  '给照片换个场景',
++  '探索新的创意',
++];
++
++export default function WelcomePrompt() {
++  const [index, setIndex] = useState(0);
++  useEffect(() => {
++    const timer = setInterval(() => setIndex((current) => (current + 1) % WELCOME_PROMPTS.length), 3000);
++    return () => clearInterval(timer);
++  }, []);
++  return (
++    <div className="h-7 text-center text-[16px] font-medium leading-7 text-white/70" aria-label={`今天想：${WELCOME_PROMPTS.join('、')}`}>
++      <span className="text-white/45" aria-hidden="true">今天想 </span>
++      <span key={index} className="tanva-fade-in inline-block whitespace-nowrap" aria-hidden="true">{WELCOME_PROMPTS[index]}<span className="text-white/45">？</span></span>
++    </div>
++  );
++}
++

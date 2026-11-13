@@ -1,12 +1,13 @@
 // 移动端 /m：对话（经小T / TapCanvas）+ 一键成片 / 一键复刻（Tanva video-productions 执行与计费）。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Coins, Loader2, Menu, SquarePen } from 'lucide-react';
+import { Coins, Menu, SquarePen } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
-import { mobileChatApi, type MobileConversation, type VideoJobSummary } from '@/services/mobileChatApi';
+import { mobileChatApi, type MobileConversation } from '@/services/mobileChatApi';
 import MobileLogin from './MobileLogin';
 import MobileDrawer from './MobileDrawer';
 import MobileChat from './MobileChat';
+import MobileWorks from './MobileWorks';
 import TanvasMark from './TanvasMark';
 
 /** iOS 软键盘弹出时按可视区域收缩，输入栏始终贴在键盘上方。 */
@@ -175,43 +176,5 @@ function MobileShell() {
         onDelete={(id) => { void mobileChatApi.remove(id).then(() => { refresh(); if (id === conversationId) go('/m', true); }); }}
         onLogout={() => { setDrawerOpen(false); void logout(); }} />
     </>
-  );
-}
-
-const WORK_STAGE: Record<string, string> = {
-  planning: '规划中', waiting_credits: '余额不足', producing: '生成中', composing: '合成中',
-  succeeded: '已完成', failed: '失败', cancelled: '已取消',
-};
-
-function MobileWorks() {
-  const [jobs, setJobs] = useState<VideoJobSummary[] | null>(null);
-  const [error, setError] = useState('');
-  useEffect(() => { mobileChatApi.jobs().then(setJobs).catch((e) => setError(e?.message || '加载失败')); }, []);
-
-  if (error) return <div className="p-8 text-center text-sm text-[#FF7A6B]">{error}</div>;
-  if (!jobs) return <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-white/40" /></div>;
-  if (!jobs.length) return <div className="flex flex-1 items-center justify-center text-sm text-white/40">还没有作品，去对话里做第一条吧</div>;
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
-      <div className="grid grid-cols-2 gap-3 pt-2">
-        {jobs.map((job) => (
-          <div key={job.jobId} className="overflow-hidden rounded-2xl border border-white/10 bg-[#1C1C1C]">
-            {job.finalVideoUrl ? (
-              <video src={job.finalVideoUrl} controls playsInline preload="metadata" className="aspect-[9/16] w-full bg-black object-cover" />
-            ) : (
-              <div className="flex aspect-[9/16] items-center justify-center bg-gradient-to-br from-[#1B2A55] to-[#141414] text-xs text-white/60">
-                {WORK_STAGE[job.stage] || job.stage}
-              </div>
-            )}
-            <div className="space-y-1 p-2.5">
-              <div className="line-clamp-2 text-[13px] leading-5 text-white/85">{job.prompt || (job.kind === 'remake' ? '一键复刻' : '一键成片')}</div>
-              <div className="text-[11px] text-white/40">
-                {job.kind === 'remake' ? '复刻' : '成片'} · {new Date(job.createdAt).toLocaleDateString('zh-CN')}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

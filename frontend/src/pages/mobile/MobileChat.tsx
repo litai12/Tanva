@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ClipboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowUp, Clapperboard, ImagePlus, Loader2, Plus, Repeat2, Rows3, Video, X } from 'lucide-react';
@@ -138,7 +138,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
     fileRef.current.click();
   };
 
-  const addFiles = async (files: FileList | null) => {
+  const addFiles = (files: FileList | File[] | null) => {
     if (!files?.length) return;
     setHint('');
     const room = MAX_ATTACHMENTS - drafts.length;
@@ -158,6 +158,21 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
           ? { ...x, uploading: false, url: res.success ? res.url : undefined, error: res.success && res.url ? undefined : (res.error || '上传失败') } : x)))
         .catch((e) => setDrafts((d) => d.map((x) => x.localId === draft.localId ? { ...x, uploading: false, error: e?.message || '上传失败' } : x)));
     }
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboard = event.clipboardData;
+    // 优先使用 files，兼容只通过 items 暴露截图的浏览器，避免同一文件重复添加。
+    const files = clipboard.files.length > 0
+      ? Array.from(clipboard.files)
+      : Array.from(clipboard.items)
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+    if (files.length === 0) return;
+    // 混合剪贴板中的文字继续由输入框原生粘贴，保留光标位置和选区行为。
+    if (!clipboard.getData('text/plain')) event.preventDefault();
+    addFiles(files);
   };
 
   const removeDraft = (id: string) => setDrafts((d) => {
@@ -293,6 +308,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
                 <Plus className="h-6 w-6" strokeWidth={2.8} />
               </button>
               <textarea ref={textRef} rows={1} value={text} onChange={(e) => setText(e.target.value)}
+                onPaste={handlePaste}
                 placeholder={empty ? '描述你想创作的内容…' : '继续说…'}
                 aria-label="消息"
                 className="tanva-mobile-composer-input block min-w-0 max-h-[132px] min-h-[44px] w-full resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/40 outline-none" />
