@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronRight, Clapperboard, Coins, Film, ImagePlus, LogOut, MoreHorizontal, Plus, Repeat2, Search, X } from 'lucide-react';
+import { ChevronRight, Coins, Film, LogOut, MoreHorizontal, Plus, Search, X } from 'lucide-react';
 import type { MobileConversation } from '@/services/mobileChatApi';
 import { TanvasWordmark } from './TanvasMark';
 
@@ -12,7 +12,6 @@ type Props = {
   balance: number | null;
   onOpenConversation: (id: string) => void;
   onNewChat: () => void;
-  onQuick: (kind: 'film' | 'remake' | 'image') => void;
   onWorks: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -52,7 +51,7 @@ export default function MobileDrawer(props: Props) {
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索会话"
               className="mr-3 h-11 flex-1 rounded-full border border-white/10 bg-white/[0.06] px-4 text-[16px] outline-none" />
           ) : (
-            <TanvasWordmark height={24} />
+            <TanvasWordmark height={21} className="-translate-y-px" />
           )}
           <button type="button" aria-label={searching ? '关闭搜索' : '搜索'}
             onClick={() => { setSearching((s) => !s); setQuery(''); }}
@@ -62,24 +61,19 @@ export default function MobileDrawer(props: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 pb-4">
+          <button type="button" onClick={props.onNewChat}
+            className="mb-3 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#F4F2EE] px-5 text-[17px] font-medium text-[#141414] active:bg-white/80">
+            <Plus className="h-5 w-5" />新建会话
+          </button>
           {!searching && (
             <nav className="space-y-1">
-              <button type="button" className={navItem} onClick={() => props.onQuick('film')}>
-                <Clapperboard className="h-6 w-6 text-white/80" />一键成片
-              </button>
-              <button type="button" className={navItem} onClick={() => props.onQuick('remake')}>
-                <Repeat2 className="h-6 w-6 text-white/80" />一键复刻
-              </button>
-              <button type="button" className={navItem} onClick={() => props.onQuick('image')}>
-                <ImagePlus className="h-6 w-6 text-white/80" />生成图片
-              </button>
               <button type="button" className={navItem} onClick={props.onWorks}>
                 <Film className="h-6 w-6 text-white/80" />我的作品
               </button>
             </nav>
           )}
 
-          <div className="mt-6 px-3 text-sm text-white/45">{query ? '搜索结果' : '最近'}</div>
+          <div className="mt-6 px-3 text-sm text-white/45">{query ? '搜索结果' : '最近对话'}</div>
           <div className="mt-2 space-y-0.5">
             {filtered.map((c) => (
               <div key={c.id} className={`relative flex items-center rounded-2xl ${c.id === activeId ? 'bg-white/[0.07]' : ''}`}>
@@ -133,10 +127,6 @@ export default function MobileDrawer(props: Props) {
               </button>
             </div>
           )}
-          <button type="button" onClick={props.onNewChat}
-            className="flex h-14 items-center gap-2 rounded-full bg-[#F4F2EE] px-7 text-[17px] font-medium text-[#141414]">
-            <Plus className="h-5 w-5" />新建会话
-          </button>
         </div>
       </aside>
     </>

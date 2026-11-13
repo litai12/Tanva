@@ -2,6 +2,16 @@
 
 设计见 `helloagents/plan/202611101200_mobile_chat_web/proposal.md`。
 
+## 2026-11-12 输入框视觉调整（本地，未部署）
+
+- 首页问候语使用无衬线字体，与移动端界面文字统一。
+- 首页欢迎区使用用户提供的纯白 SVG 品牌标，搭配 Bold 无衬线问候语和 Medium 提示文字；提示轮播时整句居中，欢迎提示以“今天想 …？”为句式，每 3 秒轮流显示涵盖视频、图像、文案和品牌视觉等场景的 12 条提示，切换使用淡入动效，遵循减少动态效果设置。
+- 侧边栏在品牌栏下方显示全宽「新建会话」按钮，导航仅保留「我的作品」与最近对话；底部保留账号入口，搜索和会话管理不变。主页输入框上方的快捷入口仍可使用。
+- 参考用户提供的视频：页面黑底，输入框为 `#1B1D1B` 炭灰胶囊与细灰边框，左侧白色加号，右侧白底上箭头圆按钮。
+- 修改 `MobileChat.tsx` 与 `MobileApp.tsx`；输入框继续停靠移动端底部，保留附件、快捷入口、多行自适应、发送/上传状态、键盘视口与安全区逻辑。空内容发送按钮仍禁用。
+- 输入框单行高 64px，操作触摸区 44px，文字 16px；窄屏输入可收缩，长文本最多 132px 后内部滚动。焦点具有边框和按钮描边反馈。
+- 输入超过单行时，文本扩展到输入框上方的整行，添加与发送按钮移到下方两端；删除文字回到单行后恢复胶囊排列，窗口宽度变化时重新判断。
+- 验证：全量 TypeScript 检查、Vite 生产构建与两个修改文件的 ESLint 通过；Chrome 移动端模拟 320/390/430/768px 无横向溢出，空内容禁用和长文本滚动正常，无页面运行错误。布局检查使用 mock 接口，未调用真实对话或媒体生成服务。
 ## 链路
 
 - **对话**：`MobileChatService` 复用 `XiaotAgentService.run()`（new-api → TapCanvas `/public/v1/chat/completions`，按轮走网关签名订单，与小T同一计费）。manifest `host=tanva-mobile`，用 v1.3 `hostTools` 声明 `tanva_make_video` / `tanva_remake_video`；`generationMode` 默认 host，TapCanvas 不生成媒体。`buildCapabilityManifestSummary` 对 `tanva-mobile` 只保留自带 notes，不注入画布查询说明。
@@ -52,3 +62,13 @@
 原「生成图片」的长图只是单张 9:16，`count` 只出同一描述的多个版本，做不了详情页。新增宿主工具 `tanva_detail_page`：`title`、`style`（整套统一风格）、`sections[2–10]`（每屏标题 + 画面描述，含文案）、`aspectRatio`（默认 3:4）、参考图（本条附件自动带入）。每屏用 `detailSectionPrompt` 拼“统一风格 + 本屏内容 + 第 i/N 屏”提交一个 gpt-image-2.6-sunburst 2K 任务（计费同单张，失败退款），合为一张 `kind=image_set` 消息（attachments 存各屏 taskId 与 `longImageUrl`）。前端 `ImageSetCard` 各屏上下无缝相接、逐屏实时出图；全部成功后「拼成一张长图」→ `POST /api/mobile-chat/messages/:id/stitch`：后端按顺序下载各屏，sharp 统一宽度（≤1242）纵向拼接为 JPEG（高 ≤60000），转存 OSS `mobile-chat/<userId>/<messageId>/detail-long.jpg`，幂等。长图全屏可上下滚动查看。快捷入口新增「详情页」。
 
 - 2026-11-11 修复：首次线上详情页（“保温杯详情页，5 屏”）报“至少需要 2 屏”。根因是 `buildCapabilityManifestSummary` 用 3 层上限的 `safeValue` 处理 hostTools 参数，JSON Schema 第 4 层起被裁：`sections.items` 变成 `{}`、所有 `enum` 变成 `null`，模型看不到每屏字段名只能猜（画布宿主工具同样受影响）。参数改为放宽 6 层；`toDetailRequest` 兼容字符串数组、`content/description/name/heading` 等字段名与 JSON 字符串；被拒参数写日志。
+
+- 输入框在单行与多行布局之间平滑展开或收起；减少动态效果时关闭过渡。
+
+- “我的作品”页左上角与首页统一使用菜单按钮，可打开侧边栏切换页面。
+
+- 登录页复用对话首页的创作提示轮播，登录前展示多种创作场景。
+
+- 发送按钮在不可用时保持低强调，同时提高箭头图标对比度。
+
+- 移动端横向列表隐藏滚动条，同时保留横向滑动。

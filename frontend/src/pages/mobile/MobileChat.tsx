@@ -8,6 +8,8 @@ import JobCard from './JobCard';
 import ImageCard from './ImageCard';
 import ImageSetCard from './ImageSetCard';
 import TanvasMark from './TanvasMark';
+import WelcomePrompt from './WelcomePrompt';
+import whiteLogo from '@/assets/tanvas-mark-white.svg';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -38,6 +40,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [text, setText] = useState('');
+  const [multiline, setMultiline] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [sending, setSending] = useState(false);
   const [hint, setHint] = useState('');
@@ -89,10 +92,37 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
   const autosize = () => {
     const el = textRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+    const composer = el.closest('.tanva-mobile-composer');
+    if (!composer) return;
+    // Measure at the single-line width even when the expanded layout is active,
+    // so changing layouts cannot repeatedly trigger a different measurement.
+    const measure = el.cloneNode() as HTMLTextAreaElement;
+    measure.value = el.value;
+    measure.placeholder = '';
+    measure.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;box-sizing:border-box;padding-left:0;padding-right:0;width:${Math.max(0, composer.clientWidth - 122)}px;height:auto;`;
+    composer.appendChild(measure);
+    const nextMultiline = measure.scrollHeight > 44;
+    setMultiline(nextMultiline);
+    // Measure the final text width without resetting the visible textarea height,
+    // allowing its current height to transition smoothly to the new value.
+    measure.style.width = `${Math.max(0, composer.clientWidth - 18 - (nextMultiline ? 20 : 104))}px`;
+    const nextHeight = el.value ? Math.min(measure.scrollHeight, 132) : 44;
+    measure.remove();
+    el.style.height = `${nextHeight}px`;
   };
-  useEffect(autosize, [text]);
+  useEffect(autosize, [text, multiline]);
+  useEffect(() => {
+    const composer = textRef.current?.closest('.tanva-mobile-composer');
+    if (!composer) return;
+    let width = composer.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (composer.clientWidth === width) return;
+      width = composer.clientWidth;
+      autosize();
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, []);
 
   useImperativeHandle(ref, () => ({
     prefill: (kind) => {
@@ -193,12 +223,14 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4">
         {empty ? (
-          <div className="flex h-full flex-col items-center justify-center gap-5 pb-10">
-            <TanvasMark size={56} />
-            <div className="text-center font-serif text-[30px] font-medium tracking-tight text-[#D8D4CC]">
-              嗨，{firstName || '欢迎来到 Tanvas'}
+          <div className="flex h-full flex-col items-center justify-center px-3 pb-10">
+            <div className="flex max-w-full items-center justify-center">
+              <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[50px] w-[50px] shrink-0 select-none" />
+              <div className="min-w-0 break-words text-center font-sans text-[24px] font-bold leading-tight tracking-tight text-[#ECEAE6]">
+                嗨，{firstName || '欢迎来到 Tanvas'}
+              </div>
             </div>
-            <div className="text-sm text-white/40">讲个故事、复刻爆款视频，或生成图片</div>
+            <div className="mt-3"><WelcomePrompt /></div>
           </div>
         ) : (
           <div className="mx-auto max-w-[640px] space-y-5 pb-6 pt-2">
@@ -210,7 +242,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
       </div>
 
       <div className="px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2">
-        <div className="mx-auto max-w-[640px]">
+        <div className="mx-auto w-full max-w-[900px]">
           {empty && drafts.length === 0 && (
             <div className="mb-3 flex gap-2 overflow-x-auto">
               <button type="button" onClick={() => { setText(FILM_PREFILL); setTimeout(() => textRef.current?.focus(), 0); }}
@@ -232,7 +264,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
             </div>
           )}
           {hint && <div className="mb-2 px-2 text-xs text-[#F5B85B]">{hint}</div>}
-          <div className="rounded-[30px] border border-white/10 bg-[#1C1C1C] p-2">
+          <div className="tanva-mobile-composer rounded-[32px] border border-white/[0.12] bg-[#1B1D1B] p-[9px]">
             {drafts.length > 0 && (
               <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1">
                 {drafts.map((d) => (
@@ -254,17 +286,19 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2">
+            <div className={`tanva-mobile-composer-layout relative ${multiline ? 'is-multiline' : ''}`}
+              onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === 'padding-left') autosize(); }}>
               <button type="button" aria-label="添加图片或视频" onClick={() => pickFiles('image/*,video/*')}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08]">
-                <Plus className="h-5 w-5" />
+                className="tanva-mobile-composer-action absolute bottom-0 left-0 flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/[0.08]">
+                <Plus className="h-6 w-6" strokeWidth={2.8} />
               </button>
               <textarea ref={textRef} rows={1} value={text} onChange={(e) => setText(e.target.value)}
-                placeholder={empty ? '讲个故事、上传视频复刻，或描述想要的图片' : '继续说…'}
-                className="max-h-[132px] min-h-[44px] flex-1 resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/35 outline-none" />
+                placeholder={empty ? '描述你想创作的内容…' : '继续说…'}
+                aria-label="消息"
+                className="tanva-mobile-composer-input block min-w-0 max-h-[132px] min-h-[44px] w-full resize-none bg-transparent py-[10px] text-[16px] leading-6 text-white placeholder:text-white/40 outline-none" />
               <button type="button" aria-label="发送" onClick={send} disabled={!canSend}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${canSend ? 'bg-[#F4F2EE] text-[#141414]' : 'bg-white/10 text-white/30'}`}>
-                {sending || uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+                className={`tanva-mobile-send absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center rounded-full transition-colors ${canSend ? 'bg-white text-[#1B1D1B] hover:bg-[#E8E8E8]' : 'bg-white/20 text-white/65'}`}>
+                {sending || uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-6 w-6" strokeWidth={2.5} />}
               </button>
             </div>
           </div>

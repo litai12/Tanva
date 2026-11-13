@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { authApi } from '@/services/authApi';
 import { useAuthStore } from '@/stores/authStore';
-import TanvasMark, { TanvasWordmark } from './TanvasMark';
+import whiteLogo from '@/assets/tanvas-mark-white.svg';
+import WelcomePrompt from './WelcomePrompt';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -42,17 +43,17 @@ export default function MobileLogin() {
     finally { setSubmitting(false); }
   };
 
-  const field = 'h-12 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-[16px] text-white placeholder:text-white/35 outline-none focus:border-[#4C7DFF]';
+  const field = 'h-12 min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-[16px] text-white placeholder:text-white/35 outline-none focus:border-[#4C7DFF]';
 
   return (
-    <div className="flex h-full flex-col px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
-      <div className="mt-10 flex flex-col items-center gap-4">
-        <TanvasMark size={64} />
-        <TanvasWordmark height={24} className="mt-2" />
-        <div className="text-sm text-white/50">一句话成片 · 一键复刻 · 生成图片</div>
-      </div>
+    <div className="h-full overflow-y-auto overscroll-contain">
+      <div className="flex min-h-full flex-col px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))]">
+      <main className="flex flex-1 flex-col items-center justify-center py-8">
+        <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[72px] w-[72px] select-none" />
+        <h1 className="mt-3 text-center text-[26px] font-bold tracking-tight text-[#ECEAE6]">欢迎使用 Tanvas</h1>
+        <div className="mt-2"><WelcomePrompt /></div>
 
-      <div className="mt-12 flex flex-col gap-3">
+      <div className="mt-8 flex w-full min-w-[min(272px,100%)] max-w-[400px] flex-col gap-3">
         <input className={field} inputMode="numeric" autoComplete="tel" maxLength={11} placeholder="手机号"
           value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} />
         <div className="flex gap-3">
@@ -76,9 +77,11 @@ export default function MobileLogin() {
           </span>
         </label>
       </div>
+      </main>
 
-      <div className="mt-auto text-center text-xs text-white/40">
+      <div className="pt-4 text-center text-xs text-white/40">
         还没有账号？<a className="text-white/70 underline" href="/auth/register">注册 Tanvas</a>
+      </div>
       </div>
     </div>
   );
