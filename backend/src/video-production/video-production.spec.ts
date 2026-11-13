@@ -73,7 +73,7 @@ async function pipelineRun() {
   let planPolls = 0;
   const plans = {
     options: () => ({ enabled: true, authorModels: ['m1', 'm2'], defaultModel: 'm1' }),
-    create: async (_u: string, body: any) => { plans.lastBody = body; return { id: 'plan-1' }; },
+    create: async (_u: string, body: any) => { plans.lastBody = body; plans.bodies = [...(plans.bodies ?? []), body]; return { id: 'plan-1' }; },
     get: async () => ({ status: ++planPolls >= 2 ? 'succeeded' : 'running', hasResult: planPolls >= 2 }),
     result: async () => ({ id: 'plan-1', nodes: plan }),
     lastBody: null as any,
@@ -110,7 +110,8 @@ async function pipelineRun() {
     const job = await service.create(userId, { mode: 'film', story: '故事', referenceImageUrls: ['https://in/style.png'], planModel: 'm2', imageModel: 'nano-banana-pro', targetSeconds: 20 }, undefined);
     assert.equal(job.stage, 'planning');
     await drive(job.jobId);
-    assert.equal(plans.lastBody.modelKey, 'm2'); assert.match(plans.lastBody.requirement, /成片总时长约 20 秒/);
+    assert.equal(plans.lastBody.modelKey, 'm2'); assert.equal(plans.lastBody.targetDurationSeconds, 20);
+    assert.equal(plans.bodies.length, 1, '21 秒对 20 秒在容差内，不重规划'); assert.doesNotMatch(String(plans.lastBody.requirement ?? ''), /成片总时长/);
     assert.deepEqual(plans.lastBody.assets, [{ type: 'image', imageType: 'normal', url: 'https://in/style.png' }]);
     const view = await service.get(job.jobId, userId);
     assert.equal(view.status, 'succeeded', JSON.stringify(view));
@@ -168,6 +169,11 @@ async function pipelineRun() {
     assert.equal((await service.cancel(c.jobId, userId)).status, 'canceled');
     await assert.rejects(service.get(c.jobId, 'someone-else'), /不存在/);
     assert.equal((await service.list(userId)).length, 4);
+    // 规划时长严重偏离（21 秒对 60 秒）：生成画面前丢弃规划、换新 clientRequestId 重规划一次。
+    const offMeta: any = { input: { kind: 'film', targetSeconds: 60, referenceImageUrls: [] }, stage: 'planning', planTaskId: 'plan-1', images: {}, clips: {}, warnings: [] };
+    await (service as any).advancePlanning({ id: 'off', userId }, offMeta);
+    assert.deepEqual([offMeta.stage, offMeta.planTaskId, offMeta.planAttempts, offMeta.durationReplanned, offMeta.graph], ['planning', undefined, 1, true, undefined]);
+    assert.match(offMeta.warnings[0], /规划时长 21 秒与要求的 60 秒相差过大/);
     // 各段尺寸不一致：不能直接拼接，统一编码到 Clip 画幅。
     store.set('/up/odd.mp4', (() => { const f = join(dir, 'odd.mp4'); execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=640x360:d=1:r=30', '-f', 'lavfi', '-i', 'sine=d=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); return readFileSync(f); })());
     const mixedMeta: any = { input: { kind: 'film' }, graph: { clips: [{ key: 'a', resolution: '480P', aspectRatio: '9:16' }, { key: 'b', resolution: '480P', aspectRatio: '9:16' }] },

@@ -37,6 +37,8 @@ export interface PlanInput {
   step?: number;
   /** 爆款复刻：前端读到的参考视频时长（秒），写入提示词约束成片总长。 */
   sourceDurationSeconds?: number;
+  /** 一键成片：用户要求的成片总时长（秒），按 N 段 × S 秒锁定，而不是只写进提示词让模型“约”着来。 */
+  targetDurationSeconds?: number;
   projectId?: string;
   nodeId?: string;
   clientRequestId: string;
@@ -101,10 +103,13 @@ export function parsePlanInput(raw: any): PlanInput {
   const duration = Number(raw.sourceDurationSeconds);
   const sourceDurationSeconds = mode === 'remake' && Number.isFinite(duration) && duration >= 1 && duration <= 3600
     ? Math.round(duration) : undefined;
+  const target = Number(raw.targetDurationSeconds);
+  const targetDurationSeconds = mode === 'film' && Number.isFinite(target) && target >= CLIP_SECONDS.min && target <= 600
+    ? Math.round(target) : undefined;
   const clientRequestId = optionalId(raw.clientRequestId, 'clientRequestId');
   if (!clientRequestId) throw new BadRequestException('缺少 clientRequestId');
   return { mode, text, requirement, assets, modelKey: raw.modelKey, reasoningEffort, clipPreference, knowledgeTier, step, sourceDurationSeconds,
-    projectId: optionalId(raw.projectId, 'projectId'), nodeId: optionalId(raw.nodeId, 'nodeId'), clientRequestId };
+    targetDurationSeconds, projectId: optionalId(raw.projectId, 'projectId'), nodeId: optionalId(raw.nodeId, 'nodeId'), clientRequestId };
 }
 
 /**
@@ -120,10 +125,24 @@ export const REMAKE_TARGET_CLIP_SECONDS = 6;
 /** 段数上限：长原片先拉长段长；12 段都放不下时回落“段数最少”。 */
 export const REMAKE_MAX_CLIPS = 12;
 export function remakeClipPlan(sourceSeconds: number): { count: number; seconds: number } {
+  return clipPlan(sourceSeconds, REMAKE_TARGET_CLIP_SECONDS, REMAKE_MAX_CLIPS);
+}
+
+/**
+ * 一键成片段长约 10 秒（每段 2–4 个镜头）。2026-11-13 线上：要求 60 秒只在提示词里写“约 60 秒”，
+ * 规划出 8 段 12–15 秒共 105 秒；改为与复刻相同的 N×S 锁定。
+ */
+export const FILM_TARGET_CLIP_SECONDS = 10;
+export const FILM_MAX_CLIPS = 18;
+export function filmClipPlan(targetSeconds: number): { count: number; seconds: number } {
+  return clipPlan(targetSeconds, FILM_TARGET_CLIP_SECONDS, FILM_MAX_CLIPS);
+}
+
+function clipPlan(sourceSeconds: number, preferredSeconds: number, maxClips: number): { count: number; seconds: number } {
   const clamp = (n: number) => Math.min(CLIP_SECONDS.max, Math.max(CLIP_SECONDS.min, n));
   const error = (plan: { count: number; seconds: number }) => Math.abs(plan.count * plan.seconds - sourceSeconds);
   const better = (a: { count: number; seconds: number }, b: { count: number; seconds: number }) => {
-    const da = Math.abs(a.seconds - REMAKE_TARGET_CLIP_SECONDS), db = Math.abs(b.seconds - REMAKE_TARGET_CLIP_SECONDS);
+    const da = Math.abs(a.seconds - preferredSeconds), db = Math.abs(b.seconds - preferredSeconds);
     return da < db || (da === db && a.count < b.count);
   };
   let fallback = { count: 1, seconds: clamp(Math.round(sourceSeconds)) };
@@ -132,17 +151,36 @@ export function remakeClipPlan(sourceSeconds: number): { count: number; seconds:
     const plan = { count, seconds: clamp(Math.round(sourceSeconds / count)) };
     if (error(plan) <= 1) {
       if (!best) best = plan;
-      else if (count <= REMAKE_MAX_CLIPS && (best.count > REMAKE_MAX_CLIPS || better(plan, best))) best = plan;
+      else if (count <= maxClips && (best.count > maxClips || better(plan, best))) best = plan;
     }
     else if (error(plan) < error(fallback)) fallback = plan;
   }
   return best ?? fallback;
 }
 
-/** 上游支持 targetDurationSeconds 且原片时长在合法范围内时，按精确总长下发。 */
-export const usesExactDuration = (input: Pick<PlanInput, 'mode' | 'sourceDurationSeconds'>, exactDuration: boolean) =>
-  exactDuration && input.mode === 'remake' && !!input.sourceDurationSeconds
-  && input.sourceDurationSeconds >= CLIP_SECONDS.min && input.sourceDurationSeconds <= MAX_TARGET_DURATION;
+/** 成片要锁定的总时长：复刻取原片时长，一键成片取用户要求。 */
+export const lockedDuration = (input: Pick<PlanInput, 'mode' | 'sourceDurationSeconds' | 'targetDurationSeconds'>) =>
+  input.mode === 'remake' ? input.sourceDurationSeconds : input.targetDurationSeconds;
+
+/** 上游支持 targetDurationSeconds 且总长在合法范围内时，按精确总长下发。 */
+export const usesExactDuration = (input: Pick<PlanInput, 'mode' | 'sourceDurationSeconds' | 'targetDurationSeconds'>, exactDuration: boolean) => {
+  const seconds = lockedDuration(input);
+  return exactDuration && !!seconds && seconds >= CLIP_SECONDS.min && seconds <= MAX_TARGET_DURATION;
+};
+
+/** 成片 N×S 分段（未开精确总长时）。 */
+const durationClipPlan = (input: Pick<PlanInput, 'mode' | 'sourceDurationSeconds' | 'targetDurationSeconds'>) => {
+  const seconds = lockedDuration(input);
+  if (!seconds) return null;
+  return input.mode === 'remake' ? remakeClipPlan(seconds) : filmClipPlan(seconds);
+};
+
+const filmDurationLine = (targetSeconds: number, exact: boolean) => {
+  const rule = '按这个篇幅取舍和压缩镜头，不得为了完整铺陈而增加 Clip 或拉长总时长。';
+  if (exact) return `成片时长：全部 Clip 合计恰好 ${targetSeconds} 秒。${rule}`;
+  const { count, seconds } = filmClipPlan(targetSeconds);
+  return `成片时长：用户要求约 ${targetSeconds} 秒，规划为 ${count} 个 Clip、每个 ${seconds} 秒（合计 ${count * seconds} 秒）。${rule}`;
+};
 
 const REMAKE_SHOT_RULE = '按原片镜头切点把连续的若干镜头放进同一个 Clip（Clip 内多镜头切换），原片的每个镜头都要落到某个 Clip 中，不得删减，也不得为凑时长新增镜头。';
 
@@ -153,9 +191,11 @@ const remakeDurationLine = (sourceSeconds: number, exact: boolean) => {
 };
 
 /** 交给 TapCanvas 的创作原文。复刻模式沿用 TapCanvas 爆款复刻的边界：原视频只用于理解，不作为任何生成输入。 */
-export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds'>, exactDuration = false): string {
+export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requirement' | 'sourceDurationSeconds' | 'targetDurationSeconds'>, exactDuration = false): string {
   if (input.mode === 'film') {
-    return [FILM_GUIDE, input.requirement ? `\n创作要求：${input.requirement}` : '', '\n章节原文：', input.text].join('\n').trim();
+    return [FILM_GUIDE, input.requirement ? `\n创作要求：${input.requirement}` : '',
+      ...(input.targetDurationSeconds ? [filmDurationLine(input.targetDurationSeconds, usesExactDuration(input, exactDuration))] : []),
+      '\n章节原文：', input.text].join('\n').trim();
   }
   return [
     '爆款复刻：创作来源是参考视频（input 中的视频素材）的逐镜头理解，按它复刻节奏、镜头切点、景别、运镜与声音结构。原视频不得作为任何生成接口的输入，也不得直接引用原视频画面。',
@@ -171,11 +211,11 @@ export function buildPlanPrompt(input: Pick<PlanInput, 'mode' | 'text' | 'requir
  * @param exactDuration 上游已支持 targetDurationSeconds（TAPCANVAS_PLAN_EXACT_DURATION）；未上线时发送会被 400 拒绝。
  */
 export function buildAssetPlanRequest(input: PlanInput, exactDuration = false): Record<string, unknown> {
-  // 复刻且读到原片时长：分段方式与总长由原片决定，覆盖节点上的选择。
+  // 复刻读到原片时长 / 成片指定总长：分段方式与总长由时长决定，覆盖节点上的选择。
   const exact = usesExactDuration(input, exactDuration);
+  const plan = exact ? null : durationClipPlan(input);
   const timed = exact ? { step: undefined, clipPreference: 'max_duration' as const }
-    : input.mode === 'remake' && input.sourceDurationSeconds
-      ? { step: remakeClipPlan(input.sourceDurationSeconds).seconds, clipPreference: 'max_duration' as const } : null;
+    : plan ? { step: plan.seconds, clipPreference: 'max_duration' as const } : null;
   const step = timed ? timed.step : input.step;
   const clipPreference = timed?.clipPreference ?? input.clipPreference;
   return {
@@ -184,7 +224,7 @@ export function buildAssetPlanRequest(input: PlanInput, exactDuration = false): 
     reasoningEffort: input.reasoningEffort,
     assets: input.assets,
     ...(step !== undefined ? { step } : {}),
-    ...(exact ? { targetDurationSeconds: input.sourceDurationSeconds } : {}),
+    ...(exact ? { targetDurationSeconds: lockedDuration(input) } : {}),
     ...(clipPreference ? { clipPreference } : {}),
     ...(input.knowledgeTier ? { knowledgeTier: input.knowledgeTier } : {}),
   };

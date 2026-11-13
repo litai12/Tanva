@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { consumptionCredits } from '../consumption-orders/gateway-consumption.protocol';
-import { FILM_GUIDE, buildAssetPlanRequest, compactProgress, parsePlanInput, readTapJob, remakeClipPlan, upstreamErrorMessage } from './tapcanvas-plans.protocol';
+import { FILM_GUIDE, buildAssetPlanRequest, filmClipPlan, compactProgress, parsePlanInput, readTapJob, remakeClipPlan, upstreamErrorMessage } from './tapcanvas-plans.protocol';
 
 const base = { modelKey: 'deepseek-v4.1-flash', reasoningEffort: 'none', clientRequestId: 'req-1' };
 
@@ -51,6 +51,27 @@ const run = (): void => {
     assert.equal(parsePlanInput({ ...base, mode: 'remake', sourceDurationSeconds, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] }).sourceDurationSeconds, undefined);
   }
   assert.equal(parsePlanInput({ ...base, text: 'x', sourceDurationSeconds: 17 }).sourceDurationSeconds, undefined, 'film mode ignores it');
+
+  // 一键成片指定总时长（2026-11-13 线上：要求 60 秒，只写“约 60 秒”被规划成 8 段共 105 秒）：N×S 锁定。
+  const film60 = parsePlanInput({ ...base, text: '别墅清晨', targetDurationSeconds: 60 });
+  assert.equal(film60.targetDurationSeconds, 60);
+  const film60Request = buildAssetPlanRequest({ ...film60, clipPreference: 'single_shot', step: 15 });
+  assert.equal(film60Request.step, 10);
+  assert.equal(film60Request.clipPreference, 'max_duration');
+  assert.ok(!('targetDurationSeconds' in film60Request));
+  assert.match(String(film60Request.prompt), /规划为 6 个 Clip、每个 10 秒（合计 60 秒）/);
+  assert.ok(String(film60Request.prompt).startsWith(FILM_GUIDE) && String(film60Request.prompt).endsWith('别墅清晨'));
+  const film60Exact = buildAssetPlanRequest(film60, true);
+  assert.equal(film60Exact.targetDurationSeconds, 60);
+  assert.ok(!('step' in film60Exact));
+  assert.match(String(film60Exact.prompt), /全部 Clip 合计恰好 60 秒/);
+  for (const [seconds, count, each] of [[15, 2, 8], [30, 3, 10], [60, 6, 10], [90, 9, 10], [180, 18, 10]]) {
+    assert.deepEqual(filmClipPlan(seconds), { count, seconds: each }, `film ${seconds}s`);
+  }
+  assert.equal(parsePlanInput({ ...base, mode: 'remake', targetDurationSeconds: 60, assets: [{ type: 'video', url: 'https://oss.example.com/v.mp4' }] }).targetDurationSeconds, undefined, 'remake ignores film target');
+  for (const targetDurationSeconds of ['abc', 2, 99999]) assert.equal(parsePlanInput({ ...base, text: 'x', targetDurationSeconds }).targetDurationSeconds, undefined);
+  // 不指定时长时提示词与改动前逐字一致（不影响已有请求的幂等哈希）。
+  assert.equal(buildAssetPlanRequest(parsePlanInput({ ...base, text: 'x' })).prompt, [FILM_GUIDE, '', '\n章节原文：', 'x'].join('\n').trim());
 
   // 设计 JSON 约束：data:/blob:/裸 base64 一律拒绝。
   for (const url of ['data:image/png;base64,AAAA', 'blob:https://x/1', 'iVBORw0KGgo']) {

@@ -53,6 +53,8 @@ interface JobInput {
 }
 interface JobMeta {
   input: JobInput; stage: Stage; planTaskId?: string; planAttempts?: number; sourceSeconds?: number;
+  /** 规划总时长偏离用户要求过多时已重新规划过一次（只重规划一次，避免反复扣规划费）。 */
+  durationReplanned?: boolean;
   graph?: ProductionGraph; images: Record<string, Step>; clips: Record<string, Step>;
   estimate?: { credits: number | null; balance?: number | null; partial?: boolean };
   finalVideoUrl?: string; warnings: string[]; startedAt: number;
@@ -417,8 +419,8 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
         const ratio = await this.sourceAspectRatio(input.referenceVideoUrl!);
         if (ratio) { input.aspectRatio = ratio; meta.warnings.push(`画幅跟随原片：${ratio}`); }
       }
+      // 成片总时长走 targetDurationSeconds（规划按 N 段 × S 秒锁定），不再只写一句“约 N 秒”。
       const requirement = [input.kind === 'remake' ? (input.requirements || REMAKE_DEFAULT_REQUIREMENT) : input.requirements,
-        input.kind === 'film' && input.targetSeconds ? `成片总时长约 ${input.targetSeconds} 秒。` : undefined,
         input.aspectRatio ? `画幅 ${input.aspectRatio}。` : undefined].filter(Boolean).join('\n') || undefined;
       const options = this.plans.options();
       const created: any = await this.plans.create(row.userId, {
@@ -430,6 +432,7 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
         modelKey: input.planModel || options.defaultModel,
         reasoningEffort: 'none',
         ...(meta.sourceSeconds ? { sourceDurationSeconds: meta.sourceSeconds } : {}),
+        ...(input.kind === 'film' && input.targetSeconds ? { targetDurationSeconds: input.targetSeconds } : {}),
         clientRequestId: `${row.id}-plan-${meta.planAttempts ?? 0}`,
       }, input.teamId);
       meta.planTaskId = created.id;
@@ -448,6 +451,19 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     const imageOption = input.imageModel ? findImageModel(input.imageModel) : undefined;
     graph.images = graph.images.map(image => applyImageModel(image, imageOption));
     if (!graph.clips.length) throw new Error('规划没有产出任何视频 Clip');
+    const planned = graph.clips.reduce((sum, clip) => sum + (Number(clip.durationSeconds) || 0), 0);
+    const target = input.kind === 'film' ? input.targetSeconds : undefined;
+    if (target && Math.abs(planned - target) > Math.max(5, target * 0.2)) {
+      // 在生成任何画面前拦截：时长超标的规划重做一次，比多出几十秒视频的积分便宜得多。
+      if (!meta.durationReplanned) {
+        meta.durationReplanned = true;
+        meta.planTaskId = undefined;
+        meta.planAttempts = (meta.planAttempts ?? 0) + 1;
+        meta.warnings.push(`规划时长 ${planned} 秒与要求的 ${target} 秒相差过大，已重新规划`);
+        return;
+      }
+      meta.warnings.push(`重新规划后时长仍为 ${planned} 秒（要求 ${target} 秒）`);
+    }
     meta.graph = graph;
     meta.warnings.push(...graph.warnings);
     graph.images.forEach(image => { meta.images[image.key] = { status: 'pending', attempts: 0 }; });
