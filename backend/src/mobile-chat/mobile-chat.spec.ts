@@ -346,3 +346,144 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   turn4.release();
   console.log('mobile-chat spec ok');
 })().catch(error => { console.error(error); process.exit(1); });
+
+// ---------------------------------------------------------------- failed image retries persist only the selected replacement
+(async () => {
+  const messages: any[] = [
+    { id: 'set', userId: 'u1', conversationId: 'c1', role: 'assistant', kind: 'image_set', createdAt: new Date(),
+      attachments: { title: '详情页', aspectRatio: '3:4', sections: [{ title: '主图', taskId: 'ok' }, { title: '售后', taskId: 'failed' }] } },
+    { id: 'single', userId: 'u1', conversationId: 'c1', role: 'assistant', kind: 'image', jobId: 'failed-single', createdAt: new Date(),
+      content: 'truncated', attachments: { aspectRatio: '1:1' } },
+    { id: 'empty', userId: 'u1', conversationId: 'c1', role: 'assistant', kind: 'image_set', createdAt: new Date(),
+      attachments: { aspectRatio: '3:4', referenceImageUrls: ['https://oss.example/product.png'],
+        productReferenceUrls: ['https://oss.example/anchor.png'],
+        sections: [{ title: '参数', taskId: null, prompt: '完整参数描述', error: '余额不足' }] } },
+  ];
+  const tasks: any[] = [
+    { id: 'ok', userId: 'u1', status: 'succeeded', prompt: '主图' },
+    { id: 'failed', userId: 'u1', status: 'failed', prompt: '完整售后描述', requestData: { imageUrls: ['https://oss.example/product.png'] } },
+    { id: 'failed-single', userId: 'u1', status: 'failed', prompt: '完整原始描述'.repeat(100), requestData: { imageUrls: ['https://oss.example/source.png'] } },
+  ];
+  const tx: any = {
+    mobileConversation: { findFirst: async ({ where }: any) => where.userId === 'u1' ? { id: 'c1' } : null },
+    $queryRaw: async () => [],
+    mobileMessage: {
+      findFirst: async ({ where }: any) => messages.find(m => m.id === where.id && m.userId === where.userId) ?? null,
+      update: async ({ where, data }: any) => Object.assign(messages.find(m => m.id === where.id), data),
+    },
+    imageTask: { findFirst: async ({ where }: any) => tasks.find(t => t.userId === where.userId && (where.id ? t.id === where.id : t.nodeId === where.nodeId)) ?? null },
+  };
+  let chain = Promise.resolve();
+  const prisma: any = {
+    ...tx,
+    $transaction: (run: any) => {
+      const result = chain.then(() => run(tx));
+      chain = result.then(() => undefined, () => undefined);
+      return result;
+    },
+  };
+  const calls: any[] = [];
+  let rejectSubmit = false;
+  const productions: any = { submitUserImage: async (userId: string, input: any) => {
+    if (rejectSubmit) throw new Error('积分余额不足');
+    calls.push({ userId, ...input });
+    const id = `retry-${calls.length}`;
+    tasks.push({ id, userId, status: 'queued', prompt: input.prompt, requestData: { imageUrls: input.referenceImageUrls },
+      nodeId: `mimg-${input.idempotencyKey}`, createdAt: new Date() });
+    return { taskId: id };
+  } };
+  const service = new MobileChatService(prisma, {} as any, productions);
+  await assert.rejects(service.retryImage('u2', 'set', { taskId: 'failed', sectionIndex: 1 }), /不存在/);
+  await assert.rejects(service.retryImage('u1', 'set', { taskId: 'failed', sectionIndex: -1 }), /序号/);
+  await assert.rejects(service.retryImage('u1', 'set', { taskId: 'failed', sectionIndex: '1' }), /序号/);
+  await assert.rejects(service.retryImage('u1', 'set', {}), /原图片任务/);
+  await assert.rejects(service.retryImage('u1', 'set', { taskId: 'ok', sectionIndex: 0 }), /无需/);
+  assert.equal(calls.length, 0);
+  rejectSubmit = true;
+  await assert.rejects(service.retryImage('u1', 'set', { taskId: 'failed', sectionIndex: 1 }), /余额不足/);
+  assert.equal(messages[0].attachments.sections[1].taskId, 'failed');
+  rejectSubmit = false;
+  const results = await Promise.all([
+    service.retryImage('u1', 'set', { taskId: 'failed', sectionIndex: 1 }),
+    service.retryImage('u1', 'set', { taskId: 'failed', sectionIndex: 1 }),
+  ]);
+  assert.equal(calls.length, 1, 'duplicate clicks submit once');
+  assert.deepEqual(results.map(r => r.imageSet.sections[1].taskId), ['retry-1', 'retry-1']);
+  assert.equal(messages[0].attachments.sections[0].taskId, 'ok', 'successful sibling preserved');
+  assert.equal(calls[0].prompt, '完整售后描述', 'historical task prompt recovered');
+  assert.deepEqual(calls[0].referenceImageUrls, ['https://oss.example/product.png']);
+  assert.ok(results[0].imageSet.sections[1].startedAt);
+  await assert.rejects(service.retryImage('u1', 'set', { taskId: 'retry-1', sectionIndex: 1 }), /无需/);
+  const single = await service.retryImage('u1', 'single', { taskId: 'failed-single' });
+  assert.equal(single.jobId, 'retry-2');
+  assert.equal(calls[1].prompt, tasks[2].prompt, 'full prompt survives the truncated message content');
+  assert.deepEqual(calls[1].referenceImageUrls, ['https://oss.example/source.png']);
+  assert.ok(single.generationStartedAt);
+  const empty = await service.retryImage('u1', 'empty', { taskId: null, sectionIndex: 0 });
+  assert.equal(empty.imageSet.sections[0].taskId, 'retry-3');
+  assert.equal(empty.imageSet.sections[0].error, undefined);
+  assert.equal(calls[2].prompt, '完整参数描述');
+  assert.deepEqual(calls[2].referenceImageUrls, ['https://oss.example/anchor.png'], 'detail retry preserves product anchor');
+  messages[1].jobId = 'failed-single';
+  await service.retryImage('u1', 'single', { taskId: 'failed-single' });
+  assert.equal(calls.length, 3, 'recover submitted task after interrupted message persistence');
+  tasks.find(t => t.id === 'retry-1').status = 'failed';
+  const again = await service.retryImage('u1', 'set', { taskId: 'retry-1', sectionIndex: 1 });
+  assert.equal(again.imageSet.sections[1].taskId, 'retry-4');
+  assert.notEqual(calls[3].idempotencyKey, calls[0].idempotencyKey);
+  // 自然语言补图走同一重试路径，更新原卡片且不调用整套生成。
+  prisma.mobileMessage.findMany = async () => [messages[0]];
+  prisma.imageTask.findMany = async () => tasks;
+  const events: any[] = [];
+  const retryText = (text: string) => (service as any).retryFromText({ text, userId: 'u1', conversationId: 'c1' }, (event: string, data: any) => events.push({ event, data }));
+  tasks.find(t => t.id === 'retry-4').status = 'failed';
+  const beforeNatural = calls.length;
+  assert.match(await retryText('生成未能生成成功的这张图'), /已提交 1 张/);
+  assert.equal(calls.length, beforeNatural + 1);
+  assert.equal(messages[0].attachments.sections[0].taskId, 'ok');
+  assert.equal(events.find(e => e.event === 'message').data.message.id, 'set');
+  assert.match(await retryText('补上没生成成功的图'), /已完成或正在生成/);
+  assert.equal(calls.length, beforeNatural + 1, 'running replacement is never duplicated');
+  const current = messages[0].attachments.sections[1].taskId;
+  tasks.find(t => t.id === current).status = 'failed';
+  assert.match(await retryText('重做第二屏'), /已提交 1 张/);
+  assert.match(await retryText('重做第一屏'), /已完成或正在生成/);
+  assert.match(await retryText('重做第八屏'), /没有找到/);
+  tasks.find(t => t.id === messages[0].attachments.sections[1].taskId).status = 'failed';
+  assert.match(await retryText('重新生成售后这张图'), /已提交 1 张/);
+  assert.equal(await retryText('重新生成一张猫的图片'), null, 'new image requests still use planner');
+  assert.equal(await retryText('重新生成视频'), null);
+  // 多个失败项仅替换失败项，成功图继续保留。
+  messages[0].attachments.sections.push({ title: '参数', taskId: null, prompt: '参数描述', error: '未提交' });
+  tasks.find(t => t.id === messages[0].attachments.sections[1].taskId).status = 'failed';
+  const beforeAll = calls.length;
+  assert.match(await retryText('补齐没生成成功的图'), /已提交 2 张/);
+  assert.equal(calls.length, beforeAll + 2);
+  assert.equal(messages[0].attachments.sections[0].taskId, 'ok');
+  prisma.mobileConversation.update = async () => ({});
+  const turn = { text: '补上没生成成功的图', userId: 'u1', conversationId: 'c1', assistantMessage: messages[1], release: () => {} };
+  // xiaot mock has no run method, so this also verifies the planner is bypassed.
+  await service.runTurn(turn as any, (event, data) => events.push({ event, data }));
+  assert.equal(events.at(-2).data.message.status, 'done');
+  assert.match(events.at(-2).data.message.content, /已完成或正在生成/);
+  messages[1].jobId = null;
+  messages[1].attachments = { prompt: '未提交的单图', aspectRatio: '1:1', error: '提交失败' };
+  const unsubmitted = await service.retryImage('u1', 'single', { taskId: null });
+  assert.ok(unsubmitted.jobId);
+  assert.equal(unsubmitted.submitError, undefined);
+  assert.equal(calls.at(-1).prompt, '未提交的单图');
+  prisma.mobileMessage.create = async ({ data }: any) => {
+    const message = { id: `unsubmitted-${messages.length}`, createdAt: new Date(), jobId: null, ...data };
+    messages.push(message);
+    return message;
+  };
+  rejectSubmit = true;
+  const submitTurn = { attachments: [{ type: 'image', url: 'https://oss.example/product.png' }] };
+  await (service as any).executeImageTool('u1', 'c1', { prompt: '商品详情主图' }, new Set(), submitTurn, 'initial-single', () => {});
+  assert.equal(messages.at(-1).kind, 'image');
+  assert.equal(messages.at(-1).attachments.prompt, '商品详情主图');
+  await (service as any).executeDetailTool('u1', 'c1', { title: '详情页', sections: [{ title: '首屏', prompt: '主图' }, { title: '售后', prompt: '保障' }] }, new Set(), submitTurn, 'initial-set', () => {});
+  assert.equal(messages.at(-1).kind, 'image_set');
+  assert.ok(messages.at(-1).attachments.sections.every((s: any) => !s.taskId && s.prompt && s.error), 'all rejected sections retain retry parameters');
+  console.log('mobile image retry tests passed');
+})().catch(error => { console.error(error); process.exit(1); });

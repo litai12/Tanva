@@ -18,12 +18,14 @@ export type MobileMessage = {
   createdAt: string;
   /** kind=image 时的目标画幅。 */
   aspectRatio?: string;
+  generationStartedAt?: string;
+  submitError?: string;
   /** kind=image_set：详情页各屏与拼好的长图。 */
   imageSet?: ImageSetMeta;
 };
 export type ImageSetMeta = {
   title: string; aspectRatio: string;
-  sections: Array<{ title: string; taskId: string | null; error?: string }>;
+  sections: Array<{ title: string; taskId: string | null; error?: string; startedAt?: string }>;
   longImageUrl?: string | null;
 };
 export type ImageTask = { status: "queued" | "processing" | "succeeded" | "failed"; imageUrl: string | null; error: string | null };
@@ -85,6 +87,10 @@ export const mobileChatApi = {
   cancel: (id: string) => call<VideoJob>(`/video-productions/${id}/cancel`, { method: "POST", body: "{}" }),
   balance: () => call<{ balance: number }>("/credits/balance"),
   stitch: (messageId: string) => call<MobileMessage>(`/mobile-chat/messages/${messageId}/stitch`, { method: "POST", body: "{}", timeoutMs: 180_000 }),
+  retryImage: (messageId: string, taskId: string | null, sectionIndex?: number) =>
+    call<MobileMessage>(`/mobile-chat/messages/${messageId}/retry-image`, {
+      method: "POST", body: JSON.stringify({ taskId, sectionIndex }), timeoutMs: 90_000,
+    }),
   imageTask: (id: string) => call<ImageTask>(`/ai/image-task/${encodeURIComponent(id)}`),
 
   /** 发送一条消息，按 SSE 事件回调；网络断开时服务端仍会跑完本轮。 */

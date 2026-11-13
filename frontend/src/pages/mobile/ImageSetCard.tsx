@@ -4,11 +4,13 @@ import { AlertCircle, Download, Layers, Loader2, Rows3 } from 'lucide-react';
 import { mobileChatApi, type ImageSetMeta, type ImageTask, type MobileMessage } from '@/services/mobileChatApi';
 import { isImageDone, ratioStyle, useElapsedSeconds, useImageTask } from './useImageTask';
 import ImageViewer from './ImageViewer';
+import ImageRetryButton from './ImageRetryButton';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
-function Section({ index, title, taskId, submitError, aspectRatio, createdAt, onState, onOpen }: {
+function Section({ index, title, taskId, submitError, aspectRatio, createdAt, onState, onOpen, onRetry }: {
   index: number; title: string; taskId: string | null; submitError?: string; aspectRatio: string; createdAt: string;
+  onRetry: () => Promise<void>;
   onState: (index: number, task: ImageTask | null) => void; onOpen: (url: string, title: string) => void;
 }) {
   const { task } = useImageTask(taskId, createdAt);
@@ -27,7 +29,8 @@ function Section({ index, title, taskId, submitError, aspectRatio, createdAt, on
         <div className="flex flex-col items-center justify-center gap-1.5 bg-[#2A1714] px-6 text-center" style={ratioStyle(aspectRatio)}>
           <AlertCircle className="h-5 w-5 text-[#FF7A6B]" />
           <div className="text-xs text-[#FFB3A8]">{task?.error || submitError || '生成失败'}</div>
-          <div className="text-[11px] text-white/40">已扣积分会自动退回；可在对话里让我重做「{title}」</div>
+          <div className="text-[11px] text-white/40">已扣积分会自动退回</div>
+          <ImageRetryButton onRetry={onRetry} />
         </div>
       ) : (
         <div className="tanva-shimmer flex flex-col items-center justify-center gap-1" style={ratioStyle(aspectRatio)}>
@@ -77,7 +80,13 @@ export default function ImageSetCard({ message }: { message: MobileMessage }) {
       <div className="max-h-[70vh] overflow-y-auto overscroll-contain">
         {meta.sections.map((s, i) => (
           <Section key={`${i}-${s.taskId}`} index={i} title={s.title} taskId={s.taskId} submitError={s.error} aspectRatio={meta.aspectRatio}
-            createdAt={message.createdAt} onState={onState} onOpen={onOpen} />
+            createdAt={s.startedAt || message.createdAt} onState={onState} onOpen={onOpen} onRetry={async () => {
+              const next = await mobileChatApi.retryImage(message.id, s.taskId, i);
+              const section = next.imageSet?.sections[i];
+              if (!section?.taskId) throw new Error('重新生成未返回图片任务，请重试');
+              setStates(prev => prev.map((state, j) => j === i ? null : state));
+              setMeta(prev => ({ ...prev, longImageUrl: null, sections: prev.sections.map((item, j) => j === i ? section : item) }));
+            }} />
         ))}
       </div>
       <div className="space-y-2 p-3">

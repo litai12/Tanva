@@ -6,8 +6,7 @@ const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.messag
 export const isImageDone = (t: ImageTask | null) => t?.status === 'succeeded' || t?.status === 'failed';
 
 export function useImageTask(taskId: string | null, createdAt: string) {
-  const [task, setTask] = useState<ImageTask | null>(null);
-  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ taskId: string; task: ImageTask | null; error: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -15,8 +14,8 @@ export function useImageTask(taskId: string | null, createdAt: string) {
     let alive = true;
     const tick = async () => {
       let next: ImageTask | null = null;
-      try { next = await mobileChatApi.imageTask(taskId); if (alive) { setTask(next); setError(''); } }
-      catch (e) { if (alive) setError(errMsg(e, '读取生图任务失败')); }
+      try { next = await mobileChatApi.imageTask(taskId); if (alive) setResult({ taskId, task: next, error: '' }); }
+      catch (e) { if (alive) setResult(prev => ({ taskId, task: prev?.taskId === taskId ? prev.task : null, error: errMsg(e, '读取生图任务失败') })); }
       if (!alive || isImageDone(next)) return;
       const base = Date.now() - new Date(createdAt).getTime() < 2 * 60_000 ? 3000 : 8000;
       timer.current = setTimeout(tick, document.hidden ? base * 3 : base);
@@ -27,7 +26,7 @@ export function useImageTask(taskId: string | null, createdAt: string) {
     return () => { alive = false; clearTimeout(timer.current); document.removeEventListener('visibilitychange', onVisible); };
   }, [taskId, createdAt]);
 
-  return { task, error };
+  return { task: result?.taskId === taskId ? result.task : null, error: result?.taskId === taskId ? result.error : '' };
 }
 
 /** 运行中每秒刷新的“已用秒数”。 */

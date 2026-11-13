@@ -22,7 +22,8 @@ export interface PreparedTurn {
 
 export type ImageSetMeta = {
   title: string; aspectRatio: string;
-  sections: Array<{ title: string; taskId: string | null; error?: string }>;
+  sections: Array<{ title: string; taskId: string | null; error?: string; prompt?: string; startedAt?: string }>;
+  referenceImageUrls?: string[];
   longImageUrl?: string | null;
   /** 各屏实际参考的商品图（用户商品图或宿主定妆图）；同会话下一套详情页据此沿用同一件商品。 */
   productReferenceUrls?: string[];
@@ -54,7 +55,7 @@ const friendlyError = (error: unknown) => {
 export const messageView = (m: MobileMessage) => ({
   id: m.id, role: m.role, kind: m.kind, content: m.content,
   attachments: Array.isArray(m.attachments) ? (m.attachments as unknown as MobileAttachment[]) : [],
-  ...(m.kind === 'image' ? { aspectRatio: (m.attachments as any)?.aspectRatio ?? '1:1' } : {}),
+  ...(m.kind === 'image' ? { aspectRatio: (m.attachments as any)?.aspectRatio ?? '1:1', generationStartedAt: (m.attachments as any)?.generationStartedAt, submitError: (m.attachments as any)?.error } : {}),
   ...(m.kind === 'image_set' ? { imageSet: m.attachments as unknown as ImageSetMeta } : {}),
   jobId: m.jobId, status: m.status, createdAt: m.createdAt.toISOString(),
 });
@@ -168,6 +169,12 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
     const pump = new TextPump((event, data) => sink(event, data as Record<string, unknown>),
       text => this.prisma.mobileMessage.updateMany({ where: { id: assistantMessage.id, status: 'streaming' }, data: { content: text } }));
     try {
+      const retryReply = await this.retryFromText(turn, sink);
+      if (retryReply !== null) {
+        const saved = await this.prisma.mobileMessage.update({ where: { id: assistantMessage.id }, data: { content: retryReply, status: 'done' } });
+        sink('final', { message: messageView(saved) });
+        return;
+      }
       const history = await this.prisma.mobileMessage.findMany({ where: { conversationId }, orderBy: { createdAt: 'asc' },
         select: { role: true, kind: true, content: true, attachments: true, jobId: true } });
       const userUrls = collectUserUrls(history.filter(m => m.role === 'user'));
@@ -220,6 +227,56 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 明确的补图请求直接定位原消息，避免规划器再次创建整套详情页。 */
+  private async retryFromText(turn: PreparedTurn, sink: TurnSink): Promise<string | null> {
+    const text = turn.text.replace(/\s/g, '');
+    const failedIntent = /未(?:能)?生成|没(?:有)?生成|生成失败|失败的|未成功|不成功|缺失|缺图|漏图/.test(text);
+    const retryIntent = /重试|重新生成|再生成|重做|补(?:上|齐|全|图|生成)|生成/.test(text);
+    const ordinalMatches = [...text.matchAll(/第([一二三四五六七八九十两\d]+)(?:张|屏|幅)/g)];
+    const targetedRetry = /重试|重新生成|重做|补上|补齐|补图/.test(text);
+    if (!(failedIntent && retryIntent) && !targetedRetry) return null;
+    // 视频重试继续由原成片工具处理。
+    if (/视频|成片|复刻|镜头/.test(text) && !/图片|这张|分屏/.test(text)) return null;
+    const messages = await this.prisma.mobileMessage.findMany({
+      where: { conversationId: turn.conversationId, userId: turn.userId, kind: { in: ['image', 'image_set'] } },
+      orderBy: { createdAt: 'desc' }, take: 100,
+    });
+    if (!messages.length) return null;
+    const numberOf = (value: string) => {
+      if (/^\d+$/.test(value)) return Number(value);
+      const digits = '零一二三四五六七八九';
+      if (value === '两') return 2;
+      if (value === '十') return 10;
+      return digits.indexOf(value);
+    };
+    const indices = ordinalMatches.map(match => numberOf(match[1]) - 1);
+    const named = messages.find(m => m.kind === 'image_set' &&
+      (m.attachments as unknown as ImageSetMeta).sections.some(s => s.title && text.includes(s.title)));
+    if (!failedIntent && !indices.length && !named && !/这张|那张|上一张|这些图|刚才.*图/.test(text)) return null;
+    const message = named || (indices.length ? messages.find(m => m.kind === 'image_set') : messages[0]);
+    if (!message) return '没有找到对应的图片，请说明要补哪一张图。';
+    const sections = message.kind === 'image_set' ? (message.attachments as unknown as ImageSetMeta).sections : null;
+    const candidates = sections ? sections.map((s, sectionIndex) => ({ ...s, sectionIndex })) : [{ taskId: message.jobId, title: '图片', sectionIndex: undefined }];
+    const selected = candidates.filter(s => indices.length ? indices.includes(s.sectionIndex ?? -1) : named ? text.includes(s.title) : true);
+    if (!selected.length) return '没有找到对应的分屏，请确认分屏序号或标题。';
+    const tasks = await this.prisma.imageTask.findMany({ where: { userId: turn.userId, id: { in: selected.map(s => s.taskId).filter((id): id is string => !!id) } }, select: { id: true, status: true } });
+    const failed = selected.filter(s => !s.taskId || tasks.some(t => t.id === s.taskId && t.status === 'failed'));
+    if (!failed.length) return '对应图片已完成或正在生成，可以查看原卡片中的进度。';
+    let submitted = 0;
+    const errors: string[] = [];
+    sink('status', { text: '正在补充生成图片…' });
+    for (const section of failed) {
+      try {
+        const updated = await this.retryImage(turn.userId, message.id, { taskId: section.taskId, sectionIndex: section.sectionIndex });
+        sink('message', { message: updated });
+        submitted += 1;
+      } catch (error) {
+        errors.push(`「${section.title}」提交失败：${errText(error)}`);
+      }
+    }
+    return [submitted ? `已提交 ${submitted} 张图片重新生成，进度会在原卡片更新。` : '', ...errors].filter(Boolean).join('\n');
+  }
+
   /** 生图：每张一个图片任务、一张卡片；计费在 image-tasks 内闭环（预扣、失败退款）。 */
   private async executeImageTool(userId: string, conversationId: string, args: Record<string, unknown>, userUrls: Set<string>,
     turn: PreparedTurn, idempotencyBase: string, sink: TurnSink): Promise<void> {
@@ -236,10 +293,10 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         const { taskId } = await this.productions.submitUserImage(userId, { prompt: request.prompt, referenceImageUrls: request.referenceImageUrls,
           aspectRatio: request.aspectRatio, idempotencyKey: `${idempotencyBase}-${i + 1}` });
         message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image',
-          content: request.prompt.slice(0, 500), jobId: taskId, attachments: { aspectRatio: request.aspectRatio } as any } });
+          content: request.prompt.slice(0, 500), jobId: taskId, attachments: { aspectRatio: request.aspectRatio, prompt: request.prompt, referenceImageUrls: request.referenceImageUrls } as any } });
       } catch (error) {
-        message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'error',
-          content: `生成图片未提交：${errText(error)}` } });
+        message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image',
+          content: request.prompt.slice(0, 500), attachments: { aspectRatio: request.aspectRatio, prompt: request.prompt, referenceImageUrls: request.referenceImageUrls, error: errText(error) } as any } });
       }
       sink('message', { message: messageView(message) });
     }
@@ -265,10 +322,9 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
         try {
           const { taskId } = await this.productions.submitUserImage(userId, { prompt: detailSectionPrompt(req, i),
             referenceImageUrls: req.referenceImageUrls, aspectRatio: req.aspectRatio, idempotencyKey: `${idempotencyBase}-s${i + 1}` });
-          return { title: section.title, taskId };
-        } catch (error) { return { title: section.title, taskId: null, error: errText(error) }; }
+          return { title: section.title, taskId, prompt: detailSectionPrompt(req, i) };
+        } catch (error) { return { title: section.title, taskId: null, error: errText(error), prompt: detailSectionPrompt(req, i) }; }
       }));
-      if (sections.every(s => !s.taskId)) throw new Error(sections[0]?.error || '详情页任务未受理');
       const meta: ImageSetMeta = { title: req.title, aspectRatio: req.aspectRatio, sections, longImageUrl: null,
         productReferenceUrls: req.referenceImageUrls, ...(req.product ? { product: req.product } : {}), anchor };
       message = await this.prisma.mobileMessage.create({ data: { conversationId, userId, role: 'assistant', kind: 'image_set',
@@ -298,6 +354,58 @@ export class MobileChatService implements OnModuleInit, OnModuleDestroy {
       sink('status', { text: `正在生成商品定妆图（${seconds}s），出完后每屏都以它为准…` });
       await new Promise(resolve => setTimeout(resolve, this.anchorPollMs));
     }
+  }
+
+  /** 重试一张失败图片，保存新任务引用，刷新页面后继续跟踪同一任务。 */
+  async retryImage(userId: string, messageId: string, body: { taskId?: unknown; sectionIndex?: unknown }) {
+    if (body?.taskId !== null && (typeof body?.taskId !== 'string' || !body.taskId.trim())) {
+      throw new BadRequestException('请提供原图片任务');
+    }
+    const expectedTaskId = body.taskId as string | null;
+    return this.prisma.$transaction(async tx => {
+      // 同一消息的分屏更新串行，避免重复点击或多端重试覆盖其他屏的新任务。
+      await tx.$queryRaw`SELECT "id" FROM "MobileMessage" WHERE "id" = ${messageId} AND "userId" = ${userId} FOR UPDATE`;
+      const message = await tx.mobileMessage.findFirst({ where: { id: messageId, userId } });
+      if (!message || !['image', 'image_set'].includes(message.kind)) throw new NotFoundException('图片消息不存在');
+      const conversation = await tx.mobileConversation.findFirst({ where: { id: message.conversationId, userId, deletedAt: null } });
+      if (!conversation) throw new NotFoundException('会话不存在');
+      const meta = (message.attachments || {}) as unknown as ImageSetMeta & {
+        prompt?: string; referenceImageUrls?: string[]; generationStartedAt?: string;
+      };
+      const index = body.sectionIndex;
+      const isSet = message.kind === 'image_set';
+      if (isSet ? !Array.isArray(meta.sections) || !Number.isInteger(index) || Number(index) < 0 || Number(index) >= meta.sections.length : index !== undefined) {
+        throw new BadRequestException('图片分屏序号无效');
+      }
+      const section = isSet ? meta.sections[Number(index)] : null;
+      const taskId = isSet ? section!.taskId : message.jobId;
+      // 重复请求已经被前一次处理，直接返回持久化的新任务。
+      if (taskId !== expectedTaskId) return messageView(message);
+      const previous = taskId ? await tx.imageTask.findFirst({ where: { id: taskId, userId } }) : null;
+      if (taskId && !previous) throw new NotFoundException('原图片任务不存在');
+      if (previous && previous.status !== 'failed') throw new ConflictException('这张图片当前无需重新生成');
+      const request = previous?.requestData as Record<string, any> | null;
+      const prompt = previous?.prompt || section?.prompt || meta.prompt;
+      if (!prompt) throw new ConflictException('这条旧记录缺少生成参数，请在对话中重新描述这张图片');
+      const refs = meta.productReferenceUrls ?? meta.referenceImageUrls ?? request?.imageUrls ?? [];
+      const referenceImageUrls = parseAttachments(refs.map((url: string) => ({ type: 'image', url }))).map(a => a.url);
+      const idempotencyKey = `retry-${messageId}-${isSet ? index : 'image'}-${taskId || 'unsubmitted'}`;
+      // 提交成功但消息更新中断时，可从原幂等键对应的任务恢复。
+      const existing = await tx.imageTask.findFirst({ where: { userId, nodeId: `mimg-${idempotencyKey}` }, orderBy: { createdAt: 'asc' } });
+      const submitted = existing || await this.productions.submitUserImage(userId, {
+        prompt, referenceImageUrls, aspectRatio: meta.aspectRatio || request?.aspectRatio || '1:1', idempotencyKey,
+      });
+      const nextTaskId = 'taskId' in submitted ? submitted.taskId : submitted.id;
+      const startedAt = existing?.createdAt.toISOString() || new Date().toISOString();
+      const attachments = isSet ? {
+        ...meta, longImageUrl: null,
+        sections: meta.sections.map((s, i) => i === index ? { ...s, taskId: nextTaskId, error: undefined, startedAt } : s),
+      } : { ...meta, error: undefined, generationStartedAt: startedAt };
+      const saved = await tx.mobileMessage.update({ where: { id: messageId }, data: {
+        attachments: attachments as any, ...(isSet ? {} : { jobId: nextTaskId }),
+      } });
+      return messageView(saved);
+    }, { timeout: 60_000 });
   }
 
   /** 把详情页各屏按顺序拼成一张长图并转存；已拼过直接返回。 */

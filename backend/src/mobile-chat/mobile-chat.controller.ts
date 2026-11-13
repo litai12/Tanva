@@ -25,6 +25,11 @@ export class MobileChatController {
 
   @Delete('conversations/:id') remove(@Req() req: any, @Param('id') id: string) { return this.chat.remove(id, this.userId(req)); }
 
+  @Post('messages/:id/retry-image')
+  retryImage(@Req() req: any, @Param('id') id: string, @Body() body: { taskId?: unknown; sectionIndex?: unknown }) {
+    return this.chat.retryImage(this.userId(req), id, body);
+  }
+
   /** 详情页各屏拼成一张长图（已拼过直接返回）。 */
   @Post('messages/:id/stitch')
   stitch(@Req() req: any, @Param('id') id: string) { return this.chat.stitch(this.userId(req), id); }

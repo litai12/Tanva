@@ -1,17 +1,21 @@
 // 单张生图卡：生成中按目标画幅占位 + 扫光 + 走秒，完成后可全屏查看、下载。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, Download } from 'lucide-react';
 import { isImageDone, ratioStyle, useElapsedSeconds, useImageTask } from './useImageTask';
 import ImageViewer from './ImageViewer';
+import ImageRetryButton from './ImageRetryButton';
+import { mobileChatApi } from '@/services/mobileChatApi';
 
 const TIPS = ['正在理解画面描述', '正在构图', '正在绘制细节', '快好了'];
 
-export default function ImageCard({ taskId, prompt, aspectRatio, createdAt }: {
-  taskId: string; prompt: string; aspectRatio: string; createdAt: string;
+export default function ImageCard({ messageId, taskId, prompt, aspectRatio, createdAt, submitError }: {
+  messageId: string; taskId: string | null; submitError?: string; prompt: string; aspectRatio: string; createdAt: string;
 }) {
-  const { task, error } = useImageTask(taskId, createdAt);
-  const done = isImageDone(task);
-  const seconds = useElapsedSeconds(createdAt, !done);
+  const [active, setActive] = useState({ taskId, createdAt });
+  useEffect(() => { setActive({ taskId, createdAt }); }, [taskId, createdAt]);
+  const { task, error } = useImageTask(active.taskId, active.createdAt);
+  const done = !active.taskId || isImageDone(task);
+  const seconds = useElapsedSeconds(active.createdAt, !done);
   const [open, setOpen] = useState(false);
   const url = task?.status === 'succeeded' ? task.imageUrl : null;
   const tip = TIPS[Math.min(Math.floor(seconds / 10), TIPS.length - 1)];
@@ -22,11 +26,16 @@ export default function ImageCard({ taskId, prompt, aspectRatio, createdAt }: {
         <button type="button" className="block w-full" onClick={() => setOpen(true)}>
           <img src={url} alt={prompt} className="tanva-fade-in w-full object-cover" style={ratioStyle(aspectRatio)} />
         </button>
-      ) : task?.status === 'failed' ? (
+      ) : !active.taskId || task?.status === 'failed' ? (
         <div className="flex flex-col items-center justify-center gap-2 bg-[#2A1714] px-4 text-center" style={ratioStyle(aspectRatio)}>
           <AlertCircle className="h-6 w-6 text-[#FF7A6B]" />
-          <div className="text-xs leading-5 text-[#FFB3A8]">{task.error || '生成失败'}</div>
+          <div className="text-xs leading-5 text-[#FFB3A8]">{task?.error || submitError || '生成失败'}</div>
           <div className="text-[11px] text-white/40">已扣积分会自动退回</div>
+          <ImageRetryButton key={active.taskId} onRetry={async () => {
+            const next = await mobileChatApi.retryImage(messageId, active.taskId);
+            if (!next.jobId) throw new Error('重新生成未返回图片任务，请重试');
+            setActive({ taskId: next.jobId, createdAt: next.generationStartedAt || next.createdAt });
+          }} />
         </div>
       ) : (
         <div className="tanva-shimmer flex flex-col items-center justify-center gap-2" style={ratioStyle(aspectRatio)}>

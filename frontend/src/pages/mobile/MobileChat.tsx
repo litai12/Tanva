@@ -217,7 +217,9 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
         if (event === 'status') setMessages((m) => m.map((x) => x.id === placeholderId ? { ...x, statusText: data.text } : x));
         else if (event === 'delta' && typeof data.text === 'string') setMessages((m) => m.map((x) => x.id === placeholderId ? { ...x, content: x.content + data.text } : x));
         else if (event === 'text' && typeof data.content === 'string') setMessages((m) => m.map((x) => x.id === placeholderId ? { ...x, content: data.content } : x));
-        else if (event === 'message' && data.message) setMessages((m) => [...m, data.message]);
+        else if (event === 'message' && data.message) setMessages((m) => m.some(x => x.id === data.message.id)
+          ? m.map(x => x.id === data.message.id ? { ...x, ...data.message } : x)
+          : [...m, data.message]);
         else if (event === 'final' && data.message) setMessages((m) => m.map((x) => x.id === placeholderId ? { ...data.message, clientKey: placeholderId } : x));
       });
     } catch (e) {
@@ -353,7 +355,7 @@ function MessageRow({ message: m }: { message: ViewMessage }) {
   }
   if (m.kind === 'job' && m.jobId) return <JobCard jobId={m.jobId} title={m.content || '成片任务'} />;
   if (m.kind === 'image_set' && m.imageSet) return <ImageSetCard message={m} />;
-  if (m.kind === 'image' && m.jobId) return <ImageCard taskId={m.jobId} prompt={m.content} aspectRatio={m.aspectRatio || '1:1'} createdAt={m.createdAt} />;
+  if (m.kind === 'image') return <ImageCard messageId={m.id} taskId={m.jobId} submitError={m.submitError} prompt={m.content} aspectRatio={m.aspectRatio || '1:1'} createdAt={m.generationStartedAt || m.createdAt} />;
   if (m.kind === 'error') {
     return <div className="rounded-2xl border border-[#FF7A6B]/25 bg-[#FF7A6B]/[0.08] px-4 py-3 text-sm leading-6 text-[#FFB3A8]">{m.content}</div>;
   }
