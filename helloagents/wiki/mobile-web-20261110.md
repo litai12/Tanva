@@ -188,3 +188,5 @@
 - 逃生口：`?desktop=1` 写 `localStorage['tanva:prefer-desktop']=1` 后不再跳转；`?desktop=0` 清除。
 - 验证：`node --test src/utils/mobileRedirect.test.ts`（4 项）；TypeScript、生产构建通过；`vite preview` + bsk 模拟 iPhone 14：`/`、`/app`、`/workspace` → `/m`，`/my-credits`、`/legal/terms` 不变，`/?desktop=1` 留在首页、`/?desktop=0` → `/m`。
 
+- 部署（2026-11-15 22:20 前后，UTC+8）：`32a624c9` 推送 main，101 checkout 已在该版本。纯前端改动：在 101 用线上 `.env.production` 隔离构建到 `/opt/tanva-releases/mobile-redirect-20261115-32a624c9/dist`（`GITHUB_SHA` 写入 commitSha），旧 dist 全量备份 `/opt/tanva-backups/mobile-redirect-20261115-32a624c9/frontend-dist/`，rsync 增量发布并保留旧 hash 资源，最后原子替换 `sw.js`、`version.json`、`index.html`；manifest 校验通过，公网 `version.json` commitSha `32a624c99427`，`/`、`/m`、`/app` 均 200。bsk 线上实测：桌面 UA `/` 不跳；模拟 iPhone 14 `/`、`/app` → `/m`，`/my-credits` 不变。真机（iPhone 微信 / Safari、安卓）尚未验收。
+- 回退：把备份 `frontend-dist/` 中的 `index.html`、`version.json`、`sw.js` 拷回 `frontend/dist/`。

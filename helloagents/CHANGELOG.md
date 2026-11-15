@@ -1,6 +1,6 @@
 ## 2026-11-15 手机访问自动跳转 /m
 
-- 2026-11-15：手机（iPhone / Android 手机 / 鸿蒙手机，含微信内置浏览器；不含 iPad、安卓平板）打开 `tanvas.cn/`、`/app`、`/workspace` 时前端路由守卫 `MobileRedirectGuard` 重定向到 `/m`（replace，不留历史）。`/m` 与桌面端同源、同一个 SPA，登录态（authStore / token / cookie）天然共享，无需额外同步；手机上登录后跳 `/app` 也会再落到 `/m`。`/my-credits`、`/membership`（/m 复用）、登录注册、法律条款、管理与调试页不跳转。`?desktop=1` 写入 `localStorage` `tanva:prefer-desktop` 强制桌面版，`?desktop=0` 恢复。判定在 `frontend/src/utils/mobileRedirect.ts`（单测 `mobileRedirect.test.ts`）。见 `wiki/mobile-web-20261110.md`。
+- 2026-11-15：手机（iPhone / Android 手机 / 鸿蒙手机，含微信内置浏览器；不含 iPad、安卓平板）打开 `tanvas.cn/`、`/app`、`/workspace` 时前端路由守卫 `MobileRedirectGuard` 重定向到 `/m`（replace，不留历史）。`/m` 与桌面端同源、同一个 SPA，登录态（authStore / token / cookie）天然共享，无需额外同步；手机上登录后跳 `/app` 也会再落到 `/m`。`/my-credits`、`/membership`（/m 复用）、登录注册、法律条款、管理与调试页不跳转。`?desktop=1` 写入 `localStorage` `tanva:prefer-desktop` 强制桌面版，`?desktop=0` 恢复。判定在 `frontend/src/utils/mobileRedirect.ts`（单测 `mobileRedirect.test.ts`）。`32a624c9` 已部署 101（纯前端，隔离构建 + 增量发布，公网 commitSha `32a624c99427`，线上 bsk 模拟 iPhone 验证跳转）；真机未验收。见 `wiki/mobile-web-20261110.md`。
 
 ## 2026-11-13 一键成片补上导演设计
 
