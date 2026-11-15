@@ -54,7 +54,8 @@
     "test:toapi-image-models": "tsx --test src/services/gptImage25.test.ts src/services/toapiImageModels.test.ts src/services/agentCanvasProtocolContext.test.ts",
     "test:image-compare": "node --test src/components/flow/nodes/imageCompareSources.test.ts src/components/flow/flowPreviewGallery.test.ts",
     "verify:image-compare": "node scripts/verifyImageCompareBrowser.mjs",
-    "verify:toapi-image-controls": "node scripts/verifyToapiImageControls.mjs"
+    "verify:toapi-image-controls": "node scripts/verifyToapiImageControls.mjs",
+    "test:mobile-redirect": "node --test src/utils/mobileRedirect.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.1.0",

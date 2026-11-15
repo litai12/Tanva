@@ -179,3 +179,12 @@
 - 代价与风险：medium 档预载更多知识，规划 token、耗时与规划费上升。线上 10-25～10-27 的 medium 规划 6 次中 2 次超 30 分钟期限（均早于 TapCanvas 10-28 档位改为宿主预载），成功的 4–10 分钟。若再出现超时，把 `VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER=low` 写入 `.env` 后 `pm2 reload tanvas-api --update-env` 即可回退，不需改代码。
 
 - 部署（2026-11-13 21:50 前后，UTC+8）：`a2bd0ddc` 推送 main，101 fast-forward。后端两个 dist 与生产 SHA-256 核对一致后单文件替换 `dist/mobile-chat/mobile-chat.protocol.js`（`f164d8e9…`）、`dist/video-production/video-production.service.js`（`e6f4f7ee…`），旧文件备份 `/opt/tanva-backups/film-director-20261113-a2bd0ddc/backend-dist/`；三个队列空闲时 `pm2 reload tanvas-api`，内外网 health 200；线上模块实测成片工具 required 为 `story`、`direction`，导演设计正确拼入 requirements。无前端改动。真实成片效果尚未验收。
+
+## 2026-11-15 手机访问自动跳转 `/m`
+
+- 规则：`MobileRedirectGuard`（`frontend/src/routes/`）挂在 `RootRoutes` 的 `<Routes>` 之前，手机 UA 访问 `/`、`/app`、`/workspace` 时 `<Navigate to="/m" replace />`。只判手机（`iPhone|iPod|Android.+Mobile|HarmonyOS.+Mobile|…`），平板仍走画布。Electron 桌面端分支提前返回，不受影响。
+- 登录态：同源同 SPA，`/m` 与桌面端共用 `useAuthStore` 与 token 存储，不需要跨域同步；手机走桌面登录页登录后 `navigate('/app')` 会再被守卫送到 `/m`。
+- 不跳转：`/m/*`、`/my-credits`、`/membership`（/m 抽屉复用，带 `returnTo=/m…`）、`/auth/*`、`/legal/*`、`/admin`、调试页。
+- 逃生口：`?desktop=1` 写 `localStorage['tanva:prefer-desktop']=1` 后不再跳转；`?desktop=0` 清除。
+- 验证：`node --test src/utils/mobileRedirect.test.ts`（4 项）；TypeScript、生产构建通过；`vite preview` + bsk 模拟 iPhone 14：`/`、`/app`、`/workspace` → `/m`，`/my-credits`、`/legal/terms` 不变，`/?desktop=1` 留在首页、`/?desktop=0` → `/m`。
+

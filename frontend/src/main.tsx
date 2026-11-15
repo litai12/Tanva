@@ -30,6 +30,7 @@ import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 import RuntimeErrorBoundary from '@/components/RuntimeErrorBoundary';
 import DesktopApp from '@/desktop/DesktopApp';
 import { initializeAuthTokenStorage } from '@/services/authTokenStorage';
+import MobileRedirectGuard from '@/routes/MobileRedirectGuard';
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -52,6 +53,7 @@ function RootRoutes() {
 
   return (
     <>
+      <MobileRedirectGuard />
       <Routes>
         {import.meta.env.DEV && <Route path="/electro-preview" element={<Navigate to="/?desktopPreview=1" replace />} />}
         <Route path="/" element={<Home />} />

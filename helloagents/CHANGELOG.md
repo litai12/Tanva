@@ -1,3 +1,7 @@
+## 2026-11-15 手机访问自动跳转 /m
+
+- 2026-11-15：手机（iPhone / Android 手机 / 鸿蒙手机，含微信内置浏览器；不含 iPad、安卓平板）打开 `tanvas.cn/`、`/app`、`/workspace` 时前端路由守卫 `MobileRedirectGuard` 重定向到 `/m`（replace，不留历史）。`/m` 与桌面端同源、同一个 SPA，登录态（authStore / token / cookie）天然共享，无需额外同步；手机上登录后跳 `/app` 也会再落到 `/m`。`/my-credits`、`/membership`（/m 复用）、登录注册、法律条款、管理与调试页不跳转。`?desktop=1` 写入 `localStorage` `tanva:prefer-desktop` 强制桌面版，`?desktop=0` 恢复。判定在 `frontend/src/utils/mobileRedirect.ts`（单测 `mobileRedirect.test.ts`）。见 `wiki/mobile-web-20261110.md`。
+
 ## 2026-11-13 一键成片补上导演设计
 
 - 2026-11-13：移动端“1 分钟别墅电影大片”成片平、没有导演规划。线上 `vprod_mwezbew44c94fe9edec2`：对话模型写的故事是按清晨→黄昏→夜晚逐个空间参观的流水账，要求里只有“缓慢运镜”；规划请求不带 `knowledgeTier`（TapCanvas 缺省 low：作者拿不到任何知识卡与 Skill 方法）且 `reasoningEffort` 写死 `none`，作者没有能力也没有素材做导演取舍。TapCanvas Pro 的 pageIndex / Skill 库无需改动（知识已在，只是没加载）；TapCanvas 11-13 撤掉的是章节级“本章导演/影调”，项目级导演人格依赖项目，公开 asset-plans 无项目不可用。修复两层：① 移动端 `tanva_make_video` 新增必填 `direction`（导演设计：类型调性、分幕与秒数、开场钩子与高潮、镜头景别/速度对比、光影色彩变化、音乐节点、落版），作为“导演设计”置于创作要求最前；`story` 描述要求按“钩子→铺陈→转折/高潮→收束”推进，禁止空间罗列式流水账。② 一键成片规划改为 `knowledgeTier=medium`（按演出类型预载发现卡与对口 Skill 方法）+ `reasoningEffort=low`（TapCanvas 自家成片面板缺省），可用 `VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER` / `VIDEO_PRODUCTION_FILM_REASONING_EFFORT` 覆盖；复刻保持原档位。规划耗时与规划费会上升。见 `wiki/mobile-web-20261110.md`。
