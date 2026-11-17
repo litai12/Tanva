@@ -1,3 +1,7 @@
+## 2026-11-16 注册邀请码标注为选填
+
+- 2026-11-16：注册页、登录页微信绑定、登录弹窗的邀请码输入框占位文案由「邀请码（必填）/ Invite code (required)」改为「邀请码（选填）/ Invite code (optional)」，并删除已无引用的 `auth.register.inviteRequired` 文案。根因：`459711443` 已把前后端逻辑改为可选（后端 `RegisterDto.inviteCode` 非必填，填写时仍校验并绑定邀请关系），但漏改了占位文案。`b3d7b7fd` 已部署 101（纯前端，隔离构建到 `/opt/tanva-releases/invite-optional-20261116-b3d7b7fd/dist`，旧 dist 备份 `/opt/tanva-backups/invite-optional-20261116-b3d7b7fd/frontend-dist/`，rsync 增量发布后原子替换 `sw.js`、`version.json`、`index.html`；manifest 校验通过，公网 commitSha `b3d7b7fd0bc7`，线上主包含「邀请码（选填）」）。回退：把备份中的三个入口文件拷回 `frontend/dist/`。
+
 ## 2026-11-15 手机访问自动跳转 /m
 
 - 2026-11-15：手机（iPhone / Android 手机 / 鸿蒙手机，含微信内置浏览器；不含 iPad、安卓平板）打开 `tanvas.cn/`、`/app`、`/workspace` 时前端路由守卫 `MobileRedirectGuard` 重定向到 `/m`（replace，不留历史）。`/m` 与桌面端同源、同一个 SPA，登录态（authStore / token / cookie）天然共享，无需额外同步；手机上登录后跳 `/app` 也会再落到 `/m`。`/my-credits`、`/membership`（/m 复用）、登录注册、法律条款、管理与调试页不跳转。`?desktop=1` 写入 `localStorage` `tanva:prefer-desktop` 强制桌面版，`?desktop=0` 恢复。判定在 `frontend/src/utils/mobileRedirect.ts`（单测 `mobileRedirect.test.ts`）。`32a624c9` 已部署 101（纯前端，隔离构建 + 增量发布，公网 commitSha `32a624c99427`，线上 bsk 模拟 iPhone 验证跳转）；真机未验收。见 `wiki/mobile-web-20261110.md`。
