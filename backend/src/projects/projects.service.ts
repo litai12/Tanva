@@ -9,6 +9,8 @@ import { OssService } from '../oss/oss.service';
 import { sanitizeDesignJson, dropGhostFlowNodes } from '../utils/designJsonSanitizer';
 import { mergeProjectSnapshots } from './merge-project-snapshots';
 import { countPaperImages, isPaperImagePlunge, paperBackupKey } from './paper-plunge-guard';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { assertSameTenant } from '../tenancy/assert-same-tenant';
 
 @Injectable()
 export class ProjectsService {
@@ -34,6 +36,7 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private oss: OssService,
+    private readonly tenantContext: TenantContextService,
     @Optional() private readonly canvasSse?: CanvasSseManager,
     @Optional() private readonly bus?: CollabEventBus,
   ) {}
@@ -145,13 +148,15 @@ export class ProjectsService {
     if (teamId) {
       const team = await this.prisma.team.findUnique({
         where: { id: teamId },
-        select: { isPersonal: true },
+        select: { isPersonal: true, tenantId: true },
       });
       if (team && !team.isPersonal) {
         const membership = await this.prisma.teamMembership.findUnique({
           where: { teamId_userId: { teamId, userId } },
         });
         if (membership) {
+          // 跨实体外键拼接(projectId+teamId)：断言被引用的 team 属于当前租户。
+          assertSameTenant(this.tenantContext.getTenantId(), team, 'team');
           await this.prisma.teamProjectShare.create({
             data: { projectId: project.id, teamId, access: 'edit', sharedByUserId: userId },
           });
@@ -856,6 +861,7 @@ export class ProjectsService {
       if (previousNodeCount === undefined) {
         // 冷启动兜底:用 DB 副本估算旧节点数(可能略旧,仅用于骤降判定)
         try {
+          // ALLOW_RAW_NO_TENANT: project.id 是全局唯一 UUID，且来自当前租户已授权项目。
           const rows = await this.prisma.$queryRawUnsafe<Array<{ count: number | null }>>(
             `SELECT CASE WHEN jsonb_typeof("contentJson"->'flow'->'nodes') = 'array'
                     THEN jsonb_array_length("contentJson"->'flow'->'nodes') END AS count
@@ -997,6 +1003,7 @@ export class ProjectsService {
   private async ensureThumbnailColumn(): Promise<void> {
     if (await this.supportsThumbnailColumn()) return;
     try {
+      // ALLOW_RAW_NO_TENANT: DDL 加列，与租户数据无关
       await this.prisma.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN "thumbnailUrl" TEXT`);
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -1011,6 +1018,7 @@ export class ProjectsService {
     if (this.thumbnailColumnChecked && !forceRefresh) return this.thumbnailColumnAvailable;
 
     try {
+      // ALLOW_RAW_NO_TENANT: 读 information_schema 探测列是否存在，与租户数据无关
       const rows = await this.prisma.$queryRaw<{ column_name?: string }[]>`
         SELECT column_name FROM information_schema.columns
         WHERE table_name = 'Project' AND column_name = 'thumbnailUrl'
@@ -1020,6 +1028,7 @@ export class ProjectsService {
       this.thumbnailColumnAvailable = rows.length > 0;
     } catch {
       try {
+        // ALLOW_RAW_NO_TENANT: SQLite PRAGMA 表结构探测，与租户数据无关
         const rows = await this.prisma.$queryRaw<{ name?: string }[]>`PRAGMA table_info("Project")`;
         this.thumbnailColumnAvailable = rows.some((row) => row.name === 'thumbnailUrl');
       } catch {
@@ -1134,6 +1143,13 @@ export class ProjectsService {
       throw new ForbiddenException('需要团队 owner 或 admin 权限');
     }
 
+    // 跨实体外键拼接(projectId+teamId)：断言被引用的 team 属于当前租户。
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { tenantId: true },
+    });
+    assertSameTenant(this.tenantContext.getTenantId(), team, 'team');
+
     const share = await this.prisma.teamProjectShare.upsert({
       where: { projectId_teamId: { projectId, teamId } },
       create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
@@ -1191,6 +1207,13 @@ export class ProjectsService {
       where: { teamId_userId: { teamId, userId } },
     });
     if (!membership) throw new ForbiddenException('你不是该团队成员');
+
+    // 跨实体外键拼接(projectId+teamId)：断言被引用的 team 属于当前租户。
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { tenantId: true },
+    });
+    assertSameTenant(this.tenantContext.getTenantId(), team, 'team');
 
     const cloneName = `${src.name} (团队)`;
     const newProject = await this.create(userId, cloneName);

@@ -121,6 +121,7 @@ const enUS = {
       wechatBindIncomplete: "Please enter your phone number and verification code.",
       wechatBindFailed: "Phone verification failed. Please try again.",
       wechatLoadFailed: "Failed to load WeChat QR login",
+      wechatPollFailed: "Failed to check login status. Click the QR code to retry.",
     },
     register: {
       title: "Create Account",

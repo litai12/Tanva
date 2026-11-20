@@ -4,6 +4,7 @@ import { resolveLegacyTextModel, DEFAULT_TEXT_MODEL } from '../text-models';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { GatewayConsumptionOrdersService } from '../../consumption-orders/gateway-consumption-orders.service';
 import { ConfigService } from '@nestjs/config';
+import { NewApiKeyResolver, type NewApiKeyTier } from '../../tenancy/new-api-key-resolver.service';
 import { Agent } from 'undici';
 import { randomUUID } from 'node:crypto';
 import {
@@ -95,9 +96,12 @@ export class NewApiProvider implements IAIProvider {
   private vipApiKey = '';
   private svipApiKey = '';
 
-  constructor(private readonly config: ConfigService,
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly keyResolver?: NewApiKeyResolver,
     @Optional() private readonly consumptionOrders?: GatewayConsumptionOrdersService,
-    @Optional() private readonly imageReferences?: ImageReferencePreparationService) {}
+    @Optional() private readonly imageReferences?: ImageReferencePreparationService,
+  ) {}
 
   async initialize(): Promise<void> {
     this.baseUrl = this.normalizeBaseUrl(
@@ -620,9 +624,10 @@ export class NewApiProvider implements IAIProvider {
     'gemini-3.1-flash-image-preview',
   ]);
 
-  private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
+  /** 选定档位（仍用平台 env key 是否存在来判定该档位是否开放） */
+  private resolveTier(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): NewApiKeyTier {
     if (isToapisImageModel(resolvedModel)) {
-      return this.apiKey;
+      return 'normal';
     }
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
@@ -637,18 +642,32 @@ export class NewApiProvider implements IAIProvider {
       resolvedModel &&
       NewApiProvider.ULTRA_CAPABLE_MODELS.has(resolvedModel)
     ) {
-      return this.svipApiKey;
+      return 'svip';
     }
-    if (imageRoute === 'stable' && this.vipApiKey) return this.vipApiKey;
+    if (imageRoute === 'stable' && this.vipApiKey) return 'vip';
 
     // 通过模型路由系统选中 new_api 渠道时也走 VIP key
     const vendorKey = (providerOptions as any)?.vendorKey;
     const platformKey = (providerOptions as any)?.platformKey;
     if ((vendorKey === 'new_api' || platformKey === 'new_api') && this.vipApiKey) {
-      return this.vipApiKey;
+      return 'vip';
     }
 
-    return this.apiKey;
+    return 'normal';
+  }
+
+  /**
+   * 解析实际使用的 key：先定档位，再按当前租户取该档 key；
+   * 子租户未配置 → 回落平台 env key（不破坏主站/未配置租户）。
+   */
+  private async resolveApiKey(
+    providerOptions?: ProviderOptionsPayload,
+    resolvedModel?: string,
+  ): Promise<string> {
+    const tier = this.resolveTier(providerOptions, resolvedModel);
+    const envFallback =
+      tier === 'svip' ? this.svipApiKey : tier === 'vip' ? this.vipApiKey : this.apiKey;
+    return this.keyResolver ? this.keyResolver.resolve(tier, envFallback) : envFallback;
   }
 
   private static readonly MODEL_ALIAS_MAP: Record<string, string> = {
@@ -722,7 +741,7 @@ export class NewApiProvider implements IAIProvider {
     errorCode: string,
     providerOptions?: ProviderOptionsPayload,
   ): Promise<AIProviderResponse<ImageResult>> {
-    const apiKey = this.resolveApiKey(providerOptions, payload.model as string | undefined);
+    const apiKey = await this.resolveApiKey(providerOptions, payload.model as string | undefined);
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(new Error(`image request timed out after ${IMAGE_REQUEST_TIMEOUT_MS / 60_000}min`)),
@@ -787,7 +806,7 @@ export class NewApiProvider implements IAIProvider {
             this.stripUndefined(this.stripUnsupportedTextPayloadFields({ ...payload, stream: false })),
           ),
         },
-        this.resolveApiKey(providerOptions),
+        await this.resolveApiKey(providerOptions),
         TERMINAL_TEXT_RESPONSE_POLICY,
         consumptionOrderId,
       );
@@ -826,7 +845,7 @@ export class NewApiProvider implements IAIProvider {
     );
 
     try {
-      const apiKey = this.resolveApiKey(providerOptions);
+      const apiKey = await this.resolveApiKey(providerOptions);
       if (!apiKey) throw new Error('NEW_API_KEY 未配置');
       const model =
         typeof payload.model === 'string'
@@ -923,7 +942,7 @@ export class NewApiProvider implements IAIProvider {
             this.stripUndefined(this.stripUnsupportedTextPayloadFields(this.toResponsesPayload(payload))),
           ),
         },
-        this.resolveApiKey(providerOptions),
+        await this.resolveApiKey(providerOptions),
         TERMINAL_TEXT_RESPONSE_POLICY,
         consumptionOrderId,
       );

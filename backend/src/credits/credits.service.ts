@@ -2888,6 +2888,7 @@ export class CreditsService {
     const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
+      // ALLOW_RAW_NO_TENANT: 按全局唯一主键 id 取行级锁(FOR UPDATE)，id 跨租户不撞
       await tx.$queryRaw<Array<{ id: string }>>(
         Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${params.account.id} FOR UPDATE`,
       );
@@ -3044,6 +3045,7 @@ export class CreditsService {
 
     for (const item of accountsWithExpiredQuota) {
       const result = await this.prisma.$transaction(async (tx) => {
+        // ALLOW_RAW_NO_TENANT: 按全局唯一主键 id 取行级锁(FOR UPDATE)，id 跨租户不撞
         await tx.$queryRaw<Array<{ id: string }>>(
           Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${item.accountId} FOR UPDATE`,
         );
@@ -6832,6 +6834,239 @@ export class CreditsService {
         success: true,
         newBalance,
         transactionId: transaction.id,
+      };
+    });
+  }
+
+  /**
+   * 分站代理商管理员从自己的积分池向本租户名下客户划拨积分（原子双边记账，防超发/印钞）。
+   */
+  async tenantAdminAllocateCredits(
+    adminId: string,
+    targetUserId: string,
+    amount: number,
+    description: string,
+  ): Promise<AddCreditsResult & { adminBalanceAfter: number }> {
+    const normalizedAmount = Math.floor(Number(amount));
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || normalizedAmount !== Number(amount)) {
+      throw new BadRequestException('分配积分数量必须为正整数');
+    }
+    if (adminId === targetUserId) {
+      throw new BadRequestException('不能向自己划拨积分');
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      // 按 userId 字典序加锁，避免并发互转死锁
+      const [firstId, secondId] = adminId < targetUserId ? [adminId, targetUserId] : [targetUserId, adminId];
+      const firstAcc = await findCreditAccountForUpdate(tx, { userId: firstId });
+      const secondAcc = await findCreditAccountForUpdate(tx, { userId: secondId });
+
+      let adminAccount = adminId === firstId ? firstAcc : secondAcc;
+      let targetAccount = targetUserId === firstId ? firstAcc : secondAcc;
+
+      if (!adminAccount) {
+        throw new NotFoundException('代理商积分池账户不存在');
+      }
+      if (!targetAccount) {
+        throw new NotFoundException('目标客户积分账户不存在');
+      }
+      if ((adminAccount as any).tenantId !== (targetAccount as any).tenantId) {
+        throw new BadRequestException('只能向本分站名下客户分配积分');
+      }
+
+      const now = new Date();
+      const adminExpiry = await this.expireDailyRewardLotsForLockedAccount(tx, adminAccount, now);
+      adminAccount = { ...adminAccount, balance: adminExpiry.balanceAfter };
+      const targetExpiry = await this.expireDailyRewardLotsForLockedAccount(tx, targetAccount, now);
+      targetAccount = { ...targetAccount, balance: targetExpiry.balanceAfter };
+
+      if (adminAccount.balance < normalizedAmount) {
+        throw new BadRequestException(
+          `代理商积分池余额不足（当前可用 ${adminAccount.balance}，需要 ${normalizedAmount}），请先联系主站充值`,
+        );
+      }
+
+      const adminBalanceAfter = adminAccount.balance - normalizedAmount;
+      const targetBalanceAfter = targetAccount.balance + normalizedAmount;
+      const reason = (description || '').trim() || '分站管理员分配积分';
+
+      await tx.creditAccount.update({
+        where: { id: adminAccount.id },
+        data: { balance: adminBalanceAfter },
+      });
+      await tx.creditAccount.update({
+        where: { id: targetAccount.id },
+        data: {
+          balance: targetBalanceAfter,
+          totalEarned: targetAccount.totalEarned + normalizedAmount,
+        },
+      });
+
+      const creditLot = await tx.creditLot.create({
+        data: buildAdminGiftCreditLotData({
+          accountId: targetAccount.id,
+          amount: normalizedAmount,
+          metadata: {
+            adminId,
+            description: reason,
+            grantedBy: 'tenant_admin_allocate',
+          },
+        }),
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          accountId: adminAccount.id,
+          type: TransactionType.ADMIN_ADJUST,
+          amount: -normalizedAmount,
+          balanceBefore: adminAccount.balance,
+          balanceAfter: adminBalanceAfter,
+          description: `分配给客户：${reason}`,
+          metadata: {
+            adminId,
+            targetUserId,
+            transferKind: 'tenant_admin_allocate_out',
+          },
+        },
+      });
+
+      const targetTx = await tx.creditTransaction.create({
+        data: {
+          accountId: targetAccount.id,
+          type: TransactionType.ADMIN_ADJUST,
+          amount: normalizedAmount,
+          balanceBefore: targetAccount.balance,
+          balanceAfter: targetBalanceAfter,
+          description: reason,
+          creditLotId: creditLot.id,
+          metadata: {
+            adminId,
+            fromAdminId: adminId,
+            transferKind: 'tenant_admin_allocate_in',
+          },
+        },
+      });
+
+      return {
+        success: true,
+        newBalance: targetBalanceAfter,
+        adminBalanceAfter,
+        transactionId: targetTx.id,
+      };
+    });
+  }
+
+  /**
+   * 分站代理商管理员从本租户名下客户回收积分回自己的积分池（原子双边记账）。
+   */
+  async tenantAdminReclaimCredits(
+    adminId: string,
+    targetUserId: string,
+    amount: number,
+    description: string,
+  ): Promise<AddCreditsResult & { adminBalanceAfter: number }> {
+    const normalizedAmount = Math.floor(Number(amount));
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || normalizedAmount !== Number(amount)) {
+      throw new BadRequestException('回收积分数量必须为正整数');
+    }
+    if (adminId === targetUserId) {
+      throw new BadRequestException('不能从自己账户回收积分');
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      const [firstId, secondId] = adminId < targetUserId ? [adminId, targetUserId] : [targetUserId, adminId];
+      const firstAcc = await findCreditAccountForUpdate(tx, { userId: firstId });
+      const secondAcc = await findCreditAccountForUpdate(tx, { userId: secondId });
+
+      let adminAccount = adminId === firstId ? firstAcc : secondAcc;
+      let targetAccount = targetUserId === firstId ? firstAcc : secondAcc;
+
+      if (!adminAccount) {
+        throw new NotFoundException('代理商积分池账户不存在');
+      }
+      if (!targetAccount) {
+        throw new NotFoundException('目标客户积分账户不存在');
+      }
+      if ((adminAccount as any).tenantId !== (targetAccount as any).tenantId) {
+        throw new BadRequestException('只能从本分站名下客户回收积分');
+      }
+
+      const now = new Date();
+      const adminExpiry = await this.expireDailyRewardLotsForLockedAccount(tx, adminAccount, now);
+      adminAccount = { ...adminAccount, balance: adminExpiry.balanceAfter };
+      const targetExpiry = await this.expireDailyRewardLotsForLockedAccount(tx, targetAccount, now);
+      targetAccount = { ...targetAccount, balance: targetExpiry.balanceAfter };
+
+      if (targetAccount.balance < normalizedAmount) {
+        throw new BadRequestException(`客户积分不足，当前余额: ${targetAccount.balance}`);
+      }
+
+      const targetBalanceAfter = targetAccount.balance - normalizedAmount;
+      const adminBalanceAfter = adminAccount.balance + normalizedAmount;
+      const reason = (description || '').trim() || '分站管理员回收积分';
+
+      await tx.creditAccount.update({
+        where: { id: targetAccount.id },
+        data: { balance: targetBalanceAfter },
+      });
+      await tx.creditAccount.update({
+        where: { id: adminAccount.id },
+        data: {
+          balance: adminBalanceAfter,
+          totalEarned: adminAccount.totalEarned + normalizedAmount,
+        },
+      });
+
+      const creditLot = await tx.creditLot.create({
+        data: buildAdminGiftCreditLotData({
+          accountId: adminAccount.id,
+          amount: normalizedAmount,
+          metadata: {
+            adminId,
+            targetUserId,
+            description: reason,
+            grantedBy: 'tenant_admin_reclaim',
+          },
+        }),
+      });
+
+      const targetTx = await tx.creditTransaction.create({
+        data: {
+          accountId: targetAccount.id,
+          type: TransactionType.ADMIN_ADJUST,
+          amount: -normalizedAmount,
+          balanceBefore: targetAccount.balance,
+          balanceAfter: targetBalanceAfter,
+          description: reason,
+          metadata: {
+            adminId,
+            transferKind: 'tenant_admin_reclaim_out',
+          },
+        },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          accountId: adminAccount.id,
+          type: TransactionType.ADMIN_ADJUST,
+          amount: normalizedAmount,
+          balanceBefore: adminAccount.balance,
+          balanceAfter: adminBalanceAfter,
+          description: `从客户回收：${reason}`,
+          creditLotId: creditLot.id,
+          metadata: {
+            adminId,
+            targetUserId,
+            transferKind: 'tenant_admin_reclaim_in',
+          },
+        },
+      });
+
+      return {
+        success: true,
+        newBalance: targetBalanceAfter,
+        adminBalanceAfter,
+        transactionId: targetTx.id,
       };
     });
   }

@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ApiResponseStatus } from '../../credits/dto/credits.dto';
+import { TenantContextService } from '../../tenancy/tenant-context.service';
 
 export interface ApiUsageStatsRow {
   serviceType: string;
@@ -39,7 +40,10 @@ export class ApiUsageRollupService {
   private readonly logger = new Logger(ApiUsageRollupService.name);
   private rollupRunning = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   private localDayStart(date: Date): Date {
     const d = new Date(date);
@@ -64,29 +68,34 @@ export class ApiUsageRollupService {
     end.setDate(end.getDate() + 1);
     const day = this.dayStr(start);
 
-    const [, inserted] = await this.prisma.$transaction([
-      this.prisma.$executeRaw`DELETE FROM "ApiUsageDailyStat" WHERE "day" = ${day}::date`,
-      this.prisma.$executeRaw`
-        INSERT INTO "ApiUsageDailyStat" (
-          "id", "day", "userId", "serviceType", "serviceName", "provider", "responseStatus",
-          "totalCalls", "totalCredits", "inputTokens", "outputTokens", "sumProcessTime", "procTimeCount", "updatedAt"
-        )
-        SELECT
-          gen_random_uuid()::text,
-          ${day}::date,
-          "userId", "serviceType", "serviceName", "provider", "responseStatus",
-          COUNT(*)::int,
-          COALESCE(SUM("creditsUsed"), 0)::int,
-          COALESCE(SUM("inputTokens"), 0)::bigint,
-          COALESCE(SUM("outputTokens"), 0)::bigint,
-          COALESCE(SUM("processingTime"), 0)::bigint,
-          COUNT("processingTime")::int,
-          NOW()
-        FROM "ApiUsageRecord"
-        WHERE "createdAt" >= ${start} AND "createdAt" < ${end}
-        GROUP BY "userId", "serviceType", "serviceName", "provider", "responseStatus"
-      `,
-    ]);
+    // ALLOW_RAW_NO_TENANT: 日聚合是平台级维护任务；userId 为全局 UUID，查询时再按租户过滤。
+    const [, inserted] = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.$transaction([
+        // ALLOW_RAW_NO_TENANT: 平台级日聚合按全局唯一 userId 重建指定日期数据。
+        this.prisma.$executeRaw`DELETE FROM "ApiUsageDailyStat" WHERE "day" = ${day}::date`,
+        // ALLOW_RAW_NO_TENANT: 平台级日聚合按全局唯一 userId 汇总，读取时执行租户过滤。
+        this.prisma.$executeRaw`
+          INSERT INTO "ApiUsageDailyStat" (
+            "id", "day", "userId", "serviceType", "serviceName", "provider", "responseStatus",
+            "totalCalls", "totalCredits", "inputTokens", "outputTokens", "sumProcessTime", "procTimeCount", "updatedAt"
+          )
+          SELECT
+            gen_random_uuid()::text,
+            ${day}::date,
+            "userId", "serviceType", "serviceName", "provider", "responseStatus",
+            COUNT(*)::int,
+            COALESCE(SUM("creditsUsed"), 0)::int,
+            COALESCE(SUM("inputTokens"), 0)::bigint,
+            COALESCE(SUM("outputTokens"), 0)::bigint,
+            COALESCE(SUM("processingTime"), 0)::bigint,
+            COUNT("processingTime")::int,
+            NOW()
+          FROM "ApiUsageRecord"
+          WHERE "createdAt" >= ${start} AND "createdAt" < ${end}
+          GROUP BY "userId", "serviceType", "serviceName", "provider", "responseStatus"
+        `,
+      ]),
+    );
 
     return Number(inserted) || 0;
   }
@@ -133,22 +142,37 @@ export class ApiUsageRollupService {
 
     const SUCCESS = ApiResponseStatus.SUCCESS;
     const FAILED = ApiResponseStatus.FAILED;
+    const platformMode = this.tenantContext.isPlatformMode();
+    const tenantId = this.tenantContext.getTenantId();
+    const historyTenantFilter = platformMode
+      ? Prisma.empty
+      : Prisma.sql`AND EXISTS (
+          SELECT 1 FROM "User" tenant_user
+          WHERE tenant_user."id" = daily."userId"
+            AND tenant_user."tenantId" = ${tenantId}
+        )`;
+    const liveTenantFilter = platformMode
+      ? Prisma.empty
+      : Prisma.sql`AND live."tenantId" = ${tenantId}`;
 
     // 历史(rollup, day < 昨天) ∪ 实时(明细, createdAt >= 昨天 00:00)
     const combined = Prisma.sql`
       WITH combined AS (
-        SELECT "userId", "serviceType", "serviceName", "provider", "responseStatus",
-               "totalCalls" AS calls, "totalCredits" AS credits
-        FROM "ApiUsageDailyStat"
-        WHERE "day" >= ${startDayStr}::date AND "day" <= ${endDayStr}::date AND "day" < ${yDayStr}::date
+        SELECT daily."userId", daily."serviceType", daily."serviceName", daily."provider", daily."responseStatus",
+               daily."totalCalls" AS calls, daily."totalCredits" AS credits
+        FROM "ApiUsageDailyStat" daily
+        WHERE daily."day" >= ${startDayStr}::date AND daily."day" <= ${endDayStr}::date AND daily."day" < ${yDayStr}::date
+          ${historyTenantFilter}
         UNION ALL
-        SELECT "userId", "serviceType", "serviceName", "provider", "responseStatus",
-               1 AS calls, "creditsUsed" AS credits
-        FROM "ApiUsageRecord"
-        WHERE "createdAt" >= ${liveLower} AND "createdAt" <= ${liveUpper}
+        SELECT live."userId", live."serviceType", live."serviceName", live."provider", live."responseStatus",
+               1 AS calls, live."creditsUsed" AS credits
+        FROM "ApiUsageRecord" live
+        WHERE live."createdAt" >= ${liveLower} AND live."createdAt" <= ${liveUpper}
+          ${liveTenantFilter}
       )
     `;
 
+    // ALLOW_RAW_NO_TENANT: combined 已在租户态注入历史与实时两段过滤，平台态有意跨租户。
     const serviceRows = await this.prisma.$queryRaw<
       Array<{
         serviceType: string;
@@ -178,6 +202,7 @@ export class ApiUsageRollupService {
 
     if (serviceRows.length === 0) return [];
 
+    // ALLOW_RAW_NO_TENANT: combined 已在租户态注入历史与实时两段过滤，平台态有意跨租户。
     const topRows = await this.prisma.$queryRaw<
       Array<{ serviceType: string; userId: string; callCount: bigint }>
     >(Prisma.sql`

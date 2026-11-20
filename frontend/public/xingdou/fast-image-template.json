@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "id": "tpl_1781273530777",
+  "name": "导出模板_2026/6/12 22:12:10",
+  "nodes": [
+    {
+      "id": "textPrompt_1781273326178",
+      "type": "textPrompt",
+      "position": {
+        "x": -83,
+        "y": 61.5
+      },
+      "data": {
+        "text": "主体形态不改变但我需要换成一个金毛小狗",
+        "boxW": 240,
+        "boxH": 180,
+        "title": "Prompt",
+        "nodeConfigKey": "textPrompt",
+        "nodeConfigNameZh": "提示词节点",
+        "nodeConfigNameEn": "Prompt",
+        "nodeConfigMetadata": {},
+        "mentions": []
+      },
+      "width": 240,
+      "height": 180
+    },
+    {
+      "id": "image_1781273328970",
+      "type": "image",
+      "position": {
+        "x": -98,
+        "y": -215.5
+      },
+      "data": {
+        "boxW": 260,
+        "boxH": 240,
+        "nodeConfigKey": "image",
+        "nodeConfigNameZh": "图片节点",
+        "nodeConfigNameEn": "Image",
+        "nodeConfigMetadata": {},
+        "uploading": false,
+        "imageUrl": "https://tanvas-ai.tos-cn-guangzhou.volces.com/projects/f78270a1-214a-4673-8bb7-d49a11596667/images/1781273389853_nn2wp3_20c674dcd4637d7883bcae4bdda4e7bccc6c335e.png"
+      },
+      "width": 260,
+      "height": 240
+    },
+    {
+      "id": "generate_1781273340250",
+      "type": "generate",
+      "position": {
+        "x": 228,
+        "y": -156.5
+      },
+      "data": {
+        "boxW": 260,
+        "boxH": 200,
+        "presetPrompt": "",
+        "modelProvider": "banana-2.5",
+        "creditsPerCall": 20,
+        "managedModelKey": "gemini-2.5-image",
+        "vendorKey": "new_api",
+        "platformKey": "new_api",
+        "nodeConfigKey": "generate",
+        "nodeConfigNameZh": "生成节点",
+        "nodeConfigNameEn": "Generate",
+        "nodeConfigMetadata": {
+          "nodeKind": "ai_image_generation",
+          "modelKeys": [
+            "gemini-2.5-image"
+          ],
+          "defaultData": {
+            "creditsPerCall": 20,
+            "managedModelKey": "gemini-2.5-image",
+            "vendorKey": "new_api",
+            "platformKey": "new_api"
+          },
+          "routeStrategy": "model_management_v2",
+          "managedModelKey": "gemini-2.5-image",
+          "managedRoutes": {
+            "modelKey": "gemini-2.5-image",
+            "defaultVendor": "new_api",
+            "vendors": [
+              {
+                "vendorKey": "banana-2.5",
+                "platformKey": "banana-2.5",
+                "label": "Fast / Nano Banana 2.5",
+                "provider": "banana-2.5",
+                "route": "legacy",
+                "modelName": "Nano Banana",
+                "modelVersion": "2.5",
+                "creditsPerCall": 10,
+                "pricing": {
+                  "rules": [
+                    {
+                      "when": {
+                        "mode": "generate",
+                        "quality": "hd",
+                        "imageSize": "768",
+                        "outputCount": 1,
+                        "referenceImageCount": 0
+                      },
+                      "label": "",
+                      "price": {
+                        "credits": 0
+                      },
+                      "ruleKey": "rule_1",
+                      "creditsPerCall": 0
+                    }
+                  ],
+                  "version": "v1"
+                }
+              },
+              {
+                "vendorKey": "new_api",
+                "platformKey": "new_api",
+                "label": "New API",
+                "provider": "new-api",
+                "route": "legacy",
+                "modelName": "gemini-2.5-flash-image-preview",
+                "creditsPerCall": 20,
+                "priceYuan": 0.2
+              }
+            ]
+          }
+        },
+        "imageSize": "1K"
+      },
+      "width": 260,
+      "height": 360
+    }
+  ],
+  "edges": [
+    {
+      "id": "reactflow__edge-image_1781273328970img-generate_1781273340250img",
+      "source": "image_1781273328970",
+      "target": "generate_1781273340250",
+      "sourceHandle": "img",
+      "targetHandle": "img",
+      "type": "default"
+    },
+    {
+      "id": "reactflow__edge-textPrompt_1781273326178text-generate_1781273340250text",
+      "source": "textPrompt_1781273326178",
+      "target": "generate_1781273340250",
+      "sourceHandle": "text",
+      "targetHandle": "text",
+      "type": "default"
+    }
+  ]
+}

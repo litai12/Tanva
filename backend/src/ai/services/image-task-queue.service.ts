@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger, OnModuleDestroy, OnModul
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import type { ImageTaskType } from './image-task.service';
+import { TenantContextService } from '../../tenancy/tenant-context.service';
 
 export const IMAGE_TASK_QUEUE = 'image-tasks';
 
@@ -14,6 +15,11 @@ export interface ImageTaskJobPayload {
   requestData: Record<string, any>;
   aiProvider?: string;
   nodeId?: string | null;
+  /**
+   * 入队时（请求期 CLS 在位）捕获的租户 id。worker 回调据此回到对应租户 CLS。
+   * 旧队列任务/默认租户可能缺省，worker 侧回退到 PLATFORM_TENANT_ID。
+   */
+  tenantId?: string;
 }
 
 // ── Queue depth two-watermark (backpressure, NOT admission rate-limiting) ─────
@@ -30,7 +36,10 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
   /** True while queue depth is above high watermark — latched until it drops to low watermark */
   private backpressureActive = false;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   onModuleInit() {
     const url = this.config.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379';
@@ -56,7 +65,13 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
    */
   async addJob(payload: ImageTaskJobPayload): Promise<void> {
     await this.checkBackpressure();
-    await this.queue.add('execute', payload, { jobId: payload.taskId });
+    // 入队时处于请求期 CLS：捕获当前租户写入 payload，调用方无需改动签名。
+    // 已显式带 tenantId 的 payload 优先保留（向后兼容/特殊调用）。
+    const jobPayload: ImageTaskJobPayload = {
+      ...payload,
+      tenantId: payload.tenantId ?? this.tenantContext.getTenantId(),
+    };
+    await this.queue.add('execute', jobPayload, { jobId: jobPayload.taskId });
   }
 
   /** Returns true if the job is still waiting/active (DB record not yet written). */

@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { VolcAssetService } from './volc-asset.service';
+import { TenantIterationService } from '../tenancy/tenant-iteration.service';
 
 @Injectable()
 export class VolcAssetSchedulerService {
@@ -9,7 +10,10 @@ export class VolcAssetSchedulerService {
   private cleanupRunning = false;
   private taskCleanupRunning = false;
 
-  constructor(private readonly volcAssetService: VolcAssetService) {}
+  constructor(
+    private readonly volcAssetService: VolcAssetService,
+    private readonly tenantIteration: TenantIterationService,
+  ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async handleExpiredGroupCleanup() {
@@ -19,16 +23,21 @@ export class VolcAssetSchedulerService {
     }
     this.cleanupRunning = true;
     try {
-      const result = await this.volcAssetService.cleanupExpiredGroup();
-      if (result.deleted) {
-        this.logger.log(`素材组清理完成: 已删除截至 ${result.date} 的过期素材组`);
-      } else {
-        this.logger.log(`素材组清理：${result.date} 无需清理`);
-      }
+      // 每个 active 租户在自己的 CLS 内清理；只有 default 时 = 原逻辑跑一次。
+      await this.tenantIteration.forEachTenant(() => this.cleanupOneTenant());
     } catch (err: any) {
       this.logger.error('素材组清理失败:', err);
     } finally {
       this.cleanupRunning = false;
+    }
+  }
+
+  private async cleanupOneTenant(): Promise<void> {
+    const result = await this.volcAssetService.cleanupExpiredGroup();
+    if (result.deleted) {
+      this.logger.log(`素材组清理完成: 已删除 ${result.date} 的素材组`);
+    } else {
+      this.logger.log(`素材组清理：${result.date} 无需清理`);
     }
   }
 
@@ -37,14 +46,20 @@ export class VolcAssetSchedulerService {
     if (this.taskCleanupRunning) return;
     this.taskCleanupRunning = true;
     try {
-      const result = await this.volcAssetService.cleanupExpiredTaskAssetGroups();
-      if (result.deleted || result.failed) {
-        this.logger.log(`一次性素材组兜底清理: deleted=${result.deleted}, failed=${result.failed}`);
-      }
+      await this.tenantIteration.forEachTenant(() => this.cleanupTaskGroupsOneTenant());
     } catch (err: any) {
       this.logger.error('一次性素材组兜底清理失败:', err);
     } finally {
       this.taskCleanupRunning = false;
+    }
+  }
+
+  private async cleanupTaskGroupsOneTenant(): Promise<void> {
+    const result = await this.volcAssetService.cleanupExpiredTaskAssetGroups();
+    if (result.deleted || result.failed) {
+      this.logger.log(
+        `一次性素材组兜底清理: deleted=${result.deleted}, failed=${result.failed}`,
+      );
     }
   }
 }

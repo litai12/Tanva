@@ -5,6 +5,8 @@ import type { IncomingMessage, Server as HttpServer } from 'http';
 import type { Duplex } from 'stream';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import {
   CollabEventBus,
   channelForProject,
@@ -46,6 +48,7 @@ interface WsConn {
   avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
+  tenantId: string;
   unsubs: Array<() => void>;
   isAlive: boolean;
 }
@@ -56,6 +59,7 @@ interface UpgradeCtx {
   avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
+  tenantId: string;
   /** 断线重连时客户端携带的最后已处理 seq，用于补帧。 */
   afterSeq: number;
 }
@@ -75,6 +79,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly bus: CollabEventBus,
+    private readonly tenantContext: TenantContextService,
     private readonly log: CollabEventLog,
   ) {
     this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
@@ -134,47 +139,53 @@ export class WsCollabGateway implements OnModuleDestroy {
     let userId = '';
     let tokenName = '';
     let role = '';
+    let tenantId = PLATFORM_TENANT_ID;
     try {
       const payload = await this.jwt.verifyAsync<any>(token);
       userId = String(payload?.sub ?? '');
       tokenName = String(payload?.name ?? payload?.username ?? '').trim();
       role = String(payload?.role ?? '');
+      tenantId = String(payload?.tenantId ?? PLATFORM_TENANT_ID);
     } catch {
       return this.reject(socket, 401, 'Unauthorized');
     }
     if (!userId) return this.reject(socket, 401, 'Unauthorized');
 
-    // presence 显示名以 DB 当前用户名为准（JWT 里的 name 可能是登录时的旧值，且
-    // 普通访问令牌并不携带 name → 旧逻辑会回落成 userId 前 8 位的占位 id）。
-    // 团队内所有人据此看到彼此真实用户名，改名后重连即生效。
-    const profile = await this.resolveUserProfile(userId, tokenName);
+    // WS 升级不经 HTTP 的 CLS 中间件：用 token 的租户建立上下文，
+    // 否则成员/项目校验会落主站租户，多租户下非主站用户全被 403。
+    await this.tenantContext.runAsTenant(tenantId, async () => {
+      // presence 显示名以 DB 当前用户名为准（JWT 里的 name 可能是登录时的旧值，且
+      // 普通访问令牌并不携带 name → 旧逻辑会回落成 userId 前 8 位的占位 id）。
+      // 团队内所有人据此看到彼此真实用户名，改名后重连即生效。
+      const profile = await this.resolveUserProfile(userId, tokenName);
 
-    // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
-    // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
-    const isSuperAdmin =
-      role.toLowerCase() === 'admin' ? await this.isUserSuperAdmin(userId) : false;
+      // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
+      // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
+      const isSuperAdmin =
+        role.toLowerCase() === 'admin' ? await this.isUserSuperAdmin(userId) : false;
 
-    if (teamId && !isSuperAdmin) {
-      const member = await this.prisma.teamMembership
-        .findUnique({ where: { teamId_userId: { teamId, userId } } })
-        .catch(() => null);
-      if (!member) return this.reject(socket, 403, 'Forbidden');
-    }
-    if (projectId) {
-      if (isSuperAdmin) {
-        // 超管绕过成员校验，但仍需确认项目存在，避免进入无效协作空间。
-        const exists = await this.prisma.project
-          .findUnique({ where: { id: projectId }, select: { id: true } })
+      if (teamId && !isSuperAdmin) {
+        const member = await this.prisma.teamMembership
+          .findUnique({ where: { teamId_userId: { teamId, userId } } })
           .catch(() => null);
-        if (!exists) return this.reject(socket, 404, 'Not Found');
-      } else {
-        const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
-        if (!ok) return this.reject(socket, 403, 'Forbidden');
+        if (!member) return this.reject(socket, 403, 'Forbidden');
       }
-    }
+      if (projectId) {
+        if (isSuperAdmin) {
+          // 超管绕过成员校验，但仍需确认项目存在，避免进入无效协作空间。
+          const exists = await this.prisma.project
+            .findUnique({ where: { id: projectId }, select: { id: true } })
+            .catch(() => null);
+          if (!exists) return this.reject(socket, 404, 'Not Found');
+        } else {
+          const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
+          if (!ok) return this.reject(socket, 403, 'Forbidden');
+        }
+      }
 
-    this.wss.handleUpgrade(req, socket, head, (ws) => {
-      void this.register(ws, { userId, userName: profile.name, avatarUrl: profile.avatarUrl, teamId, projectId, afterSeq });
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        void this.register(ws, { userId, userName: profile.name, avatarUrl: profile.avatarUrl, teamId, projectId, tenantId, afterSeq });
+      });
     });
   }
 
@@ -226,6 +237,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       avatarUrl: ctx.avatarUrl,
       teamId: ctx.teamId,
       projectId: ctx.projectId,
+      tenantId: ctx.tenantId,
       unsubs: [],
       isAlive: true,
     };
@@ -302,6 +314,9 @@ export class WsCollabGateway implements OnModuleDestroy {
   }
 
   private onClientMessage(conn: WsConn, raw: RawData): void {
+    // 注意：本回调在 runAsTenant 作用域外执行（升级回调异步触发）。当前仅做内存级
+    // 事件总线转发（按 projectId/UUID），不触达 Prisma，故无需租户上下文。
+    // 若未来在此加入任何 DB/租户敏感逻辑，必须 this.tenantContext.runAsTenant(conn.tenantId, ...) 包裹。
     let msg: any;
     try {
       msg = JSON.parse(raw.toString());

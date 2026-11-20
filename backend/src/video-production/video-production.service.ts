@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
@@ -15,6 +15,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 import { CreditsService } from '../credits/credits.service';
 import { TapcanvasPlansService } from '../tapcanvas-plans/tapcanvas-plans.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import { isVideoAssetUrl, KNOWLEDGE_TIERS, REASONING_EFFORTS, REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
 import { buildProductionGraph, clampSeedanceDuration, imageWaves, type AssetPlanNode, type GraphClip, type GraphImage, type ProductionGraph } from './plan-graph';
 import { applyImageModel, buildImageCall, buildVideoCall, findImageModel, findVideoModel, IMAGE_MODEL_OPTIONS, nearestVideoRatio, VIDEO_MODEL_OPTIONS, VIDEO_RATIOS, VIDEO_RESOLUTIONS } from './requests';
@@ -94,7 +96,8 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
   private composing = Promise.resolve();
 
   constructor(private readonly config: ConfigService, private readonly prisma: PrismaService, private readonly oss: OssService,
-    private readonly credits: CreditsService, private readonly plans: TapcanvasPlansService) {}
+    private readonly credits: CreditsService, private readonly plans: TapcanvasPlansService,
+    @Optional() private readonly tenantContext?: TenantContextService) {}
 
   registerExecutor(executor: VideoProductionExecutor) { this.executor = executor; }
 
@@ -134,8 +137,9 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     this.queue = new Queue(QUEUE, { connection, defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: 200 } });
     this.worker = new Worker(QUEUE, job => this.tick(job.data.id), { connection, concurrency: 4 });
     this.worker.on('error', error => this.logger.warn(`video production queue error: ${error.message}`));
-    // 重启后接着跑：所有未结束任务各补一次推进。
-    void this.prisma.videoTask.findMany({ where: { taskType: VIDEO_PRODUCTION_TASK_TYPE, status: { in: ['queued', 'processing'] } }, select: { id: true } })
+    // 重启后接着跑：跨所有租户找出未结束任务各补一次推进。
+    const loadActive = () => this.prisma.videoTask.findMany({ where: { taskType: VIDEO_PRODUCTION_TASK_TYPE, status: { in: ['queued', 'processing'] } }, select: { id: true } });
+    void (this.tenantContext ? this.tenantContext.runAsPlatform(loadActive) : loadActive())
       .then(rows => Promise.all(rows.map(r => this.schedule(r.id, 1_000))))
       .catch(error => this.logger.warn(`video production recovery failed: ${errMessage(error)}`));
   }
@@ -415,6 +419,17 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
 
   /** 一次推进：查询在途步骤 → 提交就绪步骤 → 判断终态。每步状态先落库，重启后从断点继续，不重复提交。 */
   private async tick(id: string) {
+    if (this.tenantContext) {
+      const target = await this.tenantContext.runAsPlatform(() =>
+        (this.prisma.videoTask as any).findUnique({ where: { id }, select: { tenantId: true } }),
+      );
+      if (!target) return;
+      return this.tenantContext.runAsTenant(target.tenantId ?? PLATFORM_TENANT_ID, () => this.tickInTenant(id));
+    }
+    return this.tickInTenant(id);
+  }
+
+  private async tickInTenant(id: string) {
     const release = await this.lock(id);
     if (!release) return;
     let again = false;

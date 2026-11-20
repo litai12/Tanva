@@ -1,0 +1,23 @@
+/* NewWay 落地页专属样式：滚动条 + 动画延迟（原 CDN Tailwind 项目的内联样式移植） */
+
+.newway-landing ::-webkit-scrollbar {
+  width: 8px;
+}
+.newway-landing ::-webkit-scrollbar-track {
+  background: #020617;
+}
+.newway-landing ::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+.newway-landing ::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Hero 背景光斑的错峰动画延迟 */
+.newway-landing .animation-delay-2000 {
+  animation-delay: 2s;
+}
+.newway-landing .animation-delay-4000 {
+  animation-delay: 4s;
+}

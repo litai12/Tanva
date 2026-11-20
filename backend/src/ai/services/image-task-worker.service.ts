@@ -1,12 +1,14 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Worker } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
-import { IMAGE_TASK_QUEUE } from './image-task-queue.service';
+import { IMAGE_TASK_QUEUE, ImageTaskJobPayload } from './image-task-queue.service';
 import { ImageTaskService } from './image-task.service';
 import {
   resolveImageTaskRuntimeConfig,
   shouldRecycleIdleImageTaskProcess,
 } from './image-task-runtime.config';
+import { TenantContextService } from '../../tenancy/tenant-context.service';
+import { PLATFORM_TENANT_ID } from '../../tenancy/tenant.constants';
 
 const RUNTIME_CONFIG = resolveImageTaskRuntimeConfig();
 
@@ -28,6 +30,7 @@ export class ImageTaskWorkerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly imageTaskService: ImageTaskService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   onModuleInit() {
@@ -36,9 +39,15 @@ export class ImageTaskWorkerService implements OnModuleInit, OnModuleDestroy {
     this.worker = new Worker(
       IMAGE_TASK_QUEUE,
       async (job) => {
+        // worker 回调脱离请求期 CLS：用入队时捕获的 tenantId 回到对应租户 CLS，
+        // 预扣积分/状态/落结果都写到正确租户。旧任务/缺省回退到默认租户（行为不变）。
         this.activeJobs += 1;
         try {
-          await this.imageTaskService.executeTaskFromJob(job.data);
+          const payload = job.data as ImageTaskJobPayload;
+          const tenantId = payload.tenantId ?? PLATFORM_TENANT_ID;
+          await this.tenantContext.runAsTenant(tenantId, () =>
+            this.imageTaskService.executeTaskFromJob(payload),
+          );
         } finally {
           this.activeJobs = Math.max(0, this.activeJobs - 1);
         }

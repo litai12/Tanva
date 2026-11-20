@@ -15,6 +15,7 @@ export type UserInfo = {
   avatarUrl?: string | null;
   role?: string;
   phone?: string;
+  tenantId?: string;
 };
 
 export type GoogleApiKeyInfo = {
@@ -371,9 +372,10 @@ export const authApi = {
     );
 
     // 桌面端只要还有系统加密保存的 refresh token，就先恢复本地用户并在后台续期。
-    // 这样弱网/离线启动也不会先卡在登录页；真实失效会由后续 401 + refresh 明确收口。
+    // 同时要求缓存带 tenantId（缺 tenantId 时强制走 /me 自愈老会话，确保多租户 UI 正确显示）。
     if (
       localUser &&
+      localUser.tenantId &&
       (desktopPersistentSession ||
         Boolean(tokenExpiry && tokenExpiry > Date.now() + 60000))
     ) {

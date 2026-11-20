@@ -13,4 +13,3 @@ const supportsRegExpLookbehind = (() => {
 export const compatibleRemarkPlugins = supportsRegExpLookbehind
   ? [remarkGfm]
   : [];
-

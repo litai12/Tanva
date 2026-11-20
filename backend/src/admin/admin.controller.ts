@@ -50,6 +50,11 @@ import {
   TemplateQueryDto,
 } from './dto/template.dto';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
+import { TenantAdminService } from './tenant-admin.service';
+import { CreateTenantDto, UpdateTenantDto, AddDomainDto, SetTenantApiKeysDto, SetTenantPaymentConfigDto } from './dto/tenant-admin.dto';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -116,8 +121,58 @@ export class AdminController {
     private readonly businessPolicyService: BusinessPolicyService,
     private readonly membershipService: MembershipService,
     private readonly volcAssetService: VolcAssetService,
+    private readonly tenantAdminService: TenantAdminService,
+    private readonly tenantContext: TenantContextService,
     private readonly systemMonitorService: SystemMonitorService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * 主站超管按目标用户实际所属租户切入 CLS（便于在主站后台直接给分站代理商充值/查流水）；
+   * 分站管理员维持当前租户 CLS（严禁跨租户操作）。
+   */
+  private async runForTargetUserTenant<T>(
+    req: AuthenticatedRequest,
+    userId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.isPlatformAdmin(req)) return fn();
+    const target = await this.tenantContext.runAsPlatform(() =>
+      (this.prisma.user as any).findUnique({ where: { id: userId }, select: { tenantId: true } }),
+    );
+    const tenantId = target?.tenantId ?? PLATFORM_TENANT_ID;
+    return this.tenantContext.runAsTenant(tenantId, fn);
+  }
+
+  /**
+   * 在指定租户作用域内执行（仅主站超管生效；普通租户管理员忽略 tenantId，由 CLS 限定本租户）。
+   *  - tenantId 为空/未传 → 平台态('all')：跨所有租户
+   *  - 具体 tenantId       → 仅该租户
+   * 用于让主站超管在订单/积分/API 等运营数据上跨租户或按租户查看。
+   */
+  private runTenantScoped<T>(
+    req: AuthenticatedRequest,
+    tenantId: string | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.isPlatformAdmin(req)) return fn();
+    const scope = tenantId && tenantId.trim() ? tenantId.trim() : 'all';
+    if (scope === 'all') return this.tenantContext.runAsPlatform(fn);
+    return this.tenantContext.runAsTenant(scope, fn);
+  }
+
+  /** 主站超管 = 全管角色 且 属于主站(default 租户) */
+  private isPlatformAdmin(req: AuthenticatedRequest): boolean {
+    const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
+    return role === FULL_ADMIN_ROLE && (req.user as any)?.tenantId === PLATFORM_TENANT_ID;
+  }
+
+  /** 要求主站超管，否则 403 */
+  private ensurePlatformAdmin(req: AuthenticatedRequest) {
+    if (!this.isPlatformAdmin(req)) {
+      throw new ForbiddenException('仅主站超管可访问租户管理');
+    }
+  }
 
   /**
    * 验证管理员权限
@@ -136,9 +191,12 @@ export class AdminController {
 
   @Get('dashboard')
   @ApiOperation({ summary: '获取管理后台统计数据' })
-  async getDashboardStats(@Request() req: AuthenticatedRequest) {
+  async getDashboardStats(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { tenantId?: string },
+  ) {
     this.checkAdmin(req, 'dashboard:view');
-    return this.adminService.getDashboardStats();
+    return this.runTenantScoped(req, query.tenantId, () => this.adminService.getDashboardStats());
   }
 
   @Get('system-monitor')
@@ -152,6 +210,10 @@ export class AdminController {
   @ApiOperation({ summary: '获取所有用户列表' })
   async getAllUsers(@Request() req: AuthenticatedRequest, @Query() query: UsersQueryDto) {
     this.checkAdmin(req, 'users:list');
+    // 仅主站超管能跨租户/按租户筛选；普通租户管理员忽略该参数，由 CLS 限定本租户
+    const tenantScope = this.isPlatformAdmin(req)
+      ? (query.tenantId && query.tenantId.trim() ? query.tenantId.trim() : 'all')
+      : undefined;
     return this.adminService.getAllUsers({
       page: query.page,
       pageSize: query.pageSize,
@@ -159,7 +221,95 @@ export class AdminController {
       inviterPhone: query.inviterPhone,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
+      tenantScope,
     });
+  }
+
+  // ===== 租户管理（仅主站超管）=====
+  @Get('tenants')
+  @ApiOperation({ summary: '租户列表（含域名/用户数）' })
+  async listTenants(@Request() req: AuthenticatedRequest) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.listTenants();
+  }
+
+  @Get('tenants/stats')
+  @ApiOperation({ summary: '各租户经营统计（实付订单/营收/积分消耗，仅主站超管）' })
+  async getTenantStats(@Request() req: AuthenticatedRequest) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.getTenantStats();
+  }
+
+  @Post('tenants')
+  @ApiOperation({ summary: '新建租户' })
+  async createTenant(@Request() req: AuthenticatedRequest, @Body() dto: CreateTenantDto) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.createTenant(dto);
+  }
+
+  @Patch('tenants/:id')
+  @ApiOperation({ summary: '更新租户（名称/状态）' })
+  async updateTenant(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateTenantDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.updateTenant(id, dto);
+  }
+
+  @Post('tenants/:id/domains')
+  @ApiOperation({ summary: '给租户添加域名' })
+  async addTenantDomain(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: AddDomainDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.addDomain(id, dto);
+  }
+
+  @Delete('tenants/:id/domains/:domainId')
+  @ApiOperation({ summary: '删除租户域名' })
+  async removeTenantDomain(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Param('domainId') domainId: string,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.removeDomain(id, domainId);
+  }
+
+  @Post('tenants/:id/api-keys')
+  @ApiOperation({ summary: '设置租户 new-api 三组 key' })
+  async setTenantApiKeys(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantApiKeysDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setApiKeys(id, dto);
+  }
+
+  @Get('tenants/:id/payment-config')
+  @ApiOperation({ summary: '查询租户支付商户配置（密文字段仅返回是否已配置）' })
+  async getTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.getPaymentConfig(id);
+  }
+
+  @Post('tenants/:id/payment-config')
+  @ApiOperation({ summary: '设置租户支付商户配置（私钥/证书加密入库）' })
+  async setTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantPaymentConfigDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setPaymentConfig(id, dto);
   }
 
   @Post('users')
@@ -188,7 +338,9 @@ export class AdminController {
     @Query() query: UserPaidOrdersQueryDto,
   ) {
     this.checkAdmin(req);
-    return this.adminService.getUserPaidOrders(userId, query.page);
+    return this.runForTargetUserTenant(req, userId, () =>
+      this.adminService.getUserPaidOrders(userId, query.page),
+    );
   }
 
   @Patch('users/:userId/status')
@@ -199,7 +351,9 @@ export class AdminController {
     @Body() dto: UpdateUserStatusDto,
   ) {
     this.checkAdmin(req, 'users:update-status');
-    return this.adminService.updateUserStatus(userId, dto.status);
+    return this.runForTargetUserTenant(req, userId, () =>
+      this.adminService.updateUserStatus(userId, dto.status),
+    );
   }
 
   @Patch('users/:userId/role')
@@ -210,7 +364,10 @@ export class AdminController {
     @Body() dto: UpdateUserRoleDto,
   ) {
     this.checkAdmin(req, 'users:update-role');
-    return this.adminService.updateUserRole(userId, dto.role);
+    // 主站超管可跨租户给子站用户设/取消管理员：在目标用户所属租户作用域内改 role
+    return this.runTenantScoped(req, dto.tenantId, () =>
+      this.adminService.updateUserRole(userId, dto.role),
+    );
   }
 
   @Delete('users/:userId')
@@ -234,34 +391,54 @@ export class AdminController {
   }
 
   @Post('users/:userId/credits/add')
-  @ApiOperation({ summary: '为用户添加积分' })
+  @ApiOperation({ summary: '为用户添加积分（主站超管直接增发；分站管理员从自身积分池划拨）' })
   async addCredits(
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
     this.checkAdmin(req, 'users:credits:add');
-    return this.creditsService.adminAddCredits(
-      userId,
-      dto.amount,
-      dto.description,
-      req.user.id,
+    if (!this.isPlatformAdmin(req)) {
+      return this.creditsService.tenantAdminAllocateCredits(
+        req.user.id,
+        userId,
+        dto.amount,
+        dto.description,
+      );
+    }
+    return this.runForTargetUserTenant(req, userId, () =>
+      this.creditsService.adminAddCredits(
+        userId,
+        dto.amount,
+        dto.description,
+        req.user.id,
+      ),
     );
   }
 
   @Post('users/:userId/credits/deduct')
-  @ApiOperation({ summary: '扣除用户积分' })
+  @ApiOperation({ summary: '扣除用户积分（主站超管直接扣减；分站管理员回收到自身积分池）' })
   async deductCredits(
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
     this.checkAdmin(req, 'users:credits:deduct');
-    return this.creditsService.adminDeductCredits(
-      userId,
-      dto.amount,
-      dto.description,
-      req.user.id,
+    if (!this.isPlatformAdmin(req)) {
+      return this.creditsService.tenantAdminReclaimCredits(
+        req.user.id,
+        userId,
+        dto.amount,
+        dto.description,
+      );
+    }
+    return this.runForTargetUserTenant(req, userId, () =>
+      this.creditsService.adminDeductCredits(
+        userId,
+        dto.amount,
+        dto.description,
+        req.user.id,
+      ),
     );
   }
 
@@ -273,24 +450,28 @@ export class AdminController {
     @Query() query: TransactionHistoryQueryDto,
   ) {
     this.checkAdmin(req, 'users:credits:transactions');
-    return this.creditsService.getTransactionHistory(userId, {
-      page: query.page,
-      pageSize: query.pageSize,
-      type: query.type,
-      startDate: query.startDate,
-      endDate: query.endDate,
-      model: query.model,
-    });
+    return this.runForTargetUserTenant(req, userId, () =>
+      this.creditsService.getTransactionHistory(userId, {
+        page: query.page,
+        pageSize: query.pageSize,
+        type: query.type,
+        startDate: query.startDate,
+        endDate: query.endDate,
+        model: query.model,
+      }),
+    );
   }
 
   @Get('api-usage/stats')
   @ApiOperation({ summary: '获取API使用统计' })
   async getApiUsageStats(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageStatsQueryDto) {
     this.checkAdmin(req, 'api-usage:stats');
-    return this.adminService.getApiUsageStats({
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getApiUsageStats({
+        startDate: query.startDate ? new Date(query.startDate) : undefined,
+        endDate: query.endDate ? new Date(query.endDate) : undefined,
+      }),
+    );
   }
 
   @Get('api-usage/model-stats')
@@ -312,18 +493,20 @@ export class AdminController {
   @ApiOperation({ summary: '获取所有API使用记录' })
   async getAllApiUsageRecords(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageRecordsQueryDto) {
     this.checkAdmin(req, 'api-usage:records');
-    return this.adminService.getAllApiUsageRecords({
-      page: query.page,
-      pageSize: query.pageSize,
-      userId: query.userId,
-      userSearch: query.userSearch,
-      serviceType: query.serviceType,
-      provider: query.provider,
-      model: query.model,
-      status: query.status,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getAllApiUsageRecords({
+        page: query.page,
+        pageSize: query.pageSize,
+        userId: query.userId,
+        userSearch: query.userSearch,
+        serviceType: query.serviceType,
+        provider: query.provider,
+        model: query.model,
+        status: query.status,
+        startDate: query.startDate ? new Date(query.startDate) : undefined,
+        endDate: query.endDate ? new Date(query.endDate) : undefined,
+      }),
+    );
   }
 
   @Get('api-usage/filter-options')
@@ -413,17 +596,39 @@ export class AdminController {
     return this.businessPolicyService.updateMembershipCreditPolicy(dto, req.user.id);
   }
 
+  /**
+   * 会员套餐已按租户隔离。默认操作当前站点（Host 对应租户）的套餐；
+   * 仅主站超管可传 tenantId 代管指定子站的套餐，子站管理员传了也忽略。
+   */
+  private async runPlanTenantScope<T>(
+    req: AuthenticatedRequest,
+    tenantId: string | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const target = tenantId?.trim();
+    // 'all' 是 header 租户筛选的「全部」语义，对套餐无意义 → 按本站处理
+    if (!this.isPlatformAdmin(req) || !target || target === 'all') return fn();
+    // MembershipPlan.tenantId 无外键，必须先验证租户存在，否则写入会产生孤儿套餐行
+    await this.tenantAdminService.assertTenantExists(target);
+    return this.tenantContext.runAsTenant(target, fn);
+  }
+
   @Get('membership-plans')
-  @ApiOperation({ summary: '获取会员套餐管理列表' })
-  async getAdminMembershipPlans(@Request() req: AuthenticatedRequest) {
+  @ApiOperation({ summary: '获取会员套餐管理列表（本站；主站超管可传 tenantId 查指定子站）' })
+  async getAdminMembershipPlans(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { tenantId?: string },
+  ) {
     this.checkAdmin(req, 'settings:manage');
     // 管理端与购买页必须读取同一份当前可售目录；历史下架套餐只用于
     // 已有订阅/订单审计，不能再作为另一套后台可编辑套餐展示出来。
-    return this.membershipService.listActivePlans();
+    return this.runPlanTenantScope(req, query.tenantId, () =>
+      this.membershipService.listActivePlans(),
+    );
   }
 
   @Post('membership-plans')
-  @ApiOperation({ summary: '创建会员套餐' })
+  @ApiOperation({ summary: '创建会员套餐（本站；主站超管可传 tenantId 建到指定子站）' })
   async createMembershipPlan(
     @Request() req: AuthenticatedRequest,
     @Body()
@@ -438,6 +643,7 @@ export class AdminController {
       isActive?: boolean;
       sortOrder?: number;
       metadata?: Record<string, any>;
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
@@ -448,7 +654,7 @@ export class AdminController {
   }
 
   @Patch('membership-plans/:id')
-  @ApiOperation({ summary: '更新会员套餐' })
+  @ApiOperation({ summary: '更新会员套餐（本站；主站超管可传 tenantId 改指定子站）' })
   async updateMembershipPlan(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -464,6 +670,7 @@ export class AdminController {
       isActive?: boolean;
       sortOrder?: number;
       metadata?: Record<string, any>;
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
@@ -768,14 +975,16 @@ export class AdminController {
   @ApiOperation({ summary: '获取水印白名单用户列表' })
   async getWatermarkWhitelist(
     @Request() req: AuthenticatedRequest,
-    @Query() query: { page?: string; pageSize?: string; search?: string },
+    @Query() query: { page?: string; pageSize?: string; search?: string; tenantId?: string },
   ) {
     this.checkAdmin(req, 'watermark-whitelist:manage');
-    return this.adminService.getWatermarkWhitelist({
-      page: query.page ? parseInt(query.page) : 1,
-      pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
-      search: query.search,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getWatermarkWhitelist({
+        page: query.page ? parseInt(query.page) : 1,
+        pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
+        search: query.search,
+      }),
+    );
   }
 
   @Post('watermark-whitelist/:userId')
@@ -810,16 +1019,19 @@ export class AdminController {
       search?: string;
       sortBy?: 'amount' | 'registeredAt' | 'paidAt';
       sortOrder?: 'asc' | 'desc';
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req, 'paid-users:view');
-    return this.adminService.getPaidUsers({
-      page: query.page ? parseInt(query.page) : 1,
-      pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
-      search: query.search,
-      sortBy: query.sortBy,
-      sortOrder: query.sortOrder,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getPaidUsers({
+        page: query.page ? parseInt(query.page) : 1,
+        pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
+        search: query.search,
+        sortBy: query.sortBy,
+        sortOrder: query.sortOrder,
+      }),
+    );
   }
 
   @Get('credit-change-records')
@@ -829,15 +1041,17 @@ export class AdminController {
     @Query() query: CreditChangeRecordsQueryDto,
   ) {
     this.checkAdmin(req);
-    return this.adminService.getCreditChangeRecords({
-      page: query.page,
-      pageSize: query.pageSize,
-      search: query.search,
-      userId: query.userId,
-      source: query.source,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getCreditChangeRecords({
+        page: query.page,
+        pageSize: query.pageSize,
+        search: query.search,
+        userId: query.userId,
+        source: query.source,
+        startDate: query.startDate ? new Date(query.startDate) : undefined,
+        endDate: query.endDate ? new Date(query.endDate) : undefined,
+      }),
+    );
   }
 
   @Get('credit-anomalies')
@@ -847,15 +1061,17 @@ export class AdminController {
     @Query() query: CreditAnomalyRecordsQueryDto,
   ) {
     this.checkAdmin(req);
-    return this.creditsAnomalyService.getCreditAnomalyRecords({
-      page: query.page,
-      pageSize: query.pageSize,
-      search: query.search,
-      userId: query.userId,
-      severity: query.severity,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.creditsAnomalyService.getCreditAnomalyRecords({
+        page: query.page,
+        pageSize: query.pageSize,
+        search: query.search,
+        userId: query.userId,
+        severity: query.severity,
+        startDate: query.startDate ? new Date(query.startDate) : undefined,
+        endDate: query.endDate ? new Date(query.endDate) : undefined,
+      }),
+    );
   }
 
   // ==================== 节点配置管理 ====================
@@ -942,20 +1158,23 @@ export class AdminController {
       billingCycle?: string;
       startDate?: string;
       endDate?: string;
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req);
-    return this.adminService.getOrders({
-      page: query.page ? parseInt(query.page) : 1,
-      pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
-      search: query.search,
-      status: query.status,
-      paymentMethod: query.paymentMethod,
-      orderType: query.orderType,
-      billingCycle: query.billingCycle,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
-    });
+    return this.runTenantScoped(req, query.tenantId, () =>
+      this.adminService.getOrders({
+        page: query.page ? parseInt(query.page) : 1,
+        pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
+        search: query.search,
+        status: query.status,
+        paymentMethod: query.paymentMethod,
+        orderType: query.orderType,
+        billingCycle: query.billingCycle,
+        startDate: query.startDate ? new Date(query.startDate) : undefined,
+        endDate: query.endDate ? new Date(query.endDate) : undefined,
+      }),
+    );
   }
 
   @Get('volc-review/groups')
