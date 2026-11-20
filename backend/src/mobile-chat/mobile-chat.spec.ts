@@ -77,7 +77,13 @@ const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: any) 
   assert.deepEqual(auto.referenceImageUrls, ['https://oss.example/car.jpeg']);
   const noVideoArg = toProductionRequest(MOBILE_TOOL_REMAKE, {}, turnUrls, turn);
   assert.equal(noVideoArg.referenceVideoUrl, 'https://oss.example/src.mov', 'single video attachment used when the model omits it');
-  const dedup = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', referenceImageUrls: ['https://oss.example/car.jpeg'] }, turnUrls, turn);
+  // 线上 2026-11-20：模型把参考视频 .mp4 同时塞进 referenceImageUrls，导致上游 canvas-source 当图片解析卡死 30 分钟。
+  const polluted = toProductionRequest(MOBILE_TOOL_REMAKE, {
+    referenceVideoUrl: 'https://oss.example/src.mov',
+    referenceImageUrls: ['https://oss.example/src.mov', 'https://oss.example/car.jpeg'],
+  }, turnUrls, turn);
+  assert.deepEqual(polluted.referenceImageUrls, ['https://oss.example/car.jpeg'], 'video URL stripped from referenceImageUrls');
+  const dedup = toProductionRequest(MOBILE_TOOL_FILM, { story: 's', referenceImageUrls: ['https://oss.example/car.jpeg', 'https://oss.example/src.mov'] }, turnUrls, turn);
   assert.deepEqual(dedup.referenceImageUrls, ['https://oss.example/car.jpeg']);
 
   // 生图

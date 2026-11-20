@@ -77,6 +77,21 @@ const run = (): void => {
   for (const url of ['data:image/png;base64,AAAA', 'blob:https://x/1', 'iVBORw0KGgo']) {
     assert.throws(() => parsePlanInput({ ...base, text: 'x', assets: [{ type: 'image', url }] }), /地址/);
   }
+  // 2026-11-20 线上：.mp4 被误当 type=image 送进 TapCanvas 导致 canvas-source 卡死 30 分钟，直接 fail-fast 拒绝。
+  assert.throws(() => parsePlanInput({
+    ...base, mode: 'remake',
+    assets: [
+      { type: 'image', url: 'https://oss.example.com/v.mp4' },
+      { type: 'video', url: 'https://oss.example.com/v.mp4' },
+    ],
+  }), /不能是视频地址/);
+  assert.throws(() => parsePlanInput({
+    ...base, mode: 'remake',
+    assets: [
+      { type: 'image', url: 'https://oss.example.com/media/clip-without-ext' },
+      { type: 'video', url: 'https://oss.example.com/media/clip-without-ext' },
+    ],
+  }), /不能是视频地址/);
   assert.throws(() => parsePlanInput({ ...base, text: '' }), /原文/);
   assert.throws(() => parsePlanInput({ ...base, text: 'x', clientRequestId: undefined }), /clientRequestId/);
   assert.throws(() => parsePlanInput({ ...base, text: 'x', reasoningEffort: 'turbo' }), /reasoningEffort/);

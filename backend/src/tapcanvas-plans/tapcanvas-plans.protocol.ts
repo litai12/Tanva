@@ -64,6 +64,18 @@ const optionalId = (value: unknown, name: string): string | undefined => {
   return value;
 };
 
+const VIDEO_EXT_RE = /\.(?:mp4|mov|webm|m4v|avi|mkv|flv|wmv|3gp|ts|mpeg|mpg)$/i;
+
+/** 判断 URL 路径是否指向常见视频文件（用于防止视频被误当成参考图传给规划，导致上游 canvas-source 卡死）。 */
+export function isVideoAssetUrl(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  try {
+    return VIDEO_EXT_RE.test(new URL(value.trim()).pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** 只接受已托管的远程 http(s) 地址；data:/blob:/裸 base64 一律拒绝。 */
 export function remoteUrl(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.length > 4096) throw new BadRequestException(`${name} 必须是远程地址`);
@@ -85,6 +97,12 @@ export function parsePlanInput(raw: any): PlanInput {
     if (asset?.type === 'image') return { type: 'image', imageType: asset.imageType === 'style' ? 'style' : 'normal', url: remoteUrl(asset.url, `参考图 ${index + 1}`) };
     throw new BadRequestException(`素材 ${index + 1} 类型无效`);
   });
+  const videoUrls = new Set(assets.filter(a => a.type === 'video').map(a => a.url));
+  for (const [index, asset] of assets.entries()) {
+    if (asset.type === 'image' && (videoUrls.has(asset.url) || isVideoAssetUrl(asset.url))) {
+      throw new BadRequestException(`参考图 ${index + 1} 不能是视频地址`);
+    }
+  }
   if (assets.filter(a => a.type === 'image').length > MAX_IMAGES) throw new BadRequestException(`参考图最多 ${MAX_IMAGES} 张`);
   const videos = assets.filter(a => a.type === 'video').length;
   if (videos > 1) throw new BadRequestException('参考视频最多 1 个');

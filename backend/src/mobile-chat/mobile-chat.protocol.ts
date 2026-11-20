@@ -3,6 +3,7 @@
 // 模型回传 host_tool 后由 Tanva 后端调用 video-productions 执行，TapCanvas 侧不生成媒体（generationMode 默认 host）。
 import { BadRequestException } from '@nestjs/common';
 import { MOBILE_HOST_NAME } from '../agent/xiaot-host-context';
+import { isVideoAssetUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
 
 export const MOBILE_TOOL_FILM = 'tanva_make_video';
 export const MOBILE_TOOL_REMAKE = 'tanva_remake_video';
@@ -162,23 +163,38 @@ const allowed = (value: unknown, urls: Set<string>, name: string): string => {
 /**
  * 合并参考图：模型给的（须是本会话用户给过的地址）∪ 用户本条消息附带的图片。
  * 2026-11-11 线上：用户附图说“用图中车替换”，模型调用工具时漏传了图，复刻照抄了原片车辆——附件不能依赖模型转述。
+ * 2026-11-20 线上：用户同时附视频与图做复刻，模型把 .mp4 塞进了 referenceImageUrls，上游 canvas-source 当图片解析卡死 30 分钟；
+ * 这里过滤掉本轮视频附件、显式排除的 URL 以及视频后缀地址。
  */
-function mergedImages(args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[], max: number): string[] {
+function mergedImages(
+  args: Record<string, unknown>,
+  userUrls: Set<string>,
+  turn: MobileAttachment[],
+  max: number,
+  excludeUrls?: Set<string>,
+): string[] {
+  const excluded = new Set<string>(excludeUrls ?? []);
+  for (const a of turn) {
+    if (a.type === 'video') excluded.add(a.url);
+  }
+  const isAllowedImage = (url: string) => !excluded.has(url) && !isVideoAssetUrl(url);
   const fromModel = Array.isArray(args.referenceImageUrls)
-    ? args.referenceImageUrls.slice(0, max).map((u, i) => allowed(u, userUrls, `参考图 ${i + 1}`)) : [];
-  return [...new Set([...turn.filter(a => a.type === 'image').map(a => a.url), ...fromModel])].slice(0, max);
+    ? args.referenceImageUrls.slice(0, max).map((u, i) => allowed(u, userUrls, `参考图 ${i + 1}`)).filter(isAllowedImage)
+    : [];
+  const fromTurn = turn.filter(a => a.type === 'image').map(a => a.url).filter(isAllowedImage);
+  return [...new Set([...fromTurn, ...fromModel])].slice(0, max);
 }
 
 /** 把模型的 host_tool 参数转成 /api/video-productions 请求体；URL 必须是用户给过的，本条消息的附件由宿主直接补入。 */
 export function toProductionRequest(name: string, args: Record<string, unknown>, userUrls: Set<string>, turn: MobileAttachment[] = []): Record<string, unknown> {
   const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
   const ratio = typeof args.aspectRatio === 'string' && (MOBILE_RATIOS as readonly string[]).includes(args.aspectRatio) ? args.aspectRatio : undefined;
-  const images = mergedImages(args, userUrls, turn, 12);
   const requirements = str(args.requirements, 20_000);
   // 不指定 videoModel：沿用 TapCanvas 规划给的模型（如 Seedance 2.5），提示词与参考图数量都是按它写的。
   if (name === MOBILE_TOOL_FILM) {
     const story = str(args.story, 200_000);
     if (!story) throw new BadRequestException('一键成片缺少故事内容');
+    const images = mergedImages(args, userUrls, turn, 12);
     const seconds = Number(args.targetSeconds);
     // 导演设计放在创作要求最前面，规划作者按它分幕、定节奏与镜头对比，而不是把原文平铺成一串缓推镜头。
     const direction = str(args.direction, 4_000);
@@ -195,6 +211,7 @@ export function toProductionRequest(name: string, args: Record<string, unknown>,
     const given = httpUrl(args.referenceVideoUrl);
     const video = given && userUrls.has(given) ? given
       : turnVideos.length === 1 ? turnVideos[0].url : allowed(args.referenceVideoUrl, userUrls, '参考视频');
+    const images = mergedImages(args, userUrls, turn, 12, new Set([video]));
     return {
       mode: 'remake', referenceVideoUrl: video, resolution: '720P',
       ...(ratio ? { aspectRatio: ratio } : {}),

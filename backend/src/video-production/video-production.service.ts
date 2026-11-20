@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 import { CreditsService } from '../credits/credits.service';
 import { TapcanvasPlansService } from '../tapcanvas-plans/tapcanvas-plans.service';
-import { KNOWLEDGE_TIERS, REASONING_EFFORTS, REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
+import { isVideoAssetUrl, KNOWLEDGE_TIERS, REASONING_EFFORTS, REMAKE_DEFAULT_REQUIREMENT, remoteUrl } from '../tapcanvas-plans/tapcanvas-plans.protocol';
 import { buildProductionGraph, clampSeedanceDuration, imageWaves, type AssetPlanNode, type GraphClip, type GraphImage, type ProductionGraph } from './plan-graph';
 import { applyImageModel, buildImageCall, buildVideoCall, findImageModel, findVideoModel, IMAGE_MODEL_OPTIONS, nearestVideoRatio, VIDEO_MODEL_OPTIONS, VIDEO_RATIOS, VIDEO_RESOLUTIONS } from './requests';
 
@@ -25,6 +25,8 @@ const TICK_MS = 5_000;
 const LOCK_MS = 15 * 60_000;
 const IMAGE_TIMEOUT_MS = 30 * 60_000;
 const CLIP_TIMEOUT_MS = 60 * 60_000;
+const DEFAULT_PLAN_QUEUE_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_PLAN_TOTAL_TIMEOUT_MS = 45 * 60_000;
 const MAX_ATTEMPTS = 2;
 const MAX_VIDEO_BYTES = Number(process.env.VIDEO_DOWNLOAD_MAX_BYTES || 512 * 1024 * 1024);
 const DEFAULT_FILM_RATIO = '9:16';
@@ -52,7 +54,7 @@ interface JobInput {
   targetSeconds?: number; durationSeconds?: number; requirements?: string; teamId?: string;
 }
 interface JobMeta {
-  input: JobInput; stage: Stage; planTaskId?: string; planAttempts?: number; sourceSeconds?: number;
+  input: JobInput; stage: Stage; planTaskId?: string; planAttempts?: number; planSubmittedAt?: number; sourceSeconds?: number;
   /** 规划总时长偏离用户要求过多时已重新规划过一次（只重规划一次，避免反复扣规划费）。 */
   durationReplanned?: boolean;
   graph?: ProductionGraph; images: Record<string, Step>; clips: Record<string, Step>;
@@ -109,6 +111,17 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     return {
       knowledgeTier: pick('VIDEO_PRODUCTION_FILM_KNOWLEDGE_TIER', KNOWLEDGE_TIERS, 'medium'),
       reasoningEffort: pick('VIDEO_PRODUCTION_FILM_REASONING_EFFORT', REASONING_EFFORTS, 'low'),
+    };
+  }
+
+  private planTimeouts(): { queueTimeoutMs: number; totalTimeoutMs: number } {
+    const readMs = (key: string, fallback: number) => {
+      const n = Number(this.config?.get<string>(key) ?? process.env[key]);
+      return Number.isFinite(n) && n >= 60_000 ? n : fallback;
+    };
+    return {
+      queueTimeoutMs: readMs('VIDEO_PRODUCTION_PLAN_QUEUE_TIMEOUT_MS', DEFAULT_PLAN_QUEUE_TIMEOUT_MS),
+      totalTimeoutMs: readMs('VIDEO_PRODUCTION_PLAN_TIMEOUT_MS', DEFAULT_PLAN_TOTAL_TIMEOUT_MS),
     };
   }
 
@@ -201,7 +214,7 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
     return this.mutate(id, userId, (row, meta) => {
       if (row.status !== 'failed') throw new ConflictException('只有失败的任务可以重试');
       const only: string[] | undefined = Array.isArray(raw?.clipKeys) ? raw.clipKeys.map(String) : undefined;
-      if (!meta.graph) { meta.stage = 'planning'; meta.planTaskId = undefined; meta.planAttempts = (meta.planAttempts ?? 0) + 1; }
+      if (!meta.graph) { meta.stage = 'planning'; meta.planTaskId = undefined; meta.planSubmittedAt = undefined; meta.planAttempts = (meta.planAttempts ?? 0) + 1; }
       else {
         for (const [key, step] of Object.entries(meta.images)) if (step.status === 'failed') Object.assign(step, { status: 'pending', attempts: 0, error: undefined, taskId: undefined });
         for (const [key, step] of Object.entries(meta.clips)) {
@@ -214,11 +227,18 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancel(id: string, userId: string) {
-    return this.mutate(id, userId, (row, meta) => {
+    let planToCancel: string | undefined;
+    const view = await this.mutate(id, userId, (row, meta) => {
       if (['succeeded', 'failed', 'canceled'].includes(row.status)) return { status: row.status, meta };
+      if (meta.stage === 'planning' && meta.planTaskId) planToCancel = meta.planTaskId;
       meta.stage = 'cancelled';
       return { status: 'canceled', meta, error: '已取消（已提交的生成照常按实际结果结算）' };
     });
+    if (planToCancel) {
+      await this.plans.cancel(planToCancel, userId).catch(error =>
+        this.logger.warn(`cancel upstream plan ${planToCancel} failed: ${errMessage(error)}`));
+    }
+    return view;
   }
 
   /**
@@ -278,13 +298,18 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       if (!Array.isArray(value) || value.length > max) fail(`${name} 最多 ${max} 个`);
       return (value as unknown[]).map((v, i) => remoteUrl(v, `${name}[${i}]`));
     };
+    const referenceVideoUrl = raw.referenceVideoUrl ? remoteUrl(raw.referenceVideoUrl, 'referenceVideoUrl') : undefined;
+    const referenceImageUrls = [...new Set(
+      urls(raw.referenceImageUrls, 'referenceImageUrls', kind === 'single' ? 30 : 12)
+        .filter(url => url !== referenceVideoUrl && !isVideoAssetUrl(url)),
+    )];
     const input: JobInput = {
       kind, teamId,
       story: text(raw.story ?? raw.text, 'story', 200_000),
       prompt: text(raw.prompt, 'prompt', 20_000),
       requirements: text(raw.requirements ?? raw.requirement, 'requirements', 20_000),
-      referenceVideoUrl: raw.referenceVideoUrl ? remoteUrl(raw.referenceVideoUrl, 'referenceVideoUrl') : undefined,
-      referenceImageUrls: urls(raw.referenceImageUrls, 'referenceImageUrls', kind === 'single' ? 30 : 12),
+      referenceVideoUrl,
+      referenceImageUrls,
       firstFrameUrl: raw.firstFrameUrl ? remoteUrl(raw.firstFrameUrl, 'firstFrameUrl') : undefined,
     };
     if (raw.planModel !== undefined && raw.planModel !== '') {
@@ -439,11 +464,16 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       const requirement = [input.kind === 'remake' ? (input.requirements || REMAKE_DEFAULT_REQUIREMENT) : input.requirements,
         input.aspectRatio ? `画幅 ${input.aspectRatio}。` : undefined].filter(Boolean).join('\n') || undefined;
       const options = this.plans.options();
+      // 兜底清洗：历史失败任务重试时，过滤掉误混入 referenceImageUrls 的视频 URL，避免上游 canvas-source 卡死。
+      const cleanImageUrls = [...new Set(
+        input.referenceImageUrls.filter(url => url !== input.referenceVideoUrl && !isVideoAssetUrl(url)),
+      )];
+      input.referenceImageUrls = cleanImageUrls;
       const created: any = await this.plans.create(row.userId, {
         mode: input.kind === 'remake' ? 'remake' : 'film',
         text: input.kind === 'film' ? input.story : (input.story || ''),
         requirement,
-        assets: [...input.referenceImageUrls.map(url => ({ type: 'image', imageType: 'normal', url })),
+        assets: [...cleanImageUrls.map(url => ({ type: 'image', imageType: 'normal', url })),
           ...(input.referenceVideoUrl ? [{ type: 'video', url: input.referenceVideoUrl }] : [])],
         modelKey: input.planModel || options.defaultModel,
         // 复刻按原片逐镜头还原，维持原档位；一键成片需要作者做导演取舍。
@@ -453,11 +483,27 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
         clientRequestId: `${row.id}-plan-${meta.planAttempts ?? 0}`,
       }, input.teamId);
       meta.planTaskId = created.id;
+      meta.planSubmittedAt = Date.now();
       return;
     }
     const plan: any = await this.plans.get(meta.planTaskId, row.userId);
     if (plan.status === 'failed' || plan.status === 'canceled') throw new Error(`规划失败：${plan.error || plan.status}`);
-    if (plan.status !== 'succeeded' || !plan.hasResult) return;
+    if (plan.status !== 'succeeded' || !plan.hasResult) {
+      const submittedAt = meta.planSubmittedAt ?? (plan.createdAt ? Date.parse(plan.createdAt) : meta.startedAt);
+      const waitedMs = Number.isFinite(submittedAt) ? Date.now() - submittedAt : 0;
+      const { queueTimeoutMs, totalTimeoutMs } = this.planTimeouts();
+      if ((plan.status === 'queued' || plan.status === 'submitting') && waitedMs > queueTimeoutMs) {
+        await this.plans.cancel(meta.planTaskId, row.userId).catch(error =>
+          this.logger.warn(`cancel queued plan ${meta.planTaskId} failed: ${errMessage(error)}`));
+        throw new Error(`规划服务排队超时（已等待 ${Math.round(waitedMs / 60_000)} 分钟），已自动取消，请稍后重试`);
+      }
+      if (waitedMs > totalTimeoutMs) {
+        await this.plans.cancel(meta.planTaskId, row.userId).catch(error =>
+          this.logger.warn(`cancel timed-out plan ${meta.planTaskId} failed: ${errMessage(error)}`));
+        throw new Error(`规划超时（已运行 ${Math.round(waitedMs / 60_000)} 分钟），已自动取消，请稍后重试`);
+      }
+      return;
+    }
     const { nodes } = await this.plans.result(meta.planTaskId, row.userId);
     const inputs: Record<string, string> = {};
     input.referenceImageUrls.forEach((url, i) => { inputs[`input:${i + 1}`] = url; });
@@ -475,6 +521,7 @@ export class VideoProductionService implements OnModuleInit, OnModuleDestroy {
       if (!meta.durationReplanned) {
         meta.durationReplanned = true;
         meta.planTaskId = undefined;
+        meta.planSubmittedAt = undefined;
         meta.planAttempts = (meta.planAttempts ?? 0) + 1;
         meta.warnings.push(`规划时长 ${planned} 秒与要求的 ${target} 秒相差过大，已重新规划`);
         return;

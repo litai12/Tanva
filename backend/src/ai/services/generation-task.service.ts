@@ -11,6 +11,10 @@ import {
   TaskStatusPayload,
 } from '../../team-collab/types';
 import { GlobalImageHistoryService } from '../../global-image-history/global-image-history.service';
+import { TAPCANVAS_PLAN_TASK_TYPE } from '../../tapcanvas-plans/tapcanvas-plans.protocol';
+
+/** 复用 VideoTask 表但由各自服务管理生命周期与计费结算的任务类型，不得被通用视频孤儿清理器误杀。 */
+const RECONCILE_EXCLUDED_VIDEO_TASK_TYPES = ['video-analysis', TAPCANVAS_PLAN_TASK_TYPE, 'video-production'];
 
 export interface CreateVideoTaskParams {
   taskId: string;
@@ -345,14 +349,14 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
     const imageProcessingCutoff = new Date(now - IMAGE_PROCESSING_STUCK_MS);
     try {
       const { count: vProcessing } = await this.prisma.videoTask.updateMany({
-        where: { status: 'processing', taskType: { not: 'video-analysis' }, updatedAt: { lt: videoProcessingCutoff } },
+        where: { status: 'processing', taskType: { notIn: RECONCILE_EXCLUDED_VIDEO_TASK_TYPES }, updatedAt: { lt: videoProcessingCutoff } },
         data: { status: 'failed', error: STUCK_TASK_ERROR },
       });
       const iProcessing = await this.reconcileStuckImageTasks(
         'processing', imageProcessingCutoff, STUCK_TASK_ERROR, new Date(now),
       );
       const { count: vQueued } = await this.prisma.videoTask.updateMany({
-        where: { status: 'queued', taskType: { not: 'video-analysis' }, updatedAt: { lt: queuedCutoff } },
+        where: { status: 'queued', taskType: { notIn: RECONCILE_EXCLUDED_VIDEO_TASK_TYPES }, updatedAt: { lt: queuedCutoff } },
         data: { status: 'failed', error: ORPHANED_QUEUED_TASK_ERROR },
       });
       const iQueued = await this.reconcileStuckImageTasks(

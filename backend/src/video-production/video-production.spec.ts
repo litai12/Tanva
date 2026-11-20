@@ -71,12 +71,15 @@ async function pipelineRun() {
     { assetKey: 'video:2', title: 'Clip 2', type: 'video', prompt: '湿身', upstreamDependencies: [{ assetKey: 'image:character:甲:wet', role: 'first_frame', title: '' }], parameters: { durationSeconds: 20 } },
   ];
   let planPolls = 0;
+  const cancelledPlans: string[] = [];
   const plans = {
     options: () => ({ enabled: true, authorModels: ['m1', 'm2'], defaultModel: 'm1' }),
     create: async (_u: string, body: any) => { plans.lastBody = body; plans.bodies = [...(plans.bodies ?? []), body]; return { id: 'plan-1' }; },
     get: async () => ({ status: ++planPolls >= 2 ? 'succeeded' : 'running', hasResult: planPolls >= 2 }),
     result: async () => ({ id: 'plan-1', nodes: plan }),
+    cancel: async (id: string) => { cancelledPlans.push(id); return { id, status: 'canceled' }; },
     lastBody: null as any,
+    bodies: [] as any[],
   };
   const calls: any[] = [];
   let imageSeq = 0; const imagePolls = new Map<string, number>();
@@ -176,10 +179,41 @@ async function pipelineRun() {
     await (service as any).advancePlanning({ id: 'off', userId }, offMeta);
     assert.deepEqual([offMeta.stage, offMeta.planTaskId, offMeta.planAttempts, offMeta.durationReplanned, offMeta.graph], ['planning', undefined, 1, true, undefined]);
     assert.match(offMeta.warnings[0], /规划时长 21 秒与要求的 60 秒相差过大/);
-    // 复刻按原片逐镜头还原：规划档位保持不变。
-    const remakeMeta: any = { input: { kind: 'remake', referenceVideoUrl: 'https://in/v.mp4', referenceImageUrls: [], aspectRatio: '9:16' }, sourceSeconds: 12, stage: 'planning', images: {}, clips: {}, warnings: [] };
+    // 复刻按原片逐镜头还原：规划档位保持不变；且自动洗掉误混入 referenceImageUrls 的视频地址（含历史失败任务重试）。
+    const remakeMeta: any = {
+      input: {
+        kind: 'remake',
+        referenceVideoUrl: 'https://in/v.mp4',
+        referenceImageUrls: ['https://in/v.mp4', 'https://in/other.mov', 'https://in/ref.png'],
+        aspectRatio: '9:16',
+      },
+      sourceSeconds: 12, stage: 'planning', images: {}, clips: {}, warnings: [],
+    };
     await (service as any).advancePlanning({ id: 'rm', userId }, remakeMeta);
     assert.equal(plans.lastBody.reasoningEffort, 'none'); assert.ok(!('knowledgeTier' in plans.lastBody));
+    assert.deepEqual(plans.lastBody.assets, [
+      { type: 'image', imageType: 'normal', url: 'https://in/ref.png' },
+      { type: 'video', url: 'https://in/v.mp4' },
+    ], 'video URLs filtered out of image assets');
+
+    // 取消规划中的任务：联动取消上游规划任务，避免上游复活后白跑扣费。
+    const planningJob = await service.create(userId, { mode: 'film', story: 'cancel-me' }, undefined);
+    const planningRow = rows.get(planningJob.jobId);
+    planningRow.metadata.planTaskId = 'plan-to-cancel';
+    assert.equal((await service.cancel(planningJob.jobId, userId)).status, 'canceled');
+    assert.ok(cancelledPlans.includes('plan-to-cancel'), 'cancels upstream plan task');
+
+    // 规划排队超时保护：上游长时间 queued 时主动 cancel 并失败退出，不再干等 2 小时。
+    const origGet = plans.get;
+    plans.get = async () => ({ status: 'queued', hasResult: false });
+    const stuckMeta: any = {
+      input: { kind: 'film', story: 'q', referenceImageUrls: [] },
+      stage: 'planning', planTaskId: 'plan-queued-stuck', planSubmittedAt: Date.now() - 25 * 60_000,
+      images: {}, clips: {}, warnings: [], startedAt: Date.now() - 25 * 60_000,
+    };
+    await assert.rejects((service as any).advancePlanning({ id: 'qstuck', userId }, stuckMeta), /排队超时/);
+    assert.ok(cancelledPlans.includes('plan-queued-stuck'), 'cancels stuck queued upstream plan');
+    plans.get = origGet;
     // 各段尺寸不一致：不能直接拼接，统一编码到 Clip 画幅。
     store.set('/up/odd.mp4', (() => { const f = join(dir, 'odd.mp4'); execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=640x360:d=1:r=30', '-f', 'lavfi', '-i', 'sine=d=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); return readFileSync(f); })());
     const mixedMeta: any = { input: { kind: 'film' }, graph: { clips: [{ key: 'a', resolution: '480P', aspectRatio: '9:16' }, { key: 'b', resolution: '480P', aspectRatio: '9:16' }] },
