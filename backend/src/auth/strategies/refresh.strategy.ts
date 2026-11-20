@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { TenantContextService } from '../../tenancy/tenant-context.service';
 type Request = any;
 
 function cookieExtractor(req: Request, name: string): string | null {
@@ -14,7 +15,10 @@ function cookieExtractor(req: Request, name: string): string | null {
 
 @Injectable()
 export class RefreshJwtStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly tenantContext: TenantContextService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (req: Request) => cookieExtractor(req, 'refresh_token'),
@@ -26,6 +30,11 @@ export class RefreshJwtStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
   }
 
   validate(req: Request, payload: any) {
+    // 跨站 refresh token 防护：与 JwtStrategy 一致，token 租户必须匹配当前 Host 租户
+    const currentTenant = this.tenantContext.getTenantId();
+    if (payload?.tenantId && payload.tenantId !== currentTenant) {
+      return null;
+    }
     const refreshToken =
       (req as any).cookies?.['refresh_token'] ??
       req.headers?.authorization?.replace(/^Bearer\s+/i, '') ??

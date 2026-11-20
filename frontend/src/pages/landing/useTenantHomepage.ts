@@ -24,11 +24,21 @@ function readHomepageCache(): HomepageKind | null {
   }
 }
 
-function readHideLogoCache(): boolean {
+function readHideLogoCache(): boolean | null {
   try {
-    return sessionStorage.getItem(HIDE_LOGO_CACHE_KEY) === '1';
+    const raw = sessionStorage.getItem(HIDE_LOGO_CACHE_KEY);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+    return null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+function applyTenantDocumentTitle(info: TenantSiteInfo) {
+  if (typeof document === 'undefined') return;
+  if (info.hideLogo) {
+    document.title = info.name?.trim() || '工作台';
   }
 }
 
@@ -49,6 +59,7 @@ function fetchSiteInfoOnce(): Promise<TenantSiteInfo> {
         name: typeof data?.name === 'string' ? data.name : null,
       };
       cachedSiteInfo = info;
+      applyTenantDocumentTitle(info);
       try {
         sessionStorage.setItem(CACHE_KEY, info.homepage);
         sessionStorage.setItem(HIDE_LOGO_CACHE_KEY, info.hideLogo ? '1' : '0');
@@ -93,11 +104,14 @@ export function useTenantHomepage(): HomepageKind | null {
 
 /**
  * 当前租户是否开启「隐藏 Logo」（电脑端与 m 站统一读取，单次请求共享缓存）。
+ * 首次加载尚无缓存时先返回 true，避免开启隐藏 Logo 的分站在首屏 50ms 闪现平台 Logo。
  */
 export function useHideBrandLogo(): boolean {
-  const [hideLogo, setHideLogo] = useState<boolean>(
-    () => cachedSiteInfo?.hideLogo ?? readHideLogoCache(),
-  );
+  const [hideLogo, setHideLogo] = useState<boolean>(() => {
+    if (cachedSiteInfo) return cachedSiteInfo.hideLogo;
+    const cached = readHideLogoCache();
+    return cached ?? true;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +119,9 @@ export function useHideBrandLogo(): boolean {
       .then((info) => {
         if (!cancelled) setHideLogo(info.hideLogo);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setHideLogo(false);
+      });
     return () => {
       cancelled = true;
     };
