@@ -371,7 +371,9 @@ export class AuthService {
   ): Promise<AuthenticatedUserProfile | null> {
     const unionId = this.normalizeWechatUnionId(profile.unionId);
 
-    const byOpenId = await tx.user.findUnique({
+    // User 唯一键已改为 (tenantId, wechatOfficialOpenId / wechatUnionId) 复合唯一，
+    // 这里用 findFirst 由 Prisma 租户扩展自动限定当前 CLS 租户。
+    const byOpenId = await tx.user.findFirst({
       where: { wechatOfficialOpenId: profile.openId },
       select: { id: true, email: true, name: true, phone: true, role: true },
     });
@@ -379,7 +381,7 @@ export class AuthService {
 
     if (!unionId) return null;
 
-    return tx.user.findUnique({
+    return tx.user.findFirst({
       where: { wechatUnionId: unionId },
       select: { id: true, email: true, name: true, phone: true, role: true },
     });
@@ -405,7 +407,7 @@ export class AuthService {
       openId: profile.openId,
     });
 
-    const byOpenId = await tx.user.findUnique({
+    const byOpenId = await tx.user.findFirst({
       where: { wechatOfficialOpenId: profile.openId },
       select: { id: true },
     });
@@ -414,7 +416,7 @@ export class AuthService {
     }
 
     if (unionId) {
-      const byUnionId = await tx.user.findUnique({
+      const byUnionId = await tx.user.findFirst({
         where: { wechatUnionId: unionId },
         select: { id: true },
       });
