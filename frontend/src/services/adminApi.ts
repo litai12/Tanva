@@ -416,8 +416,12 @@ export interface TenantInfo {
   isPlatform: boolean;
   // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页；xingdou = 星斗传媒官网
   homepage: "default" | "newway" | "xingdou";
+  // 是否隐藏平台 Logo（开启后电脑端与 m 站均不展示）
+  hideLogo?: boolean;
   createdAt: string;
   userCount: number;
+  // 分站管理员列表及其积分池余额（主站超管可直接充值）
+  admins?: Array<{ id: string; phone: string; name: string | null; balance: number }>;
   // 是否已配置各档 new-api key（不含明文）
   apiKeys?: { normal: boolean; vip: boolean; svip: boolean };
   // 各支付渠道是否已配置独立商户（否则回落主站）
@@ -495,7 +499,12 @@ export async function createTenant(body: {
 }
 export async function updateTenant(
   id: string,
-  body: { name?: string; status?: "active" | "suspended"; homepage?: "default" | "newway" | "xingdou" },
+  body: {
+    name?: string;
+    status?: "active" | "suspended";
+    homepage?: "default" | "newway" | "xingdou";
+    hideLogo?: boolean;
+  },
 ): Promise<TenantInfo> {
   const response = await request(`/api/admin/tenants/${id}`, {
     method: "PATCH",

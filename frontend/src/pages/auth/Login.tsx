@@ -11,10 +11,12 @@ import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
 import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
 import { publicAssetUrl } from "@/utils/publicAssetUrl";
+import { useHideBrandLogo } from "@/pages/landing/useTenantHomepage";
 import { desktopLoginReturnTo } from "@/services/desktopLoginReturnTo";
 
 export default function LoginPage() {
   const { t } = useTranslation();
+  const hideLogo = useHideBrandLogo();
   const [tab, setTab] = useState<"wechat" | "password" | "sms">("wechat");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -343,12 +345,14 @@ export default function LoginPage() {
       <div className='absolute inset-0 bg-black/50 z-[2]'></div>
 
       <Card className='relative z-10 my-auto w-full max-w-2xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
-        <div className='mb-6 flex items-center justify-center sm:mb-10'>
-          <img
-            src={publicAssetUrl('LogoText.svg')}
-            className='h-7 w-auto brightness-0 invert drop-shadow-lg sm:h-8'
-          />
-        </div>
+        {!hideLogo && (
+          <div className='mb-6 flex items-center justify-center sm:mb-10'>
+            <img
+              src={publicAssetUrl('LogoText.svg')}
+              className='h-7 w-auto brightness-0 invert drop-shadow-lg sm:h-8'
+            />
+          </div>
+        )}
         <div className='flex justify-center'>
           <div className='w-full max-w-xl'>
             <div className='mb-6 grid grid-cols-3 gap-2 text-center text-sm sm:mb-8 sm:flex sm:items-center sm:justify-center sm:gap-6'>

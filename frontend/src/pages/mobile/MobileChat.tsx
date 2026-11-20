@@ -10,6 +10,7 @@ import ImageSetCard from './ImageSetCard';
 import TanvasMark from './TanvasMark';
 import WelcomePrompt from './WelcomePrompt';
 import whiteLogo from '@/assets/tanvas-mark-white.svg';
+import { useHideBrandLogo } from '@/pages/landing/useTenantHomepage';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -259,6 +260,7 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
 
   const empty = !conversationId && messages.length === 0;
   const firstName = (userName || '').trim();
+  const hideLogo = useHideBrandLogo();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -266,9 +268,9 @@ const MobileChat = forwardRef<MobileChatHandle, Props>(function MobileChat({ con
         {empty ? (
           <div className="flex h-full flex-col items-center justify-center px-3 pb-10">
             <div className="flex max-w-full items-center justify-center">
-              <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[50px] w-[50px] shrink-0 select-none" />
+              {!hideLogo && <img src={whiteLogo} alt="Tanvas" draggable={false} className="h-[50px] w-[50px] shrink-0 select-none" />}
               <div className="min-w-0 break-words text-center font-sans text-[24px] font-bold leading-tight tracking-tight text-[#ECEAE6]">
-                嗨，{firstName || '欢迎来到 Tanvas'}
+                嗨，{firstName || (hideLogo ? '欢迎回来' : '欢迎来到 Tanvas')}
               </div>
             </div>
             <div className="mt-3"><WelcomePrompt /></div>

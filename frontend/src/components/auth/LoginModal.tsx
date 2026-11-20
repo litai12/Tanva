@@ -9,6 +9,7 @@ import { authApi, type WechatOfficialLoginSession } from '@/services/authApi';
 import { validateInviteCode } from '@/services/referralApi';
 import { useTranslation } from 'react-i18next';
 import { publicAssetUrl } from '@/utils/publicAssetUrl';
+import { useHideBrandLogo } from '@/pages/landing/useTenantHomepage';
 
 type LoginModalProps = {
   onSuccess?: () => void;
@@ -17,6 +18,7 @@ type LoginModalProps = {
 type LoginTab = 'wechat' | 'password' | 'sms';
 
 export default function LoginModal({ onSuccess }: LoginModalProps) {
+  const hideLogo = useHideBrandLogo();
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState<LoginTab>('wechat');
@@ -300,7 +302,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         {/* 头部 */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
-            <img src={publicAssetUrl('LogoText.svg')} className="h-6 w-auto" alt="Tanva" />
+            {!hideLogo && <img src={publicAssetUrl('LogoText.svg')} className="h-6 w-auto" alt="Tanva" />}
             <span className="text-sm text-slate-500">{t('auth.modal.expiredTitle')}</span>
           </div>
           <button

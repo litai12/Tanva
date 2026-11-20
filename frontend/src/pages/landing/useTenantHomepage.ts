@@ -2,19 +2,65 @@ import { useEffect, useState } from 'react';
 
 export type HomepageKind = 'default' | 'newway' | 'xingdou';
 
+export interface TenantSiteInfo {
+  homepage: HomepageKind;
+  hideLogo: boolean;
+  name: string | null;
+}
+
 const CACHE_KEY = 'tenant-homepage';
+const HIDE_LOGO_CACHE_KEY = 'tenant-hide-logo';
 const KNOWN_KINDS: HomepageKind[] = ['default', 'newway', 'xingdou'];
 
 function normalizeKind(value: unknown): HomepageKind | null {
   return KNOWN_KINDS.includes(value as HomepageKind) ? (value as HomepageKind) : null;
 }
 
-function readCache(): HomepageKind | null {
+function readHomepageCache(): HomepageKind | null {
   try {
     return normalizeKind(sessionStorage.getItem(CACHE_KEY));
   } catch {
     return null;
   }
+}
+
+function readHideLogoCache(): boolean {
+  try {
+    return sessionStorage.getItem(HIDE_LOGO_CACHE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+let cachedSiteInfo: TenantSiteInfo | null = null;
+let inflightSiteInfo: Promise<TenantSiteInfo> | null = null;
+
+function fetchSiteInfoOnce(): Promise<TenantSiteInfo> {
+  if (cachedSiteInfo) return Promise.resolve(cachedSiteInfo);
+  if (inflightSiteInfo) return inflightSiteInfo;
+  // VITE_API_BASE_URL=/（多租户同源部署）时必须去尾斜杠，否则拼出 //api/... 被当成协议相对 URL（主机名变成 "api"）
+  const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000').replace(/\/+$/, '');
+  inflightSiteInfo = fetch(`${API_BASE}/api/settings/site-info`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('site-info unavailable'))))
+    .then((data) => {
+      const info: TenantSiteInfo = {
+        homepage: normalizeKind(data?.homepage) ?? 'default',
+        hideLogo: Boolean(data?.hideLogo),
+        name: typeof data?.name === 'string' ? data.name : null,
+      };
+      cachedSiteInfo = info;
+      try {
+        sessionStorage.setItem(CACHE_KEY, info.homepage);
+        sessionStorage.setItem(HIDE_LOGO_CACHE_KEY, info.hideLogo ? '1' : '0');
+      } catch {
+        /* 隐私模式等场景忽略 */
+      }
+      return info;
+    })
+    .finally(() => {
+      inflightSiteInfo = null;
+    });
+  return inflightSiteInfo;
 }
 
 /**
@@ -24,26 +70,17 @@ function readCache(): HomepageKind | null {
  * 返回 null 表示尚未确定（首次加载且无缓存），调用方应暂不渲染避免闪屏。
  */
 export function useTenantHomepage(): HomepageKind | null {
-  const [homepage, setHomepage] = useState<HomepageKind | null>(readCache);
+  const [homepage, setHomepage] = useState<HomepageKind | null>(
+    () => cachedSiteInfo?.homepage ?? readHomepageCache(),
+  );
 
   useEffect(() => {
     let cancelled = false;
-    // VITE_API_BASE_URL=/（多租户同源部署）时必须去尾斜杠，否则拼出 //api/... 被当成协议相对 URL（主机名变成 "api"）
-    const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000').replace(/\/+$/, '');
-    fetch(`${API_BASE}/api/settings/site-info`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('site-info unavailable'))))
-      .then((data) => {
-        if (cancelled) return;
-        const kind: HomepageKind = normalizeKind(data?.homepage) ?? 'default';
-        try {
-          sessionStorage.setItem(CACHE_KEY, kind);
-        } catch {
-          /* 隐私模式等场景忽略 */
-        }
-        setHomepage(kind);
+    fetchSiteInfoOnce()
+      .then((info) => {
+        if (!cancelled) setHomepage(info.homepage);
       })
       .catch(() => {
-        // 拉取失败：有缓存用缓存，否则回落默认首页
         if (!cancelled) setHomepage((prev) => prev ?? 'default');
       });
     return () => {
@@ -52,4 +89,27 @@ export function useTenantHomepage(): HomepageKind | null {
   }, []);
 
   return homepage;
+}
+
+/**
+ * 当前租户是否开启「隐藏 Logo」（电脑端与 m 站统一读取，单次请求共享缓存）。
+ */
+export function useHideBrandLogo(): boolean {
+  const [hideLogo, setHideLogo] = useState<boolean>(
+    () => cachedSiteInfo?.hideLogo ?? readHideLogoCache(),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSiteInfoOnce()
+      .then((info) => {
+        if (!cancelled) setHideLogo(info.hideLogo);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return hideLogo;
 }

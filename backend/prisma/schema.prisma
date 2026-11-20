@@ -1095,6 +1095,8 @@ model Tenant {
   isPlatform Boolean        @default(false)
   // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页
   homepage   String         @default("default")
+  // 是否隐藏平台 Logo（开启后电脑端与 m 站均不展示我们的 Logo）
+  hideLogo   Boolean        @default(false)
   // 子租户独立 new-api 三组 key（空则回落平台 env key）。MVP 明文存储。
   newApiKey     String?
   newApiKeyVip  String?

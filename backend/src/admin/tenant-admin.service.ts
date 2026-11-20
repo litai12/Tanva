@@ -33,15 +33,41 @@ export class TenantAdminService {
       orderBy: [{ isPlatform: 'desc' }, { createdAt: 'asc' }],
       include: { domains: { orderBy: { isPrimary: 'desc' } } },
     });
-    // 各租户用户数：必须平台态聚合，否则被租户扩展注入当前 CLS 租户 → 其他租户数为 0
-    const grouped: Array<{ tenantId: string; _count: { _all: number } }> =
-      await this.tenantContext.runAsPlatform(() =>
+    // 各租户用户数 & 分站管理员积分池：必须平台态聚合，否则被租户扩展注入当前 CLS 租户
+    const [grouped, subAdmins]: [
+      Array<{ tenantId: string; _count: { _all: number } }>,
+      Array<{ id: string; tenantId: string; phone: string; name: string | null; creditAccount: { balance: number } | null }>,
+    ] = await this.tenantContext.runAsPlatform(() =>
+      Promise.all([
         (this.prisma as any).user.groupBy({
           by: ['tenantId'],
           _count: { _all: true },
         }),
-      );
+        (this.prisma as any).user.findMany({
+          where: { tenantId: { not: PLATFORM_TENANT_ID }, role: 'admin' },
+          select: {
+            id: true,
+            tenantId: true,
+            phone: true,
+            name: true,
+            creditAccount: { select: { balance: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        }),
+      ]),
+    );
     const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));
+    const adminsMap = new Map<string, Array<{ id: string; phone: string; name: string | null; balance: number }>>();
+    for (const a of subAdmins) {
+      const list = adminsMap.get(a.tenantId) ?? [];
+      list.push({
+        id: a.id,
+        phone: a.phone,
+        name: a.name ?? null,
+        balance: a.creditAccount?.balance ?? 0,
+      });
+      adminsMap.set(a.tenantId, list);
+    }
     return tenants.map((t: any) => ({
       id: t.id,
       slug: t.slug,
@@ -49,8 +75,10 @@ export class TenantAdminService {
       status: t.status,
       isPlatform: t.isPlatform,
       homepage: t.homepage ?? 'default',
+      hideLogo: Boolean(t.hideLogo),
       createdAt: t.createdAt,
       userCount: countMap.get(t.id) ?? 0,
+      admins: t.isPlatform ? [] : (adminsMap.get(t.id) ?? []),
       // 仅返回是否已配置（布尔），不泄露明文 key
       apiKeys: {
         normal: Boolean(t.newApiKey),
@@ -202,6 +230,7 @@ export class TenantAdminService {
         ...(dto.name ? { name: dto.name } : {}),
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.homepage ? { homepage: dto.homepage } : {}),
+        ...(typeof dto.hideLogo === 'boolean' ? { hideLogo: dto.hideLogo } : {}),
       },
     });
     return this.getTenant(id);

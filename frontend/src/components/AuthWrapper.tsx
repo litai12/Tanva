@@ -3,12 +3,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { AppLoader } from '@/components/AppLoader';
 import { useTranslation } from 'react-i18next';
 import { publicAssetUrl } from '@/utils/publicAssetUrl';
+import { useHideBrandLogo } from '@/pages/landing/useTenantHomepage';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
 }
 
 export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
+  const hideLogo = useHideBrandLogo();
   const { user, initializing, error } = useAuthStore();
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
@@ -24,11 +26,13 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     return (
       <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white">
         <div className="text-center">
-          <img
-            src={publicAssetUrl('LogoText.svg')}
-            className="h-8 w-auto mx-auto mb-6"
-            alt="Tanva"
-          />
+          {!hideLogo && (
+            <img
+              src={publicAssetUrl('LogoText.svg')}
+              className="h-8 w-auto mx-auto mb-6"
+              alt="Tanva"
+            />
+          )}
           <p className="text-red-500 mb-4">{error}</p>
           <button
             onClick={() => window.location.reload()}

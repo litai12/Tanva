@@ -9,6 +9,7 @@ import {
   setTenantApiKeys,
   getTenantPaymentConfig,
   setTenantPaymentConfig,
+  addCredits,
   type TenantInfo,
   type TenantStat,
   type TenantPaymentConfig,
@@ -43,6 +44,15 @@ const EMPTY_PAY_FORM: PayForm = {
 export default function TenantManagement() {
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [stats, setStats] = useState<TenantStat[]>([]);
+  const [rechargeModal, setRechargeModal] = useState<{
+    tenantName: string;
+    adminId: string;
+    adminLabel: string;
+    balance: number;
+  } | null>(null);
+  const [rechargeAmount, setRechargeAmount] = useState("");
+  const [rechargeReason, setRechargeReason] = useState("主站充值代理商积分池");
+  const [recharging, setRecharging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -121,6 +131,40 @@ export default function TenantManagement() {
       await load();
     } catch (e: any) {
       setErr(e?.message || "更新首页模板失败");
+    }
+  };
+
+  const handleToggleHideLogo = async (t: TenantInfo) => {
+    try {
+      await updateTenant(t.id, { hideLogo: !t.hideLogo });
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || "更新隐藏 Logo 设置失败");
+    }
+  };
+
+  const handleRechargeAdminPool = async () => {
+    if (!rechargeModal) return;
+    const amount = Number(rechargeAmount);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setErr("请输入大于 0 的整数积分");
+      return;
+    }
+    setRecharging(true);
+    setErr(null);
+    try {
+      await addCredits(
+        rechargeModal.adminId,
+        amount,
+        rechargeReason.trim() || "主站充值代理商积分池",
+      );
+      setRechargeModal(null);
+      setRechargeAmount("");
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || "充值失败");
+    } finally {
+      setRecharging(false);
     }
   };
 
@@ -401,26 +445,94 @@ export default function TenantManagement() {
                 </div>
               </div>
 
-              {/* 首页模板：域名首页展示哪个页面（宣发官网 / 平台默认） */}
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-500">首页</span>
-                <select
-                  className="rounded-md border px-2 py-1 text-xs"
-                  value={t.homepage ?? "default"}
-                  onChange={(e) =>
-                    void handleHomepageChange(t, e.target.value as "default" | "newway" | "xingdou")
-                  }
-                >
-                  <option value="default">平台默认首页</option>
-                  <option value="newway">NewWay 官网（宣发页）</option>
-                  <option value="xingdou">星斗传媒官网（着陆页+工作台）</option>
-                </select>
-                {t.homepage !== "default" && (
-                  <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-xs text-cyan-700">
-                    官网已启用
-                  </span>
-                )}
+              {/* 首页模板 & 隐藏 Logo */}
+              <div className="mt-3 flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">首页</span>
+                  <select
+                    className="rounded-md border px-2 py-1 text-xs"
+                    value={t.homepage ?? "default"}
+                    onChange={(e) =>
+                      void handleHomepageChange(t, e.target.value as "default" | "newway" | "xingdou")
+                    }
+                  >
+                    <option value="default">平台默认首页</option>
+                    <option value="newway">NewWay 官网（宣发页）</option>
+                    <option value="xingdou">星斗传媒官网（着陆页+工作台）</option>
+                  </select>
+                  {t.homepage !== "default" && (
+                    <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-xs text-cyan-700">
+                      官网已启用
+                    </span>
+                  )}
+                </div>
+
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-gray-600 select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-600"
+                    checked={Boolean(t.hideLogo)}
+                    onChange={() => void handleToggleHideLogo(t)}
+                  />
+                  <span>隐藏 Logo（电脑端与 m 站不展示）</span>
+                  {t.hideLogo && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">
+                      已隐藏
+                    </span>
+                  )}
+                </label>
               </div>
+
+              {/* 分站代理商积分池（主站超管一键给分站管理员充值） */}
+              {!t.isPlatform && (
+                <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-gray-700">代理商积分池</span>
+                    <span className="text-[11px] text-gray-400">
+                      充值到分站管理员账号后，由其在分站后台分配给名下客户
+                    </span>
+                  </div>
+                  {t.admins && t.admins.length > 0 ? (
+                    <div className="mt-2 space-y-1.5">
+                      {t.admins.map((admin) => (
+                        <div
+                          key={admin.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs border border-gray-100"
+                        >
+                          <div className="flex items-center gap-2 text-gray-700">
+                            <span className="font-medium">{admin.name || "分站管理员"}</span>
+                            <span className="font-mono text-gray-500">{admin.phone}</span>
+                            <span className="rounded bg-blue-100 px-1.5 py-0.5 font-mono text-blue-700">
+                              余额 {admin.balance} 积分
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setErr(null);
+                              setRechargeAmount("");
+                              setRechargeReason("主站充值代理商积分池");
+                              setRechargeModal({
+                                tenantName: t.name,
+                                adminId: admin.id,
+                                adminLabel: `${admin.name || "分站管理员"} (${admin.phone})`,
+                                balance: admin.balance,
+                              });
+                            }}
+                            className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                          >
+                            充值积分
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 text-xs text-gray-400">
+                      暂未设置分站管理员（请先在「用户管理」切换至该分站将对应账号设为管理员）
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* new-api 三组 key 配置 */}
               {!t.isPlatform && (
@@ -589,6 +701,61 @@ export default function TenantManagement() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 给分站管理员充值积分池弹窗 */}
+      {rechargeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900">
+              充值代理商积分池 - {rechargeModal.tenantName}
+            </h3>
+            <p className="mt-1 text-xs text-gray-500">
+              管理员：{rechargeModal.adminLabel}（当前余额 {rechargeModal.balance} 积分）
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs text-gray-600">充值积分数量</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  className="w-full rounded-md border px-3 py-1.5 text-sm"
+                  placeholder="例如：10000"
+                  value={rechargeAmount}
+                  onChange={(e) => setRechargeAmount(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-gray-600">备注原因</label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-1.5 text-sm"
+                  value={rechargeReason}
+                  onChange={(e) => setRechargeReason(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRechargeModal(null)}
+                disabled={recharging}
+                className="rounded-md border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRechargeAdminPool()}
+                disabled={recharging}
+                className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {recharging ? "充值中…" : "确认充值"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

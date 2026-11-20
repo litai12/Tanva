@@ -21,12 +21,13 @@ export class SettingsPublicController {
     const tenantId = this.tenantContext.getTenantId();
     const tenant = await (this.prisma as any).tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, homepage: true },
+      select: { id: true, name: true, homepage: true, hideLogo: true },
     });
     return {
       tenantId,
       name: tenant?.name ?? null,
       homepage: tenant?.homepage ?? 'default',
+      hideLogo: Boolean(tenant?.hideLogo),
     };
   }
 

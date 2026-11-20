@@ -30,6 +30,11 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsIn(['default', 'newway', 'xingdou'])
   homepage?: 'default' | 'newway' | 'xingdou';
+
+  // 是否隐藏平台 Logo（电脑端与 m 站均生效）
+  @IsOptional()
+  @IsBoolean()
+  hideLogo?: boolean;
 }
 
 export class AddDomainDto {

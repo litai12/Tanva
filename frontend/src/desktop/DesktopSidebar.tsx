@@ -29,6 +29,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useTeamStore } from '@/stores/teamStore';
 import { getMyCredits } from '@/services/adminApi';
 import { publicAssetUrl } from '@/utils/publicAssetUrl';
+import { useHideBrandLogo } from '@/pages/landing/useTenantHomepage';
 import { useDesktopPlugins } from './plugins/registry';
 import { useDesktopSurfaceStore } from './plugins/surfaceState';
 import {
@@ -54,6 +55,7 @@ const isToday = (value: Date): boolean => {
 };
 
 export default function DesktopSidebar() {
+  const hideLogo = useHideBrandLogo();
   const sessions = useAIChatStore((state) => state.sessions);
   const currentSessionId = useAIChatStore((state) => state.currentSessionId);
   const createSession = useAIChatStore((state) => state.createSession);
@@ -621,7 +623,7 @@ export default function DesktopSidebar() {
       />
       <div className="h-8 flex-none" style={dragStyle} />
       <div className="flex items-center gap-2 px-4 pb-3" style={dragStyle}>
-        <img src={publicAssetUrl('LogoText.svg')} alt="Tanva" className="h-6 w-auto" />
+        {!hideLogo && <img src={publicAssetUrl('LogoText.svg')} alt="Tanva" className="h-6 w-auto" />}
         <button
           type="button"
           onClick={toggleSidebar}

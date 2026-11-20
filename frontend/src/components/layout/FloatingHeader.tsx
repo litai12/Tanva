@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { publicAssetUrl } from "@/utils/publicAssetUrl";
+import { useHideBrandLogo } from "@/pages/landing/useTenantHomepage";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -229,6 +230,7 @@ const hasAdminPanelRole = (role?: string | null): boolean => {
 };
 
 const FloatingHeader: React.FC = () => {
+  const hideLogo = useHideBrandLogo();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const untitledProjectLabel = t("workspacePage.prompt.defaultName", {
@@ -2573,22 +2575,24 @@ const FloatingHeader: React.FC = () => {
         {/* 左侧栏：Logo + Beta + 项目名称 */}
         <div className='tanva-header-card tanva-header-card-left flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto'>
           {/* Logo */}
-          <div
-            className='tanva-brand-logo-wrap flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
-            onClick={handleLogoClick}
-            title={t("workspace.header.backHome")}
-          >
-            <img
-              src={publicAssetUrl(chatTheme === "black" ? "tanvas_ai.png" : "LogoText.svg")}
-              className='tanva-brand-logo-img'
-              alt='Logo'
-              draggable='false'
-              style={{
-                imageRendering: "auto",
-                WebkitFontSmoothing: "antialiased",
-              }}
-            />
-          </div>
+          {!hideLogo && (
+            <div
+              className='tanva-brand-logo-wrap flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
+              onClick={handleLogoClick}
+              title={t("workspace.header.backHome")}
+            >
+              <img
+                src={publicAssetUrl(chatTheme === "black" ? "tanvas_ai.png" : "LogoText.svg")}
+                className='tanva-brand-logo-img'
+                alt='Logo'
+                draggable='false'
+                style={{
+                  imageRendering: "auto",
+                  WebkitFontSmoothing: "antialiased",
+                }}
+              />
+            </div>
+          )}
           {/* 分隔线 */}
           <div className='tanva-header-divider w-px h-5 bg-gray-300/40' />
 

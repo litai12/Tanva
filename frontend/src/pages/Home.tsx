@@ -10,6 +10,7 @@ import { TeamSwitcher } from "@/components/team/TeamSwitcher";
 import CampaignNoticeBar from "@/components/layout/CampaignNoticeBar";
 import { isCampaignNoticeAvailable } from "@/components/layout/campaignNoticeConfig";
 import { publicAssetUrl } from "@/utils/publicAssetUrl";
+import { useHideBrandLogo } from "@/pages/landing/useTenantHomepage";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
@@ -90,6 +91,7 @@ const WeChatFloatingButton = () => {
 
 export default function Home() {
   const { t } = useTranslation();
+  const hideLogo = useHideBrandLogo();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -207,21 +209,23 @@ export default function Home() {
         <div className='flex items-center justify-between gap-4 px-6 md:px-8 py-3 h-[60px] rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto max-w-4xl w-full mx-4'>
           {/* 左侧：Logo */}
           <div className='flex items-center'>
-            <div
-              className='flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
-              onClick={() => navigate("/")}
-            >
-              <img
-                src={publicAssetUrl('LogoText.svg')}
-                alt='Tanvas'
-                draggable='false'
-                className='brightness-0 invert'
-                style={{
-                  imageRendering: "auto",
-                  WebkitFontSmoothing: "antialiased",
-                }}
-              />
-            </div>
+            {!hideLogo && (
+              <div
+                className='flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
+                onClick={() => navigate("/")}
+              >
+                <img
+                  src={publicAssetUrl('LogoText.svg')}
+                  alt='Tanvas'
+                  draggable='false'
+                  className='brightness-0 invert'
+                  style={{
+                    imageRendering: "auto",
+                    WebkitFontSmoothing: "antialiased",
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同的 connection 状态） */}
@@ -340,18 +344,20 @@ export default function Home() {
           </video>
 
           <div className='text-center relative z-10'>
-            <h1 className='mb-10'>
-              <img
-                src={publicAssetUrl('TanvasText.png')}
-                alt={t("home.hero.logoAlt")}
-                draggable='false'
-                className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
-                style={{
-                  imageRendering: "auto",
-                  WebkitFontSmoothing: "antialiased",
-                }}
-              />
-            </h1>
+            {!hideLogo && (
+              <h1 className='mb-10'>
+                <img
+                  src={publicAssetUrl('TanvasText.png')}
+                  alt={t("home.hero.logoAlt")}
+                  draggable='false'
+                  className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
+                  style={{
+                    imageRendering: "auto",
+                    WebkitFontSmoothing: "antialiased",
+                  }}
+                />
+              </h1>
+            )}
             <p className='text-xl text-slate-200 mb-12 drop-shadow-md'>
               {t("home.hero.subtitle")}
             </p>
